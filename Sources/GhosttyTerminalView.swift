@@ -917,6 +917,14 @@ enum GhosttyPasteboardHelper {
         }
     }
 
+    static func isOwnedTemporaryImageFile(_ fileURL: URL) -> Bool {
+        let normalizedPath = fileURL.standardizedFileURL.path
+        temporaryImageOwnershipLock.lock()
+        let isOwned = ownedTemporaryImagePaths.contains(normalizedPath)
+        temporaryImageOwnershipLock.unlock()
+        return isOwned
+    }
+
     private static func registerOwnedTemporaryImageFile(_ fileURL: URL) {
         let normalizedPath = fileURL.standardizedFileURL.path
         temporaryImageOwnershipLock.lock()
@@ -931,6 +939,12 @@ enum GhosttyPasteboardHelper {
         temporaryImageOwnershipLock.unlock()
         return didOwnFile
     }
+
+#if DEBUG
+    static func debugRegisterOwnedTemporaryImageFile(_ fileURL: URL) {
+        registerOwnedTemporaryImageFile(fileURL)
+    }
+#endif
 }
 
 #if DEBUG
@@ -2054,6 +2068,9 @@ class GhosttyApp {
                   let surface = callbackContext.runtimeSurface else { return }
 
             ghostty_surface_complete_clipboard_request(surface, content, state, true)
+            DispatchQueue.main.async {
+                callbackContext.terminalSurface?.noteClipboardReadCompleted()
+            }
         }
         runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
             // Write clipboard
@@ -4476,12 +4493,13 @@ final class GhosttyMetalLayer: CAMetalLayer {
     }
 
     override func nextDrawable() -> CAMetalDrawable? {
+        guard let drawable = super.nextDrawable() else { return nil }
         lock.lock()
         drawableCount += 1
         lastDrawableTime = CACurrentMediaTime()
         lock.unlock()
         surfaceView?.enqueueRenderedFrameUpdate()
-        return super.nextDrawable()
+        return drawable
     }
 }
 
@@ -6008,13 +6026,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     func sendKeyText(_ text: String) {
         guard !text.isEmpty else { return }
-        guard surface != nil else {
-            guard allowsRuntimeSurfaceCreation() else { return }
-            if enqueuePendingSocketInput(.inputText(text)) {
-                requestBackgroundSurfaceStartIfNeeded()
-            }
-            return
-        }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
             return
         }

@@ -11622,7 +11622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let textBoxShortcutTabManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if let escapeWindow,
                isMainTerminalWindow(escapeWindow) {
-                if textBoxShortcutTabManager?.consumeFocusedTerminalTextBoxHideEscapeIfArmed() == true {
+                if textBoxShortcutTabManager?.consumeFocusedTerminalTextBoxHideEscapeIfArmed(in: escapeWindow) == true {
                     return true
                 }
             } else {

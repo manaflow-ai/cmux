@@ -12,6 +12,48 @@ private final class FakeWKInspectorContainerView: NSView {}
 private final class FocusableTestView: NSView {
     override var acceptsFirstResponder: Bool { true }
 }
+private final class FakeTextBoxSubmitSurface: TextBoxSubmitSurfaceControlling {
+    var clipboardReadGeneration = 0
+    var textBoxSubmitObservationWindow: NSWindow?
+    var textBoxSubmitTerminalSurface: TerminalSurface? { nil }
+    var visibleTextValue: String?
+    private(set) var sentText: [String] = []
+    private(set) var sentKeys: [String] = []
+
+    func visibleText() -> String? {
+        visibleTextValue
+    }
+
+    func sendKeyText(_ text: String) {
+        sentText.append(text)
+    }
+
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
+        sentText.append(text)
+        return true
+    }
+
+    @discardableResult
+    func sendNamedKey(_ keyName: String) -> TerminalSurface.NamedKeySendResult {
+        sentKeys.append(keyName)
+        return .sent
+    }
+
+    @discardableResult
+    func performBindingAction(_ action: String) -> Bool {
+        sentKeys.append(action)
+        return true
+    }
+
+    func completeClipboardRead() {
+        clipboardReadGeneration += 1
+        NotificationCenter.default.post(
+            name: .terminalSurfaceDidCompleteClipboardRead,
+            object: self
+        )
+    }
+}
 private final class MenuActionProbe: NSObject {
     var callCount = 0
     @objc func perform(_ sender: Any?) {
@@ -127,13 +169,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     override func tearDown() {
         #if DEBUG
         KeyboardShortcutSettings.shortcutLookupObserver = nil
+        TextBoxSubmit.debugMaxWaitFollowupTicksOverride = nil
         #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
         AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
-        AppDelegate.shared?.dismissNotificationsPopoverIfShown()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        if AppDelegate.shared?.dismissNotificationsPopoverIfShown() == true {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
         for action in KeyboardShortcutSettings.Action.allCases {
             if actionsWithPersistedShortcut.contains(action),
                let savedShortcut = savedShortcutsByAction[action] {
@@ -834,7 +878,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let firstCount = firstManager.tabs.count
         let secondCount = secondManager.tabs.count
 
-        secondWindow.makeKeyAndOrderFront(nil)
+        secondWindow.makeKey()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         // Force a stale app-level pointer to a different manager.
@@ -1122,7 +1166,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         firstWindow.setFrame(firstFrame, display: true)
         secondWindow.setFrame(secondFrame, display: true)
-        firstWindow.makeKeyAndOrderFront(nil)
+        firstWindow.makeKey()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let eventSourceFrame = secondWindow.frame
@@ -1189,7 +1233,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        secondWindow.makeKeyAndOrderFront(nil)
+        secondWindow.makeKey()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
 #if DEBUG
@@ -1455,7 +1499,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        firstWindow.makeKeyAndOrderFront(nil)
+        firstWindow.makeKey()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let firstSurfaceCount = firstWorkspace.panels.count
@@ -1502,7 +1546,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        window.makeKeyAndOrderFront(nil)
+        window.makeKey()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let initialPanelCount = workspace.panels.count
@@ -2119,14 +2163,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             defer: false
         )
         auxiliaryWindow.isReleasedWhenClosed = false
+        auxiliaryWindow.animationBehavior = .none
         auxiliaryWindow.identifier = NSUserInterfaceItemIdentifier("cmux.about")
         auxiliaryWindow.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(auxiliaryWindow.isVisible, "Expected auxiliary window to be visible before Cmd+W")
 
         defer {
             if auxiliaryWindow.isVisible {
-                auxiliaryWindow.performClose(nil)
-                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+                closeTestWindow(auxiliaryWindow)
             }
         }
 
@@ -4508,7 +4553,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        window.makeKeyAndOrderFront(nil)
+        window.makeKey()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
 #if DEBUG
@@ -5953,6 +5998,142 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(terminalPanel.captureFocusIntent(in: window), .terminal(.surface))
     }
 
+    func testTextBoxSecondEscapeDoesNotHideWhenAnotherResponderOwnsFocus() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = textBoxView
+        let otherView = FocusableTestView(frame: NSRect(x: 0, y: 36, width: 120, height: 24))
+        contentView.addSubview(textBoxScrollView)
+        contentView.addSubview(otherView)
+        defer {
+            textBoxScrollView.removeFromSuperview()
+            otherView.removeFromSuperview()
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.registerTextBoxInputView(textBoxView)
+        XCTAssertTrue(terminalPanel.toggleTextBoxInput())
+        waitFor(
+            timeout: 1.0,
+            until: { window.firstResponder === textBoxView }
+        )
+
+        XCTAssertTrue(window.firstResponder === textBoxView)
+        terminalPanel.handleTextBoxEscape()
+        XCTAssertTrue(terminalPanel.isTextBoxActive)
+        XCTAssertTrue(window.makeFirstResponder(otherView))
+
+        XCTAssertFalse(terminalPanel.consumeTextBoxHideEscapeIfArmed(in: window))
+        XCTAssertTrue(
+            terminalPanel.isTextBoxActive,
+            "Second Escape must not hide TextBox while another main-window control owns focus"
+        )
+    }
+
+    func testTextBoxSecondEscapeHidesWhenTerminalSurfaceOwnsFocus() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = textBoxView
+        contentView.addSubview(textBoxScrollView)
+        defer { textBoxScrollView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        terminalPanel.registerTextBoxInputView(textBoxView)
+        XCTAssertTrue(terminalPanel.toggleTextBoxInput())
+        waitFor(
+            timeout: 1.0,
+            until: { window.firstResponder === textBoxView }
+        )
+
+        terminalPanel.handleTextBoxEscape()
+        waitFor(
+            timeout: 1.0,
+            until: { terminalPanel.hostedView.isSurfaceViewFirstResponder() }
+        )
+
+        XCTAssertTrue(terminalPanel.hostedView.isSurfaceViewFirstResponder())
+        XCTAssertTrue(terminalPanel.consumeTextBoxHideEscapeIfArmed(in: window))
+        XCTAssertFalse(terminalPanel.isTextBoxActive)
+    }
+
+    func testTextBoxFilePanelFocusRestorerRefocusesAfterSheetEnds() {
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 80))
+        let otherView = FocusableTestView(frame: NSRect(x: 0, y: 40, width: 320, height: 40))
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textBoxScrollView.documentView = textView
+        contentView.addSubview(otherView)
+        contentView.addSubview(textBoxScrollView)
+        hostWindow.animationBehavior = .none
+        hostWindow.isReleasedWhenClosed = false
+        hostWindow.contentView = contentView
+        hostWindow.makeKeyAndOrderFront(nil)
+        Self.retainedTextBoxUndoWindows.append(hostWindow)
+        defer { hostWindow.orderOut(nil) }
+
+        XCTAssertTrue(hostWindow.makeFirstResponder(otherView))
+        XCTAssertTrue(hostWindow.firstResponder === otherView)
+
+        let restorer = TextBoxFilePanelFocusRestorer(textView: textView)
+        restorer.install(parentWindow: hostWindow)
+        NotificationCenter.default.post(name: NSWindow.didEndSheetNotification, object: hostWindow)
+
+        XCTAssertTrue(hostWindow.firstResponder === textView)
+
+        XCTAssertTrue(hostWindow.makeFirstResponder(otherView))
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: hostWindow)
+        XCTAssertTrue(hostWindow.firstResponder === otherView)
+    }
+
     func testFocusTextBoxShortcutRoutesToEventWindowWhenActiveManagerIsStale() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -6227,10 +6408,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        hostWindow.animationBehavior = .none
+        hostWindow.isReleasedWhenClosed = false
         hostWindow.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
         hostWindow.contentView?.addSubview(textBoxScrollView)
         hostWindow.makeKeyAndOrderFront(nil)
-        defer { hostWindow.close() }
+        Self.retainedTextBoxUndoWindows.append(hostWindow)
+        defer {
+            textView.onMoveToWindow = { _ in }
+            hostWindow.orderOut(nil)
+        }
         textBoxScrollView.documentView = textView
         XCTAssertTrue(textView.window === hostWindow)
 
@@ -6272,7 +6459,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertTrue(terminalPanel.isTextBoxActive)
         XCTAssertEqual(terminalPanel.textBoxContent, "restore me")
-        XCTAssertEqual(terminalPanel.preferredFocusIntentForActivation(), .terminal(.surface))
+        XCTAssertEqual(terminalPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
 #if DEBUG
         XCTAssertFalse(
             terminalPanel.debugHasPendingTextBoxFocusRequest,
@@ -6566,6 +6753,37 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testTextBoxSubmitClipboardReadWaitStaysPendingUntilCompletionNotification() {
+#if DEBUG
+        let surface = FakeTextBoxSubmitSurface()
+        TextBoxSubmit.debugMaxWaitFollowupTicksOverride = 0
+
+        var completionContext: TextBoxSubmit.CompletionContext?
+        TextBoxSubmit.debugRunDispatchEvents(
+            [
+                .captureClipboardReadBaseline,
+                .waitForClipboardRead,
+                .pasteText("after")
+            ],
+            via: surface
+        ) { context in
+            completionContext = context
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(surface.sentText, [])
+        XCTAssertNil(completionContext)
+
+        surface.completeClipboardRead()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(surface.sentText, ["after"])
+        XCTAssertEqual(completionContext, TextBoxSubmit.CompletionContext.empty)
+#else
+        XCTFail("debugRunDispatchEvents is only available in DEBUG")
+#endif
+    }
+
     func testTextBoxSubmitStressMatrixKeepsClaudeImagesInterspersedWithText() throws {
         let firstURL = try makeTemporaryPNGFile(named: "first.png")
         let secondURL = try makeTemporaryPNGFile(named: "second.png")
@@ -6767,6 +6985,678 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(restoredTextView.submissionText(), textView.submissionText())
     }
 
+    func testTextBoxSessionDraftCopiesOwnedTemporaryImageToDurableStorage() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL)
+        )
+
+        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: durableURL)
+        }
+
+        XCTAssertNotEqual(durableURL.path, temporaryURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+        XCTAssertEqual(snapshot.submissionPath, durableURL.path)
+        XCTAssertEqual(snapshot.submissionText, TextBoxAttachment.submissionText(forLocalFileURL: durableURL))
+        XCTAssertTrue(snapshot.cleanupLocalPathWhenDisposed)
+
+        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+
+        let restoredAttachment = snapshot.textBoxAttachment()
+        XCTAssertEqual(restoredAttachment.localURL?.standardizedFileURL.path, durableURL.path)
+        XCTAssertEqual(restoredAttachment.submissionPath, durableURL.path)
+    }
+
+    func testTextBoxSessionDraftKeepsOwnedTemporaryImageWhenDurableCopyFails() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        try FileManager.default.removeItem(at: temporaryURL)
+        let draft = try XCTUnwrap(
+            TextBoxInputTextView.sessionDraftSnapshot(
+                text: "",
+                attachments: [attachment],
+                isActive: true
+            )
+        )
+        let snapshot = try XCTUnwrap(draft.parts.first?.attachment)
+
+        XCTAssertEqual(draft.parts.count, 1)
+        XCTAssertEqual(snapshot.localPath, temporaryURL.path)
+        XCTAssertEqual(snapshot.submissionPath, temporaryURL.path)
+        XCTAssertEqual(snapshot.submissionText, TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL))
+        XCTAssertTrue(snapshot.cleanupLocalPathWhenDisposed)
+    }
+
+    func testTextBoxSessionDraftPreservesRemoteSubmissionPathWhenCopyingPreviewImage() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let remotePath = "/tmp/cmux-upload/moon.png"
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forPath: remotePath),
+            submissionPath: remotePath,
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: durableURL)
+        }
+
+        XCTAssertNotEqual(durableURL.path, temporaryURL.path)
+        XCTAssertEqual(snapshot.submissionPath, remotePath)
+        XCTAssertEqual(snapshot.submissionText, TextBoxAttachment.submissionText(forPath: remotePath))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+
+        let restoredAttachment = snapshot.textBoxAttachment()
+        XCTAssertEqual(restoredAttachment.localURL?.standardizedFileURL.path, durableURL.path)
+        XCTAssertEqual(restoredAttachment.submissionPath, remotePath)
+        XCTAssertEqual(restoredAttachment.submissionText, TextBoxAttachment.submissionText(forPath: remotePath))
+    }
+
+    func testTextBoxDraftCopyIsRemovedWhenOriginalTemporaryAttachmentIsDisposed() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: durableURL)
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.cleanupDisposableAttachmentFiles([attachment])
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
+    }
+
+    func testTextBoxLocalPathSubmitDropsDraftCopyButKeepsSubmittedFile() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: durableURL)
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+        XCTAssertTrue(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(attachment)],
+                terminalAgentContext: "OpenCode"
+            ).isEmpty
+        )
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.cleanupCopiedDraftFilesForPreservedLocalPathSubmissions([attachment])
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
+    }
+
+    func testTextBoxDraftCopyIsRemovedWhenAttachmentPillIsDeleted() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: durableURL)
+        }
+        let restoredAttachment = snapshot.textBoxAttachment()
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.insertAttachments([restoredAttachment])
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+        _ = textView.debugInteract(action: "close_first_attachment")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
+        XCTAssertTrue(textView.inlineAttachments().isEmpty)
+    }
+
+    func testTextBoxCutAttachmentPreservesClipboardFile() throws {
+        try withPreservedGeneralPasteboard {
+            let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+            GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+            let attachment = TextBoxAttachment(
+                localURL: temporaryURL,
+                submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+                cleanupLocalURLWhenDisposed: true
+            )
+
+            let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+            let durablePath = try XCTUnwrap(snapshot.localPath)
+            let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+            addTeardownBlock {
+                try? FileManager.default.removeItem(at: durableURL)
+            }
+            let restoredAttachment = snapshot.textBoxAttachment()
+
+            let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+            textView.font = NSFont.systemFont(ofSize: 14)
+            textView.textColor = .labelColor
+            textView.insertAttachments([restoredAttachment])
+            _ = textView.debugInteract(action: "select_first_attachment")
+
+            XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+            textView.cut(nil)
+
+            XCTAssertTrue(textView.inlineAttachments().isEmpty)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+            XCTAssertEqual(NSPasteboard.general.string(forType: .fileURL), durableURL.absoluteString)
+            XCTAssertEqual(
+                NSPasteboard.general.string(forType: .string),
+                TextBoxAttachment.submissionText(forLocalFileURL: durableURL)
+            )
+        }
+    }
+
+    func testTextBoxCutRestoredAttachmentClearsDeferredCleanup() throws {
+        try withPreservedGeneralPasteboard {
+            let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+            GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+            let attachment = TextBoxAttachment(
+                localURL: temporaryURL,
+                submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+                cleanupLocalURLWhenDisposed: true
+            )
+
+            let snapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
+            let durablePath = try XCTUnwrap(snapshot.localPath)
+            let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+            addTeardownBlock {
+                try? FileManager.default.removeItem(at: durableURL)
+                GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+            }
+
+            let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+            textView.font = NSFont.systemFont(ofSize: 14)
+            textView.textColor = .labelColor
+            textView.allowsUndo = true
+
+            let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+            scrollView.documentView = textView
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 30),
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.contentView = scrollView
+            window.makeFirstResponder(textView)
+            Self.retainedTextBoxUndoWindows.append(window)
+
+            textView.installDebugInlineFixture(snapshot.textBoxAttachment(), beforeText: "hello ", afterText: " world")
+            _ = textView.debugInteract(action: "close_first_attachment")
+            XCTAssertTrue(textView.undoManager?.canUndo == true)
+            textView.undoManager?.undo()
+            XCTAssertEqual(textView.inlineAttachments().map(\.displayName), ["moon.png"])
+
+            _ = textView.debugInteract(action: "select_first_attachment")
+            textView.cut(nil)
+
+            XCTAssertTrue(textView.inlineAttachments().isEmpty)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+            XCTAssertEqual(NSPasteboard.general.string(forType: .fileURL), durableURL.absoluteString)
+
+            textView.prepareForSubmit()
+            textView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
+
+            XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+        }
+    }
+
+    func testTextBoxRepastedDraftCopyRemainsDisposable() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+        let snapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: durableURL)
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+        }
+
+        let repastedAttachment = TextBoxAttachment(
+            localURL: durableURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: durableURL),
+            cleanupLocalURLWhenDisposed: TextBoxAttachment.shouldCleanupLocalURLWhenDisposed(durableURL)
+        )
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.insertAttachments([repastedAttachment])
+
+        XCTAssertTrue(TextBoxAttachment.shouldCleanupLocalURLWhenDisposed(durableURL))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+
+        _ = textView.debugInteract(action: "close_first_attachment")
+        XCTAssertTrue(textView.inlineAttachments().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
+    }
+
+    func testTextBoxKeyboardDeleteAttachmentCleansDraftCopy() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: durableURL)
+        }
+        let restoredAttachment = snapshot.textBoxAttachment()
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.insertAttachments([restoredAttachment])
+        _ = textView.debugInteract(action: "select_first_attachment")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+        textView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+
+        XCTAssertTrue(textView.inlineAttachments().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
+    }
+
+    func testTextBoxKeyboardDeleteTextSelectionAfterAttachmentKeepsAttachment() {
+        let attachment = TextBoxAttachment(
+            displayName: "moon.png",
+            submissionText: "[Image #1]",
+            submissionPath: "/tmp/moon.png",
+            localURL: nil
+        )
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.installDebugInlineFixture(attachment, beforeText: "hello ", afterText: " world")
+
+        let selectionStart = ("hello " as NSString).length + 1
+        textView.setSelectedRange(NSRange(location: selectionStart, length: (" world" as NSString).length))
+        textView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+
+        XCTAssertEqual(textView.inlineAttachments().map(\.displayName), ["moon.png"])
+        XCTAssertEqual(textView.plainText(), "hello ")
+    }
+
+    func testTextBoxUndoableDraftAttachmentDeleteDefersCleanupUntilDismantle() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: durableURL)
+        }
+        let restoredAttachment = snapshot.textBoxAttachment()
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.allowsUndo = true
+
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        scrollView.documentView = textView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 30),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = scrollView
+        window.makeFirstResponder(textView)
+        Self.retainedTextBoxUndoWindows.append(window)
+
+        textView.installDebugInlineFixture(restoredAttachment, beforeText: "hello ", afterText: " world")
+        _ = textView.debugInteract(action: "close_first_attachment")
+
+        XCTAssertTrue(textView.inlineAttachments().isEmpty)
+        XCTAssertTrue(textView.undoManager?.canUndo == true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+
+        textView.undoManager?.undo()
+        XCTAssertEqual(textView.inlineAttachments().map(\.displayName), ["moon.png"])
+        XCTAssertEqual(
+            textView.submissionText(),
+            expectedImageSubmission(before: "hello ", url: durableURL, after: " world")
+        )
+        textView.cleanupPendingUndoableAttachmentFiles()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+
+        _ = textView.debugInteract(action: "close_first_attachment")
+        textView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
+    }
+
+    func testTextBoxPrepareForSubmitFlushesDeletedAttachmentCleanup() throws {
+        let deletedTemporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        let inlineTemporaryURL = try makeTemporaryPNGFile(named: "sun.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(deletedTemporaryURL)
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(inlineTemporaryURL)
+        let deletedAttachment = TextBoxAttachment(
+            localURL: deletedTemporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: deletedTemporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+        let inlineAttachment = TextBoxAttachment(
+            localURL: inlineTemporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: inlineTemporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+        let deletedSnapshot = SessionTextBoxInputAttachmentSnapshot(deletedAttachment)
+        let inlineSnapshot = SessionTextBoxInputAttachmentSnapshot(inlineAttachment)
+        let deletedDurablePath = try XCTUnwrap(deletedSnapshot.localPath)
+        let inlineDurablePath = try XCTUnwrap(inlineSnapshot.localPath)
+        let deletedDurableURL = URL(fileURLWithPath: deletedDurablePath).standardizedFileURL
+        let inlineDurableURL = URL(fileURLWithPath: inlineDurablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: deletedDurableURL)
+            try? FileManager.default.removeItem(at: inlineDurableURL)
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([deletedTemporaryURL, inlineTemporaryURL])
+        }
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.allowsUndo = true
+
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        scrollView.documentView = textView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 30),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = scrollView
+        window.makeFirstResponder(textView)
+        Self.retainedTextBoxUndoWindows.append(window)
+
+        textView.insertAttachments([deletedSnapshot.textBoxAttachment()])
+        _ = textView.debugInteract(action: "close_first_attachment")
+        XCTAssertTrue(textView.inlineAttachments().isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: deletedDurableURL.path))
+        XCTAssertTrue(textView.undoManager?.canUndo == true)
+
+        textView.insertAttachments([inlineSnapshot.textBoxAttachment()])
+        textView.prepareForSubmit()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: deletedDurableURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: inlineDurableURL.path))
+        XCTAssertEqual(textView.inlineAttachments().map(\.displayName), ["sun.png"])
+        XCTAssertFalse(textView.undoManager?.canUndo == true)
+    }
+
+    func testTextBoxPrepareForSubmitDropsPendingCleanupForRestoredAttachment() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+        let snapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: durableURL)
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+        }
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.allowsUndo = true
+
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        scrollView.documentView = textView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 30),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = scrollView
+        window.makeFirstResponder(textView)
+        Self.retainedTextBoxUndoWindows.append(window)
+
+        textView.installDebugInlineFixture(
+            snapshot.textBoxAttachment(),
+            beforeText: "hello ",
+            afterText: " world"
+        )
+        _ = textView.debugInteract(action: "close_first_attachment")
+        XCTAssertTrue(textView.inlineAttachments().isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+
+        textView.undoManager?.undo()
+        XCTAssertEqual(textView.inlineAttachments().map(\.displayName), ["moon.png"])
+
+        textView.prepareForSubmit()
+        textView.clearContent(cleanupAttachmentFiles: false)
+        textView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+    }
+
+    func testTextBoxSubmitClearDefersDraftCopyCleanup() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL)
+        )
+        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: durableURL)
+        }
+        let restoredAttachment = snapshot.textBoxAttachment()
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.insertAttachments([restoredAttachment])
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+        textView.clearContent(cleanupAttachmentFiles: false)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+
+        XCTAssertTrue(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(restoredAttachment)],
+                terminalAgentContext: "OpenCode"
+            ).isEmpty
+        )
+        XCTAssertTrue(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(restoredAttachment)],
+                terminalAgentContext: "Claude Code"
+            ).isEmpty
+        )
+        XCTAssertEqual(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(restoredAttachment)],
+                terminalAgentContext: "Claude Code",
+                completionContext: TextBoxSubmit.CompletionContext(
+                    confirmedClaudeImageSubmissionTexts: [
+                        restoredAttachment.submissionText: 1
+                    ]
+                )
+            ).map(\.displayName),
+            ["moon.png"]
+        )
+
+        textView.cleanupDisposableAttachmentFiles([restoredAttachment])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
+    }
+
+    func testTextBoxSubmitCleanupPreservesReinsertedActiveAttachment() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(imageURL)
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+        let textView = makeRetainedTextBoxInputTextView()
+        textView.installDebugInlineFixture(
+            attachment,
+            beforeText: "new ",
+            afterText: " prompt"
+        )
+
+        textView.cleanupDisposableAttachmentFiles([attachment])
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: imageURL.path),
+            "Async submit cleanup must not delete a disposable file that is active in the next prompt"
+        )
+
+        textView.clearContent()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: imageURL.path))
+    }
+
+    func testTextBoxSubmitCleanupDisposesSynchronousRemoteAttachmentAfterEditorClears() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let remotePath = "/tmp/cmux-upload/moon.png"
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forPath: remotePath),
+            submissionPath: remotePath,
+            cleanupLocalURLWhenDisposed: true
+        )
+        let textView = makeRetainedTextBoxInputTextView()
+        textView.installDebugInlineFixture(
+            attachment,
+            beforeText: "describe ",
+            afterText: ""
+        )
+
+        textView.prepareForSubmit()
+        textView.clearContent(cleanupAttachmentFiles: false)
+        let cleanupAttachments = TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+            from: [.attachment(attachment)],
+            terminalAgentContext: "OpenCode"
+        )
+        textView.cleanupDisposableAttachmentFiles(cleanupAttachments)
+
+        XCTAssertTrue(textView.inlineAttachments().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryURL.path))
+    }
+
+    func testTextBoxSubmitCleanupCanDisposeRemotePreviewImage() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        let remotePath = "/tmp/cmux-upload/moon.png"
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forPath: remotePath),
+            submissionPath: remotePath,
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        XCTAssertEqual(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(attachment)],
+                terminalAgentContext: "OpenCode"
+            ).map(\.displayName),
+            ["moon.png"]
+        )
+    }
+
+    func testTextBoxSubmitCleanupKeepsClaudeImageUntilTokenIsConfirmed() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        XCTAssertTrue(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(attachment)],
+                terminalAgentContext: "Claude Code"
+            ).isEmpty
+        )
+        XCTAssertEqual(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(attachment)],
+                terminalAgentContext: "Claude Code",
+                completionContext: TextBoxSubmit.CompletionContext(
+                    confirmedClaudeImageSubmissionTexts: [
+                        attachment.submissionText: 1
+                    ]
+                )
+            ).map(\.displayName),
+            ["moon.png"]
+        )
+    }
+
     func testTextBoxSessionDraftRejectsInvalidPartPayloads() throws {
         let invalidTextPart = Data("""
         {
@@ -6789,6 +7679,77 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         """.utf8)
         XCTAssertThrowsError(try JSONDecoder().decode(SessionTextBoxInputDraftPart.self, from: invalidAttachmentPart))
+    }
+
+    func testTextBoxPasteboardRestorationSkipsAfterUserClipboardChange() throws {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.textbox.restore.\(UUID().uuidString)"))
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        let fileURL = try makeTemporaryPNGFile(named: "moon.png")
+
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([fileURL as NSURL]))
+        let token = TextBoxPasteboardRestorationGuard.token(
+            afterWritingTemporaryFileURL: fileURL,
+            to: pasteboard
+        )
+        XCTAssertTrue(TextBoxPasteboardRestorationGuard.shouldRestore(pasteboard: pasteboard, token: token))
+
+        pasteboard.clearContents()
+        pasteboard.setString("new user clipboard", forType: .string)
+
+        XCTAssertFalse(TextBoxPasteboardRestorationGuard.shouldRestore(pasteboard: pasteboard, token: token))
+    }
+
+    func testTextBoxPasteboardRestorationRecognizesUserChangeBetweenTemporaryWrites() throws {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.textbox.restore.\(UUID().uuidString)"))
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        let firstURL = try makeTemporaryPNGFile(named: "moon.png")
+        let secondURL = try makeTemporaryPNGFile(named: "sun.png")
+
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([firstURL as NSURL]))
+        let firstToken = TextBoxPasteboardRestorationGuard.token(
+            afterWritingTemporaryFileURL: firstURL,
+            to: pasteboard
+        )
+        XCTAssertTrue(
+            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+                pasteboard: pasteboard,
+                token: firstToken
+            )
+        )
+
+        pasteboard.clearContents()
+        pasteboard.setString("new user clipboard", forType: .string)
+        XCTAssertFalse(
+            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+                pasteboard: pasteboard,
+                token: firstToken
+            )
+        )
+        let userClipboardSnapshot = snapshotPasteboardItems(pasteboard)
+
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([secondURL as NSURL]))
+        let secondToken = TextBoxPasteboardRestorationGuard.token(
+            afterWritingTemporaryFileURL: secondURL,
+            to: pasteboard
+        )
+        XCTAssertTrue(
+            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+                pasteboard: pasteboard,
+                token: secondToken
+            )
+        )
+
+        restorePasteboardItems(userClipboardSnapshot, to: pasteboard)
+        XCTAssertEqual(pasteboard.string(forType: .string), "new user clipboard")
     }
 
     func testTextBoxImageAttachmentInsertionAddsTrailingEditorSpace() throws {
@@ -7241,229 +8202,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(submitCount, 0)
         XCTAssertEqual(textView.attributedString().string, "@a\n")
         XCTAssertFalse(textView.submissionText().contains("alpha.txt"))
-    }
-
-    func testTextBoxSecondEscapeRoutesToEventWindowWhenActiveManagerIsStale() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
-
-        defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
-
-        guard let firstWindow = window(withId: firstWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let secondContentView = secondWindow.contentView,
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWorkspace = secondManager.selectedWorkspace,
-              let secondPanelId = secondWorkspace.focusedPanelId,
-              let secondTerminalPanel = secondWorkspace.terminalPanel(for: secondPanelId) else {
-            XCTFail("Expected two main windows with a focused terminal in the second")
-            return
-        }
-
-        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
-        textBoxView.onFocusTextBox = { secondTerminalPanel.textBoxDidBecomeFocused() }
-        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
-        textBoxScrollView.documentView = textBoxView
-        secondContentView.addSubview(textBoxScrollView)
-        defer { textBoxScrollView.removeFromSuperview() }
-
-        secondWindow.makeKeyAndOrderFront(nil)
-        secondWindow.displayIfNeeded()
-        secondTerminalPanel.hostedView.setVisibleInUI(true)
-        secondTerminalPanel.hostedView.setActive(true)
-        secondTerminalPanel.registerTextBoxInputView(textBoxView)
-        XCTAssertTrue(secondTerminalPanel.toggleTextBoxInput())
-        waitFor(timeout: 1.0, until: { secondWindow.firstResponder === textBoxView })
-        XCTAssertTrue(secondWindow.firstResponder === textBoxView)
-
-        secondTerminalPanel.handleTextBoxEscape()
-        XCTAssertTrue(secondTerminalPanel.isTextBoxActive)
-
-        firstWindow.makeKeyAndOrderFront(nil)
-        appDelegate.setActiveMainWindow(firstWindow)
-
-        guard let escapeEvent = makeKeyDownEvent(
-            key: "\u{1b}",
-            modifiers: [],
-            keyCode: UInt16(kVK_Escape),
-            windowNumber: secondWindow.windowNumber
-        ) else {
-            XCTFail("Failed to construct Escape event")
-            return
-        }
-
-#if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-        XCTAssertFalse(secondTerminalPanel.isTextBoxActive, "Second Escape should hide the TextBox in the event window")
-    }
-
-    func testTextBoxEscapeArmClearsInEventWindowWhenActiveManagerIsStale() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
-
-        defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
-
-        guard let firstWindow = window(withId: firstWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let secondContentView = secondWindow.contentView,
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWorkspace = secondManager.selectedWorkspace,
-              let secondPanelId = secondWorkspace.focusedPanelId,
-              let secondTerminalPanel = secondWorkspace.terminalPanel(for: secondPanelId) else {
-            XCTFail("Expected two main windows with a focused terminal in the second")
-            return
-        }
-
-        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
-        textBoxView.onFocusTextBox = { secondTerminalPanel.textBoxDidBecomeFocused() }
-        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
-        textBoxScrollView.documentView = textBoxView
-        secondContentView.addSubview(textBoxScrollView)
-        defer { textBoxScrollView.removeFromSuperview() }
-
-        secondWindow.makeKeyAndOrderFront(nil)
-        secondWindow.displayIfNeeded()
-        secondTerminalPanel.hostedView.setVisibleInUI(true)
-        secondTerminalPanel.hostedView.setActive(true)
-        secondTerminalPanel.registerTextBoxInputView(textBoxView)
-        XCTAssertTrue(secondTerminalPanel.toggleTextBoxInput())
-        waitFor(timeout: 1.0, until: { secondWindow.firstResponder === textBoxView })
-        XCTAssertTrue(secondWindow.firstResponder === textBoxView)
-
-        secondTerminalPanel.handleTextBoxEscape()
-        XCTAssertTrue(secondTerminalPanel.isTextBoxActive)
-
-        firstWindow.makeKeyAndOrderFront(nil)
-        appDelegate.setActiveMainWindow(firstWindow)
-
-        guard let nonEscapeEvent = makeKeyDownEvent(
-            key: "x",
-            modifiers: [],
-            keyCode: UInt16(kVK_ANSI_X),
-            windowNumber: secondWindow.windowNumber
-        ), let escapeEvent = makeKeyDownEvent(
-            key: "\u{1b}",
-            modifiers: [],
-            keyCode: UInt16(kVK_Escape),
-            windowNumber: secondWindow.windowNumber
-        ) else {
-            XCTFail("Failed to construct key events")
-            return
-        }
-
-#if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: nonEscapeEvent))
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: escapeEvent))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-        XCTAssertTrue(secondTerminalPanel.isTextBoxActive, "Non-Escape in the event window must clear the second-Escape arm")
-    }
-
-    func testTextBoxEscapeArmClearsWhenEscapeTargetsAuxiliaryWindow() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let contentView = window.contentView,
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected a main window with a focused terminal")
-            return
-        }
-
-        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
-        textBoxView.onFocusTextBox = { terminalPanel.textBoxDidBecomeFocused() }
-        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
-        textBoxScrollView.documentView = textBoxView
-        contentView.addSubview(textBoxScrollView)
-        defer { textBoxScrollView.removeFromSuperview() }
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.registerTextBoxInputView(textBoxView)
-        XCTAssertTrue(terminalPanel.toggleTextBoxInput())
-        waitFor(timeout: 1.0, until: { window.firstResponder === textBoxView })
-        XCTAssertTrue(window.firstResponder === textBoxView)
-
-        terminalPanel.handleTextBoxEscape()
-        XCTAssertTrue(terminalPanel.isTextBoxActive)
-
-        let auxiliaryWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        auxiliaryWindow.isReleasedWhenClosed = false
-        auxiliaryWindow.identifier = NSUserInterfaceItemIdentifier("cmux.about")
-        auxiliaryWindow.makeKeyAndOrderFront(nil)
-
-        defer {
-            if auxiliaryWindow.isVisible {
-                auxiliaryWindow.performClose(nil)
-            }
-        }
-
-        guard let auxiliaryEscape = makeKeyDownEvent(
-            key: "\u{1b}",
-            modifiers: [],
-            keyCode: UInt16(kVK_Escape),
-            windowNumber: auxiliaryWindow.windowNumber
-        ), let terminalEscape = makeKeyDownEvent(
-            key: "\u{1b}",
-            modifiers: [],
-            keyCode: UInt16(kVK_Escape),
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Escape events")
-            return
-        }
-
-#if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: auxiliaryEscape))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-        XCTAssertTrue(terminalPanel.isTextBoxActive, "Auxiliary-window Escape must not hide the terminal TextBox")
-
-        window.makeKeyAndOrderFront(nil)
-        appDelegate.setActiveMainWindow(window)
-
-#if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: terminalEscape))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-        XCTAssertTrue(terminalPanel.isTextBoxActive, "Auxiliary-window Escape must clear the pending second-Escape hide arm")
     }
 
     func testFocusedTextBoxFirstEscapeBypassesTerminalFindShortcutHandling() {
@@ -8938,8 +9676,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     private func closeWindow(withId windowId: UUID) {
         guard let window = window(withId: windowId) else { return }
-        window.performClose(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        window.animationBehavior = .none
+        window.orderOut(nil)
+        window.close()
+    }
+
+    private func closeTestWindow(_ window: NSWindow) {
+        window.animationBehavior = .none
+        window.orderOut(nil)
+        window.close()
     }
 
     private func waitFor(timeout: TimeInterval, until condition: () -> Bool) {

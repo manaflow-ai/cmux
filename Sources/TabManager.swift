@@ -2050,9 +2050,9 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func consumeFocusedTerminalTextBoxHideEscapeIfArmed() -> Bool {
+    func consumeFocusedTerminalTextBoxHideEscapeIfArmed(in window: NSWindow?) -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
-        return panel.consumeTextBoxHideEscapeIfArmed()
+        return panel.consumeTextBoxHideEscapeIfArmed(in: window)
     }
 
     func clearFocusedTerminalTextBoxHideEscapeArm() {

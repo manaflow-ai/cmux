@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -34,8 +35,69 @@ private enum TextBoxLayout {
 }
 
 @MainActor
-private final class TextBoxInputViewReference: ObservableObject {
+private final class TextBoxInputViewReference {
     weak var textView: TextBoxInputTextView?
+    var filePanelFocusRestorer: TextBoxFilePanelFocusRestorer?
+}
+
+final class TextBoxFilePanelFocusRestorer {
+    private weak var textView: TextBoxInputTextView?
+    private weak var parentWindow: NSWindow?
+    private var observers: [NSObjectProtocol] = []
+
+    init(textView: TextBoxInputTextView) {
+        self.textView = textView
+        self.parentWindow = textView.window
+    }
+
+    deinit {
+        invalidate()
+    }
+
+    func install(parentWindow: NSWindow) {
+        invalidate()
+        self.parentWindow = parentWindow
+
+        let notificationCenter = NotificationCenter.default
+        observers = [
+            notificationCenter.addObserver(
+                forName: NSWindow.didEndSheetNotification,
+                object: parentWindow,
+                queue: nil
+            ) { [weak self] _ in
+                self?.restoreFocusAndInvalidate()
+            },
+            notificationCenter.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: parentWindow,
+                queue: nil
+            ) { [weak self] _ in
+                self?.restoreFocusAndInvalidate()
+            }
+        ]
+    }
+
+    @discardableResult
+    func restoreFocusNow() -> Bool {
+        guard Thread.isMainThread,
+              let textView,
+              let window = textView.window ?? parentWindow else {
+            return false
+        }
+        return window.makeFirstResponder(textView)
+    }
+
+    func invalidate() {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observers.removeAll(keepingCapacity: false)
+    }
+
+    private func restoreFocusAndInvalidate() {
+        restoreFocusNow()
+        invalidate()
+    }
 }
 
 private struct TextBoxInputGlassPillBackground: View {
@@ -173,12 +235,24 @@ struct TextBoxAttachment: Identifiable {
         TerminalImageTransferPlanner.escapeForShell(submissionPath)
     }
 
+    var submitsLocalFilePath: Bool {
+        guard let localURL else { return false }
+        let standardizedLocalURL = localURL.standardizedFileURL
+        return submissionPath == standardizedLocalURL.path
+            || submissionText == Self.submissionText(forLocalFileURL: standardizedLocalURL)
+    }
+
     static func submissionText(forLocalFileURL url: URL) -> String {
         TerminalImageTransferPlanner.insertedText(forFileURLs: [url.standardizedFileURL])
     }
 
     static func submissionText(forPath path: String) -> String {
         TerminalImageTransferPlanner.insertedText(forPathStrings: [path])
+    }
+
+    static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
+        GhosttyPasteboardHelper.isOwnedTemporaryImageFile(fileURL)
+            || TextBoxDraftAttachmentStorage.isOwnedDraftCopy(fileURL)
     }
 
     private static func makeThumbnail(for url: URL) -> NSImage? {
@@ -199,6 +273,136 @@ struct TextBoxAttachment: Identifiable {
     }
 }
 
+private enum TextBoxDraftAttachmentStorage {
+    private static let directoryName = "textbox-draft-attachments"
+    private static let copiedDraftPathLock = NSLock()
+    private nonisolated(unsafe) static var copiedDraftPathByOriginalPath: [String: String] = [:]
+
+    static func snapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
+        guard let localURL = attachment.localURL,
+              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+            return fallbackSnapshot(for: attachment)
+        }
+
+        guard let durableURL = copyToDurableStorage(localURL) else {
+            return fallbackSnapshot(for: attachment)
+        }
+        trackCopiedDraft(originalURL: localURL, durableURL: durableURL)
+        let submissionFields = copiedSubmissionFields(
+            for: attachment,
+            originalLocalURL: localURL,
+            durableURL: durableURL
+        )
+        return SessionTextBoxInputAttachmentSnapshot(
+            displayName: attachment.displayName,
+            submissionText: submissionFields.text,
+            submissionPath: submissionFields.path,
+            localPath: durableURL.path,
+            cleanupLocalPathWhenDisposed: true
+        )
+    }
+
+    private static func fallbackSnapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
+        SessionTextBoxInputAttachmentSnapshot(
+            displayName: attachment.displayName,
+            submissionText: attachment.submissionText,
+            submissionPath: attachment.submissionPath,
+            localPath: attachment.localURL?.standardizedFileURL.path,
+            cleanupLocalPathWhenDisposed: attachment.cleanupLocalURLWhenDisposed
+        )
+    }
+
+    static func removeIfOwnedDraftCopy(_ fileURL: URL) -> Bool {
+        guard isOwnedDraftCopy(fileURL) else { return false }
+        try? FileManager.default.removeItem(at: fileURL.standardizedFileURL)
+        return true
+    }
+
+    static func removeCopiedDraftForOriginalTemporaryFile(_ fileURL: URL) {
+        let originalPath = fileURL.standardizedFileURL.path
+        copiedDraftPathLock.lock()
+        let copiedPath = copiedDraftPathByOriginalPath.removeValue(forKey: originalPath)
+        copiedDraftPathLock.unlock()
+        guard let copiedPath else { return }
+        try? FileManager.default.removeItem(atPath: copiedPath)
+    }
+
+    private static func trackCopiedDraft(originalURL: URL, durableURL: URL) {
+        copiedDraftPathLock.lock()
+        copiedDraftPathByOriginalPath[originalURL.standardizedFileURL.path] = durableURL.standardizedFileURL.path
+        copiedDraftPathLock.unlock()
+    }
+
+    private static func copiedSubmissionFields(
+        for attachment: TextBoxAttachment,
+        originalLocalURL: URL,
+        durableURL: URL
+    ) -> (text: String, path: String) {
+        let originalLocalURL = originalLocalURL.standardizedFileURL
+        let originalLocalSubmissionText = TextBoxAttachment.submissionText(forLocalFileURL: originalLocalURL)
+        guard attachment.submissionPath == originalLocalURL.path,
+              attachment.submissionText == originalLocalSubmissionText else {
+            return (attachment.submissionText, attachment.submissionPath)
+        }
+        return (TextBoxAttachment.submissionText(forLocalFileURL: durableURL), durableURL.path)
+    }
+
+    private static func copyToDurableStorage(_ sourceURL: URL) -> URL? {
+        guard let directory = storageDirectory() else { return nil }
+        let sourceURL = sourceURL.standardizedFileURL
+        let fileExtension = sourceURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pathToken = stablePathToken(sourceURL.path)
+        let fallbackName = fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)"
+        let filename = "\(pathToken)-\(sourceURL.lastPathComponent.isEmpty ? fallbackName : sourceURL.lastPathComponent)"
+        let destinationURL = directory.appendingPathComponent(filename, isDirectory: false)
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            return destinationURL.standardizedFileURL
+        }
+        do {
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            return destinationURL.standardizedFileURL
+        } catch {
+            return nil
+        }
+    }
+
+    static func isOwnedDraftCopy(_ fileURL: URL) -> Bool {
+        guard let directory = storageDirectory(createIfMissing: false) else { return false }
+        let directoryPath = directory.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        return filePath == directoryPath || filePath.hasPrefix(directoryPath + "/")
+    }
+
+    private static func stablePathToken(_ path: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in path.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
+    }
+
+    private static func storageDirectory(createIfMissing: Bool = true) -> URL? {
+        guard let appSupportDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+        let directory = appSupportDirectory
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent(directoryName, isDirectory: true)
+        if createIfMissing {
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            } catch {
+                return nil
+            }
+        }
+        return directory
+    }
+}
+
 enum TextBoxSubmissionPart {
     case text(String)
     case attachment(TextBoxAttachment)
@@ -206,11 +410,7 @@ enum TextBoxSubmissionPart {
 
 extension SessionTextBoxInputAttachmentSnapshot {
     init(_ attachment: TextBoxAttachment) {
-        displayName = attachment.displayName
-        submissionText = attachment.submissionText
-        submissionPath = attachment.submissionPath
-        localPath = attachment.localURL?.standardizedFileURL.path
-        cleanupLocalPathWhenDisposed = attachment.cleanupLocalURLWhenDisposed
+        self = TextBoxDraftAttachmentStorage.snapshot(for: attachment)
     }
 
     func textBoxAttachment() -> TextBoxAttachment {
@@ -284,6 +484,43 @@ private enum TextBoxSubmissionFormatter {
 
     static func formattedText(from attributed: NSAttributedString) -> String {
         formattedText(from: parts(from: attributed))
+    }
+}
+
+struct TextBoxPasteboardRestorationToken: Equatable {
+    let changeCount: Int
+    let fileURL: URL
+}
+
+enum TextBoxPasteboardRestorationGuard {
+    static func token(
+        afterWritingTemporaryFileURL fileURL: URL,
+        to pasteboard: NSPasteboard
+    ) -> TextBoxPasteboardRestorationToken {
+        TextBoxPasteboardRestorationToken(
+            changeCount: pasteboard.changeCount,
+            fileURL: fileURL.standardizedFileURL
+        )
+    }
+
+    static func shouldRestore(
+        pasteboard: NSPasteboard,
+        token: TextBoxPasteboardRestorationToken?
+    ) -> Bool {
+        guard let token,
+              pasteboard.changeCount == token.changeCount else {
+            return false
+        }
+        return PasteboardFileURLReader.fileURLs(from: pasteboard).contains { url in
+            url.standardizedFileURL.path == token.fileURL.standardizedFileURL.path
+        }
+    }
+
+    static func isCurrentTemporaryWrite(
+        pasteboard: NSPasteboard,
+        token: TextBoxPasteboardRestorationToken?
+    ) -> Bool {
+        shouldRestore(pasteboard: pasteboard, token: token)
     }
 }
 
@@ -1232,13 +1469,18 @@ actor TextBoxMentionIndexStore {
 }
 
 @MainActor
-private final class TextBoxMentionCompletionController: ObservableObject {
-    @Published private(set) var suggestions: [TextBoxMentionSuggestion] = []
-    @Published private(set) var selectionIndex: Int = 0
+@Observable
+private final class TextBoxMentionCompletionController {
+    private(set) var suggestions: [TextBoxMentionSuggestion] = []
+    private(set) var selectionIndex: Int = 0
 
+    @ObservationIgnored
     private(set) var activeQuery: TextBoxMentionQuery?
+    @ObservationIgnored
     private var activeRootDirectory: String?
+    @ObservationIgnored
     private var lookupTask: Task<Void, Never>?
+    @ObservationIgnored
     var onStateChanged: (() -> Void)?
 
     var hasSuggestions: Bool {
@@ -1322,7 +1564,7 @@ private final class TextBoxMentionCompletionController: ObservableObject {
 }
 
 private struct TextBoxMentionCompletionPopoverView: View {
-    @ObservedObject var controller: TextBoxMentionCompletionController
+    let controller: TextBoxMentionCompletionController
     let onSelect: (TextBoxMentionSuggestion) -> Void
 
     var body: some View {
@@ -1363,7 +1605,51 @@ private struct TextBoxMentionCompletionPopoverView: View {
 }
 
 @MainActor
+protocol TextBoxSubmitSurfaceControlling: AnyObject {
+    var clipboardReadGeneration: Int { get }
+    var textBoxSubmitObservationWindow: NSWindow? { get }
+    var textBoxSubmitTerminalSurface: TerminalSurface? { get }
+
+    func visibleText() -> String?
+    func sendKeyText(_ text: String)
+    @discardableResult
+    func sendText(_ text: String) -> Bool
+    @discardableResult
+    func sendNamedKey(_ keyName: String) -> TerminalSurface.NamedKeySendResult
+    @discardableResult
+    func performBindingAction(_ action: String) -> Bool
+}
+
+extension TerminalSurface: TextBoxSubmitSurfaceControlling {
+    var textBoxSubmitObservationWindow: NSWindow? {
+        hostedView.window
+    }
+
+    var textBoxSubmitTerminalSurface: TerminalSurface? {
+        self
+    }
+}
+
+@MainActor
 enum TextBoxSubmit {
+    struct CompletionContext: Equatable {
+        var confirmedClaudeImageSubmissionTexts: [String: Int] = [:]
+
+        static let empty = CompletionContext()
+    }
+
+#if DEBUG
+    static var debugMaxWaitFollowupTicksOverride: Int?
+
+    static func debugRunDispatchEvents(
+        _ events: [DispatchEvent],
+        via surface: TextBoxSubmitSurfaceControlling,
+        onComplete: ((CompletionContext) -> Void)? = nil
+    ) {
+        TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
+    }
+#endif
+
     enum DispatchEvent: Equatable {
         case keyText(String)
         case pasteText(String)
@@ -1440,18 +1726,46 @@ enum TextBoxSubmit {
         return [.pasteText(pastePayload), .namedKey(submitKey)]
     }
 
-    static func send(_ text: String, via surface: TerminalSurface, terminalAgentContext: String) {
+    static func send(
+        _ text: String,
+        via surface: TerminalSurface,
+        terminalAgentContext: String,
+        onComplete: ((CompletionContext) -> Void)? = nil
+    ) {
         let parts = submittedPasteText(for: text).map { [TextBoxSubmissionPart.text($0)] } ?? []
-        send(parts, via: surface, terminalAgentContext: terminalAgentContext)
+        send(parts, via: surface, terminalAgentContext: terminalAgentContext, onComplete: onComplete)
     }
 
     static func send(
         _ parts: [TextBoxSubmissionPart],
         via surface: TerminalSurface,
-        terminalAgentContext: String
+        terminalAgentContext: String,
+        onComplete: ((CompletionContext) -> Void)? = nil
     ) {
         let events = dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext)
-        TextBoxSubmitEventRunner.run(events, via: surface)
+        TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
+    }
+
+    static func cleanupAttachmentsAfterSubmit(
+        from parts: [TextBoxSubmissionPart],
+        terminalAgentContext: String,
+        completionContext: CompletionContext = .empty
+    ) -> [TextBoxAttachment] {
+        let isClaude = TextBoxAgentDetection.isClaudeCode(title: terminalAgentContext)
+        var confirmedClaudeImageSubmissionTexts = completionContext.confirmedClaudeImageSubmissionTexts
+        return parts.compactMap { part -> TextBoxAttachment? in
+            if case .attachment(let attachment) = part { return attachment }
+            return nil
+        }.filter { attachment in
+            guard attachment.cleanupLocalURLWhenDisposed else { return false }
+            if isClaude, attachment.isImage {
+                let remainingCount = confirmedClaudeImageSubmissionTexts[attachment.submissionText, default: 0]
+                guard remainingCount > 0 else { return false }
+                confirmedClaudeImageSubmissionTexts[attachment.submissionText] = remainingCount - 1
+                return true
+            }
+            return !attachment.submitsLocalFilePath
+        }
     }
 
     private static func containsImageAttachment(_ parts: [TextBoxSubmissionPart]) -> Bool {
@@ -1705,30 +2019,49 @@ private final class TextBoxSubmitEventRunner {
 
     private let id = UUID()
     private let events: [TextBoxSubmit.DispatchEvent]
-    private let surface: TerminalSurface
+    private let surface: TextBoxSubmitSurfaceControlling
+    private var onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
     private var index = 0
     private var claudeImageTokenBaseline = 0
     private var visibleTextBaseline = ""
     private var clipboardReadBaseline = 0
     private var filePasteFallbackSatisfiedClipboardRead = false
+    private var confirmedClaudeImageSubmissionTexts: [String: Int] = [:]
     private var observers: [NSObjectProtocol] = []
     private var releaseRenderedFrameNotifications: (() -> Void)?
     private var originalPasteboardItems: [PasteboardItemSnapshot]?
+    private var temporaryPasteboardRestorationToken: TextBoxPasteboardRestorationToken?
     private var observationToken = UUID()
 
-    private static let maxWaitFollowupTicks = 180
+    private static var maxWaitFollowupTicks: Int {
+#if DEBUG
+        if let override = TextBoxSubmit.debugMaxWaitFollowupTicksOverride {
+            return max(0, override)
+        }
+#endif
+        return 180
+    }
 
     private struct PasteboardItemSnapshot {
         let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
     }
 
-    init(events: [TextBoxSubmit.DispatchEvent], surface: TerminalSurface) {
+    init(
+        events: [TextBoxSubmit.DispatchEvent],
+        surface: TextBoxSubmitSurfaceControlling,
+        onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
+    ) {
         self.events = events
         self.surface = surface
+        self.onComplete = onComplete
     }
 
-    static func run(_ events: [TextBoxSubmit.DispatchEvent], via surface: TerminalSurface) {
-        let runner = TextBoxSubmitEventRunner(events: events, surface: surface)
+    static func run(
+        _ events: [TextBoxSubmit.DispatchEvent],
+        via surface: TextBoxSubmitSurfaceControlling,
+        onComplete: ((TextBoxSubmit.CompletionContext) -> Void)? = nil
+    ) {
+        let runner = TextBoxSubmitEventRunner(events: events, surface: surface, onComplete: onComplete)
         active[runner.id] = runner
         runner.processNext()
     }
@@ -1776,8 +2109,17 @@ private final class TextBoxSubmitEventRunner {
             }
         }
 
+        finish()
+    }
+
+    private func finish() {
         restorePasteboardIfNeeded()
+        let completion = onComplete
+        onComplete = nil
         Self.active[id] = nil
+        completion?(TextBoxSubmit.CompletionContext(
+            confirmedClaudeImageSubmissionTexts: confirmedClaudeImageSubmissionTexts
+        ))
     }
 
     private func waitForVisibleText(_ expectedText: String) {
@@ -1826,10 +2168,31 @@ private final class TextBoxSubmitEventRunner {
             return
         }
 
-        let center = NotificationCenter.default
-        let token = UUID()
-        observationToken = token
-        observers.append(center.addObserver(
+        guard let token = observeTerminalUpdates(
+            { [weak self] in
+                guard let self else { return false }
+                if self.filePasteFallbackSatisfiedClipboardRead {
+                    self.filePasteFallbackSatisfiedClipboardRead = false
+#if DEBUG
+                    cmuxDebugLog("textbox.submit.wait.clipboard.fallback.observed id=\(self.id.uuidString.prefix(5)) baseline=\(self.clipboardReadBaseline)")
+#endif
+                    self.processNext()
+                    return true
+                }
+                guard self.clipboardReadReady() else {
+                    return false
+                }
+#if DEBUG
+                cmuxDebugLog("textbox.submit.wait.clipboard.observed id=\(self.id.uuidString.prefix(5)) baseline=\(self.clipboardReadBaseline)")
+#endif
+                self.processNext()
+                return true
+            },
+            performInitialCheck: false
+        ) else {
+            return
+        }
+        observers.append(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidCompleteClipboardRead,
             object: surface,
             queue: .main
@@ -1838,7 +2201,7 @@ private final class TextBoxSubmitEventRunner {
                 guard let self, self.observationToken == token else { return }
                 guard self.clipboardReadReady() else { return }
 #if DEBUG
-                cmuxDebugLog("textbox.submit.wait.clipboard.observed id=\(self.id.uuidString.prefix(5)) baseline=\(self.clipboardReadBaseline)")
+                cmuxDebugLog("textbox.submit.wait.clipboard.notification id=\(self.id.uuidString.prefix(5)) baseline=\(self.clipboardReadBaseline)")
 #endif
                 self.processNext()
             }
@@ -1857,6 +2220,7 @@ private final class TextBoxSubmitEventRunner {
                 "baseline=\(claudeImageTokenBaseline) expected=\(Self.debugText(expectedText))"
             )
 #endif
+            markClaudeImageTokenConfirmed(expectedText)
             processNext()
             return
         }
@@ -1872,6 +2236,7 @@ private final class TextBoxSubmitEventRunner {
                 "baseline=\(self.claudeImageTokenBaseline) expected=\(Self.debugText(expectedText))"
             )
 #endif
+            self.markClaudeImageTokenConfirmed(expectedText)
             self.processNext()
             return true
         } onExhausted: { [weak self] in
@@ -1886,27 +2251,38 @@ private final class TextBoxSubmitEventRunner {
         }
     }
 
+    private func markClaudeImageTokenConfirmed(_ expectedText: String) {
+        confirmedClaudeImageSubmissionTexts[expectedText, default: 0] += 1
+    }
+
+    @discardableResult
     private func observeTerminalUpdates(
         _ check: @escaping @MainActor () -> Bool,
-        onExhausted: (@MainActor () -> Void)? = nil
-    ) {
+        onExhausted: (@MainActor () -> Void)? = nil,
+        performInitialCheck: Bool = true
+    ) -> UUID? {
         let center = NotificationCenter.default
         releaseRenderedFrameNotifications = GhosttyNSView.retainRenderedFrameNotifications()
         let token = UUID()
         observationToken = token
         var remainingFollowupTicks = Self.maxWaitFollowupTicks
+        var isObserving = true
 
         @MainActor
         func checkIfCurrent(scheduleFollowupTick: Bool) {
             guard observationToken == token else { return }
             let didComplete = check()
-            guard !didComplete, observationToken == token else { return }
+            guard !didComplete, observationToken == token else {
+                isObserving = false
+                return
+            }
             guard scheduleFollowupTick else { return }
             guard remainingFollowupTicks > 0 else {
 #if DEBUG
                 cmuxDebugLog("textbox.submit.wait.ticks.exhausted id=\(id.uuidString.prefix(5))")
 #endif
                 remainingFollowupTicks = -1
+                isObserving = false
                 onExhausted?()
                 return
             }
@@ -1932,9 +2308,11 @@ private final class TextBoxSubmitEventRunner {
         ) { [weak self] notification in
             Task { @MainActor in
                 guard let self else { return }
-                if let surfaceView = notification.object as? GhosttyNSView,
-                   surfaceView.terminalSurface !== self.surface {
-                    return
+                if let surfaceView = notification.object as? GhosttyNSView {
+                    guard let expectedSurface = self.surface.textBoxSubmitTerminalSurface,
+                          surfaceView.terminalSurface === expectedSurface else {
+                        return
+                    }
                 }
                 checkIfCurrent(scheduleFollowupTick: false)
             }
@@ -1947,15 +2325,17 @@ private final class TextBoxSubmitEventRunner {
         ) { [weak self] notification in
             Task { @MainActor in
                 guard let self else { return }
-                if let surfaceView = notification.object as? GhosttyNSView,
-                   surfaceView.terminalSurface !== self.surface {
-                    return
+                if let surfaceView = notification.object as? GhosttyNSView {
+                    guard let expectedSurface = self.surface.textBoxSubmitTerminalSurface,
+                          surfaceView.terminalSurface === expectedSurface else {
+                        return
+                    }
                 }
                 checkIfCurrent(scheduleFollowupTick: false)
             }
         })
 
-        if let window = surface.hostedView.window {
+        if let window = surface.textBoxSubmitObservationWindow {
             observers.append(center.addObserver(
                 forName: NSWindow.didUpdateNotification,
                 object: window,
@@ -1968,18 +2348,28 @@ private final class TextBoxSubmitEventRunner {
         })
         }
 
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            guard self != nil else { return }
+        if performInitialCheck {
             checkIfCurrent(scheduleFollowupTick: true)
         }
+        guard isObserving,
+              Self.active[id] === self,
+              observationToken == token else {
+            return nil
+        }
         GhosttyApp.shared.scheduleTick()
+        return token
     }
 
     private func pasteFilePath(_ path: String) {
         let pasteboard = NSPasteboard.general
         if originalPasteboardItems == nil {
             originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
+        } else if !TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+            pasteboard: pasteboard,
+            token: temporaryPasteboardRestorationToken
+        ) {
+            originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
+            temporaryPasteboardRestorationToken = nil
         }
 
         let fileURL = URL(fileURLWithPath: path).standardizedFileURL
@@ -1991,10 +2381,14 @@ private final class TextBoxSubmitEventRunner {
             _ = pasteboard.setString(fileURL.absoluteString, forType: .fileURL)
             _ = pasteboard.setPropertyList([fileURL.path], forType: PasteboardFileURLReader.legacyFilenamesPboardType)
         }
+        temporaryPasteboardRestorationToken = TextBoxPasteboardRestorationGuard.token(
+            afterWritingTemporaryFileURL: fileURL,
+            to: pasteboard
+        )
 
 #if DEBUG
         cmuxDebugLog(
-            "textbox.submit.pasteFile id=\(id.uuidString.prefix(5)) path=\(fileURL.path) wroteURL=\(wroteURL ? 1 : 0) " +
+            "textbox.submit.pasteFile id=\(id.uuidString.prefix(5)) pathLength=\(fileURL.path.utf8.count) wroteURL=\(wroteURL ? 1 : 0) " +
             "types=\((pasteboard.types ?? []).map(\.rawValue).joined(separator: ","))"
         )
 #endif
@@ -2015,6 +2409,14 @@ private final class TextBoxSubmitEventRunner {
         guard let originalPasteboardItems else { return }
         self.originalPasteboardItems = nil
         let pasteboard = NSPasteboard.general
+        guard TextBoxPasteboardRestorationGuard.shouldRestore(
+            pasteboard: pasteboard,
+            token: temporaryPasteboardRestorationToken
+        ) else {
+            temporaryPasteboardRestorationToken = nil
+            return
+        }
+        temporaryPasteboardRestorationToken = nil
         pasteboard.clearContents()
         guard !originalPasteboardItems.isEmpty else { return }
         let restoredItems = originalPasteboardItems.map { snapshot in
@@ -2073,7 +2475,7 @@ private final class TextBoxSubmitEventRunner {
         case .pasteText(let text):
             return "pasteText(\(debugText(text)))"
         case .pasteFilePath(let path):
-            return "pasteFilePath(\(path))"
+            return "pasteFilePath(length:\(path.utf8.count))"
         case .namedKeyRepeat(let key, let count):
             return "namedKeyRepeat(\(key),\(count))"
         case .namedKey(let key):
@@ -2094,13 +2496,7 @@ private final class TextBoxSubmitEventRunner {
     }
 
     private static func debugText(_ text: String) -> String {
-        let compact = text
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-        if compact.count <= 80 {
-            return compact
-        }
-        return "\(compact.prefix(80))..."
+        "length:\(text.utf8.count),hasNewlines:\(text.contains(where: \.isNewline) ? 1 : 0)"
     }
 #endif
 
@@ -2133,7 +2529,7 @@ struct TextBoxInputContainer: View {
 
     @State private var textViewHeight: CGFloat = 0
     @State private var hasPendingAttachmentUpload = false
-    @StateObject private var textViewReference = TextBoxInputViewReference()
+    @State private var textViewReference = TextBoxInputViewReference()
 
     private var textFont: NSFont {
         NSFont.systemFont(ofSize: max(14, terminalFont.pointSize + 2), weight: .regular)
@@ -2292,12 +2688,30 @@ struct TextBoxInputContainer: View {
 
         let submittedParts = textViewReference.textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
-        TextBoxSubmit.send(submittedParts, via: surface, terminalAgentContext: terminalAgentContext)
-        textViewReference.textView?.clearContent()
+        let submittedTextView = textViewReference.textView
+        submittedTextView?.prepareForSubmit()
+        submittedTextView?.clearContent(cleanupAttachmentFiles: false)
         text = ""
         attachments = []
         hasPendingAttachmentUpload = false
         textViewHeight = 0
+        TextBoxSubmit.send(
+            submittedParts,
+            via: surface,
+            terminalAgentContext: terminalAgentContext
+        ) { completionContext in
+            let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
+                if case .attachment(let attachment) = part { return attachment }
+                return nil
+            }
+            submittedTextView?.cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(submittedAttachments)
+            let cleanupAttachments = TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: submittedParts,
+                terminalAgentContext: terminalAgentContext,
+                completionContext: completionContext
+            )
+            submittedTextView?.cleanupDisposableAttachmentFiles(cleanupAttachments)
+        }
     }
 
     private func registerTextView(_ textView: TextBoxInputTextView) {
@@ -2330,6 +2744,7 @@ struct TextBoxInputContainer: View {
         }
 
         if let window = textView.window {
+            installFilePanelFocusRestorer(for: textView, parentWindow: window)
             panel.beginSheetModal(for: window, completionHandler: handleResponse)
         } else {
             handleResponse(panel.runModal())
@@ -2338,10 +2753,12 @@ struct TextBoxInputContainer: View {
 
     private func focusTextViewAfterFilePanel(_ textView: TextBoxInputTextView) {
         textView.window?.makeFirstResponder(textView)
-        Task { @MainActor in
-            await Task.yield()
-            textView.window?.makeFirstResponder(textView)
-        }
+    }
+
+    private func installFilePanelFocusRestorer(for textView: TextBoxInputTextView, parentWindow: NSWindow) {
+        let restorer = TextBoxFilePanelFocusRestorer(textView: textView)
+        restorer.install(parentWindow: parentWindow)
+        textViewReference.filePanelFocusRestorer = restorer
     }
 
     private func insertSelectedFileURLs(_ fileURLs: [URL], into textView: TextBoxInputTextView) -> Bool {
@@ -2411,7 +2828,8 @@ struct TextBoxInputContainer: View {
                 standardizedURLs.map {
                         TextBoxAttachment(
                             localURL: $0,
-                            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0)
+                            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0),
+                            cleanupLocalURLWhenDisposed: TextBoxAttachment.shouldCleanupLocalURLWhenDisposed($0)
                         )
                 }
             )
@@ -2614,6 +3032,7 @@ private struct TextBoxInputView: NSViewRepresentable {
         coordinator.parent.onTextViewDismantled(textView)
         textView.onMoveToWindow = { _ in }
         textView.invalidatePendingAttachmentUploads()
+        textView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -2765,13 +3184,19 @@ final class TextBoxInputTextView: NSTextView {
     private var preserveAttachmentFocusOnNextResign = false
     private var attachmentUploadInvalidationGeneration: UInt64 = 0
     private var mentionCompletionPopover: NSPopover?
-    private lazy var mentionCompletionController: TextBoxMentionCompletionController = {
+    private var mentionCompletionControllerStorage: TextBoxMentionCompletionController?
+    private var pendingUndoableAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
+    private var mentionCompletionController: TextBoxMentionCompletionController {
+        if let mentionCompletionControllerStorage {
+            return mentionCompletionControllerStorage
+        }
         let controller = TextBoxMentionCompletionController()
         controller.onStateChanged = { [weak self] in
             self?.syncMentionCompletionPopover()
         }
+        mentionCompletionControllerStorage = controller
         return controller
-    }()
+    }
 
     private var isAttachmentPreviewShown: Bool {
         attachmentPreviewPopover?.isShown == true
@@ -2780,6 +3205,7 @@ final class TextBoxInputTextView: NSTextView {
     deinit {
         dismissMentionCompletions()
         removeAttachmentKeyDownMonitor()
+        discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
 
     override var acceptsFirstResponder: Bool { true }
@@ -2853,21 +3279,30 @@ final class TextBoxInputTextView: NSTextView {
             super.cut(sender)
             return
         }
-        deleteAttachmentSelection(in: payload.range)
+        deleteAttachmentSelection(in: payload.range, cleanupAttachmentFiles: false)
     }
 
     func openFilePicker() {
         onChooseFiles()
     }
 
-    func clearContent() {
-        cleanupDisposableAttachmentFiles(inlineAttachments())
+    func clearContent(cleanupAttachmentFiles: Bool = true) {
+        if cleanupAttachmentFiles {
+            cleanupDisposableAttachmentFiles(
+                inlineAttachments(),
+                preservingActiveInlineAttachments: false
+            )
+        }
         invalidatePendingAttachmentUploads()
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
         textStorage?.setAttributedString(NSAttributedString(string: ""))
         recenterSingleLineTextContainer()
         didChangeText()
+    }
+
+    func prepareForSubmit() {
+        discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
 
     func installPreservedContent(_ content: NSAttributedString) {
@@ -3505,6 +3940,14 @@ final class TextBoxInputTextView: NSTextView {
         }
 
         switch commandSelector {
+        case #selector(NSResponder.deleteBackward(_:)):
+            if deleteAttachmentForKeyboardCommand(direction: .backward) {
+                return
+            }
+        case #selector(NSResponder.deleteForward(_:)):
+            if deleteAttachmentForKeyboardCommand(direction: .forward) {
+                return
+            }
         case #selector(NSResponder.moveLeft(_:)):
             if moveFocusedAttachmentSelection(toTrailingEdge: false) {
                 return
@@ -3724,7 +4167,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func dismissMentionCompletions() {
-        mentionCompletionController.clear()
+        mentionCompletionControllerStorage?.clear()
         dismissMentionCompletionPopoverOnly()
     }
 
@@ -3832,6 +4275,37 @@ final class TextBoxInputTextView: NSTextView {
 
     private func deleteAttachment(at characterIndex: Int) {
         deleteAttachmentSelection(in: NSRange(location: characterIndex, length: 1))
+    }
+
+    private enum KeyboardDeleteDirection {
+        case backward
+        case forward
+    }
+
+    private func deleteAttachmentForKeyboardCommand(direction: KeyboardDeleteDirection) -> Bool {
+        let range = selectedRange()
+        if range.length > 0 {
+            guard !inlineAttachments(in: range).isEmpty else {
+                return false
+            }
+            deleteAttachmentSelection(in: range)
+            return true
+        }
+
+        let attachmentLocation: Int?
+        switch direction {
+        case .backward:
+            attachmentLocation = range.location > 0 ? range.location - 1 : nil
+        case .forward:
+            attachmentLocation = range.location < attributedString().length ? range.location : nil
+        }
+
+        guard let attachmentLocation,
+              attachment(at: attachmentLocation) != nil else {
+            return false
+        }
+        deleteAttachmentSelection(in: NSRange(location: attachmentLocation, length: 1))
+        return true
     }
 
     private func moveInsertionPointRight() {
@@ -4111,17 +4585,39 @@ final class TextBoxInputTextView: NSTextView {
         return wroteContent
     }
 
-    private func deleteAttachmentSelection(in range: NSRange) {
+    private func deleteAttachmentSelection(
+        in range: NSRange,
+        cleanupAttachmentFiles: Bool = true
+    ) {
         guard isValidSelectedRange(range),
               range.length > 0 else {
             return
         }
 
+        let removedAttachments = inlineAttachments(in: range)
         insertText("", replacementRange: range)
+        if cleanupAttachmentFiles {
+            cleanupRemovedAttachmentFiles(removedAttachments)
+        } else {
+            removePendingAttachmentCleanup(for: removedAttachments)
+        }
         clearAttachmentFocus(dismissPreview: true)
         setSelectedRange(NSRange(location: min(range.location, (string as NSString).length), length: 0))
         normalizeTextBaselineOffsets()
         recenterSingleLineTextContainer()
+    }
+
+    private func inlineAttachments(in range: NSRange) -> [TextBoxAttachment] {
+        guard isValidSelectedRange(range),
+              range.length > 0 else {
+            return []
+        }
+        var result: [TextBoxAttachment] = []
+        attributedString().enumerateAttribute(.attachment, in: range, options: []) { value, _, _ in
+            guard let attachment = value as? TextBoxInlineTextAttachment else { return }
+            result.append(attachment.textBoxAttachment)
+        }
+        return result
     }
 
     private func installAttachmentKeyDownMonitorIfNeeded() {
@@ -4284,12 +4780,99 @@ final class TextBoxInputTextView: NSTextView {
         Self.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
     }
 
-    private func cleanupDisposableAttachmentFiles(_ attachments: [TextBoxAttachment]) {
-        let urls = attachments.compactMap { attachment -> URL? in
-            guard attachment.cleanupLocalURLWhenDisposed else { return nil }
-            return attachment.localURL
+    func cleanupDisposableAttachmentFiles(
+        _ attachments: [TextBoxAttachment],
+        preservingActiveInlineAttachments: Bool = true
+    ) {
+        let activeKeys = preservingActiveInlineAttachments ? activeInlineAttachmentCleanupKeys() : []
+        var urlsToClean: [URL] = []
+        for attachment in attachments {
+            guard attachment.cleanupLocalURLWhenDisposed,
+                  let url = attachment.localURL else { continue }
+            let key = Self.attachmentCleanupKey(for: url)
+            pendingUndoableAttachmentFileCleanup.removeValue(forKey: key)
+            guard !activeKeys.contains(key) else { continue }
+            urlsToClean.append(url)
         }
-        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(urls)
+
+        let ghosttyTemporaryURLs = urlsToClean.filter { url in
+            TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(url)
+            return !TextBoxDraftAttachmentStorage.removeIfOwnedDraftCopy(url)
+        }
+        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(ghosttyTemporaryURLs)
+    }
+
+    func cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(_ attachments: [TextBoxAttachment]) {
+        for attachment in attachments where attachment.cleanupLocalURLWhenDisposed && attachment.submitsLocalFilePath {
+            guard let localURL = attachment.localURL else { continue }
+            TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(localURL)
+        }
+    }
+
+    func cleanupPendingUndoableAttachmentFiles() {
+        guard !pendingUndoableAttachmentFileCleanup.isEmpty else { return }
+        let activePaths = activeInlineAttachmentCleanupKeys()
+        var attachmentsToClean: [TextBoxAttachment] = []
+        let cleanupKeys = pendingUndoableAttachmentFileCleanup.keys.filter { !activePaths.contains($0) }
+        for key in cleanupKeys {
+            if let attachment = pendingUndoableAttachmentFileCleanup.removeValue(forKey: key) {
+                attachmentsToClean.append(attachment)
+            }
+        }
+        cleanupDisposableAttachmentFiles(attachmentsToClean)
+    }
+
+    func discardUndoHistoryAndCleanupPendingAttachmentFiles() {
+        undoManager?.removeAllActions()
+        removeActiveAttachmentsFromPendingCleanup()
+        cleanupPendingUndoableAttachmentFiles()
+    }
+
+    private func removeActiveAttachmentsFromPendingCleanup() {
+        guard !pendingUndoableAttachmentFileCleanup.isEmpty else { return }
+        for key in activeInlineAttachmentCleanupKeys() {
+            pendingUndoableAttachmentFileCleanup.removeValue(forKey: key)
+        }
+    }
+
+    private func removePendingAttachmentCleanup(for attachments: [TextBoxAttachment]) {
+        guard !pendingUndoableAttachmentFileCleanup.isEmpty else { return }
+        for attachment in attachments {
+            guard let localURL = attachment.localURL else { continue }
+            pendingUndoableAttachmentFileCleanup.removeValue(
+                forKey: Self.attachmentCleanupKey(for: localURL)
+            )
+        }
+    }
+
+    private func cleanupRemovedAttachmentFiles(_ attachments: [TextBoxAttachment]) {
+        guard allowsUndo,
+              undoManager?.isUndoRegistrationEnabled == true else {
+            cleanupDisposableAttachmentFiles(attachments)
+            return
+        }
+        deferUndoableAttachmentFileCleanup(attachments)
+    }
+
+    private func deferUndoableAttachmentFileCleanup(_ attachments: [TextBoxAttachment]) {
+        let activePaths = activeInlineAttachmentCleanupKeys()
+        for attachment in attachments {
+            guard attachment.cleanupLocalURLWhenDisposed,
+                  let localURL = attachment.localURL else { continue }
+            let key = Self.attachmentCleanupKey(for: localURL)
+            guard !activePaths.contains(key) else { continue }
+            pendingUndoableAttachmentFileCleanup[key] = attachment
+        }
+    }
+
+    private func activeInlineAttachmentCleanupKeys() -> Set<String> {
+        Set(inlineAttachments().compactMap { attachment in
+            attachment.localURL.map(Self.attachmentCleanupKey(for:))
+        })
+    }
+
+    private static func attachmentCleanupKey(for fileURL: URL) -> String {
+        fileURL.standardizedFileURL.path
     }
 
     private func adjustedSelectionRange(

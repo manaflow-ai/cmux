@@ -245,14 +245,22 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func handleTextBoxEscape() {
-        shouldHideTextBoxOnNextEscape = true
-        focusTerminalSurface(respectForeignFirstResponder: false, clearTextBoxHideArm: false)
+        let hadTextBoxView = textBoxInputView != nil
+        let didFocusTerminal = focusTerminalSurface(
+            respectForeignFirstResponder: false,
+            clearTextBoxHideArm: false
+        )
+        shouldHideTextBoxOnNextEscape = isTextBoxActive && (hadTextBoxView || didFocusTerminal)
     }
 
     @discardableResult
-    func consumeTextBoxHideEscapeIfArmed() -> Bool {
+    func consumeTextBoxHideEscapeIfArmed(in window: NSWindow?) -> Bool {
         guard isTextBoxActive,
               shouldHideTextBoxOnNextEscape else {
+            return false
+        }
+        guard textBoxOrSurfaceOwnsEscapeContext(in: window) else {
+            shouldHideTextBoxOnNextEscape = false
             return false
         }
         hideTextBoxInput()
@@ -332,7 +340,7 @@ final class TerminalPanel: Panel, ObservableObject {
         textBoxContent = TextBoxInputTextView.plainText(from: draft)
         textBoxAttachments = TextBoxInputTextView.attachments(from: draft)
         isTextBoxActive = draft.isActive
-        textBoxInputFocusIntent = draft.isActive ? .terminal : .hidden
+        textBoxInputFocusIntent = draft.isActive ? .textBox : .hidden
         shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false
         shouldHideTextBoxOnNextEscape = false
@@ -419,13 +427,14 @@ final class TerminalPanel: Panel, ObservableObject {
 #endif
 
     func focus() {
-        focusTerminalSurface(respectForeignFirstResponder: false)
+        focusTerminalSurface(respectForeignFirstResponder: true)
     }
 
+    @discardableResult
     private func focusTerminalSurface(
         respectForeignFirstResponder: Bool,
         clearTextBoxHideArm: Bool = true
-    ) {
+    ) -> Bool {
         if clearTextBoxHideArm {
             shouldHideTextBoxOnNextEscape = false
         }
@@ -438,22 +447,25 @@ final class TerminalPanel: Panel, ObservableObject {
         // Re-enable it immediately for explicit focus requests (socket/UI) so ensureFocus can run.
         hostedView.preparePanelFocusIntentForActivation(.surface)
         hostedView.setActive(true)
-        let focusWindow = surface.uiWindow
+        guard let focusWindow = surface.uiWindow ?? hostedView.window ?? textBoxInputView?.window else {
+            surface.setFocus(false)
+            return false
+        }
         guard AppDelegate.shared?.allowsTerminalKeyboardFocus(
             workspaceId: workspaceId,
             panelId: id,
             in: focusWindow
         ) != false else {
             surface.setFocus(false)
-            return
+            return false
         }
         surface.setFocus(true)
-        guard focusWindow != nil else { return }
         hostedView.ensureFocus(
             for: workspaceId,
             surfaceId: id,
             respectForeignFirstResponder: respectForeignFirstResponder
         )
+        return true
     }
 
     func unfocus() {
@@ -636,5 +648,23 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         guard let view = responder as? NSView else { return false }
         return view === textBoxInputView || view.isDescendant(of: textBoxInputView)
+    }
+
+    private func textBoxOrSurfaceOwnsResponder(in window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        if window === hostedView.window,
+           hostedView.isSurfaceViewFirstResponder() {
+            return true
+        }
+        guard let responder = window.firstResponder else { return false }
+        if textBoxOwnsResponder(responder) {
+            return true
+        }
+        return hostedView.ownedPanelFocusIntent(for: responder) == .surface
+    }
+
+    private func textBoxOrSurfaceOwnsEscapeContext(in window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return textBoxOrSurfaceOwnsResponder(in: window)
     }
 }

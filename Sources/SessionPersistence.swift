@@ -1018,11 +1018,11 @@ struct SessionTextBoxInputDraftPart: Codable, Equatable, Sendable {
         case attachment
     }
 
-    var kind: Kind
-    var text: String?
-    var attachment: SessionTextBoxInputAttachmentSnapshot?
+    let kind: Kind
+    let text: String?
+    let attachment: SessionTextBoxInputAttachmentSnapshot?
 
-    init(kind: Kind, text: String?, attachment: SessionTextBoxInputAttachmentSnapshot?) {
+    private init(kind: Kind, text: String?, attachment: SessionTextBoxInputAttachmentSnapshot?) {
         self.kind = kind
         self.text = text
         self.attachment = attachment
