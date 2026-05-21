@@ -3731,7 +3731,9 @@ final class BrowserPanel: Panel, ObservableObject {
         contentView.addSubview(webView)
         window.contentView = contentView
         backgroundPreloadWindow = window
-        window.orderFront(nil)
+        if Self.shouldOrderBackgroundPreloadHostWindow {
+            window.orderFront(nil)
+        }
 
 #if DEBUG
         cmuxDebugLog(
@@ -3739,6 +3741,13 @@ final class BrowserPanel: Panel, ObservableObject {
             "reason=\(reason)"
         )
 #endif
+    }
+
+    private static var shouldOrderBackgroundPreloadHostWindow: Bool {
+        // App-hosted XCTest on macOS 15 can crash while ordering an invisible
+        // offscreen WKWebView host. Unit tests only need the attachment
+        // lifecycle, not a visible window server surface.
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
     }
 
     private func shouldDeferPromptUntilInteractiveHost(for webView: WKWebView) -> Bool {

@@ -1644,7 +1644,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .newTab)
     }
 
-    func testBackgroundInitialNavigationOwnsHeadlessWebKitHostBeforeViewAppears() {
+    func testBackgroundInitialNavigationOwnsHeadlessWebKitHostBeforeViewAppears() throws {
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: URL(string: "about:blank")!,
@@ -1656,9 +1656,10 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertTrue(panel.shouldRenderWebView)
         XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
         XCTAssertTrue(panel.hasBackgroundPreloadHost)
-        XCTAssertNotNil(panel.webView.window)
-        XCTAssertEqual(panel.webView.window?.isVisible, true)
-        XCTAssertLessThan(panel.webView.window?.frame.minX ?? 0, -9_000)
+        let hostWindow = try XCTUnwrap(panel.webView.window)
+        XCTAssertEqual(hostWindow.identifier?.rawValue, "cmux.browserBackgroundPreload")
+        XCTAssertFalse(hostWindow.isVisible)
+        XCTAssertLessThan(hostWindow.frame.minX, -9_000)
     }
 
     func testBackgroundInitialNavigationDoesNotExposeHiddenHostAsModalParent() {
