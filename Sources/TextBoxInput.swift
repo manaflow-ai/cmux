@@ -1701,7 +1701,7 @@ enum TextBoxSubmit {
     }
 
 #if DEBUG
-    static var debugMaxWaitFollowupTicksOverride: Int?
+    static var debugWaitTimeoutSecondsOverride: TimeInterval?
 
     static func debugRunDispatchEvents(
         _ events: [DispatchEvent],
@@ -1713,7 +1713,7 @@ enum TextBoxSubmit {
 
     static func debugResetForTesting() {
         TextBoxSubmitEventRunner.resetForTesting()
-        debugMaxWaitFollowupTicksOverride = nil
+        debugWaitTimeoutSecondsOverride = nil
     }
 #endif
 
@@ -2085,11 +2085,15 @@ private final class TextBoxSubmitEventRunner {
     private static var active: [UUID: TextBoxSubmitEventRunner] = [:]
     private static var activeRunIDBySurface: [ObjectIdentifier: UUID] = [:]
     private static var queuedRunsBySurface: [ObjectIdentifier: [PendingRun]] = [:]
+    private static var queuedSurfaceOrder: [ObjectIdentifier] = []
+    private static var activePasteboardRunID: UUID?
+    private static var isDrainingQueuedRuns = false
 
     private let id = UUID()
     private let events: [TextBoxSubmit.DispatchEvent]
     private let surface: TextBoxSubmitSurfaceControlling
     private let surfaceKey: ObjectIdentifier
+    private let usesPasteboard: Bool
     private var onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
     private var index = 0
     private var claudeImageTokenBaseline = 0
@@ -2098,19 +2102,20 @@ private final class TextBoxSubmitEventRunner {
     private var filePasteFallbackSatisfiedClipboardRead = false
     private var confirmedClaudeImageSubmissionTexts: [String: Int] = [:]
     private var observers: [NSObjectProtocol] = []
+    private var waitTimeoutTimer: DispatchSourceTimer?
     private var releaseTickNotifications: (() -> Void)?
     private var releaseRenderedFrameNotifications: (() -> Void)?
     private var originalPasteboardItems: [PasteboardItemSnapshot]?
     private var temporaryPasteboardRestorationToken: TextBoxPasteboardRestorationToken?
     private var observationToken = UUID()
 
-    private static var maxWaitFollowupTicks: Int {
+    private static var waitTimeoutSeconds: TimeInterval {
 #if DEBUG
-        if let override = TextBoxSubmit.debugMaxWaitFollowupTicksOverride {
+        if let override = TextBoxSubmit.debugWaitTimeoutSecondsOverride {
             return max(0, override)
         }
 #endif
-        return 180
+        return 15
     }
 
     private struct PasteboardItemSnapshot {
@@ -2121,17 +2126,34 @@ private final class TextBoxSubmitEventRunner {
         let events: [TextBoxSubmit.DispatchEvent]
         let surface: TextBoxSubmitSurfaceControlling
         let onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
+        let usesPasteboard: Bool
+
+        init(
+            events: [TextBoxSubmit.DispatchEvent],
+            surface: TextBoxSubmitSurfaceControlling,
+            onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
+        ) {
+            self.events = events
+            self.surface = surface
+            self.onComplete = onComplete
+            self.usesPasteboard = events.contains { event in
+                if case .pasteFilePath = event { return true }
+                return false
+            }
+        }
     }
 
     init(
         events: [TextBoxSubmit.DispatchEvent],
         surface: TextBoxSubmitSurfaceControlling,
-        onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
+        onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?,
+        usesPasteboard: Bool
     ) {
         self.events = events
         self.surface = surface
         self.surfaceKey = ObjectIdentifier(surface)
         self.onComplete = onComplete
+        self.usesPasteboard = usesPasteboard
     }
 
     static func run(
@@ -2141,8 +2163,10 @@ private final class TextBoxSubmitEventRunner {
     ) {
         let surfaceKey = ObjectIdentifier(surface)
         let pendingRun = PendingRun(events: events, surface: surface, onComplete: onComplete)
-        guard activeRunIDBySurface[surfaceKey] == nil else {
-            queuedRunsBySurface[surfaceKey, default: []].append(pendingRun)
+        guard activeRunIDBySurface[surfaceKey] == nil,
+              queuedRunsBySurface[surfaceKey]?.isEmpty != false,
+              !(pendingRun.usesPasteboard && activePasteboardRunID != nil) else {
+            enqueue(pendingRun, for: surfaceKey)
 #if DEBUG
             cmuxDebugLog("textbox.submit.queue surface=\(surfaceKey) count=\(queuedRunsBySurface[surfaceKey]?.count ?? 0)")
 #endif
@@ -2155,11 +2179,23 @@ private final class TextBoxSubmitEventRunner {
         let runner = TextBoxSubmitEventRunner(
             events: pendingRun.events,
             surface: pendingRun.surface,
-            onComplete: pendingRun.onComplete
+            onComplete: pendingRun.onComplete,
+            usesPasteboard: pendingRun.usesPasteboard
         )
         active[runner.id] = runner
         activeRunIDBySurface[runner.surfaceKey] = runner.id
+        if runner.usesPasteboard {
+            activePasteboardRunID = runner.id
+        }
         runner.processNext()
+    }
+
+    private static func enqueue(_ pendingRun: PendingRun, for surfaceKey: ObjectIdentifier) {
+        if queuedRunsBySurface[surfaceKey]?.isEmpty != false,
+           !queuedSurfaceOrder.contains(surfaceKey) {
+            queuedSurfaceOrder.append(surfaceKey)
+        }
+        queuedRunsBySurface[surfaceKey, default: []].append(pendingRun)
     }
 
     private func processNext() {
@@ -2232,11 +2268,14 @@ private final class TextBoxSubmitEventRunner {
         if Self.activeRunIDBySurface[surfaceKey] == id {
             Self.activeRunIDBySurface[surfaceKey] = nil
         }
+        if Self.activePasteboardRunID == id {
+            Self.activePasteboardRunID = nil
+        }
         completion?(TextBoxSubmit.CompletionContext(
             confirmedClaudeImageSubmissionTexts: confirmedClaudeImageSubmissionTexts,
             failure: failure
         ))
-        Self.startNextQueuedRun(for: surfaceKey)
+        Self.startQueuedRuns()
     }
 
     private func finish() {
@@ -2247,21 +2286,50 @@ private final class TextBoxSubmitEventRunner {
         if Self.activeRunIDBySurface[surfaceKey] == id {
             Self.activeRunIDBySurface[surfaceKey] = nil
         }
+        if Self.activePasteboardRunID == id {
+            Self.activePasteboardRunID = nil
+        }
         completion?(TextBoxSubmit.CompletionContext(
             confirmedClaudeImageSubmissionTexts: confirmedClaudeImageSubmissionTexts
         ))
-        Self.startNextQueuedRun(for: surfaceKey)
+        Self.startQueuedRuns()
     }
 
-    private static func startNextQueuedRun(for surfaceKey: ObjectIdentifier) {
-        guard activeRunIDBySurface[surfaceKey] == nil,
-              var queuedRuns = queuedRunsBySurface[surfaceKey],
-              !queuedRuns.isEmpty else {
-            return
+    private static func startQueuedRuns() {
+        guard !isDrainingQueuedRuns else { return }
+        isDrainingQueuedRuns = true
+        defer { isDrainingQueuedRuns = false }
+
+        var madeProgress = true
+        while madeProgress {
+            madeProgress = false
+            var index = 0
+            while index < queuedSurfaceOrder.count {
+                let surfaceKey = queuedSurfaceOrder[index]
+                guard activeRunIDBySurface[surfaceKey] == nil,
+                      var queuedRuns = queuedRunsBySurface[surfaceKey],
+                      let nextRun = queuedRuns.first else {
+                    queuedRunsBySurface[surfaceKey] = nil
+                    queuedSurfaceOrder.remove(at: index)
+                    continue
+                }
+                if nextRun.usesPasteboard, activePasteboardRunID != nil {
+                    index += 1
+                    continue
+                }
+
+                queuedRuns.removeFirst()
+                if queuedRuns.isEmpty {
+                    queuedRunsBySurface[surfaceKey] = nil
+                    queuedSurfaceOrder.remove(at: index)
+                } else {
+                    queuedRunsBySurface[surfaceKey] = queuedRuns
+                    index += 1
+                }
+                madeProgress = true
+                start(nextRun)
+            }
         }
-        let nextRun = queuedRuns.removeFirst()
-        queuedRunsBySurface[surfaceKey] = queuedRuns.isEmpty ? nil : queuedRuns
-        start(nextRun)
     }
 
 #if DEBUG
@@ -2272,6 +2340,9 @@ private final class TextBoxSubmitEventRunner {
         active.removeAll()
         activeRunIDBySurface.removeAll()
         queuedRunsBySurface.removeAll()
+        queuedSurfaceOrder.removeAll()
+        activePasteboardRunID = nil
+        isDrainingQueuedRuns = false
     }
 
     private func cancelForTesting() {
@@ -2435,29 +2506,19 @@ private final class TextBoxSubmitEventRunner {
         releaseRenderedFrameNotifications = GhosttyNSView.retainRenderedFrameNotifications()
         let token = UUID()
         observationToken = token
-        var remainingFollowupTicks = Self.maxWaitFollowupTicks
-        var isObserving = true
+        armObservationTimeout(
+            token: token,
+            timeoutSeconds: Self.waitTimeoutSeconds,
+            onExhausted: onExhausted
+        )
 
         @MainActor
-        func checkIfCurrent(scheduleFollowupTick: Bool) {
+        func checkIfCurrent() {
             guard observationToken == token else { return }
             let didComplete = check()
             guard !didComplete, observationToken == token else {
-                isObserving = false
                 return
             }
-            guard scheduleFollowupTick else { return }
-            guard remainingFollowupTicks > 0 else {
-#if DEBUG
-                cmuxDebugLog("textbox.submit.wait.ticks.exhausted id=\(id.uuidString.prefix(5))")
-#endif
-                remainingFollowupTicks = -1
-                isObserving = false
-                onExhausted?()
-                return
-            }
-            remainingFollowupTicks -= 1
-            GhosttyApp.shared.scheduleTick()
         }
 
         observers.append(center.addObserver(
@@ -2467,7 +2528,7 @@ private final class TextBoxSubmitEventRunner {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard self != nil else { return }
-                checkIfCurrent(scheduleFollowupTick: true)
+                checkIfCurrent()
             }
         })
 
@@ -2484,7 +2545,7 @@ private final class TextBoxSubmitEventRunner {
                         return
                     }
                 }
-                checkIfCurrent(scheduleFollowupTick: false)
+                checkIfCurrent()
             }
         })
 
@@ -2501,7 +2562,7 @@ private final class TextBoxSubmitEventRunner {
                         return
                     }
                 }
-                checkIfCurrent(scheduleFollowupTick: false)
+                checkIfCurrent()
             }
         })
 
@@ -2513,21 +2574,44 @@ private final class TextBoxSubmitEventRunner {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard self != nil else { return }
-                checkIfCurrent(scheduleFollowupTick: false)
+                checkIfCurrent()
             }
         })
         }
 
         if performInitialCheck {
-            checkIfCurrent(scheduleFollowupTick: true)
+            checkIfCurrent()
         }
-        guard isObserving,
-              Self.active[id] === self,
+        guard Self.active[id] === self,
               observationToken == token else {
             return nil
         }
         GhosttyApp.shared.scheduleTick()
         return token
+    }
+
+    private func armObservationTimeout(
+        token: UUID,
+        timeoutSeconds: TimeInterval,
+        onExhausted: (@MainActor () -> Void)?
+    ) {
+        waitTimeoutTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        waitTimeoutTimer = timer
+        timer.schedule(deadline: .now() + timeoutSeconds)
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.observationToken == token else {
+                    return
+                }
+#if DEBUG
+                cmuxDebugLog("textbox.submit.wait.timeout id=\(self.id.uuidString.prefix(5))")
+#endif
+                onExhausted?()
+            }
+        }
+        timer.resume()
     }
 
     private func pasteFilePath(_ path: String) -> Bool {
@@ -2674,6 +2758,8 @@ private final class TextBoxSubmitEventRunner {
 
     private func removeObservers() {
         observationToken = UUID()
+        waitTimeoutTimer?.cancel()
+        waitTimeoutTimer = nil
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
