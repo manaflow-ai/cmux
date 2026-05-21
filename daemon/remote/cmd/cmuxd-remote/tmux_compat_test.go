@@ -454,8 +454,9 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 		t.Errorf("TMUX = %q, should contain workspace ID", tmux)
 	}
 	// Verify TMUX_PANE
-	if os.Getenv("TMUX_PANE") != "%pane-456" {
-		t.Errorf("TMUX_PANE = %q, want %%pane-456", os.Getenv("TMUX_PANE"))
+	wantPane := "%" + tmuxStableNumericId("pane-456")
+	if os.Getenv("TMUX_PANE") != wantPane {
+		t.Errorf("TMUX_PANE = %q, want %s", os.Getenv("TMUX_PANE"), wantPane)
 	}
 	// Verify socket path
 	if os.Getenv("CMUX_SOCKET_PATH") != "127.0.0.1:54321" {

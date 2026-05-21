@@ -460,9 +460,10 @@ func configureAgentEnvironment(cfg agentConfig) {
 		if windowToken == "" {
 			windowToken = cfg.focused.workspaceId
 		}
+		paneToken := tmuxStableNumericId(cfg.focused.paneHandle)
 		fakeTmux = fmt.Sprintf("/tmp/%s/%s,%s,%s",
-			cfg.tmuxPathPrefix, cfg.focused.workspaceId, windowToken, cfg.focused.paneHandle)
-		fakeTmuxPane = "%" + cfg.focused.paneHandle
+			cfg.tmuxPathPrefix, cfg.focused.workspaceId, windowToken, paneToken)
+		fakeTmuxPane = "%" + paneToken
 	}
 	os.Setenv("TMUX", fakeTmux)
 	os.Setenv("TMUX_PANE", fakeTmuxPane)

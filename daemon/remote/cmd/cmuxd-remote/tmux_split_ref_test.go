@@ -216,8 +216,9 @@ func TestTmuxSplitWindowCanonicalizesCallerSurfaceRefs(t *testing.T) {
 		}
 	})
 
-	if got := output; got != "%66666666-6666-4666-8666-666666666666\n" {
-		t.Fatalf("stdout = %q", got)
+	want := "%" + tmuxStableNumericId("66666666-6666-4666-8666-666666666666") + "\n"
+	if got := output; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }
 
@@ -283,7 +284,8 @@ func TestTmuxSplitWindowIgnoresStaleUUIDColumnSurface(t *testing.T) {
 		}
 	})
 
-	if got := output; got != "%66666666-6666-4666-8666-666666666666\n" {
-		t.Fatalf("stdout = %q", got)
+	want := "%" + tmuxStableNumericId("66666666-6666-4666-8666-666666666666") + "\n"
+	if got := output; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }

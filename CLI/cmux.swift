@@ -13810,6 +13810,82 @@ struct CMUXCLI {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private func tmuxStableNumericId(_ raw: String?) -> String {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let source = trimmed.isEmpty ? "cmux" : trimmed
+        var hash: UInt64 = 14695981039346656037
+        for byte in source.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1099511628211
+        }
+        let value = hash & 0x7fffffffffffffff
+        return String(value == 0 ? 1 : value)
+    }
+
+    private func tmuxTrimIdSigil(_ raw: String) -> String {
+        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        while let first = trimmed.first, first == "$" || first == "@" || first == "%" {
+            trimmed.removeFirst()
+            trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed
+    }
+
+    private func tmuxNumericIdMatches(_ handle: String, candidates: [String?]) -> Bool {
+        let token = tmuxTrimIdSigil(handle)
+        guard !token.isEmpty else { return false }
+        return candidates.contains { candidate in
+            guard let candidate = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !candidate.isEmpty else { return false }
+            return token == tmuxStableNumericId(candidate)
+        }
+    }
+
+    private func tmuxIndexMatches(_ handle: String, index: Int?) -> Bool {
+        guard let index else { return false }
+        return tmuxTrimIdSigil(handle) == String(index)
+    }
+
+    private func tmuxNormalizePath(_ raw: String?) -> String? {
+        guard var path = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else { return nil }
+        path = (path as NSString).expandingTildeInPath
+        if !path.hasPrefix("/") {
+            path = URL(
+                fileURLWithPath: path,
+                relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+            ).path
+        }
+        guard path.hasPrefix("/") else { return nil }
+        return URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func tmuxPathFromObject(_ object: [String: Any]) -> String? {
+        for key in [
+            "pane_current_path",
+            "current_directory",
+            "requested_working_directory",
+            "working_directory",
+            "cwd"
+        ] {
+            if let path = tmuxNormalizePath(object[key] as? String) {
+                return path
+            }
+        }
+        if let binding = object["resume_binding"] as? [String: Any],
+           let path = tmuxNormalizePath(binding["cwd"] as? String) {
+            return path
+        }
+        return nil
+    }
+
+    private func tmuxFallbackCurrentPath() -> String {
+        tmuxNormalizePath(ProcessInfo.processInfo.environment["PWD"])
+            ?? tmuxNormalizePath(FileManager.default.currentDirectoryPath)
+            ?? tmuxNormalizePath(NSHomeDirectory())
+            ?? "/"
+    }
+
     private func tmuxWindowSelector(from raw: String?) -> String? {
         guard let trimmed = normalizedTmuxTarget(raw) else { return nil }
         if trimmed.hasPrefix("%") || trimmed.hasPrefix("pane:") {
@@ -13868,21 +13944,28 @@ struct CMUXCLI {
         workspaceId: String,
         client: SocketClient
     ) throws -> String {
-        if isUUID(handle) {
-            return handle
+        let normalizedHandle = tmuxTrimIdSigil(handle)
+        if isUUID(normalizedHandle) {
+            return normalizedHandle
         }
 
         let payload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
         let panes = payload["panes"] as? [[String: Any]] ?? []
         for pane in panes {
-            if (pane["ref"] as? String) == handle || (pane["id"] as? String) == handle {
+            let id = pane["id"] as? String
+            let ref = pane["ref"] as? String
+            if ref == normalizedHandle || id == normalizedHandle {
                 if let id = pane["id"] as? String {
                     return id
                 }
             }
+            if tmuxNumericIdMatches(normalizedHandle, candidates: [id, ref]),
+               let id {
+                return id
+            }
         }
 
-        if let index = Int(handle) {
+        if let index = Int(normalizedHandle) {
             for pane in panes where intFromAny(pane["index"]) == index {
                 if let id = pane["id"] as? String {
                     return id
@@ -13898,17 +13981,24 @@ struct CMUXCLI {
         workspaceId: String,
         client: SocketClient
     ) throws -> String {
+        let normalizedHandle = tmuxTrimIdSigil(handle)
         let payload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
         let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
         for surface in surfaces {
-            if (surface["ref"] as? String) == handle || (surface["id"] as? String) == handle {
+            let id = surface["id"] as? String
+            let ref = surface["ref"] as? String
+            if ref == normalizedHandle || id == normalizedHandle {
                 if let id = surface["id"] as? String {
                     return id
                 }
             }
+            if tmuxNumericIdMatches(normalizedHandle, candidates: [id, ref]),
+               let id {
+                return id
+            }
         }
 
-        if let index = Int(handle) {
+        if let index = Int(normalizedHandle) {
             for surface in surfaces where intFromAny(surface["index"]) == index {
                 if let id = surface["id"] as? String {
                     return id
@@ -13920,20 +14010,44 @@ struct CMUXCLI {
     }
 
     private func tmuxWorkspaceIdForPaneHandle(_ handle: String, client: SocketClient) throws -> String? {
-        guard isUUID(handle) || isHandleRef(handle) else {
-            return nil
-        }
+        let normalizedHandle = tmuxTrimIdSigil(handle)
 
         let workspaces = try tmuxWorkspaceItems(client: client)
         for workspace in workspaces {
             guard let workspaceId = workspace["id"] as? String else { continue }
             let payload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
             let panes = payload["panes"] as? [[String: Any]] ?? []
-            if panes.contains(where: { ($0["id"] as? String) == handle || ($0["ref"] as? String) == handle }) {
+            if panes.contains(where: { pane in
+                let id = pane["id"] as? String
+                let ref = pane["ref"] as? String
+                return id == normalizedHandle
+                    || ref == normalizedHandle
+                    || tmuxNumericIdMatches(normalizedHandle, candidates: [id, ref])
+                    || tmuxIndexMatches(normalizedHandle, index: intFromAny(pane["index"]))
+            }) {
                 return workspaceId
             }
         }
 
+        return nil
+    }
+
+    private func tmuxWorkspaceIdForCompatHandle(_ handle: String, client: SocketClient) throws -> String? {
+        let normalizedHandle = tmuxTrimIdSigil(handle)
+        let items = try tmuxWorkspaceItems(client: client)
+        for item in items {
+            let id = item["id"] as? String
+            let ref = item["ref"] as? String
+            if id == normalizedHandle || ref == normalizedHandle {
+                return id
+            }
+            if tmuxNumericIdMatches(normalizedHandle, candidates: [id, ref]) {
+                return id
+            }
+            if tmuxIndexMatches(normalizedHandle, index: intFromAny(item["index"])) {
+                return id
+            }
+        }
         return nil
     }
 
@@ -13974,9 +14088,16 @@ struct CMUXCLI {
         if token.hasPrefix("@") {
             token = String(token.dropFirst())
         }
+        if token.hasPrefix("$") {
+            token = String(token.dropFirst())
+        }
 
         if let resolvedHandle = try? normalizeWorkspaceHandle(token, client: client, allowCurrent: true) {
             return try resolveWorkspaceId(resolvedHandle, client: client)
+        }
+
+        if let workspaceId = try tmuxWorkspaceIdForCompatHandle(token, client: client) {
+            return workspaceId
         }
 
         let needle = token.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13996,6 +14117,11 @@ struct CMUXCLI {
         let workspaceId: String = {
             if let workspaceSelector {
                 return (try? tmuxResolveWorkspaceTarget(workspaceSelector, client: client)) ?? ""
+            }
+            if let paneSelector,
+               let callerWorkspaceId = tmuxResolvedCallerWorkspaceId(client: client),
+               (try? tmuxCanonicalPaneId(paneSelector, workspaceId: callerWorkspaceId, client: client)) != nil {
+                return callerWorkspaceId
             }
             if let paneSelector,
                let workspaceId = try? tmuxWorkspaceIdForPaneHandle(paneSelector, client: client) {
@@ -14158,8 +14284,17 @@ struct CMUXCLI {
         let canonicalWorkspaceId = try resolveWorkspaceId(workspaceId, client: client)
         var context: [String: String] = [
             "session_name": "cmux",
-            "window_id": "@\(canonicalWorkspaceId)",
-            "window_uuid": canonicalWorkspaceId
+            "session_id": "$\(tmuxStableNumericId(canonicalWorkspaceId))",
+            "session_attached": "1",
+            "window_id": "@\(tmuxStableNumericId(canonicalWorkspaceId))",
+            "window_uuid": canonicalWorkspaceId,
+            "window_active": "1",
+            "window_width": "80",
+            "window_height": "24",
+            "pane_active": "1",
+            "pane_width": "80",
+            "pane_height": "24",
+            "pane_current_path": tmuxFallbackCurrentPath()
         ]
 
         let workspaceItems = try tmuxWorkspaceItems(client: client)
@@ -14169,28 +14304,36 @@ struct CMUXCLI {
             if let index = intFromAny(workspace["index"]) {
                 context["window_index"] = String(index)
             }
+            if let active = (workspace["active"] as? Bool)
+                ?? (workspace["focused"] as? Bool)
+                ?? (workspace["selected"] as? Bool) {
+                context["window_active"] = active ? "1" : "0"
+            }
             let title = ((workspace["title"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !title.isEmpty {
                 context["window_name"] = title
+            }
+            if let path = tmuxPathFromObject(workspace) {
+                context["pane_current_path"] = path
             }
         }
 
         let currentPayload = try client.sendV2(method: "surface.current", params: ["workspace_id": canonicalWorkspaceId])
         let resolvedPaneId: String? = try {
             if let paneId {
-                return try tmuxCanonicalPaneId(paneId, workspaceId: canonicalWorkspaceId, client: client)
+                return (try? tmuxCanonicalPaneId(paneId, workspaceId: canonicalWorkspaceId, client: client)) ?? paneId
             }
             if let currentPaneId = currentPayload["pane_id"] as? String {
                 return currentPaneId
             }
             if let currentPaneRef = currentPayload["pane_ref"] as? String {
-                return try tmuxCanonicalPaneId(currentPaneRef, workspaceId: canonicalWorkspaceId, client: client)
+                return (try? tmuxCanonicalPaneId(currentPaneRef, workspaceId: canonicalWorkspaceId, client: client)) ?? currentPaneRef
             }
             return nil
         }()
         let resolvedSurfaceId: String? = try {
             if let surfaceId {
-                return try tmuxCanonicalSurfaceId(surfaceId, workspaceId: canonicalWorkspaceId, client: client)
+                return (try? tmuxCanonicalSurfaceId(surfaceId, workspaceId: canonicalWorkspaceId, client: client)) ?? surfaceId
             }
             if let resolvedPaneId {
                 return try tmuxSelectedSurfaceId(
@@ -14203,13 +14346,17 @@ struct CMUXCLI {
         }()
 
         if let resolvedPaneId {
-            context["pane_id"] = "%\(resolvedPaneId)"
+            context["pane_id"] = "%\(tmuxStableNumericId(resolvedPaneId))"
             context["pane_uuid"] = resolvedPaneId
             let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": canonicalWorkspaceId])
             let panes = panePayload["panes"] as? [[String: Any]] ?? []
-            if let pane = panes.first(where: { ($0["id"] as? String) == resolvedPaneId }),
-               let index = intFromAny(pane["index"]) {
-                context["pane_index"] = String(index)
+            if let pane = panes.first(where: { ($0["id"] as? String) == resolvedPaneId }) {
+                if let index = intFromAny(pane["index"]) {
+                    context["pane_index"] = String(index)
+                }
+                if let focused = pane["focused"] as? Bool {
+                    context["pane_active"] = focused ? "1" : "0"
+                }
             }
         }
 
@@ -14222,6 +14369,9 @@ struct CMUXCLI {
                 if !title.isEmpty {
                     context["pane_title"] = title
                     context["window_name"] = context["window_name"] ?? title
+                }
+                if let path = tmuxPathFromObject(surface) {
+                    context["pane_current_path"] = path
                 }
                 let paneStartCommand = [
                     surface["tmux_start_command"],
@@ -14367,11 +14517,12 @@ struct CMUXCLI {
         let fakeTmuxValue: String = {
             if let focusedContext {
                 let windowToken = focusedContext.windowId ?? focusedContext.workspaceId
-                return "/tmp/\(tmuxPathPrefix)/\(focusedContext.workspaceId),\(windowToken),\(focusedContext.paneHandle)"
+                let paneToken = tmuxStableNumericId(focusedContext.paneId ?? focusedContext.paneHandle)
+                return "/tmp/\(tmuxPathPrefix)/\(focusedContext.workspaceId),\(windowToken),\(paneToken)"
             }
             return processEnvironment["TMUX"] ?? "/tmp/\(tmuxPathPrefix)/default,0,0"
         }()
-        let fakeTmuxPane = focusedContext.map { "%\($0.paneHandle)" }
+        let fakeTmuxPane = focusedContext.map { "%\(tmuxStableNumericId($0.paneId ?? $0.paneHandle))" }
             ?? processEnvironment["TMUX_PANE"]
             ?? "%1"
         let fakeTerm = processEnvironment[termOverrideEnvVar] ?? "screen-256color"
