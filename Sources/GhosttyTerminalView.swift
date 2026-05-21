@@ -4665,7 +4665,11 @@ final class GhosttyMetalLayer: CAMetalLayer {
         drawableCount += 1
         lastDrawableTime = CACurrentMediaTime()
         lock.unlock()
-        surfaceView?.enqueueRenderedFrameUpdate()
+        if let surfaceView {
+            DispatchQueue.main.async { [weak surfaceView] in
+                surfaceView?.enqueueRenderedFrameUpdate()
+            }
+        }
         return drawable
     }
 }

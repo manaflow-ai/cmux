@@ -486,12 +486,12 @@ final class CmuxSettingsFileStore {
         }
 
         if let value = jsonInt(section["textBoxMaxLines"]) {
-            guard value >= TerminalTextBoxInputSettings.minimumMaxLines,
-                  value <= TerminalTextBoxInputSettings.maximumMaxLines else {
+            if value >= TerminalTextBoxInputSettings.minimumMaxLines,
+               value <= TerminalTextBoxInputSettings.maximumMaxLines {
+                snapshot.managedUserDefaults[TerminalTextBoxInputSettings.maxLinesKey] = .int(value)
+            } else {
                 logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[TerminalTextBoxInputSettings.maxLinesKey] = .int(value)
         } else if section.keys.contains("textBoxMaxLines") {
             logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
         }
