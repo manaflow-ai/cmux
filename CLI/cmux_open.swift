@@ -108,6 +108,11 @@ extension CMUXCLI {
         }
     }
 
+    private struct DiffViewerAssets {
+        var diffsModuleURL: String
+        var treesModuleURL: String
+    }
+
     private enum DiffSource: CaseIterable, Equatable {
         case unstaged
         case staged
@@ -1051,11 +1056,14 @@ extension CMUXCLI {
             baseCommit: baseCommit,
             capturedAt: Date().timeIntervalSince1970
         )
+        var removedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
+        var retainedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
         try updateAgentTurnDiffBaselineStore(path: CMUXAgentTurnDiffBaselineFile.path(env: env)) { store in
+            let previousRecords = store.records
             store.records.removeAll { existing in
                 guard standardizedDiffSourcePath(existing.repoRoot) == repoRoot,
-                      existing.workspaceId == workspaceId,
-                      existing.surfaceId == surfaceId,
+                      diffScopeIdentifierEquals(existing.workspaceId, workspaceId),
+                      diffScopeIdentifierEquals(existing.surfaceId, surfaceId),
                       existing.sessionId == record.sessionId else {
                     return false
                 }
@@ -1066,7 +1074,12 @@ extension CMUXCLI {
             }
             store.records.append(record)
             pruneAgentTurnDiffBaselineStore(&store)
+            retainedRecords = store.records
+            removedRecords = previousRecords.filter { previous in
+                !store.records.contains { agentTurnDiffBaselineRecordEquals($0, previous) }
+            }
         }
+        pruneAgentTurnDiffBaselineRefs(removedRecords: removedRecords, retainedRecords: retainedRecords)
     }
 
     private func agentTurnDiffBaselineCommit(in repoRoot: String) throws -> String {
@@ -1100,8 +1113,8 @@ extension CMUXCLI {
         let repoRoot = standardizedDiffSourcePath(repoRoot)
         let candidates = store.records.filter { record in
             standardizedDiffSourcePath(record.repoRoot) == repoRoot
-                && record.workspaceId == workspaceId
-                && record.surfaceId == surfaceId
+                && diffScopeIdentifierEquals(record.workspaceId, workspaceId)
+                && diffScopeIdentifierEquals(record.surfaceId, surfaceId)
         }
         guard let record = candidates.max(by: { $0.capturedAt < $1.capturedAt }) else {
             throw CLIError(message: "No last-turn diff baseline recorded for this workspace and surface yet. Run another agent turn with cmux hooks active, or use --unstaged, --staged, or --branch.")
@@ -1153,6 +1166,50 @@ extension CMUXCLI {
         if store.records.count > 200 {
             store.records.removeSubrange(200..<store.records.count)
         }
+    }
+
+    private func pruneAgentTurnDiffBaselineRefs(
+        removedRecords: [CMUXAgentTurnDiffBaselineRecord],
+        retainedRecords: [CMUXAgentTurnDiffBaselineRecord]
+    ) {
+        var deletedKeys: Set<String> = []
+        for record in removedRecords {
+            let repoRoot = standardizedDiffSourcePath(record.repoRoot)
+            let key = "\(repoRoot)\u{0}\(record.baseCommit)"
+            guard deletedKeys.insert(key).inserted else { continue }
+            let stillRetained = retainedRecords.contains { retained in
+                standardizedDiffSourcePath(retained.repoRoot) == repoRoot
+                    && retained.baseCommit == record.baseCommit
+            }
+            guard !stillRetained else { continue }
+            _ = CLIProcessRunner.runProcess(
+                executablePath: "/usr/bin/env",
+                arguments: ["git", "-C", repoRoot, "update-ref", "-d", agentTurnDiffBaselineRefName(for: record.baseCommit)],
+                timeout: 30
+            )
+        }
+    }
+
+    private func agentTurnDiffBaselineRecordEquals(
+        _ lhs: CMUXAgentTurnDiffBaselineRecord,
+        _ rhs: CMUXAgentTurnDiffBaselineRecord
+    ) -> Bool {
+        standardizedDiffSourcePath(lhs.repoRoot) == standardizedDiffSourcePath(rhs.repoRoot)
+            && diffScopeIdentifierEquals(lhs.workspaceId, rhs.workspaceId)
+            && diffScopeIdentifierEquals(lhs.surfaceId, rhs.surfaceId)
+            && lhs.sessionId == rhs.sessionId
+            && lhs.turnId == rhs.turnId
+            && lhs.agent == rhs.agent
+            && lhs.baseCommit == rhs.baseCommit
+            && lhs.capturedAt == rhs.capturedAt
+    }
+
+    private func diffScopeIdentifierEquals(_ lhs: String, _ rhs: String) -> Bool {
+        if let lhsUUID = UUID(uuidString: lhs),
+           let rhsUUID = UUID(uuidString: rhs) {
+            return lhsUUID == rhsUUID
+        }
+        return lhs == rhs
     }
 
     private func normalizedDiffSourceValue(_ value: String?) -> String? {
@@ -1737,7 +1794,10 @@ extension CMUXCLI {
         if let externalURL {
             payload["externalURL"] = externalURL
         }
+        let assets = try ensureDiffViewerAssets(nextTo: viewerURL)
         let payloadLiteral = try jsonScriptLiteral(payload)
+        let diffsModuleLiteral = try jsonStringLiteral(assets.diffsModuleURL)
+        let treesModuleLiteral = try jsonStringLiteral(assets.treesModuleURL)
         let escapedTitle = htmlEscaped(title)
         let html = """
         <!doctype html>
@@ -2244,8 +2304,8 @@ extension CMUXCLI {
             </section>
           </div>
           <script type="module">
-            const DIFFS_MODULE_URL = "https://esm.run/@pierre/diffs@1.2.1";
-            const TREES_MODULE_URL = "https://esm.run/@pierre/trees@1.0.0-beta.4";
+            const DIFFS_MODULE_URL = \(diffsModuleLiteral);
+            const TREES_MODULE_URL = \(treesModuleLiteral);
             const payload = \(payloadLiteral);
             const viewerElement = document.getElementById("viewer");
             const status = document.getElementById("status");
@@ -3107,10 +3167,142 @@ extension CMUXCLI {
         try html.write(to: viewerURL, atomically: true, encoding: .utf8)
     }
 
+    private func ensureDiffViewerAssets(nextTo viewerURL: URL) throws -> DiffViewerAssets {
+        let sourceDirectory = try diffViewerBundledAssetDirectory()
+        let assetDirectoryName = "pierre-diffs-1.2.1-trees-1.0.0-beta.4"
+        let targetDirectory = viewerURL.deletingLastPathComponent()
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent(assetDirectoryName, isDirectory: true)
+        try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+
+        try copyDiffViewerAsset(named: "diffs.mjs", from: sourceDirectory, to: targetDirectory)
+        try copyDiffViewerAsset(named: "trees.mjs", from: sourceDirectory, to: targetDirectory)
+
+        return DiffViewerAssets(
+            diffsModuleURL: "./assets/\(assetDirectoryName)/diffs.mjs",
+            treesModuleURL: "./assets/\(assetDirectoryName)/trees.mjs"
+        )
+    }
+
+    private func copyDiffViewerAsset(named fileName: String, from sourceDirectory: URL, to targetDirectory: URL) throws {
+        let fileManager = FileManager.default
+        let sourceURL = sourceDirectory.appendingPathComponent(fileName, isDirectory: false)
+        let targetURL = targetDirectory.appendingPathComponent(fileName, isDirectory: false)
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            throw CLIError(message: "Bundled diff viewer asset not found: \(fileName)")
+        }
+
+        let sourceValues = try sourceURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        if fileManager.fileExists(atPath: targetURL.path),
+           let targetValues = try? targetURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+           targetValues.fileSize == sourceValues.fileSize,
+           let sourceDate = sourceValues.contentModificationDate,
+           let targetDate = targetValues.contentModificationDate,
+           targetDate >= sourceDate {
+            return
+        }
+
+        if fileManager.fileExists(atPath: targetURL.path) {
+            try fileManager.removeItem(at: targetURL)
+        }
+        try fileManager.copyItem(at: sourceURL, to: targetURL)
+    }
+
+    private func diffViewerBundledAssetDirectory() throws -> URL {
+        let candidates = diffViewerBundledAssetDirectoryCandidates()
+        if let directory = candidates.first {
+            return directory
+        }
+        throw CLIError(message: "Bundled diff viewer assets not found")
+    }
+
+    private func diffViewerBundledAssetDirectoryCandidates() -> [URL] {
+        let fileManager = FileManager.default
+        var candidates: [URL] = []
+        var seen: Set<String> = []
+
+        func appendIfExisting(_ url: URL?) {
+            guard let url else { return }
+            let standardized = url.standardizedFileURL
+            guard seen.insert(standardized.path).inserted else { return }
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: standardized.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return
+            }
+            let diffsAsset = standardized.appendingPathComponent("diffs.mjs", isDirectory: false)
+            let treesAsset = standardized.appendingPathComponent("trees.mjs", isDirectory: false)
+            guard fileManager.fileExists(atPath: diffsAsset.path),
+                  fileManager.fileExists(atPath: treesAsset.path) else {
+                return
+            }
+            candidates.append(standardized)
+        }
+
+        appendIfExisting(
+            Bundle.main.resourceURL?
+                .appendingPathComponent("markdown-viewer", isDirectory: true)
+                .appendingPathComponent("diff-viewer", isDirectory: true)
+        )
+
+        if let executableURL = resolvedExecutableURL() {
+            let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
+            for relativePath in [
+                "markdown-viewer/diff-viewer",
+                "../markdown-viewer/diff-viewer",
+                "../../Resources/markdown-viewer/diff-viewer",
+                "../../../Contents/Resources/markdown-viewer/diff-viewer"
+            ] {
+                appendIfExisting(execDir.appendingPathComponent(relativePath, isDirectory: true).standardizedFileURL)
+            }
+
+            var current = execDir
+            for _ in 0..<6 {
+                if current.pathExtension == "app" {
+                    appendIfExisting(
+                        current
+                            .appendingPathComponent("Contents", isDirectory: true)
+                            .appendingPathComponent("Resources", isDirectory: true)
+                            .appendingPathComponent("markdown-viewer", isDirectory: true)
+                            .appendingPathComponent("diff-viewer", isDirectory: true)
+                    )
+                    break
+                }
+                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
+                let repoAssetDirectory = current
+                    .appendingPathComponent("Resources", isDirectory: true)
+                    .appendingPathComponent("markdown-viewer", isDirectory: true)
+                    .appendingPathComponent("diff-viewer", isDirectory: true)
+                if fileManager.fileExists(atPath: projectMarker.path) {
+                    appendIfExisting(repoAssetDirectory)
+                    break
+                }
+                current = current.deletingLastPathComponent().standardizedFileURL
+            }
+        }
+
+        let devRelative = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("markdown-viewer", isDirectory: true)
+            .appendingPathComponent("diff-viewer", isDirectory: true)
+        appendIfExisting(devRelative)
+        return candidates
+    }
+
     private func jsonScriptLiteral(_ object: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
         guard let text = String(data: data, encoding: .utf8) else {
             throw CLIError(message: "Failed to encode diff viewer payload")
+        }
+        return text.replacingOccurrences(of: "</", with: "<\\/")
+    }
+
+    private func jsonStringLiteral(_ value: String) throws -> String {
+        let data = try JSONEncoder().encode(value)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw CLIError(message: "Failed to encode diff viewer string")
         }
         return text.replacingOccurrences(of: "</", with: "<\\/")
     }

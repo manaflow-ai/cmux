@@ -317,13 +317,6 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let html = try String(contentsOf: viewerURL, encoding: .utf8)
         XCTAssertTrue(html.contains("Review diff"), html)
-        XCTAssertTrue(html.contains("CodeView"), html)
-        XCTAssertTrue(html.contains("queueMicrotask"), html)
-        XCTAssertTrue(html.contains("await import(DIFFS_MODULE_URL)"), html)
-        XCTAssertTrue(html.contains("TREES_MODULE_URL"), html)
-        XCTAssertTrue(html.contains("@pierre/trees@1.0.0-beta.4"), html)
-        XCTAssertTrue(html.contains("setupPierreFileTree"), html)
-        XCTAssertTrue(html.contains("preparePresortedFileTreeInput"), html)
         XCTAssertTrue(html.contains("id=\"files-sidebar\""), html)
         XCTAssertTrue(html.contains("right: 0;"), html)
         XCTAssertTrue(html.contains("margin-right: var(--cmux-diff-files-width)"), html)
@@ -332,18 +325,14 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("id=\"jump-select\""), html)
         XCTAssertTrue(html.contains("id=\"layout-toggle\""), html)
         XCTAssertTrue(html.contains("id=\"options-menu\""), html)
-        XCTAssertTrue(html.contains("setupFileExplorer"), html)
-        XCTAssertTrue(html.contains("setupJumpSelector"), html)
-        XCTAssertTrue(html.contains("codeViewOptions"), html)
-        XCTAssertTrue(html.contains("lineDiffType"), html)
-        XCTAssertTrue(html.contains("disableLineNumbers"), html)
-        XCTAssertTrue(html.contains("disableBackground"), html)
-        XCTAssertTrue(html.contains("diffIndicators"), html)
+        let assetDirectory = viewerURL.deletingLastPathComponent()
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("pierre-diffs-1.2.1-trees-1.0.0-beta.4", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("diffs.mjs").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("trees.mjs").path))
         XCTAssertTrue(html.contains("Indicator style"), html)
         XCTAssertTrue(html.contains("Open source URL"), html)
         XCTAssertTrue(html.contains("Copy git apply command"), html)
-        XCTAssertTrue(html.contains("stickyHeaders: true"), html)
-        XCTAssertTrue(html.contains("--diffs-font-size"), html)
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
         XCTAssertTrue(html.contains("\"fontSize\":13"), html)
         XCTAssertFalse(html.contains("\"fontSize\":15"), html)
@@ -482,8 +471,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         try writeDiffBaselineStore(
             stateDirectoryURL: stateURL,
             repoURL: repoURL,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
+            workspaceId: workspaceId.uppercased(),
+            surfaceId: surfaceId.uppercased(),
             baseCommit: initialCommit
         )
         let lastTurn = try runDiffCLIAndReadHTML(

@@ -92,6 +92,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
             return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        func baselineRecords() throws -> [[String: Any]] {
+            let storeURL = context.root.appendingPathComponent("agent-turn-diff-baselines.json")
+            let store = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            return try XCTUnwrap(store["records"] as? [[String: Any]])
+        }
 
         _ = try runGit(["init"])
         _ = try runGit(["checkout", "-b", "main"])
@@ -102,7 +107,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         _ = try runGit(["commit", "-m", "initial"])
         let initialCommit = try runGit(["rev-parse", "HEAD"])
 
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 2)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 8)
         let sessionId = "codex-last-turn-session"
         let sessionStart = runCodexHook(
             context: context,
@@ -127,15 +132,58 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(promptSubmit.timedOut, promptSubmit.stderr)
         XCTAssertEqual(promptSubmit.status, 0, promptSubmit.stderr)
 
-        let storeURL = context.root.appendingPathComponent("agent-turn-diff-baselines.json")
-        let store = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let records = try XCTUnwrap(store["records"] as? [[String: Any]])
+        let records = try baselineRecords()
         let startRecord = try XCTUnwrap(records.first { $0["turnId"] as? String == "turn-0" })
         let promptRecord = try XCTUnwrap(records.first { $0["turnId"] as? String == "turn-1" })
         XCTAssertEqual(startRecord["baseCommit"] as? String, initialCommit)
         XCTAssertEqual(promptRecord["baseCommit"] as? String, promptCommit)
         XCTAssertEqual(promptRecord["workspaceId"] as? String, context.workspaceId)
         XCTAssertEqual(promptRecord["surfaceId"] as? String, context.surfaceId)
+
+        try "one\ntwo\nthree\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        let dirtyPromptSubmit = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(dirtyPromptSubmit.timedOut, dirtyPromptSubmit.stderr)
+        XCTAssertEqual(dirtyPromptSubmit.status, 0, dirtyPromptSubmit.stderr)
+
+        let dirtyRecords = try baselineRecords()
+        let dirtyRecord = try XCTUnwrap(dirtyRecords.first { $0["turnId"] as? String == "turn-1" })
+        let dirtyBaseCommit = try XCTUnwrap(dirtyRecord["baseCommit"] as? String)
+        XCTAssertEqual(
+            try runGit(["show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(dirtyBaseCommit)"]),
+            dirtyBaseCommit
+        )
+
+        try "one\ntwo\nthree\nfour\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        let refreshedDirtyPromptSubmit = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(refreshedDirtyPromptSubmit.timedOut, refreshedDirtyPromptSubmit.stderr)
+        XCTAssertEqual(refreshedDirtyPromptSubmit.status, 0, refreshedDirtyPromptSubmit.stderr)
+
+        let refreshedRecords = try baselineRecords()
+        let refreshedRecord = try XCTUnwrap(refreshedRecords.first { $0["turnId"] as? String == "turn-1" })
+        let refreshedBaseCommit = try XCTUnwrap(refreshedRecord["baseCommit"] as? String)
+        XCTAssertNotEqual(refreshedBaseCommit, dirtyBaseCommit)
+        let oldRef = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", context.root.path, "show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(dirtyBaseCommit)"],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 10
+        )
+        XCTAssertFalse(oldRef.timedOut, oldRef.stderr)
+        XCTAssertNotEqual(oldRef.status, 0, oldRef.stdout)
+        XCTAssertEqual(
+            try runGit(["show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(refreshedBaseCommit)"]),
+            refreshedBaseCommit
+        )
     }
 
     func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
