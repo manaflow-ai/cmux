@@ -27,6 +27,9 @@
     <BuildableProductRunnable runnableDebuggingMode="0">
       <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A5001050" BuildableName="cmux.app" BlueprintName="cmux" ReferencedContainer="container:cmux.xcodeproj"/>
     </BuildableProductRunnable>
+    <EnvironmentVariables>
+      <EnvironmentVariable key="SWIFT_BACKTRACE" value="enable=no,interactive=no,timeout=0s,color=no,symbolicate=off" isEnabled="YES"/>
+    </EnvironmentVariables>
   </LaunchAction>
   <ProfileAction buildConfiguration="Debug" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES">
     <BuildableProductRunnable runnableDebuggingMode="0">
