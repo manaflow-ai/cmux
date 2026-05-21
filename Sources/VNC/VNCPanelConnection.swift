@@ -2,10 +2,15 @@ import CMUXVNC
 import Darwin
 import Foundation
 
+enum VNCPanelConnectionExit {
+    case disconnected
+    case failure(reason: String, shouldRestart: Bool)
+}
+
 final class VNCPanelConnection {
     typealias ControlHandler = @MainActor (VNCControlMessage) -> Void
     typealias FrameHandler = @MainActor (VNCFrameHeader, Data) -> Void
-    typealias ExitHandler = @MainActor (String, Bool) -> Void
+    typealias ExitHandler = @MainActor (VNCPanelConnectionExit) -> Void
 
     private let session: MacfleetVNCSession
     private let credential: VNCResolvedCredential
@@ -72,7 +77,7 @@ final class VNCPanelConnection {
             acceptAndRead(connectRequest: request)
         } catch {
             close()
-            notifyMainExit(VNCPanelText.helperLaunchFailed(error.localizedDescription), shouldRestart: false)
+            notifyMainExit(.failure(reason: VNCPanelText.helperLaunchFailed, shouldRestart: false))
         }
     }
 
@@ -81,11 +86,16 @@ final class VNCPanelConnection {
         do {
             let message = try VNCIPCCodec.encodeControl(control)
             writeQueue.async { [weak self] in
-                guard let fileDescriptor = self?.clientFileDescriptorForWrite(orQueue: message) else { return }
-                Self.write(message, to: fileDescriptor)
+                do {
+                    guard let fileDescriptor = try self?.clientFileDescriptorForWrite(orQueue: message) else { return }
+                    defer { Darwin.close(fileDescriptor) }
+                    try Self.write(message, to: fileDescriptor)
+                } catch {
+                    self?.notifyExit(.failure(reason: VNCPanelText.helperDisconnected, shouldRestart: false))
+                }
             }
         } catch {
-            notifyMainExit(VNCPanelText.helperProtocolFailed(error.localizedDescription), shouldRestart: false)
+            notifyMainExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: false))
         }
     }
 
@@ -105,15 +115,18 @@ final class VNCPanelConnection {
             return state
         }
         guard let state else { return }
-        if state.client >= 0 {
-            _ = Darwin.shutdown(state.client, SHUT_RDWR)
-            Darwin.close(state.client)
+        let socketPath = socketPath
+        DispatchQueue.global(qos: .utility).async {
+            if state.client >= 0 {
+                _ = Darwin.shutdown(state.client, SHUT_RDWR)
+                Darwin.close(state.client)
+            }
+            if state.listener >= 0 {
+                Darwin.close(state.listener)
+            }
+            unlink(socketPath)
+            state.process?.terminate()
         }
-        if state.listener >= 0 {
-            Darwin.close(state.listener)
-        }
-        unlink(socketPath)
-        state.process?.terminate()
     }
 
     private func launchHelper() throws {
@@ -133,7 +146,11 @@ final class VNCPanelConnection {
                 guard let self, !self.isCurrentlyClosed() else { return }
                 let status = process.terminationStatus
                 self.close()
-                self.onExit(VNCPanelText.helperExited(Int(status)), status != 0)
+                if status == 0 {
+                    self.onExit(.disconnected)
+                } else {
+                    self.onExit(.failure(reason: VNCPanelText.helperExited(Int(status)), shouldRestart: true))
+                }
             }
         }
         try process.run()
@@ -152,9 +169,10 @@ final class VNCPanelConnection {
         let accepted = Darwin.accept(listener, nil, nil)
         guard accepted >= 0 else {
             if isCurrentlyClosed() { return }
-            notifyExit(VNCPanelText.socketAcceptFailed(errno), shouldRestart: true)
+            notifyExit(.failure(reason: VNCPanelText.socketAcceptFailed(errno), shouldRestart: true))
             return
         }
+        Self.disableSIGPIPE(on: accepted)
 
         let acceptedState = stateLock.withLock { () -> (listener: Int32, pending: [Data])? in
             if isClosed {
@@ -177,13 +195,13 @@ final class VNCPanelConnection {
 
         do {
             let connectMessage = try VNCIPCCodec.encodeControl(.connect(connectRequest))
-            Self.write(connectMessage, to: accepted)
+            try Self.write(connectMessage, to: accepted)
             for message in acceptedState.pending {
-                Self.write(message, to: accepted)
+                try Self.write(message, to: accepted)
             }
             readMessages(from: accepted)
         } catch {
-            notifyExit(VNCPanelText.helperProtocolFailed(error.localizedDescription), shouldRestart: true)
+            notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: true))
         }
     }
 
@@ -200,19 +218,19 @@ final class VNCPanelConnection {
                         publish(message)
                     }
                 } catch {
-                    notifyExit(VNCPanelText.helperProtocolFailed(error.localizedDescription), shouldRestart: true)
+                    notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: true))
                     return
                 }
                 continue
             }
             if byteCount == 0 {
-                notifyExit(VNCPanelText.helperDisconnected, shouldRestart: false)
+                notifyExit(.disconnected)
                 return
             }
             if errno == EINTR {
                 continue
             }
-            notifyExit(VNCPanelText.socketReadFailed(errno), shouldRestart: true)
+            notifyExit(.failure(reason: VNCPanelText.socketReadFailed(errno), shouldRestart: true))
             return
         }
     }
@@ -229,18 +247,18 @@ final class VNCPanelConnection {
         }
     }
 
-    private func notifyExit(_ reason: String, shouldRestart: Bool) {
+    private func notifyExit(_ exit: VNCPanelConnectionExit) {
         Task { @MainActor in
             guard !isCurrentlyClosed() else { return }
             close()
-            onExit(reason, shouldRestart)
+            onExit(exit)
         }
     }
 
-    private func notifyMainExit(_ reason: String, shouldRestart: Bool) {
+    private func notifyMainExit(_ exit: VNCPanelConnectionExit) {
         Task { @MainActor in
             close()
-            onExit(reason, shouldRestart)
+            onExit(exit)
         }
     }
 
@@ -248,19 +266,24 @@ final class VNCPanelConnection {
         stateLock.withLock { isClosed }
     }
 
-    private func clientFileDescriptorForWrite(orQueue message: Data) -> Int32? {
-        stateLock.withLock {
+    private func clientFileDescriptorForWrite(orQueue message: Data) throws -> Int32? {
+        try stateLock.withLock {
             guard !isClosed else { return nil }
             if clientFileDescriptor >= 0 {
-                return clientFileDescriptor
+                let duplicateFileDescriptor = Darwin.dup(clientFileDescriptor)
+                guard duplicateFileDescriptor >= 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+                Self.disableSIGPIPE(on: duplicateFileDescriptor)
+                return duplicateFileDescriptor
             }
             pendingControlMessages.append(message)
             return nil
         }
     }
 
-    private static func write(_ data: Data, to fileDescriptor: Int32) {
-        data.withUnsafeBytes { bytes in
+    private static func write(_ data: Data, to fileDescriptor: Int32) throws {
+        try data.withUnsafeBytes { bytes in
             guard var baseAddress = bytes.bindMemory(to: UInt8.self).baseAddress else { return }
             var remaining = data.count
             while remaining > 0 {
@@ -273,8 +296,21 @@ final class VNCPanelConnection {
                 if written < 0, errno == EINTR {
                     continue
                 }
-                return
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
+        }
+    }
+
+    private static func disableSIGPIPE(on fileDescriptor: Int32) {
+        var value: Int32 = 1
+        withUnsafePointer(to: &value) { pointer in
+            _ = setsockopt(
+                fileDescriptor,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                pointer,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
         }
     }
 

@@ -90,6 +90,30 @@ final class CMUXVNCTests: XCTestCase {
         )
     }
 
+    func testSessionPersistenceSnapshotDropsPasswords() throws {
+        let session = MacfleetVNCSession(
+            name: "mac3-1",
+            hostName: "mac3",
+            address: "mac3-1",
+            port: 5900,
+            username: "cmuxvnc",
+            sessionPassword: "session",
+            defaultPassword: "fallback",
+            tag: "tag:mac-mini-cluster",
+            index: 1
+        )
+
+        let snapshot = session.nonSecretSnapshot
+        let decoded = try JSONDecoder().decode(
+            MacfleetVNCSession.self,
+            from: JSONEncoder().encode(snapshot)
+        )
+
+        XCTAssertEqual(decoded.name, "mac3-1")
+        XCTAssertNil(decoded.sessionPassword)
+        XCTAssertNil(decoded.defaultPassword)
+    }
+
     func testFrameValidationRejectsInvalidFrames() {
         let valid = VNCFrameHeader(
             sequence: 1,
@@ -260,6 +284,22 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertEqual(frame.header.width, 1)
         XCTAssertEqual(frame.header.height, 1)
         XCTAssertEqual(Array(frame.payload), [5, 6, 7, 8])
+    }
+
+    func testFramebufferComposerRejectsOversizedFramebuffer() {
+        var composer = VNCFramebufferComposer()
+        let header = VNCFrameHeader(
+            sequence: 1,
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            framebufferWidth: 16_384,
+            framebufferHeight: 16_384,
+            stride: 4
+        )
+
+        XCTAssertNil(composer.apply(header: header, payload: Data([1, 2, 3, 4])))
     }
 
     func testIPCFrameRoundTrip() throws {

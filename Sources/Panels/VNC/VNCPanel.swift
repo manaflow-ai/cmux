@@ -70,19 +70,20 @@ final class VNCPanel: Panel, ObservableObject {
                 guard self?.connectionID == nextConnectionID else { return }
                 self?.applyFrame(header: header, payload: payload)
             },
-            onExit: { [weak self] reason, shouldRestart in
+            onExit: { [weak self] exit in
                 guard let self, self.connectionID == nextConnectionID else { return }
-                if case .disconnected = self.connectionState {
-                    self.connection = nil
-                    self.connectionID = nil
-                    return
-                }
                 self.connection = nil
                 self.connectionID = nil
-                if shouldRestart, self.restartAfterUnexpectedExit(reason: reason) {
+                switch exit {
+                case .disconnected:
+                    self.connectionState = .disconnected
                     return
+                case .failure(let reason, let shouldRestart):
+                    if shouldRestart, self.restartAfterUnexpectedExit(reason: reason) {
+                        return
+                    }
+                    self.connectionState = .failed(reason)
                 }
-                self.connectionState = .failed(reason)
             }
         )
         connection = nextConnection

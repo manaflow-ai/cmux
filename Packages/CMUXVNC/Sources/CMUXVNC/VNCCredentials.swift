@@ -1,12 +1,12 @@
 import Foundation
 
-public enum VNCCredentialSource: String, Equatable, Sendable {
+public enum VNCCredentialSource: String, Codable, Equatable, Sendable {
     case keychain
     case sessionPassword
     case defaultPassword
 }
 
-public struct VNCResolvedCredential: Equatable, Sendable {
+public struct VNCResolvedCredential: Equatable, Codable, Sendable {
     public var username: String
     public var password: String
     public var source: VNCCredentialSource

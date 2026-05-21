@@ -89,14 +89,12 @@ enum VNCPanelText {
         String(localized: "vnc.error.helperDisconnected", defaultValue: "The VNC helper disconnected.")
     }
 
-    static func helperLaunchFailed(_ detail: String) -> String {
-        let format = String(localized: "vnc.error.helperLaunchFailed", defaultValue: "The VNC helper could not start: %@")
-        return String(format: format, detail)
+    static var helperLaunchFailed: String {
+        String(localized: "vnc.error.helperLaunchFailed", defaultValue: "The VNC helper could not start.")
     }
 
-    static func helperProtocolFailed(_ detail: String) -> String {
-        let format = String(localized: "vnc.error.helperProtocolFailed", defaultValue: "The VNC helper sent invalid data: %@")
-        return String(format: format, detail)
+    static var helperProtocolFailed: String {
+        String(localized: "vnc.error.helperProtocolFailed", defaultValue: "The VNC helper sent invalid data.")
     }
 
     static func helperExited(_ status: Int) -> String {

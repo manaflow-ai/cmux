@@ -88,8 +88,8 @@ struct VNCPanelView: View {
             return VNCPanelText.stateConnected
         case .disconnected:
             return VNCPanelText.stateDisconnected
-        case .failed:
-            return VNCPanelText.stateFailed
+        case .failed(let message):
+            return message
         }
     }
 

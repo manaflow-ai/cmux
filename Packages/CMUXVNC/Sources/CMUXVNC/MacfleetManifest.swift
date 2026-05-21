@@ -184,7 +184,7 @@ public struct MacfleetSessionConfig: Decodable, Equatable, Sendable {
     }
 }
 
-public struct MacfleetVNCSession: Equatable, Identifiable, Sendable {
+public struct MacfleetVNCSession: Equatable, Identifiable, Codable, Sendable {
     public var id: String { name }
     public var name: String
     public var hostName: String
@@ -219,4 +219,16 @@ public struct MacfleetVNCSession: Equatable, Identifiable, Sendable {
     }
 
     public var workspaceTitle: String { name }
+
+    public var nonSecretSnapshot: MacfleetVNCSession {
+        MacfleetVNCSession(
+            name: name,
+            hostName: hostName,
+            address: address,
+            port: port,
+            username: username,
+            tag: tag,
+            index: index
+        )
+    }
 }

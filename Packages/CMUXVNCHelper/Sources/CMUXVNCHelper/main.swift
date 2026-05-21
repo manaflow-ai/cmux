@@ -393,7 +393,21 @@ private func connectUnixSocket(path: String) throws -> Int32 {
         Darwin.close(fd)
         throw error
     }
+    disableSIGPIPE(on: fd)
     return fd
+}
+
+private func disableSIGPIPE(on fd: Int32) {
+    var value: Int32 = 1
+    withUnsafePointer(to: &value) { pointer in
+        _ = setsockopt(
+            fd,
+            SOL_SOCKET,
+            SO_NOSIGPIPE,
+            pointer,
+            socklen_t(MemoryLayout<Int32>.size)
+        )
+    }
 }
 
 private func runFake(channel: SocketChannel) {
@@ -457,7 +471,7 @@ private func parseSocketPath(arguments: [String]) -> (socketPath: String?, fake:
 }
 
 let parsed = parseSocketPath(arguments: CommandLine.arguments)
-guard let socketPath = parsed.socketPath else {
+guard let socketPath = parsed.socketPath, !socketPath.isEmpty else {
     fputs("usage: cmux-vnc-helper --socket <path> [--fake]\n", stderr)
     exit(HelperExit.usage.rawValue)
 }

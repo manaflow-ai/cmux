@@ -468,6 +468,7 @@ extension Workspace {
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
+        let vncSnapshot: SessionVNCPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -528,6 +529,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            vncSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -544,6 +546,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            vncSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
@@ -551,6 +554,7 @@ extension Workspace {
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            vncSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
             terminalSnapshot = nil
@@ -558,6 +562,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
             rightSidebarToolSnapshot = nil
+            vncSnapshot = nil
         case .rightSidebarTool:
             guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
             terminalSnapshot = nil
@@ -565,8 +570,16 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
+            vncSnapshot = nil
         case .vnc:
-            return nil
+            guard let vncPanel = panel as? VNCPanel,
+                  vncPanel.credential.source == .keychain else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            vncSnapshot = SessionVNCPanelSnapshot(session: vncPanel.session.nonSecretSnapshot)
         }
 
         return SessionPanelSnapshot(
@@ -586,7 +599,8 @@ extension Workspace {
             browser: browserSnapshot,
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
-            rightSidebarTool: rightSidebarToolSnapshot
+            rightSidebarTool: rightSidebarToolSnapshot,
+            vnc: vncSnapshot
         )
     }
 
@@ -1060,7 +1074,21 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
             return toolPanel.id
         case .vnc:
-            return nil
+            guard let session = snapshot.vnc?.session,
+                  let credential = VNCCredentialResolver.resolve(
+                    session: session,
+                    keychainPassword: VNCKeychainCredentialProvider.password(for: session)
+                  ),
+                  let vncPanel = newVNCSurface(
+                    inPane: paneId,
+                    session: session,
+                    credential: credential,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: vncPanel.id)
+            return vncPanel.id
         }
     }
 

@@ -4,6 +4,13 @@ import Security
 
 enum VNCKeychainCredentialProvider {
     static func password(for session: MacfleetVNCSession) -> String? {
+        let servers = [session.address, session.name]
+        for server in servers {
+            if let password = internetPassword(server: server, account: session.username, port: session.port) {
+                return password
+            }
+        }
+
         let candidates: [(service: String, account: String)] = [
             ("Screen Sharing", "\(session.address) (\(session.username))"),
             ("Screen Sharing", "\(session.name) (\(session.username))"),
@@ -20,6 +27,15 @@ enum VNCKeychainCredentialProvider {
         }
 
         return nil
+    }
+
+    private static func internetPassword(server: String, account: String, port: Int) -> String? {
+        password(query: [
+            kSecClass as String: kSecClassInternetPassword,
+            kSecAttrServer as String: server,
+            kSecAttrAccount as String: account,
+            kSecAttrPort as String: port
+        ])
     }
 
     private static func genericPassword(service: String, account: String) -> String? {

@@ -7,24 +7,24 @@ extension ContentView {
     func openMacfleetVNCWorkspaces() {
         let manifestURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/macfleet/hosts.json")
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                Self.loadMacfleetVNCLaunchResult(from: manifestURL)
+            }.value
+            openMacfleetVNCWorkspaces(with: result)
+        }
+    }
+
+    nonisolated private static func loadMacfleetVNCLaunchResult(from manifestURL: URL) -> MacfleetVNCLaunchResult {
         guard FileManager.default.fileExists(atPath: manifestURL.path) else {
-            presentMacfleetVNCAlert(
-                title: VNCPanelText.macfleetManifestMissingTitle,
-                message: VNCPanelText.macfleetManifestMissingMessage
-            )
-            return
+            return .manifestMissing
         }
 
         let manifest: MacfleetManifest
         do {
             manifest = try MacfleetManifest.load(from: manifestURL)
         } catch {
-            _ = error
-            presentMacfleetVNCAlert(
-                title: VNCPanelText.macfleetOpenFailedTitle,
-                message: VNCPanelText.macfleetManifestFailedMessage
-            )
-            return
+            return .manifestFailed
         }
 
         let sessions = manifest.expandedSessions()
@@ -32,23 +32,12 @@ extension ContentView {
                 lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
         guard !sessions.isEmpty else {
-            presentMacfleetVNCAlert(
-                title: VNCPanelText.macfleetOpenFailedTitle,
-                message: VNCPanelText.macfleetNoSessionsMessage
-            )
-            return
+            return .noSessions
         }
 
-        var firstWorkspace: Workspace?
-        var openedCount = 0
+        var launchSessions: [MacfleetVNCLaunchSession] = []
         var skippedCredentialCount = 0
-
         for session in sessions {
-            if let existingWorkspace = existingVNCWorkspace(for: session) {
-                firstWorkspace = firstWorkspace ?? existingWorkspace
-                continue
-            }
-
             guard let credential = VNCCredentialResolver.resolve(
                 session: session,
                 keychainPassword: VNCKeychainCredentialProvider.password(for: session)
@@ -56,18 +45,67 @@ extension ContentView {
                 skippedCredentialCount += 1
                 continue
             }
+            launchSessions.append(MacfleetVNCLaunchSession(session: session, credential: credential))
+        }
+        return .sessions(launchSessions, skippedCredentialCount: skippedCredentialCount)
+    }
+
+    @MainActor
+    private func openMacfleetVNCWorkspaces(with result: MacfleetVNCLaunchResult) {
+        switch result {
+        case .manifestMissing:
+            presentMacfleetVNCAlert(
+                title: VNCPanelText.macfleetManifestMissingTitle,
+                message: VNCPanelText.macfleetManifestMissingMessage
+            )
+            return
+        case .manifestFailed:
+            presentMacfleetVNCAlert(
+                title: VNCPanelText.macfleetOpenFailedTitle,
+                message: VNCPanelText.macfleetManifestFailedMessage
+            )
+            return
+        case .noSessions:
+            presentMacfleetVNCAlert(
+                title: VNCPanelText.macfleetOpenFailedTitle,
+                message: VNCPanelText.macfleetNoSessionsMessage
+            )
+            return
+        case .sessions(let launchSessions, let skippedCredentialCount):
+            openMacfleetVNCWorkspaces(
+                launchSessions: launchSessions,
+                skippedCredentialCount: skippedCredentialCount
+            )
+        }
+    }
+
+    @MainActor
+    private func openMacfleetVNCWorkspaces(
+        launchSessions: [MacfleetVNCLaunchSession],
+        skippedCredentialCount: Int
+    ) {
+        var firstWorkspace: Workspace?
+        var openedCount = 0
+
+        for launchSession in launchSessions {
+            if let existingWorkspace = existingVNCWorkspace(for: launchSession.session) {
+                firstWorkspace = firstWorkspace ?? existingWorkspace
+                continue
+            }
 
             let workspace = tabManager.addWorkspace(
-                title: session.workspaceTitle,
+                title: launchSession.session.workspaceTitle,
                 inheritWorkingDirectory: false,
                 select: false,
                 eagerLoadTerminal: false,
                 autoWelcomeIfNeeded: false
             )
-            workspace.setCustomDescription(VNCPanelText.workspaceDescription(sessionName: session.name))
-            if openVNCSession(session, credential: credential, in: workspace) {
+            workspace.setCustomDescription(VNCPanelText.workspaceDescription(sessionName: launchSession.session.name))
+            if openVNCSession(launchSession.session, credential: launchSession.credential, in: workspace) {
                 firstWorkspace = firstWorkspace ?? workspace
                 openedCount += 1
+            } else {
+                tabManager.closeWorkspace(workspace)
             }
         }
 
@@ -92,6 +130,18 @@ extension ContentView {
                 )
             )
         }
+    }
+
+    private enum MacfleetVNCLaunchResult: Sendable {
+        case manifestMissing
+        case manifestFailed
+        case noSessions
+        case sessions([MacfleetVNCLaunchSession], skippedCredentialCount: Int)
+    }
+
+    private struct MacfleetVNCLaunchSession: Sendable {
+        var session: MacfleetVNCSession
+        var credential: VNCResolvedCredential
     }
 
     @MainActor

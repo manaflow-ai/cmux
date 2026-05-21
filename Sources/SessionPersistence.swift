@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Bonsplit
+import CMUXVNC
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -1083,6 +1084,10 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     var mode: RightSidebarMode
 }
 
+struct SessionVNCPanelSnapshot: Codable, Sendable {
+    var session: MacfleetVNCSession
+}
+
 struct SessionNotificationSnapshot: Codable, Sendable {
     var id: UUID
     var title: String
@@ -1161,6 +1166,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
+    var vnc: SessionVNCPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {

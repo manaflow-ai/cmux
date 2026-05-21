@@ -11,6 +11,8 @@ public struct VNCComposedFrame: Equatable, Sendable {
 }
 
 public struct VNCFramebufferComposer: Sendable {
+    private static let maxFramebufferPixels = 33_554_432
+
     private var framebuffer = Data()
     private var framebufferWidth = 0
     private var framebufferHeight = 0
@@ -72,7 +74,7 @@ public struct VNCFramebufferComposer: Sendable {
     private static func framebufferByteCount(width: Int, height: Int) -> Int? {
         guard width > 0, height > 0 else { return nil }
         let (pixelCount, pixelOverflow) = width.multipliedReportingOverflow(by: height)
-        guard !pixelOverflow else { return nil }
+        guard !pixelOverflow, pixelCount <= maxFramebufferPixels else { return nil }
         let (byteCount, byteOverflow) = pixelCount.multipliedReportingOverflow(by: 4)
         guard !byteOverflow else { return nil }
         return byteCount
