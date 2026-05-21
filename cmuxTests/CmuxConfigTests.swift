@@ -997,6 +997,48 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testLocalNewWorkspaceDefinitionSuppressesLegacyNewWorkspaceCommand() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "newWorkspace": {
+            "name": "Template",
+            "docks": {
+              "left": [{ "open": true, "width": 240 }]
+            }
+          },
+          "newWorkspaceCommand": "Legacy",
+          "commands": [{
+            "name": "Legacy",
+            "workspace": { "name": "Legacy Workspace" }
+          }]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertNil(store.resolvedNewWorkspaceAction())
+        XCTAssertNil(store.resolvedNewWorkspaceCommand())
+        let definition = try XCTUnwrap(store.resolvedNewWorkspaceDefinition())
+        XCTAssertEqual(definition.name, "Template")
+        XCTAssertEqual(definition.docks?.left?.first?.width, 240)
+        XCTAssertEqual(store.newWorkspaceDefinitionSourcePath, configURL.path)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
     func testGlobalNewWorkspaceActionUsesLocalActionOverride() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",

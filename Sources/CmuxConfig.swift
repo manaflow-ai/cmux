@@ -2152,6 +2152,7 @@ final class CmuxConfigStore: ObservableObject {
                 configuredNewWorkspaceDefinitionSourcePath = localPath
             }
             if configuredNewWorkspaceActionID == nil,
+               configuredNewWorkspaceDefinition == nil,
                let newWorkspaceCommand = localConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
                 configuredNewWorkspaceCommandSourcePath = localPath

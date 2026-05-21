@@ -3971,6 +3971,39 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         )
     }
 
+    func testDockLastPanelReplacementFocusUsesReplacementController() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let mainTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(mainPanelId))
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        let dockTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(dockPanel.id))
+
+        XCTAssertTrue(workspace.requestCloseTab(mainTabId, force: true))
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+
+        XCTAssertTrue(dock.controller.closeTab(dockTabId))
+
+        XCTAssertEqual(workspace.panels.count, 1)
+        let replacementPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let replacementTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(replacementPanelId))
+        XCTAssertTrue(workspace.bonsplitController.allTabIds.contains(replacementTabId))
+        XCTAssertFalse(dock.controller.allTabIds.contains(replacementTabId))
+        XCTAssertEqual(workspace.bonsplitController.tab(replacementTabId)?.id, replacementTabId)
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: try XCTUnwrap(workspace.paneId(forPanelId: replacementPanelId)))?.id,
+            replacementTabId
+        )
+    }
+
     func testDockPaneConfigInheritancePrefersDockTerminal() {
         let workspace = Workspace()
         let dock = workspace.dockLayout.addDock(edge: .left)

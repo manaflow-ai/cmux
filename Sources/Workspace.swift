@@ -15315,10 +15315,15 @@ extension Workspace: BonsplitDelegate {
             #endif
             let replacement = createReplacementTerminalPanel()
             if let replacementTabId = surfaceIdFromPanelId(replacement.id),
-               let replacementPane = controller.allPaneIds.first {
-                controller.focusPane(replacementPane)
-                controller.selectTab(replacementTabId)
-                applyTabSelection(tabId: replacementTabId, inPane: replacementPane, controller: controller)
+               let replacementController = bonsplitController(containingTab: replacementTabId),
+               let replacementPane = paneId(forPanelId: replacement.id) ?? replacementController.allPaneIds.first {
+                replacementController.focusPane(replacementPane)
+                replacementController.selectTab(replacementTabId)
+                applyTabSelection(
+                    tabId: replacementTabId,
+                    inPane: replacementPane,
+                    controller: replacementController
+                )
             }
             scheduleTerminalGeometryReconcile()
             scheduleFocusReconcile()
