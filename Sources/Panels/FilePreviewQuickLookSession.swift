@@ -22,11 +22,7 @@ private final class FilePreviewQLItem: NSObject, QLPreviewItem {
 
 @MainActor
 final class FilePreviewQuickLookSession {
-    private let viewSession = PanelOwnedNativeViewSession<NSView>(
-        makeView: FilePreviewQuickLookSession.makeView,
-        closeView: FilePreviewQuickLookSession.releaseView,
-        dismantleView: FilePreviewQuickLookSession.releaseView
-    )
+    private let liveViews = NSHashTable<NSView>.weakObjects()
     private var item: FilePreviewQLItem?
 
     deinit {
@@ -39,15 +35,16 @@ final class FilePreviewQuickLookSession {
         backgroundColor: NSColor,
         drawsBackground: Bool
     ) -> NSView {
-        viewSession.view {
-            configure(
-                $0,
-                panel: panel,
-                isVisibleInUI: isVisibleInUI,
-                backgroundColor: backgroundColor,
-                drawsBackground: drawsBackground
-            )
-        }
+        let view = Self.makeView()
+        liveViews.add(view)
+        configure(
+            view,
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
+        return view
     }
 
     func update(
@@ -57,26 +54,31 @@ final class FilePreviewQuickLookSession {
         backgroundColor: NSColor,
         drawsBackground: Bool
     ) {
-        viewSession.update(view) {
-            configure(
-                $0,
-                panel: panel,
-                isVisibleInUI: isVisibleInUI,
-                backgroundColor: backgroundColor,
-                drawsBackground: drawsBackground
-            )
+        guard liveViews.contains(view) else { return }
+        configure(
+            view,
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
+    }
+
+    func dismantle(_ view: NSView) {
+        guard liveViews.contains(view) else { return }
+        liveViews.remove(view)
+        Self.releaseView(view)
+        if liveViews.allObjects.isEmpty {
+            item = nil
         }
     }
 
     func close() {
-        viewSession.close()
-        item = nil
-    }
-
-    func dismantle(_ view: NSView) {
-        if viewSession.dismantle(view) {
-            item = nil
+        for view in liveViews.allObjects {
+            Self.releaseView(view)
         }
+        liveViews.removeAllObjects()
+        item = nil
     }
 
     private static func makeView() -> NSView {
