@@ -293,7 +293,11 @@ extension CMUXCLI {
         } catch let error as CLIError {
             throw error
         } catch {
-            throw CLIError(message: "Unable to clean stale cmux theme override")
+            let format = String(
+                localized: "cli.themes.error.cleanupFailed",
+                defaultValue: "Unable to clean stale cmux theme override: %@"
+            )
+            throw CLIError(message: String(format: format, String(describing: error)))
         }
     }
 
