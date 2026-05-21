@@ -346,6 +346,26 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("<\\/script> marker"), html)
         XCTAssertTrue(html.contains("\"layout\":\"unified\""), html)
         XCTAssertFalse(html.contains("git apply <<'PATCH'"), html)
+
+        let darkOnlyConfigContents = """
+        font-family = Unit Mono
+        font-size = 14
+        theme = dark:Unit Dark
+        """
+        try darkOnlyConfigContents.write(to: ghosttyConfigURL, atomically: true, encoding: .utf8)
+        try darkOnlyConfigContents.write(to: cmuxAppSupportConfigURL, atomically: true, encoding: .utf8)
+        let darkOnlyTheme = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", patchURL.path, "--title", "Configured appearance"],
+            environmentOverrides: [
+                "HOME": homeURL.path,
+                "CFFIXED_USER_HOME": homeURL.path,
+                "GHOSTTY_RESOURCES_DIR": ghosttyResourcesURL.path
+            ]
+        )
+        XCTAssertTrue(darkOnlyTheme.html.contains("\"fontSize\":14"), darkOnlyTheme.html)
+        XCTAssertTrue(darkOnlyTheme.html.contains("\"ghosttyName\":\"Apple System Colors Light\""), darkOnlyTheme.html)
+        XCTAssertTrue(darkOnlyTheme.html.contains("\"ghosttyName\":\"Unit Dark\""), darkOnlyTheme.html)
     }
 
     func testDiffCommandLinksOriginalDiffshubPRURL() throws {

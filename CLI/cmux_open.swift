@@ -1398,6 +1398,10 @@ extension CMUXCLI {
                 if !trimmed.isEmpty {
                     appearance.fontFamily = trimmed
                 }
+            case "font-size":
+                if let fontSize = diffViewerConfigFontSize(value) {
+                    appearance.fontSize = fontSize
+                }
             case "theme":
                 applyDiffViewerThemeDirective(value, to: &appearance)
             default:
@@ -1584,13 +1588,7 @@ extension CMUXCLI {
         if let fallbackTheme {
             return fallbackTheme
         }
-        if let darkTheme {
-            return darkTheme
-        }
-        if let lightTheme {
-            return lightTheme
-        }
-        return rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ""
     }
 
     private func diffViewerThemeNameCandidates(from rawName: String) -> [String] {
@@ -1680,6 +1678,15 @@ extension CMUXCLI {
 
     private func isUsableDiffViewerFontSize(_ size: Double) -> Bool {
         size.isFinite && size > 0 && size <= 96
+    }
+
+    private func diffViewerConfigFontSize(_ rawValue: String) -> Double? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let size = Double(trimmed),
+              isUsableDiffViewerFontSize(size) else {
+            return nil
+        }
+        return roundedDiffViewerMetric(size)
     }
 
     private func roundedDiffViewerMetric(_ value: Double) -> Double {
