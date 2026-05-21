@@ -1268,6 +1268,169 @@ private final class BrowserDropZoneOverlayView: NSView {
     }
 }
 
+struct BrowserAgentCursorState: Equatable {
+    let x: CGFloat
+    let y: CGFloat
+    let visible: Bool
+    let animateMovement: Bool
+    let viewportWidth: CGFloat?
+    let viewportHeight: CGFloat?
+    let moveSequence: UInt64
+
+    func payload() -> [String: Any] {
+        var result: [String: Any] = [
+            "x": Double(x),
+            "y": Double(y),
+            "visible": visible,
+            "animate": animateMovement,
+            "move_sequence": moveSequence
+        ]
+        if let viewportWidth {
+            result["viewport_width"] = Double(viewportWidth)
+        }
+        if let viewportHeight {
+            result["viewport_height"] = Double(viewportHeight)
+        }
+        return result
+    }
+}
+
+private final class BrowserAgentCursorPointerView: NSView {
+    override var isOpaque: Bool { false }
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        setAccessibilityElement(true)
+        setAccessibilityRole(.image)
+        setAccessibilityIdentifier("BrowserAgentCursorPointer")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let pointer = NSBezierPath()
+        pointer.move(to: NSPoint(x: 0.5, y: 0.5))
+        pointer.line(to: NSPoint(x: 0.5, y: 22.5))
+        pointer.line(to: NSPoint(x: 6.5, y: 17.0))
+        pointer.line(to: NSPoint(x: 10.0, y: 27.0))
+        pointer.line(to: NSPoint(x: 15.0, y: 25.2))
+        pointer.line(to: NSPoint(x: 11.5, y: 15.0))
+        pointer.line(to: NSPoint(x: 18.5, y: 15.0))
+        pointer.close()
+
+        NSGraphicsContext.current?.saveGraphicsState()
+        NSShadow().apply {
+            $0.shadowOffset = NSSize(width: 0, height: -1)
+            $0.shadowBlurRadius = 2
+            $0.shadowColor = NSColor.black.withAlphaComponent(0.35)
+        }
+        NSColor.white.setFill()
+        pointer.fill()
+        NSGraphicsContext.current?.restoreGraphicsState()
+
+        NSColor.black.withAlphaComponent(0.85).setStroke()
+        pointer.lineWidth = 1.5
+        pointer.stroke()
+    }
+}
+
+private extension NSShadow {
+    func apply(_ configure: (NSShadow) -> Void) {
+        configure(self)
+        set()
+    }
+}
+
+private final class BrowserAgentCursorOverlayView: NSView {
+    private static let pointerSize = NSSize(width: 24, height: 30)
+    private let pointerView = BrowserAgentCursorPointerView(
+        frame: NSRect(origin: .zero, size: pointerSize)
+    )
+    private var state: BrowserAgentCursorState?
+
+    override var isOpaque: Bool { false }
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        isHidden = true
+        setAccessibilityElement(false)
+        setAccessibilityIdentifier("BrowserAgentCursorOverlay")
+        addSubview(pointerView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        updatePointer(animated: false)
+    }
+
+    func apply(_ nextState: BrowserAgentCursorState?) {
+        let previousState = state
+        state = nextState
+
+        guard let nextState, nextState.visible else {
+            isHidden = true
+            pointerView.isHidden = true
+            return
+        }
+
+        isHidden = false
+        pointerView.isHidden = false
+        updatePointer(animated: nextState.animateMovement && previousState?.visible == true)
+    }
+
+    private func updatePointer(animated: Bool) {
+        guard let state, state.visible else { return }
+        let origin = pointerOrigin(for: state)
+
+        if animated, window != nil {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.16
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                pointerView.animator().setFrameOrigin(origin)
+            }
+        } else {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            pointerView.setFrameOrigin(origin)
+            CATransaction.commit()
+        }
+    }
+
+    private func pointerOrigin(for state: BrowserAgentCursorState) -> NSPoint {
+        let viewportWidth = state.viewportWidth.flatMap { $0 > 0 ? $0 : nil } ?? max(bounds.width, 1)
+        let viewportHeight = state.viewportHeight.flatMap { $0 > 0 ? $0 : nil } ?? max(bounds.height, 1)
+        let scaledX = state.x * max(bounds.width, 1) / viewportWidth
+        let scaledY = state.y * max(bounds.height, 1) / viewportHeight
+        let clampedX = min(max(scaledX, 0), max(bounds.width, 0))
+        let clampedY = min(max(scaledY, 0), max(bounds.height, 0))
+        return NSPoint(x: clampedX, y: clampedY)
+    }
+}
+
 struct BrowserPortalSearchOverlayConfiguration {
     let panelId: UUID
     let searchState: BrowserSearchState
@@ -1476,6 +1639,7 @@ final class WindowBrowserSlotView: NSView {
     }
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
+    private let agentCursorOverlayView = BrowserAgentCursorOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private weak var hostedWebView: WKWebView?
@@ -1486,6 +1650,7 @@ final class WindowBrowserSlotView: NSView {
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var isRefreshingInteractionLayers = false
     private var paneTopChromeHeight: CGFloat = 0
+    private var agentCursorState: BrowserAgentCursorState?
     var preferredHostedInspectorWidth: CGFloat?
     private var preferredHostedInspectorWidthFraction: CGFloat?
     fileprivate var isHostedInspectorDividerDragActive = false
@@ -1502,12 +1667,17 @@ final class WindowBrowserSlotView: NSView {
 
         paneDropTargetView.slotView = self
 
+        agentCursorOverlayView.autoresizingMask = [.width, .height]
+        agentCursorOverlayView.frame = bounds
+        agentCursorOverlayView.isHidden = true
+
         dropZoneOverlayView.wantsLayer = true
         dropZoneOverlayView.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
         dropZoneOverlayView.layer?.borderColor = cmuxAccentNSColor().cgColor
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
+        addSubview(agentCursorOverlayView, positioned: .above, relativeTo: nil)
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
     }
 
@@ -1525,6 +1695,8 @@ final class WindowBrowserSlotView: NSView {
 
     override func layout() {
         super.layout()
+        agentCursorOverlayView.frame = bounds
+        agentCursorOverlayView.apply(agentCursorState)
         paneDropTargetView.frame = bounds
         applyResolvedDropZoneOverlay()
         guard !isApplyingHostedInspectorLayout else { return }
@@ -1598,6 +1770,14 @@ final class WindowBrowserSlotView: NSView {
         guard abs(paneTopChromeHeight - resolvedHeight) > 0.5 else { return }
         paneTopChromeHeight = resolvedHeight
         applyResolvedDropZoneOverlay()
+    }
+
+    func setAgentCursor(_ state: BrowserAgentCursorState?) {
+        guard agentCursorState != state else { return }
+        agentCursorState = state
+        agentCursorOverlayView.frame = bounds
+        agentCursorOverlayView.apply(state)
+        bringInteractionLayersToFrontIfNeeded()
     }
 
     private func logSearchOverlayEvent(_ action: String, panelId: UUID?) {
@@ -1972,9 +2152,10 @@ final class WindowBrowserSlotView: NSView {
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
-        if view === paneDropTargetView { return 3 }
-        if view === omnibarSuggestionsHostingView { return 2 }
-        if view === searchOverlayHostingView { return 1 }
+        if view === paneDropTargetView { return 4 }
+        if view === omnibarSuggestionsHostingView { return 3 }
+        if view === searchOverlayHostingView { return 2 }
+        if view === agentCursorOverlayView { return 1 }
         return 0
     }
 
@@ -1985,6 +2166,9 @@ final class WindowBrowserSlotView: NSView {
 
         if paneDropTargetView.superview !== self {
             addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
+        }
+        if agentCursorOverlayView.superview !== self {
+            addSubview(agentCursorOverlayView, positioned: .above, relativeTo: nil)
         }
         let overlayContainer = overlayContainerView()
         if dropZoneOverlayView.superview !== overlayContainer {
@@ -2062,6 +2246,7 @@ final class WindowBrowserPortal: NSObject {
         var paneDropContext: BrowserPaneDropContext?
         var searchOverlay: BrowserPortalSearchOverlayConfiguration?
         var omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
+        var agentCursor: BrowserAgentCursorState?
         var paneTopChromeHeight: CGFloat
         var transientRecoveryReason: String?
         var transientRecoveryRetriesRemaining: Int
@@ -2652,6 +2837,7 @@ final class WindowBrowserPortal: NSObject {
             existing.setPaneDropContext(entry.paneDropContext)
             existing.setSearchOverlay(entry.searchOverlay)
             existing.setOmnibarSuggestions(entry.omnibarSuggestions)
+            existing.setAgentCursor(entry.agentCursor)
             existing.setPaneTopChromeHeight(entry.paneTopChromeHeight)
             return existing
         }
@@ -2659,6 +2845,7 @@ final class WindowBrowserPortal: NSObject {
         created.setPaneDropContext(entry.paneDropContext)
         created.setSearchOverlay(entry.searchOverlay)
         created.setOmnibarSuggestions(entry.omnibarSuggestions)
+        created.setAgentCursor(entry.agentCursor)
         created.setPaneTopChromeHeight(entry.paneTopChromeHeight)
 #if DEBUG
         cmuxDebugLog(
@@ -3036,6 +3223,17 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setOmnibarSuggestions(configuration)
     }
 
+    func updateAgentCursor(
+        forWebViewId webViewId: ObjectIdentifier,
+        state: BrowserAgentCursorState?
+    ) {
+        guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard entry.agentCursor != state else { return }
+        entry.agentCursor = state
+        entriesByWebViewId[webViewId] = entry
+        entry.containerView?.setAgentCursor(state)
+    }
+
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
         for entry in entriesByWebViewId.values {
             if let panelId = entry.containerView?.searchOverlayPanelId(for: responder) {
@@ -3107,6 +3305,7 @@ final class WindowBrowserPortal: NSObject {
                 paneDropContext: nil,
                 searchOverlay: nil,
                 omnibarSuggestions: nil,
+                agentCursor: nil,
                 paneTopChromeHeight: 0,
                 transientRecoveryReason: nil,
                 transientRecoveryRetriesRemaining: 0
@@ -3144,6 +3343,7 @@ final class WindowBrowserPortal: NSObject {
             paneDropContext: previousEntry?.paneDropContext,
             searchOverlay: previousEntry?.searchOverlay,
             omnibarSuggestions: previousEntry?.omnibarSuggestions,
+            agentCursor: previousEntry?.agentCursor,
             paneTopChromeHeight: previousEntry?.paneTopChromeHeight ?? 0,
             transientRecoveryReason: previousEntry?.transientRecoveryReason,
             transientRecoveryRetriesRemaining: previousEntry?.transientRecoveryRetriesRemaining ?? 0
@@ -3340,6 +3540,7 @@ final class WindowBrowserPortal: NSObject {
             containerView.setPaneTopChromeHeight(0)
             containerView.setSearchOverlay(nil)
             containerView.setOmnibarSuggestions(nil)
+            containerView.setAgentCursor(nil)
             containerView.setPaneDropContext(nil)
             containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
@@ -3759,6 +3960,7 @@ final class WindowBrowserPortal: NSObject {
         containerView.setPaneTopChromeHeight(shouldHide ? 0 : entry.paneTopChromeHeight)
         containerView.setSearchOverlay(shouldHide ? nil : entry.searchOverlay)
         containerView.setOmnibarSuggestions(shouldHide ? nil : entry.omnibarSuggestions)
+        containerView.setAgentCursor(shouldHide ? nil : entry.agentCursor)
         containerView.setPaneDropContext(containerView.isHidden ? nil : entry.paneDropContext)
         containerView.setDropZoneOverlay(zone: containerView.isHidden ? nil : entry.dropZone)
         if revealedForDisplay {
@@ -4137,6 +4339,16 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateOmnibarSuggestions(forWebViewId: webViewId, configuration: configuration)
+    }
+
+    static func updateAgentCursor(
+        for webView: WKWebView,
+        state: BrowserAgentCursorState?
+    ) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.updateAgentCursor(forWebViewId: webViewId, state: state)
     }
 
     static func searchOverlayPanelId(for responder: NSResponder, in window: NSWindow) -> UUID? {

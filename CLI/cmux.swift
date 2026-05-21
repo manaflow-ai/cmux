@@ -8403,7 +8403,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "repl"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -8416,6 +8416,11 @@ struct CMUXCLI {
         }
         let subcommand = subcommandRaw.lowercased()
         let subArgs = Array(args.dropFirst())
+
+        if subcommand == "repl" {
+            try runBrowserReplCommand(arguments: subArgs, client: client)
+            return
+        }
 
         func requireSurface() throws -> String {
             guard let raw = surfaceRaw else {
@@ -9778,6 +9783,62 @@ struct CMUXCLI {
             return
         }
 
+        if subcommand == "cursor" {
+            let sid = try requireSurface()
+            guard let cursorVerb = subArgs.first?.lowercased() else {
+                throw CLIError(message: "browser cursor requires move|hide|get")
+            }
+            let cursorArgs = Array(subArgs.dropFirst())
+            switch cursorVerb {
+            case "move", "set":
+                let (viewportWidthOpt, argsAfterViewportWidth) = parseOption(cursorArgs, name: "--viewport-width")
+                let (viewportHeightOpt, argsAfterViewport) = parseOption(argsAfterViewportWidth, name: "--viewport-height")
+                let values = nonFlagArgs(argsAfterViewport)
+                guard values.count >= 2,
+                      let x = Double(values[0]),
+                      let y = Double(values[1]),
+                      x.isFinite,
+                      y.isFinite else {
+                    throw CLIError(message: "browser cursor move requires numeric <x> <y>")
+                }
+                var params: [String: Any] = [
+                    "surface_id": sid,
+                    "x": x,
+                    "y": y,
+                    "animate": !hasFlag(cursorArgs, name: "--no-animate")
+                ]
+                if let viewportWidthOpt {
+                    guard let width = Double(viewportWidthOpt), width.isFinite, width > 0 else {
+                        throw CLIError(message: "--viewport-width must be a positive number")
+                    }
+                    params["viewport_width"] = width
+                }
+                if let viewportHeightOpt {
+                    guard let height = Double(viewportHeightOpt), height.isFinite, height > 0 else {
+                        throw CLIError(message: "--viewport-height must be a positive number")
+                    }
+                    params["viewport_height"] = height
+                }
+                let payload = try client.sendV2(method: "browser.cursor.set", params: params)
+                output(payload, fallback: "OK")
+            case "hide":
+                let payload = try client.sendV2(method: "browser.cursor.hide", params: ["surface_id": sid])
+                output(payload, fallback: "OK")
+            case "get":
+                let payload = try client.sendV2(method: "browser.cursor.get", params: ["surface_id": sid])
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if let cursor = payload["cursor"] {
+                    print(jsonString(cursor))
+                } else {
+                    print("{\"visible\":false}")
+                }
+            default:
+                throw CLIError(message: "Unsupported browser cursor subcommand: \(cursorVerb)")
+            }
+            return
+        }
+
         if subcommand == "state" {
             let sid = try requireSurface()
             guard let stateVerb = subArgs.first?.lowercased() else {
@@ -9962,6 +10023,177 @@ struct CMUXCLI {
         }
 
         throw CLIError(message: "Unsupported browser subcommand: \(subcommand)")
+    }
+
+    private func runBrowserReplCommand(arguments: [String], client: SocketClient) throws {
+        let (surfaceOpt, rem1) = parseOption(arguments, name: "--surface")
+        let (urlOpt, rem2) = parseOption(rem1, name: "--url")
+        let (evalOpt, rem3) = parseOption(rem2, name: "--eval")
+        let evalScript = evalOpt ?? rem3.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let clientURL = try browserReplClientResourceURL()
+        let resolvedSurface = try surfaceOpt.flatMap { try normalizeSurfaceHandle($0, client: client) }
+        let resolvedPassword = SocketPasswordResolver.resolve(
+            explicit: nil,
+            socketPath: client.socketPath
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = client.socketPath
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        environment["CMUX_BROWSER_CLIENT_PATH"] = clientURL.path
+        if let resolvedSurface {
+            environment["CMUX_REPL_SURFACE_ID"] = resolvedSurface
+        }
+        if let urlOpt {
+            environment["CMUX_REPL_URL"] = urlOpt
+        }
+        if let resolvedPassword {
+            environment["CMUX_SOCKET_PASSWORD"] = resolvedPassword
+        }
+
+        let bootstrap = browserReplBootstrapScript(
+            clientURL: clientURL,
+            evalScript: evalScript.isEmpty ? nil : evalScript
+        )
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        if evalScript.isEmpty {
+            process.arguments = [
+                "node",
+                "--experimental-repl-await",
+                "--input-type=module",
+                "-i",
+                "--eval",
+                bootstrap
+            ]
+        } else {
+            process.arguments = [
+                "node",
+                "--input-type=module",
+                "--eval",
+                bootstrap
+            ]
+        }
+        process.environment = environment
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+        do {
+            try process.run()
+        } catch {
+            throw CLIError(message: "Failed to start node for browser repl: \(error.localizedDescription)")
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw CLIError(message: "browser repl exited with status \(process.terminationStatus)", exitCode: process.terminationStatus)
+        }
+    }
+
+    private func browserReplBootstrapScript(clientURL: URL, evalScript: String?) -> String {
+        let moduleURL = clientURL.absoluteString
+        let evalBlock = evalScript.map {
+            """
+            try {
+            \($0)
+            } finally {
+              globalThis.cmuxBrowserClient?.close?.();
+            }
+            """
+        } ?? ""
+        return """
+        const { setupCmuxBrowserRuntime } = await import(\(jsonStringLiteral(moduleURL)));
+        await setupCmuxBrowserRuntime({ globals: globalThis });
+        globalThis.browser = await globalThis.agent.browsers.get("cmux");
+        const __cmuxSurface = process.env.CMUX_REPL_SURFACE_ID || "";
+        const __cmuxURL = process.env.CMUX_REPL_URL || "";
+        if (__cmuxSurface || __cmuxURL) {
+          globalThis.tab = await globalThis.browser.tabs.current({ surfaceId: __cmuxSurface || undefined, url: __cmuxURL || undefined });
+          globalThis.page = globalThis.tab.playwright;
+        }
+        \(evalBlock)
+        """
+    }
+
+    private func browserReplClientResourceURL() throws -> URL {
+        let fileManager = FileManager.default
+        for candidate in browserReplClientResourceCandidates() {
+            if fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        throw CLIError(message: "cmux-browser-client.mjs not found in app resources or checkout Resources/browser-repl")
+    }
+
+    private func browserReplClientResourceCandidates() -> [URL] {
+        let fileManager = FileManager.default
+        var candidates: [URL] = []
+        var seen: Set<String> = []
+
+        func append(_ url: URL?) {
+            guard let url else { return }
+            let standardized = url.standardizedFileURL
+            guard seen.insert(standardized.path).inserted else { return }
+            candidates.append(standardized)
+        }
+
+        if let override = ProcessInfo.processInfo.environment["CMUX_BROWSER_CLIENT_PATH"],
+           !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            append(URL(fileURLWithPath: override))
+        }
+        append(
+            Bundle.main.resourceURL?
+                .appendingPathComponent("browser-repl", isDirectory: true)
+                .appendingPathComponent("cmux-browser-client.mjs", isDirectory: false)
+        )
+
+        if let executableURL = resolvedExecutableURL() {
+            var current = executableURL.deletingLastPathComponent().standardizedFileURL
+            for relativePath in [
+                "browser-repl/cmux-browser-client.mjs",
+                "../browser-repl/cmux-browser-client.mjs",
+                "../../Resources/browser-repl/cmux-browser-client.mjs",
+                "../../../Contents/Resources/browser-repl/cmux-browser-client.mjs"
+            ] {
+                append(current.appendingPathComponent(relativePath, isDirectory: false))
+            }
+            for _ in 0..<6 {
+                if current.pathExtension == "app" {
+                    append(
+                        current
+                            .appendingPathComponent("Contents/Resources/browser-repl", isDirectory: true)
+                            .appendingPathComponent("cmux-browser-client.mjs", isDirectory: false)
+                    )
+                    break
+                }
+                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
+                if fileManager.fileExists(atPath: projectMarker.path) {
+                    append(
+                        current
+                            .appendingPathComponent("Resources/browser-repl", isDirectory: true)
+                            .appendingPathComponent("cmux-browser-client.mjs", isDirectory: false)
+                    )
+                    break
+                }
+                guard let parent = parentSearchURL(for: current) else { break }
+                current = parent
+            }
+        }
+
+        let devURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/browser-repl", isDirectory: true)
+            .appendingPathComponent("cmux-browser-client.mjs", isDirectory: false)
+        append(devURL)
+        return candidates
+    }
+
+    private func jsonStringLiteral(_ value: String) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+              let output = String(data: data, encoding: .utf8) else {
+            return "\"\""
+        }
+        return output
     }
 
     private func parseWindows(_ response: String) -> [WindowInfo] {
