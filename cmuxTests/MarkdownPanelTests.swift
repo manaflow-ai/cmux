@@ -604,19 +604,30 @@ final class MarkdownPanelTests: XCTestCase {
         let configuration = WKWebViewConfiguration()
         let coordinator = MarkdownWebRenderer.Coordinator()
         let remoteImageHandler = MarkdownRemoteImageHoldingSchemeHandler()
+        let remoteImageEventHandler = MarkdownRemoteImageEventMessageHandler()
         coordinator.filePath = markdownURL.path
         configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
         configuration.setURLSchemeHandler(remoteImageHandler, forURLScheme: MarkdownWebRenderer.remoteImageURLScheme)
+        configuration.userContentController.add(
+            remoteImageEventHandler,
+            name: Self.remoteImageEventMessageHandlerName
+        )
         let webView = MarkdownWebView(frame: frame, configuration: configuration)
         coordinator.webView = webView
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
         window.orderFrontRegardless()
         defer {
+            remoteImageHandler.cancelOpenTasks()
+            webView.stopLoading()
+            configuration.userContentController.removeScriptMessageHandler(
+                forName: Self.remoteImageEventMessageHandlerName
+            )
             webView.navigationDelegate = nil
             coordinator.webView = nil
             coordinator.cancelImageLoads()
-            remoteImageHandler.cancelOpenTasks()
+            webView.removeFromSuperview()
+            window.contentView = nil
             window.close()
         }
 
@@ -893,15 +904,26 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["text"] as? String == expectedLoadingButton })
         XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["disabled"] as? Bool == true })
 
-        _ = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              Array.prototype.slice.call(document.querySelectorAll('img[src^="cmux-remote-image://"]')).forEach(function(img) {
-                img.dispatchEvent(new Event('load'));
-              });
-            })();
-            """
+        await fulfillment(
+            of: [
+                remoteImageHandler.expectOpenTasks(
+                    2,
+                    description: "linked remote image URL scheme tasks started"
+                )
+            ],
+            timeout: 3
         )
+        let linkedLoadExpectation = expectation(description: "linked remote images loaded through WebKit")
+        let linkedLoadEventCount = try await installRemoteImageEventForwarder(
+            in: webView,
+            selector: #"img[src^="cmux-remote-image://"]"#,
+            eventName: "load"
+        )
+        XCTAssertEqual(linkedLoadEventCount, 2)
+        remoteImageEventHandler.expect(eventName: "load", count: linkedLoadEventCount, expectation: linkedLoadExpectation)
+        remoteImageHandler.finishOpenTasks(with: Self.onePixelPNG)
+        await fulfillment(of: [linkedLoadExpectation], timeout: 3)
+
         let after = try await remoteImageSnapshot(in: webView)
         let afterImages = try XCTUnwrap(after["images"] as? [[String: Any]])
         let afterPlaceholders = try XCTUnwrap(after["placeholders"] as? [String])
@@ -970,14 +992,26 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(autoLoadingButtons.filter { $0 == expectedOpenURLButton }.count, 1)
         XCTAssertEqual(autoLoadingButtonStates.filter { $0["loading"] as? String == "1" }.count, 1)
 
-        _ = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              var img = document.querySelector('img[alt="Auto approved remote"]');
-              if (img) { img.dispatchEvent(new Event('error')); }
-            })();
-            """
+        await fulfillment(
+            of: [
+                remoteImageHandler.expectOpenTasks(
+                    1,
+                    description: "auto-approved remote image URL scheme task started"
+                )
+            ],
+            timeout: 3
         )
+        let autoErrorExpectation = expectation(description: "auto-approved remote image failed through WebKit")
+        let autoErrorEventCount = try await installRemoteImageEventForwarder(
+            in: webView,
+            selector: #"img[alt="Auto approved remote"]"#,
+            eventName: "error"
+        )
+        XCTAssertEqual(autoErrorEventCount, 1)
+        remoteImageEventHandler.expect(eventName: "error", count: autoErrorEventCount, expectation: autoErrorExpectation)
+        remoteImageHandler.failOpenTasks()
+        await fulfillment(of: [autoErrorExpectation], timeout: 3)
+
         let autoFailed = try await remoteImageSnapshot(in: webView)
         let autoFailedImages = try XCTUnwrap(autoFailed["images"] as? [[String: Any]])
         let autoFailedPlaceholders = try XCTUnwrap(autoFailed["placeholders"] as? [String])
@@ -1255,6 +1289,30 @@ final class MarkdownPanelTests: XCTestCase {
         return try XCTUnwrap(result as? [String: Any])
     }
 
+    private func installRemoteImageEventForwarder(
+        in webView: WKWebView,
+        selector: String,
+        eventName: String
+    ) async throws -> Int {
+        let selectorLiteral = try Self.javaScriptStringLiteral(selector)
+        let eventNameLiteral = try Self.javaScriptStringLiteral(eventName)
+        let handlerNameLiteral = try Self.javaScriptStringLiteral(Self.remoteImageEventMessageHandlerName)
+        let result = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              var images = Array.prototype.slice.call(document.querySelectorAll(\(selectorLiteral)));
+              images.forEach(function(img) {
+                img.addEventListener(\(eventNameLiteral), function() {
+                  window.webkit.messageHandlers[\(handlerNameLiteral)].postMessage(\(eventNameLiteral));
+                }, { once: true });
+              });
+              return images.length;
+            })();
+            """
+        )
+        return try XCTUnwrap(result as? Int)
+    }
+
     private func scrollSmokeMarkdown(extraBeforeSection20: Bool) -> String {
         var lines: [String] = ["# Scroll Smoke", ""]
         for section in 1...36 {
@@ -1297,6 +1355,14 @@ final class MarkdownPanelTests: XCTestCase {
         return (red, green, blue, alpha)
     }
 
+    private static func javaScriptStringLiteral(_ value: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: [value], options: [])
+        let arrayLiteral = try XCTUnwrap(String(data: data, encoding: .utf8))
+        return String(arrayLiteral.dropFirst().dropLast())
+    }
+
+    private static let remoteImageEventMessageHandlerName = "cmuxRemoteImageTestEvent"
+
     private static let onePixelPNG: Data = {
         let image = NSImage(size: NSSize(width: 1, height: 1))
         image.lockFocus()
@@ -1338,23 +1404,140 @@ private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
     }
 }
 
+private final class MarkdownRemoteImageEventMessageHandler: NSObject, WKScriptMessageHandler {
+    private let lock = NSLock()
+    private var pendingEventName: String?
+    private var pendingCount = 0
+    private var pendingExpectation: XCTestExpectation?
+
+    func expect(eventName: String, count: Int, expectation: XCTestExpectation) {
+        guard count > 0 else {
+            expectation.fulfill()
+            return
+        }
+
+        lock.lock()
+        pendingEventName = eventName
+        pendingCount = count
+        pendingExpectation = expectation
+        lock.unlock()
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        let expectationToFulfill: XCTestExpectation?
+        lock.lock()
+        if let eventName = message.body as? String,
+           eventName == pendingEventName,
+           let expectation = pendingExpectation {
+            pendingCount -= 1
+            if pendingCount <= 0 {
+                pendingEventName = nil
+                pendingExpectation = nil
+                expectationToFulfill = expectation
+            } else {
+                expectationToFulfill = nil
+            }
+        } else {
+            expectationToFulfill = nil
+        }
+        lock.unlock()
+
+        expectationToFulfill?.fulfill()
+    }
+}
+
 private final class MarkdownRemoteImageHoldingSchemeHandler: NSObject, WKURLSchemeHandler {
     private var tasks: [ObjectIdentifier: WKURLSchemeTask] = [:]
+    private let lock = NSLock()
+    private var openTaskExpectation: (count: Int, expectation: XCTestExpectation)?
+
+    var openTaskCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return tasks.count
+    }
+
+    func expectOpenTasks(_ count: Int, description: String) -> XCTestExpectation {
+        let expectation = XCTestExpectation(description: description)
+        let shouldFulfill: Bool
+        lock.lock()
+        if tasks.count == count {
+            shouldFulfill = true
+        } else {
+            openTaskExpectation = (count, expectation)
+            shouldFulfill = false
+        }
+        lock.unlock()
+
+        if shouldFulfill {
+            expectation.fulfill()
+        }
+        return expectation
+    }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        let expectationToFulfill: XCTestExpectation?
+        lock.lock()
         tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = urlSchemeTask
+        expectationToFulfill = takeSatisfiedOpenTaskExpectationLocked()
+        lock.unlock()
+        expectationToFulfill?.fulfill()
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        let expectationToFulfill: XCTestExpectation?
+        lock.lock()
         tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = nil
+        expectationToFulfill = takeSatisfiedOpenTaskExpectationLocked()
+        lock.unlock()
+        expectationToFulfill?.fulfill()
+    }
+
+    func finishOpenTasks(with data: Data, mimeType: String = "image/png") {
+        let openTasks = takeOpenTasks()
+        for task in openTasks {
+            let response = URLResponse(
+                url: task.request.url ?? URL(fileURLWithPath: "/"),
+                mimeType: mimeType,
+                expectedContentLength: data.count,
+                textEncodingName: nil
+            )
+            task.didReceive(response)
+            task.didReceive(data)
+            task.didFinish()
+        }
+    }
+
+    func failOpenTasks() {
+        let openTasks = takeOpenTasks()
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotLoadFromNetwork)
+        for task in openTasks {
+            task.didFailWithError(error)
+        }
     }
 
     func cancelOpenTasks() {
-        let openTasks = Array(tasks.values)
-        tasks.removeAll()
+        let openTasks = takeOpenTasks()
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
         for task in openTasks {
             task.didFailWithError(error)
         }
+    }
+
+    private func takeOpenTasks() -> [WKURLSchemeTask] {
+        lock.lock()
+        defer { lock.unlock() }
+        let openTasks = Array(tasks.values)
+        tasks.removeAll()
+        return openTasks
+    }
+
+    private func takeSatisfiedOpenTaskExpectationLocked() -> XCTestExpectation? {
+        guard let openTaskExpectation,
+              tasks.count == openTaskExpectation.count else {
+            return nil
+        }
+        self.openTaskExpectation = nil
+        return openTaskExpectation.expectation
     }
 }
