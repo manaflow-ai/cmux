@@ -828,7 +828,8 @@ private final class ClaudeHookSessionStore {
         workspaceId: String,
         surfaceId: String?,
         excludingSessionId: String?,
-        onlyNewerThanExcludedSession: Bool = false
+        onlyNewerThanExcludedSession: Bool = false,
+        requireLiveProcess: Bool = false
     ) throws -> Bool {
         guard let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return false
@@ -837,21 +838,46 @@ private final class ClaudeHookSessionStore {
         let excluded = normalizeOptional(excludingSessionId)
         return try withLockedState { state in
             let excludedUpdatedAt = excluded.flatMap { state.sessions[$0]?.updatedAt }
-            return state.sessions.values.contains { record in
+            var foundRunningSession = false
+            let now = Date().timeIntervalSince1970
+
+            for sessionId in Array(state.sessions.keys) {
+                guard var record = state.sessions[sessionId] else { continue }
                 guard normalizeOptional(record.workspaceId) == normalizedWorkspace,
                       record.sessionId != excluded,
                       record.runtimeStatus == .running else {
-                    return false
+                    continue
                 }
                 if let normalizedSurface, normalizeOptional(record.surfaceId) != normalizedSurface {
-                    return false
+                    continue
                 }
                 if onlyNewerThanExcludedSession, let excludedUpdatedAt {
-                    return record.updatedAt > excludedUpdatedAt
+                    guard record.updatedAt > excludedUpdatedAt else {
+                        continue
+                    }
                 }
-                return true
+
+                if requireLiveProcess, !Self.processExists(record.pid) {
+                    record.runtimeStatus = nil
+                    record.updatedAt = now
+                    state.sessions[sessionId] = record
+                    continue
+                }
+
+                foundRunningSession = true
+                break
             }
+
+            return foundRunningSession
         }
+    }
+
+    private static func processExists(_ pid: Int?) -> Bool {
+        guard let pid, pid > 0 else { return false }
+        if kill(pid_t(pid), 0) == 0 {
+            return true
+        }
+        return errno == EPERM
     }
 
     /// Returns true when an event belongs to the workspace's active Claude session.
@@ -23990,7 +24016,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             (try? store.hasRunningSession(
                 workspaceId: workspaceId,
                 surfaceId: nil,
-                excludingSessionId: sessionId
+                excludingSessionId: sessionId,
+                requireLiveProcess: true
             )) == true
         }
         func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
