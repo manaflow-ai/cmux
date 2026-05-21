@@ -1340,9 +1340,29 @@ private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
 
 private final class MarkdownRemoteImageHoldingSchemeHandler: NSObject, WKURLSchemeHandler {
     private var tasks: [ObjectIdentifier: WKURLSchemeTask] = [:]
+    private let responseData = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=") ?? Data()
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = urlSchemeTask
+        let identifier = ObjectIdentifier(urlSchemeTask as AnyObject)
+        tasks[identifier] = urlSchemeTask
+        let requestURL = urlSchemeTask.request.url ?? URL(string: "cmux-remote-image://invalid")!
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+            guard let self,
+                  self.tasks.removeValue(forKey: identifier) != nil else {
+                return
+            }
+            let response = URLResponse(
+                url: requestURL,
+                mimeType: "image/png",
+                expectedContentLength: self.responseData.count,
+                textEncodingName: nil
+            )
+            urlSchemeTask.didReceive(response)
+            if !self.responseData.isEmpty {
+                urlSchemeTask.didReceive(self.responseData)
+            }
+            urlSchemeTask.didFinish()
+        }
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {

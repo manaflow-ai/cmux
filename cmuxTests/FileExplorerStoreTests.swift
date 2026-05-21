@@ -179,8 +179,16 @@ final class FileExplorerStoreTests: XCTestCase {
         )
 
         let store = FileExplorerStore()
-        store.setProviderForTesting(LocalFileExplorerProvider())
+        let localProvider = MockFileExplorerProvider(homePath: "/Users/alice")
+        localProvider.listings["/Users/alice"] = .success([
+            FileExplorerEntry(name: "Desktop", path: "/Users/alice/Desktop", isDirectory: true),
+        ])
+        store.setProviderForTesting(localProvider)
         store.setRootPath("/Users/alice")
+        try await waitFor("local root loaded before remote switch") {
+            store.rootPath == "/Users/alice" &&
+                store.rootNodes.map(\.name) == ["Desktop"]
+        }
 
         store.applyWorkspaceRoot(
             .remoteSSH(

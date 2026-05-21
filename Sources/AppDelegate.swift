@@ -1091,6 +1091,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
 
+#if DEBUG
+        // Hosted XCTest launches the app process before unit tests run, but those tests
+        // need to own their own singletons, sockets, and notification observers. UI tests
+        // opt back into the normal app runtime through CMUX_UI_TEST_* environment flags.
+        if isRunningUnderXCTest && !isUITestLaunch {
+            SystemWideHotkeySettings.reset()
+            KeyboardShortcutSettings.resetAll()
+            StartupBreadcrumbLog.append("appDelegate.didFinish.runtime.skippedXCTest")
+            return
+        }
+#endif
+
         claimAuthCallbackURLSchemes()
         StartupBreadcrumbLog.append("appDelegate.didFinish.authSchemes.claimed")
 
@@ -1137,15 +1149,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: .feedRequestSendText,
             object: nil
         )
-
-#if DEBUG
-        // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
-        // key-equivalent routing flaky. Force defaults for deterministic tests.
-        if isRunningUnderXCTest {
-            SystemWideHotkeySettings.reset()
-            KeyboardShortcutSettings.resetAll()
-        }
-#endif
 
 #if DEBUG
         writeUITestDiagnosticsIfNeeded(stage: "didFinishLaunching")
@@ -1702,6 +1705,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
+#if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        let isUITestLaunch = env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") })
+        guard !isRunningUnderXCTest(env) || isUITestLaunch else {
+            StartupBreadcrumbLog.append("appDelegate.configure.runtime.skippedXCTest")
+            return
+        }
+#endif
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
@@ -1716,7 +1727,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
 
-        let env = ProcessInfo.processInfo.environment
         if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
             scheduleUITestSocketSanityCheckIfNeeded()
         }

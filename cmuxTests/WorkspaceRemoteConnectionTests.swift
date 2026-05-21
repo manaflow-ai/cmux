@@ -2189,7 +2189,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             unlink(socketPath)
         }
 
-        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 6) { line in
+        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 20) { line in
             guard let data = line.data(using: .utf8),
                   let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                   let id = payload["id"] as? String else {
