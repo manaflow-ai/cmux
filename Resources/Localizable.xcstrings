@@ -60955,19 +60955,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hooks must be installed with `cmux hooks amp install`. They no-op outside cmux terminals. When disabled, cmux sets `CMUX_AMP_HOOKS_DISABLED=1` so the installed plugin stays inert."
+            "value": "Hooks must be installed with `cmux hooks amp install`. They no-op outside cmux terminals. When disabled, the installed Amp plugin stays inactive without needing to be removed."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フックは`cmux hooks amp install`でインストールする必要があります。cmuxターミナル外では動作しません。無効にすると、cmuxは`CMUX_AMP_HOOKS_DISABLED=1`を設定し、インストール済みプラグインを停止状態に保ちます。"
+            "value": "フックは`cmux hooks amp install`でインストールする必要があります。cmuxターミナル外では動作しません。無効にすると、インストール済みAmpプラグインは削除せずに停止状態に保たれます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "`cmux hooks amp install`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다. 비활성화하면 cmux가 `CMUX_AMP_HOOKS_DISABLED=1`을 설정하여 설치된 플러그인을 비활성 상태로 유지합니다."
+            "value": "`cmux hooks amp install`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다. 비활성화하면 설치된 Amp 플러그인은 제거하지 않고도 비활성 상태로 유지됩니다."
           }
         }
       }

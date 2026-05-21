@@ -416,6 +416,10 @@ export default function (amp: PluginAPI) {
         setStatus("interrupted", "pause.circle", COLOR.interrupted);
         wsLog("turn interrupted", "warning");
         break;
+      default:
+        setStatus(String(event.status ?? "done"), "questionmark.circle", COLOR.interrupted);
+        wsLog(`turn ended with unexpected status: ${event.status}`, "warning");
+        break;
     }
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
