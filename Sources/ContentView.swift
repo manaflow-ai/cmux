@@ -10124,7 +10124,12 @@ struct VerticalTabsSidebar: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(looseRows) { row in
-                    extensionBrowserStackRow(row: row, now: now, dropRows: dropRows)
+                    extensionBrowserStackRow(
+                        row: row,
+                        now: now,
+                        isSelected: row.workspaceId == tabManager.selectedTabId,
+                        dropRows: dropRows
+                    )
                 }
             }
             .padding(.horizontal, 8)
@@ -10191,7 +10196,13 @@ struct VerticalTabsSidebar: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(section.rows) { row in
-                    extensionBrowserStackRow(row: row, now: now, compact: true, dropRows: dropRows)
+                    extensionBrowserStackRow(
+                        row: row,
+                        now: now,
+                        compact: true,
+                        isSelected: row.workspaceId == tabManager.selectedTabId,
+                        dropRows: dropRows
+                    )
                         .padding(.horizontal, 8)
                 }
             }
@@ -10283,6 +10294,7 @@ struct VerticalTabsSidebar: View {
         row: CmuxExtensionSidebarRenderRow,
         now: Date,
         compact: Bool = false,
+        isSelected: Bool,
         dropRows: [ExtensionSidebarBrowserStackDropRow]
     ) -> some View {
         let targetRowHeight: CGFloat = compact ? 34 : 38
@@ -10294,7 +10306,7 @@ struct VerticalTabsSidebar: View {
                 extensionBrowserStackIcon(row.leadingIcon, size: compact ? 22 : 24)
                 Text(row.title)
                     .font(.system(size: compact ? 12.5 : 13, weight: .medium))
-                    .foregroundColor(.primary.opacity(0.82))
+                    .foregroundColor(isSelected ? .primary : .primary.opacity(0.82))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
@@ -10307,6 +10319,14 @@ struct VerticalTabsSidebar: View {
             }
             .padding(.horizontal, compact ? 7 : 10)
             .padding(.vertical, compact ? 6 : 7)
+            .background(
+                RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
+                    .fill(isSelected ? Color.primary.opacity(0.12) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
+                    .stroke(isSelected ? cmuxAccentColor().opacity(0.55) : Color.clear, lineWidth: 1)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -16344,6 +16364,34 @@ enum ExtensionSidebarBrowserStackDropPlanner {
         }
         return orderedRows[indicatorIndex].sectionId
     }
+
+    static func sectionBoundaryIndicator(
+        draggedWorkspaceId: UUID?,
+        targetWorkspaceId: UUID,
+        pointerY: CGFloat?,
+        targetHeight: CGFloat?,
+        orderedRows: [ExtensionSidebarBrowserStackDropRow]
+    ) -> SidebarDropIndicator? {
+        guard let draggedWorkspaceId,
+              let sourceIndex = orderedRows.firstIndex(where: { $0.workspaceId == draggedWorkspaceId }),
+              let targetIndex = orderedRows.firstIndex(where: { $0.workspaceId == targetWorkspaceId }),
+              orderedRows[sourceIndex].sectionId != orderedRows[targetIndex].sectionId else {
+            return nil
+        }
+        let edge: SidebarDropEdge
+        if let pointerY, let targetHeight {
+            edge = SidebarDropPlanner.edgeForPointer(locationY: pointerY, targetHeight: targetHeight)
+        } else {
+            edge = sourceIndex < targetIndex ? .top : .bottom
+        }
+        if sourceIndex + 1 == targetIndex, edge == .top {
+            return SidebarDropIndicator(tabId: targetWorkspaceId, edge: .top)
+        }
+        if targetIndex + 1 == sourceIndex, edge == .bottom {
+            return SidebarDropIndicator(tabId: targetWorkspaceId, edge: .bottom)
+        }
+        return nil
+    }
 }
 
 private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
@@ -16406,6 +16454,12 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
             pinnedTabIds: [],
             pointerY: info.location.y,
             targetHeight: targetRowHeight
+        ) ?? ExtensionSidebarBrowserStackDropPlanner.sectionBoundaryIndicator(
+            draggedWorkspaceId: draggedTabId,
+            targetWorkspaceId: targetWorkspaceId,
+            pointerY: info.location.y,
+            targetHeight: targetRowHeight,
+            orderedRows: orderedRows
         )
         guard dropIndicator != nextIndicator else { return }
         dropIndicator = nextIndicator

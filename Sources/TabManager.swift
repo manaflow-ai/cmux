@@ -5345,6 +5345,11 @@ class TabManager: ObservableObject {
             object: self,
             userInfo: [WorkspaceOrderChangeNotificationKey.movedWorkspaceIds: movedWorkspaceIds]
         )
+        CmuxEventBus.shared.publishWorkspaceReordered(
+            workspaceIds: tabs.map(\.id),
+            movedWorkspaceIds: movedWorkspaceIds,
+            source: "workspace.lifecycle"
+        )
     }
 
     @discardableResult

@@ -140,6 +140,46 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertEqual(move.targetIndex, 0)
     }
 
+    func testBrowserStackAdjacentTopDropPreservesNextSectionBoundary() throws {
+        let openA = UUID()
+        let openB = UUID()
+        let readingA = UUID()
+        let rows = [
+            ExtensionSidebarBrowserStackDropRow(workspaceId: openA, sectionId: "open"),
+            ExtensionSidebarBrowserStackDropRow(workspaceId: openB, sectionId: "open"),
+            ExtensionSidebarBrowserStackDropRow(workspaceId: readingA, sectionId: "reading")
+        ]
+
+        let indicator = ExtensionSidebarBrowserStackDropPlanner.sectionBoundaryIndicator(
+            draggedWorkspaceId: openB,
+            targetWorkspaceId: readingA,
+            pointerY: 2,
+            targetHeight: 34,
+            orderedRows: rows
+        )
+
+        XCTAssertEqual(indicator, SidebarDropIndicator(tabId: readingA, edge: .top))
+    }
+
+    func testBrowserStackAdjacentBottomDropPreservesPreviousSectionBoundary() throws {
+        let openA = UUID()
+        let readingA = UUID()
+        let rows = [
+            ExtensionSidebarBrowserStackDropRow(workspaceId: openA, sectionId: "open"),
+            ExtensionSidebarBrowserStackDropRow(workspaceId: readingA, sectionId: "reading")
+        ]
+
+        let indicator = ExtensionSidebarBrowserStackDropPlanner.sectionBoundaryIndicator(
+            draggedWorkspaceId: readingA,
+            targetWorkspaceId: openA,
+            pointerY: 32,
+            targetHeight: 34,
+            orderedRows: rows
+        )
+
+        XCTAssertEqual(indicator, SidebarDropIndicator(tabId: openA, edge: .bottom))
+    }
+
     func testBrowserStackDropBoundaryBottomStaysInPreviousSection() throws {
         let openA = UUID()
         let readingA = UUID()

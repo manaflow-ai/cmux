@@ -3509,6 +3509,30 @@ final class WorkspaceReorderTests: XCTestCase {
     }
 
     @MainActor
+    func testMoveTabToTopPublishesWorkspaceReorderedEvent() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        CmuxEventBus.shared.resetForTesting()
+
+        manager.moveTabToTop(second.id)
+
+        let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
+        XCTAssertEqual(event["name"] as? String, "workspace.reordered")
+        XCTAssertEqual(event["source"] as? String, "workspace.lifecycle")
+        XCTAssertEqual(event["workspace_id"] as? String, second.id.uuidString)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(
+            payload["workspace_ids"] as? [String],
+            [second.id.uuidString, first.id.uuidString]
+        )
+        XCTAssertEqual(payload["moved_workspace_ids"] as? [String], [second.id.uuidString])
+    }
+
+    @MainActor
     func testMoveTabToTopSkipsNotificationWhenUnpinnedAlreadyFirstBelowPinnedWorkspaces() {
         let manager = TabManager()
         let pinned = manager.tabs[0]
