@@ -1073,6 +1073,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
+        let isUITestLaunch = env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") })
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         StartupBreadcrumbLog.append(
             "appDelegate.didFinish.begin",
@@ -1196,6 +1197,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
         }
 
+        if let tabManager,
+           !isRunningUnderXCTest || isUITestLaunch || SocketControlSettings.envOverrideEnabled(environment: env) == true {
+            startSocketListenerIfEnabled(
+                tabManager: tabManager,
+                source: "didFinishLaunching.early"
+            )
+        }
+
         let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
 
         // UI tests frequently time out waiting for the main window if we do heavyweight
@@ -1244,8 +1253,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
 
-        StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
-        scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        if !isRunningUnderXCTest || isUITestLaunch {
+            StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
+            scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        } else {
+            StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.skippedXCTest")
+        }
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
@@ -1269,7 +1282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // In UI tests, `WindowGroup` occasionally fails to materialize a window quickly on the VM.
         // If there are no windows shortly after launch, force-create one so XCUITest can proceed.
-        if isRunningUnderXCTest {
+        if isUITestLaunch {
             if let rawVariant = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] {
                 UserDefaults.standard.set(
                     BrowserImportHintSettings.variant(for: rawVariant).rawValue,
@@ -15139,9 +15152,16 @@ private extension AppDelegate {
             return cell.controlView?.window
         }
         if target == nil, sender is NSMenuItem {
-            return NSApp.keyWindow ?? NSApp.mainWindow
+            return NSApp.keyWindow
+                ?? NSApp.orderedWindows.first(where: { $0.isVisible })
+                ?? NSApp.mainWindow
         }
-        return allowFallback ? (NSApp.keyWindow ?? NSApp.mainWindow) : nil
+        if allowFallback {
+            return NSApp.keyWindow
+                ?? NSApp.orderedWindows.first(where: { $0.isVisible })
+                ?? NSApp.mainWindow
+        }
+        return nil
     }
 
     private func allBrowserPanelsForInspectorWindowClose() -> [BrowserPanel] {
