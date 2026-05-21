@@ -212,11 +212,13 @@ extension CMUXCLI {
     }
 
     func openSubcommandUsage() -> String {
-        """
+        let htmlFilesHelp = String(localized: "cli.open.usage.htmlFilesBrowser", defaultValue: "HTML files and web URLs open in browser tabs.")
+
+        return """
         Usage: cmux open <path-or-url>... [options]
 
         Open files, directories, or URLs in cmux.
-        HTML files and web URLs open in browser tabs.
+        \(htmlFilesHelp)
         Markdown files open in markdown preview tabs; other files open in file preview tabs.
         Multiple files open as tabs in the same target pane.
 
