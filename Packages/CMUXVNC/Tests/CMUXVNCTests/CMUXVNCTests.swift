@@ -214,6 +214,20 @@ final class CMUXVNCTests: XCTestCase {
             .payloadByteCountMismatch(expected: 400, actual: 4)
         )
 
+        var paddedStride = valid
+        paddedStride.stride = 48
+        XCTAssertEqual(
+            VNCFrameValidator.validate(header: paddedStride, payloadByteCount: 400),
+            .invalidStride
+        )
+
+        var shortStride = valid
+        shortStride.stride = 36
+        XCTAssertEqual(
+            VNCFrameValidator.validate(header: shortStride, payloadByteCount: 400),
+            .invalidStride
+        )
+
         var hugeWidth = valid
         hugeWidth.width = Int.max
         XCTAssertEqual(
