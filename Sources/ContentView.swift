@@ -49,6 +49,11 @@ private final class CommandPaletteOverlayContainerView: NSView {
         let normalizedFlags = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
+        if normalizedFlags == [.command],
+           event.charactersIgnoringModifiers?.lowercased() == "v",
+           bufferPendingPasteboardText() {
+            return
+        }
         guard !normalizedFlags.contains(.command),
               !normalizedFlags.contains(.control) else {
             super.keyDown(with: event)
@@ -64,6 +69,25 @@ private final class CommandPaletteOverlayContainerView: NSView {
     override func insertText(_ insertString: Any) {
         guard let text = Self.plainText(from: insertString),
               !text.isEmpty else { return }
+        bufferPendingTextInput(text)
+    }
+
+    override func tryToPerform(_ action: Selector, with object: Any?) -> Bool {
+        if action == Selector(("paste:")), bufferPendingPasteboardText() {
+            return true
+        }
+        return super.tryToPerform(action, with: object)
+    }
+
+    @discardableResult
+    private func bufferPendingPasteboardText() -> Bool {
+        guard let text = NSPasteboard.general.string(forType: .string),
+              !text.isEmpty else { return false }
+        bufferPendingTextInput(text)
+        return true
+    }
+
+    private func bufferPendingTextInput(_ text: String) {
         didBufferPendingTextInput = true
         NotificationCenter.default.post(
             name: .commandPalettePendingTextInputRequested,
