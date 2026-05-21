@@ -1,4 +1,40 @@
+import Darwin
 import Foundation
+
+struct CMUXAgentTurnDiffBaselineRecord: Codable {
+    var workspaceId: String
+    var surfaceId: String
+    var sessionId: String
+    var turnId: String?
+    var agent: String
+    var repoRoot: String
+    var baseCommit: String
+    var capturedAt: TimeInterval
+}
+
+struct CMUXAgentTurnDiffBaselineStore: Codable {
+    var version: Int = 1
+    var records: [CMUXAgentTurnDiffBaselineRecord] = []
+}
+
+enum CMUXAgentTurnDiffBaselineFile {
+    static func path(env: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        if let overrideDirectory = normalized(env["CMUX_AGENT_HOOK_STATE_DIR"]) {
+            return URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
+                .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
+                .path
+        }
+        return NSString(string: "~/.cmuxterm/agent-turn-diff-baselines.json").expandingTildeInPath
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
 
 extension CMUXCLI {
     private struct OpenArguments {
@@ -26,7 +62,74 @@ extension CMUXCLI {
         var title: String?
         var layout: String?
         var fontSize: String?
+        var source: DiffSource?
         var inputs: [String] = []
+    }
+
+    private struct DiffInput {
+        var patch: String
+        var sourceLabel: String
+        var defaultTitle: String
+        var emptyMessage: String?
+    }
+
+    private struct DiffSourceContext {
+        var workspaceId: String?
+        var surfaceId: String?
+    }
+
+    private enum DiffSource: Equatable {
+        case unstaged
+        case staged
+        case branch
+        case lastTurn
+
+        init?(rawValue: String) {
+            let normalized = rawValue
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .replacingOccurrences(of: "_", with: "-")
+                .replacingOccurrences(of: " ", with: "-")
+            switch normalized {
+            case "unstaged", "worktree", "working-tree", "workingtree":
+                self = .unstaged
+            case "staged", "cached", "index":
+                self = .staged
+            case "branch":
+                self = .branch
+            case "last", "last-turn", "lastturn":
+                self = .lastTurn
+            default:
+                return nil
+            }
+        }
+
+        var optionName: String {
+            switch self {
+            case .unstaged: return "--unstaged"
+            case .staged: return "--staged"
+            case .branch: return "--branch"
+            case .lastTurn: return "--last-turn"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .unstaged: return "Unstaged changes"
+            case .staged: return "Staged changes"
+            case .branch: return "Branch diff"
+            case .lastTurn: return "Last turn diff"
+            }
+        }
+
+        var emptyMessage: String {
+            switch self {
+            case .unstaged: return "No unstaged changes to diff."
+            case .staged: return "No staged changes to diff."
+            case .branch: return "No branch changes to diff."
+            case .lastTurn: return "No last-turn changes to diff."
+            }
+        }
     }
 
     private enum DiffViewerColorScheme {
@@ -202,6 +305,9 @@ extension CMUXCLI {
         guard parsedArgs.inputs.count <= 1 else {
             throw CLIError(message: "diff accepts at most one patch file. Usage: cmux diff [patch-file|-] [options]")
         }
+        if parsedArgs.source != nil, !parsedArgs.inputs.isEmpty {
+            throw CLIError(message: "diff accepts either a patch file or a git source, not both")
+        }
 
         let focus: Bool
         if parsedArgs.noFocus {
@@ -227,10 +333,49 @@ extension CMUXCLI {
             fontSizeOverride = nil
         }
 
-        let input = try readDiffInput(parsedArgs.inputs.first)
+        var client: SocketClient?
+        var didResolveTarget = false
+        var windowHandle: String?
+        var workspaceHandle: String?
+        var surfaceHandle: String?
+        defer { client?.close() }
+
+        func connectedClient() throws -> SocketClient {
+            if let client {
+                return client
+            }
+            let newClient = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: true
+            )
+            client = newClient
+            return newClient
+        }
+
+        func resolveTargetIfNeeded() throws {
+            guard !didResolveTarget else { return }
+            let activeClient = try connectedClient()
+            windowHandle = try normalizeWindowHandle(parsedArgs.window, client: activeClient)
+            let workspaceRaw = parsedArgs.workspace ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: activeClient, windowHandle: windowHandle)
+            let surfaceRaw = parsedArgs.surface ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: activeClient, workspaceHandle: workspaceHandle)
+            didResolveTarget = true
+        }
+
+        if parsedArgs.source == .lastTurn {
+            try resolveTargetIfNeeded()
+        }
+
+        let input = try readDiffInput(
+            parsedArgs.inputs.first,
+            source: parsedArgs.source,
+            context: DiffSourceContext(workspaceId: workspaceHandle, surfaceId: surfaceHandle)
+        )
         let trimmedPatch = input.patch.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPatch.isEmpty else {
-            throw CLIError(message: "diff input is empty")
+            throw CLIError(message: input.emptyMessage ?? "diff input is empty")
         }
 
         let title = parsedArgs.title ?? input.defaultTitle
@@ -242,18 +387,8 @@ extension CMUXCLI {
             appearance: diffViewerAppearance(fontSizeOverride: fontSizeOverride)
         )
 
-        let client = try connectClient(
-            socketPath: socketPath,
-            explicitPassword: explicitPassword,
-            launchIfNeeded: true
-        )
-        defer { client.close() }
-
-        let windowHandle = try normalizeWindowHandle(parsedArgs.window, client: client)
-        let workspaceRaw = parsedArgs.workspace ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-        let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
-        let surfaceRaw = parsedArgs.surface ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle)
+        try resolveTargetIfNeeded()
+        let activeClient = try connectedClient()
 
         var params: [String: Any] = [
             "url": viewerURL.absoluteString,
@@ -263,7 +398,7 @@ extension CMUXCLI {
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
 
-        let payload = try client.sendV2(method: "browser.open_split", params: params)
+        let payload = try activeClient.sendV2(method: "browser.open_split", params: params)
 
         if jsonOutput {
             var response = payload
@@ -380,9 +515,33 @@ extension CMUXCLI {
                     parsed.fontSize = try diffOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
+                case "--source":
+                    let rawSource = try diffOptionValue(commandArgs, index: index, name: arg)
+                    guard let source = DiffSource(rawValue: rawSource) else {
+                        throw CLIError(message: "Unknown diff source '\(rawSource)'. Expected unstaged, staged, branch, or last-turn.")
+                    }
+                    try setDiffSource(source, parsed: &parsed)
+                    index += 2
+                    continue
+                case "--unstaged":
+                    try setDiffSource(.unstaged, parsed: &parsed)
+                    index += 1
+                    continue
+                case "--staged":
+                    try setDiffSource(.staged, parsed: &parsed)
+                    index += 1
+                    continue
+                case "--branch":
+                    try setDiffSource(.branch, parsed: &parsed)
+                    index += 1
+                    continue
+                case "--last-turn":
+                    try setDiffSource(.lastTurn, parsed: &parsed)
+                    index += 1
+                    continue
                 default:
                     if arg.hasPrefix("-"), arg != "-" {
-                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
+                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
                     }
                 }
             }
@@ -392,6 +551,13 @@ extension CMUXCLI {
         }
 
         return parsed
+    }
+
+    private func setDiffSource(_ source: DiffSource, parsed: inout DiffArguments) throws {
+        if let existing = parsed.source, existing != source {
+            throw CLIError(message: "diff accepts only one source, got \(existing.optionName) and \(source.optionName)")
+        }
+        parsed.source = source
     }
 
     private func openOptionValue(_ args: [String], index: Int, name: String) throws -> String {
@@ -436,13 +602,26 @@ extension CMUXCLI {
         return .file(resolved)
     }
 
-    private func readDiffInput(_ rawInput: String?) throws -> (patch: String, sourceLabel: String, defaultTitle: String) {
+    private func readDiffInput(
+        _ rawInput: String?,
+        source: DiffSource?,
+        context: DiffSourceContext
+    ) throws -> DiffInput {
+        if let source {
+            return try readGitDiffInput(source: source, context: context)
+        }
+
         guard let rawInput, rawInput != "-" else {
             guard isatty(STDIN_FILENO) == 0 else {
-                throw CLIError(message: "diff requires a patch file or piped stdin. Usage: cmux diff <patch-file>|-")
+                throw CLIError(message: "diff requires a patch file, piped stdin, or a git source. Usage: cmux diff <patch-file>|-|--unstaged|--staged|--branch|--last-turn")
             }
             let data = FileHandle.standardInput.readDataToEndOfFile()
-            return (try decodeDiffData(data, sourceDescription: "stdin"), "stdin", "cmux diff")
+            return DiffInput(
+                patch: try decodeDiffData(data, sourceDescription: "stdin"),
+                sourceLabel: "stdin",
+                defaultTitle: "cmux diff",
+                emptyMessage: nil
+            )
         }
 
         let resolved = resolvePath(rawInput)
@@ -459,7 +638,51 @@ extension CMUXCLI {
 
         let data = try Data(contentsOf: URL(fileURLWithPath: resolved))
         let filename = URL(fileURLWithPath: resolved).lastPathComponent
-        return (try decodeDiffData(data, sourceDescription: resolved), resolved, filename.isEmpty ? "cmux diff" : filename)
+        return DiffInput(
+            patch: try decodeDiffData(data, sourceDescription: resolved),
+            sourceLabel: resolved,
+            defaultTitle: filename.isEmpty ? "cmux diff" : filename,
+            emptyMessage: nil
+        )
+    }
+
+    private func readGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
+        let repoRoot = try currentGitRepoRoot()
+        let patch: String
+        let sourceLabel: String
+        switch source {
+        case .unstaged:
+            patch = try gitStdout(["diff", "--no-ext-diff", "--binary", "--"], in: repoRoot)
+            sourceLabel = "git unstaged"
+        case .staged:
+            patch = try gitStdout(["diff", "--no-ext-diff", "--binary", "--cached", "--"], in: repoRoot)
+            sourceLabel = "git staged"
+        case .branch:
+            let baseRef = try gitBranchDiffBaseRef(in: repoRoot)
+            let mergeBase = try gitSingleLine(["merge-base", "HEAD", baseRef], in: repoRoot)
+            patch = try gitStdout(["diff", "--no-ext-diff", "--binary", mergeBase, "--"], in: repoRoot)
+            sourceLabel = "git branch \(baseRef)"
+        case .lastTurn:
+            guard let workspaceId = normalizedDiffSourceValue(context.workspaceId),
+                  let surfaceId = normalizedDiffSourceValue(context.surfaceId) else {
+                throw CLIError(message: "cmux diff --last-turn requires a workspace and surface context. Run it from a cmux terminal or pass --workspace and --surface.")
+            }
+            let record = try latestAgentTurnDiffBaseline(
+                repoRoot: repoRoot,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                env: ProcessInfo.processInfo.environment
+            )
+            _ = try gitStdout(["cat-file", "-e", "\(record.baseCommit)^{tree}"], in: repoRoot)
+            patch = try gitStdout(["diff", "--no-ext-diff", "--binary", record.baseCommit, "--"], in: repoRoot)
+            sourceLabel = "git last-turn \(workspaceId) \(surfaceId)"
+        }
+        return DiffInput(
+            patch: patch,
+            sourceLabel: sourceLabel,
+            defaultTitle: source.title,
+            emptyMessage: source.emptyMessage
+        )
     }
 
     private func decodeDiffData(_ data: Data, sourceDescription: String) throws -> String {
@@ -470,6 +693,207 @@ extension CMUXCLI {
             return text
         }
         throw CLIError(message: "Diff input is not valid UTF-8: \(sourceDescription)")
+    }
+
+    private func currentGitRepoRoot() throws -> String {
+        try gitRepoRoot(startingAt: FileManager.default.currentDirectoryPath)
+    }
+
+    private func gitRepoRoot(startingAt directory: String) throws -> String {
+        do {
+            return try standardizedDiffSourcePath(gitSingleLine(["rev-parse", "--show-toplevel"], in: directory))
+        } catch {
+            throw CLIError(message: "cmux diff git sources require a git repository")
+        }
+    }
+
+    private func gitBranchDiffBaseRef(in repoRoot: String) throws -> String {
+        if let upstream = try? gitSingleLine(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: repoRoot),
+           !upstream.isEmpty {
+            return upstream
+        }
+        if let originHead = try? gitSingleLine(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], in: repoRoot),
+           !originHead.isEmpty {
+            return originHead
+        }
+        for candidate in ["origin/main", "origin/master", "upstream/main", "upstream/master", "main", "master"] {
+            if (try? gitStdout(["rev-parse", "--verify", "--quiet", "\(candidate)^{commit}"], in: repoRoot)) != nil {
+                return candidate
+            }
+        }
+        throw CLIError(message: "Unable to find a branch diff base. Set an upstream branch or create origin/main.")
+    }
+
+    private func gitSingleLine(_ arguments: [String], in directory: String) throws -> String {
+        let output = try gitStdout(arguments, in: directory)
+        guard let line = output
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !line.isEmpty else {
+            throw CLIError(message: "git returned empty output for \(arguments.joined(separator: " "))")
+        }
+        return line
+    }
+
+    private func gitStdout(
+        _ arguments: [String],
+        in directory: String,
+        timeout: TimeInterval = 60
+    ) throws -> String {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", directory] + arguments,
+            timeout: timeout
+        )
+        if result.timedOut {
+            throw CLIError(message: "git \(arguments.joined(separator: " ")) timed out")
+        }
+        guard result.status == 0 else {
+            let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = stderr.isEmpty ? stdout : stderr
+            throw CLIError(message: detail.isEmpty ? "git \(arguments.joined(separator: " ")) failed" : detail)
+        }
+        return result.stdout
+    }
+
+    func recordAgentTurnDiffBaseline(
+        agent: String,
+        sessionId: String,
+        turnId: String?,
+        cwd: String?,
+        workspaceId: String,
+        surfaceId: String,
+        env: [String: String] = ProcessInfo.processInfo.environment
+    ) throws {
+        guard let cwd = normalizedDiffSourceValue(cwd),
+              let workspaceId = normalizedDiffSourceValue(workspaceId),
+              let surfaceId = normalizedDiffSourceValue(surfaceId) else {
+            return
+        }
+        let repoRoot = try gitRepoRoot(startingAt: cwd)
+        let baseCommit = try agentTurnDiffBaselineCommit(in: repoRoot)
+        let record = CMUXAgentTurnDiffBaselineRecord(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            sessionId: normalizedDiffSourceValue(sessionId) ?? "",
+            turnId: normalizedDiffSourceValue(turnId),
+            agent: normalizedDiffSourceValue(agent) ?? "agent",
+            repoRoot: repoRoot,
+            baseCommit: baseCommit,
+            capturedAt: Date().timeIntervalSince1970
+        )
+        try updateAgentTurnDiffBaselineStore(path: CMUXAgentTurnDiffBaselineFile.path(env: env)) { store in
+            store.records.removeAll { existing in
+                guard standardizedDiffSourcePath(existing.repoRoot) == repoRoot,
+                      existing.workspaceId == workspaceId,
+                      existing.surfaceId == surfaceId,
+                      existing.sessionId == record.sessionId else {
+                    return false
+                }
+                if let turnId = record.turnId {
+                    return existing.turnId == turnId
+                }
+                return existing.turnId == nil
+            }
+            store.records.append(record)
+            pruneAgentTurnDiffBaselineStore(&store)
+        }
+    }
+
+    private func agentTurnDiffBaselineCommit(in repoRoot: String) throws -> String {
+        let stashResult = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", repoRoot, "stash", "create", "cmux last turn baseline"],
+            timeout: 60
+        )
+        if stashResult.timedOut {
+            throw CLIError(message: "git stash create timed out")
+        }
+        if stashResult.status == 0,
+           let stashCommit = normalizedDiffSourceValue(stashResult.stdout) {
+            return stashCommit
+        }
+        return try gitSingleLine(["rev-parse", "HEAD"], in: repoRoot)
+    }
+
+    private func latestAgentTurnDiffBaseline(
+        repoRoot: String,
+        workspaceId: String,
+        surfaceId: String,
+        env: [String: String]
+    ) throws -> CMUXAgentTurnDiffBaselineRecord {
+        let store = try readAgentTurnDiffBaselineStore(path: CMUXAgentTurnDiffBaselineFile.path(env: env))
+        let repoRoot = standardizedDiffSourcePath(repoRoot)
+        let candidates = store.records.filter { record in
+            standardizedDiffSourcePath(record.repoRoot) == repoRoot
+                && record.workspaceId == workspaceId
+                && record.surfaceId == surfaceId
+        }
+        guard let record = candidates.max(by: { $0.capturedAt < $1.capturedAt }) else {
+            throw CLIError(message: "No last-turn diff baseline recorded for this workspace and surface yet. Run another agent turn with cmux hooks active, or use --unstaged, --staged, or --branch.")
+        }
+        return record
+    }
+
+    private func readAgentTurnDiffBaselineStore(path: String) throws -> CMUXAgentTurnDiffBaselineStore {
+        let url = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return CMUXAgentTurnDiffBaselineStore()
+        }
+        let data = try Data(contentsOf: url)
+        return try JSONDecoder().decode(CMUXAgentTurnDiffBaselineStore.self, from: data)
+    }
+
+    private func updateAgentTurnDiffBaselineStore(
+        path: String,
+        update: (inout CMUXAgentTurnDiffBaselineStore) throws -> Void
+    ) throws {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        let lockPath = expandedPath + ".lock"
+        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        if fd < 0 {
+            throw CLIError(message: "Failed to open diff baseline lock: \(lockPath)")
+        }
+        defer { Darwin.close(fd) }
+
+        if flock(fd, LOCK_EX) != 0 {
+            throw CLIError(message: "Failed to lock diff baseline store: \(expandedPath)")
+        }
+        defer { _ = flock(fd, LOCK_UN) }
+
+        var store = (try? readAgentTurnDiffBaselineStore(path: expandedPath)) ?? CMUXAgentTurnDiffBaselineStore()
+        try update(&store)
+
+        let url = URL(fileURLWithPath: expandedPath)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(store).write(to: url, options: .atomic)
+    }
+
+    private func pruneAgentTurnDiffBaselineStore(_ store: inout CMUXAgentTurnDiffBaselineStore) {
+        let cutoff = Date().timeIntervalSince1970 - 60 * 60 * 24 * 7
+        store.records = store.records
+            .filter { $0.capturedAt >= cutoff }
+            .sorted { $0.capturedAt > $1.capturedAt }
+        if store.records.count > 200 {
+            store.records.removeSubrange(200..<store.records.count)
+        }
+    }
+
+    private func normalizedDiffSourceValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func standardizedDiffSourcePath(_ path: String) -> String {
+        URL(fileURLWithPath: NSString(string: path).expandingTildeInPath).standardizedFileURL.path
     }
 
     private func diffViewerAppearance(fontSizeOverride: Double?) -> DiffViewerAppearance {
@@ -1240,9 +1664,14 @@ extension CMUXCLI {
         Usage: cmux diff [patch-file|-] [options]
 
         Render a unified diff or patch with Diffs CodeView in a cmux browser split.
-        With no patch file, cmux diff reads piped stdin.
+        With no patch file or source, cmux diff reads piped stdin.
 
         Options:
+          --source <name>              Diff source: unstaged, staged, branch, last-turn
+          --unstaged                   Show unstaged git changes
+          --staged                     Show staged git changes
+          --branch                     Show current branch against merge base
+          --last-turn                  Show changes since this surface's last agent-turn baseline
           --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
           --surface <id|ref|index>     Source surface to split from (default: $CMUX_SURFACE_ID)
           --window <id|ref|index>      Target window
@@ -1255,6 +1684,10 @@ extension CMUXCLI {
         Examples:
           cmux diff changes.patch
           git diff | cmux diff
+          cmux diff --unstaged
+          cmux diff --staged
+          cmux diff --branch
+          cmux diff --last-turn
           cmux diff pr.patch --layout unified --font-size 15 --focus true
         """
     }

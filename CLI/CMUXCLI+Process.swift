@@ -38,9 +38,44 @@ enum CLIProcessRunner {
             finished.signal()
         }
 
+        let stdoutFinished = DispatchSemaphore(value: 0)
+        let stderrFinished = DispatchSemaphore(value: 0)
+        final class OutputBuffer: @unchecked Sendable {
+            private let lock = NSLock()
+            private var data = Data()
+
+            func set(_ newData: Data) {
+                lock.lock()
+                data = newData
+                lock.unlock()
+            }
+
+            func get() -> Data {
+                lock.lock()
+                let current = data
+                lock.unlock()
+                return current
+            }
+        }
+        let stdoutBuffer = OutputBuffer()
+        let stderrBuffer = OutputBuffer()
+
+        DispatchQueue.global(qos: .utility).async {
+            stdoutBuffer.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            stdoutFinished.signal()
+        }
+        DispatchQueue.global(qos: .utility).async {
+            stderrBuffer.set(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            stderrFinished.signal()
+        }
+
         do {
             try process.run()
         } catch {
+            stdoutPipe.fileHandleForReading.closeFile()
+            stderrPipe.fileHandleForReading.closeFile()
+            _ = stdoutFinished.wait(timeout: .now() + 0.5)
+            _ = stderrFinished.wait(timeout: .now() + 0.5)
             return CLIProcessResult(status: 1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
@@ -65,8 +100,11 @@ enum CLIProcessRunner {
             timedOut = false
         }
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        var stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        _ = stdoutFinished.wait(timeout: .now() + 1)
+        _ = stderrFinished.wait(timeout: .now() + 1)
+
+        let stdout = String(data: stdoutBuffer.get(), encoding: .utf8) ?? ""
+        var stderr = String(data: stderrBuffer.get(), encoding: .utf8) ?? ""
         if timedOut {
             let timeoutMessage = "process timed out"
             if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

@@ -337,6 +337,135 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("\"layout\":\"unified\""), html)
     }
 
+    func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let stateURL = rootURL.appendingPathComponent("hook-state", isDirectory: true)
+        let fileURL = repoURL.appendingPathComponent("story.txt")
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["checkout", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+        let initialCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
+
+        try runGit(["checkout", "-b", "feature/diff-source"], in: repoURL)
+        try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+        try runGit(["commit", "-m", "add two"], in: repoURL)
+        try "one\ntwo\nthree\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let branch = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--branch", "--title", "Branch source"],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(branch.html.contains("Branch source"), branch.html)
+        XCTAssertTrue(branch.html.contains("+two"), branch.html)
+        XCTAssertTrue(branch.html.contains("+three"), branch.html)
+        XCTAssertTrue(branch.html.contains("\"sourceLabel\":\"git branch main\""), branch.html)
+
+        let unstaged = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--unstaged"],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(unstaged.html.contains("Unstaged changes"), unstaged.html)
+        XCTAssertTrue(unstaged.html.contains("+three"), unstaged.html)
+        XCTAssertTrue(unstaged.html.contains("\"sourceLabel\":\"git unstaged\""), unstaged.html)
+
+        try runGit(["add", "story.txt"], in: repoURL)
+        let staged = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--source", "staged"],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(staged.html.contains("Staged changes"), staged.html)
+        XCTAssertTrue(staged.html.contains("+three"), staged.html)
+        XCTAssertTrue(staged.html.contains("\"sourceLabel\":\"git staged\""), staged.html)
+
+        let workspaceId = UUID().uuidString.lowercased()
+        let surfaceId = UUID().uuidString.lowercased()
+        try writeDiffBaselineStore(
+            stateDirectoryURL: stateURL,
+            repoURL: repoURL,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            baseCommit: initialCommit
+        )
+        let lastTurn = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn"],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId
+            ],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertEqual(lastTurn.params["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(lastTurn.params["surface_id"] as? String, surfaceId)
+        XCTAssertTrue(lastTurn.html.contains("Last turn diff"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("+two"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("+three"), lastTurn.html)
+
+        let wrongSurfaceResult = runDiffCLIExpectingNoOpen(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn"],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": UUID().uuidString.lowercased()
+            ],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertNotEqual(wrongSurfaceResult.status, 0)
+        XCTAssertTrue(wrongSurfaceResult.stderr.contains("No last-turn diff baseline recorded for this workspace and surface yet"), wrongSurfaceResult.stderr)
+    }
+
+    func testDiffCommandGitSourcesDrainLargeDiffOutput() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let fileURL = repoURL.appendingPathComponent("large.txt")
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try (0..<5_000)
+            .map { "old line \($0)" }
+            .joined(separator: "\n")
+            .appending("\n")
+            .write(to: fileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "large.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+        try (0..<5_000)
+            .map { "new line \($0)" }
+            .joined(separator: "\n")
+            .appending("\n")
+            .write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let large = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--unstaged", "--title", "Large git source"],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(large.html.contains("Large git source"), large.html)
+        XCTAssertTrue(large.html.contains("large.txt"), large.html)
+        XCTAssertTrue(large.html.contains("+new line 4999"), large.html)
+    }
+
     func testTopCommandSortsWorkspacesByCPUDescending() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("top-cpu")
@@ -702,7 +831,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         cliPath: String,
         socketPath: String,
         arguments: [String],
-        environmentOverrides: [String: String] = [:]
+        environmentOverrides: [String: String] = [:],
+        currentDirectoryURL: URL? = nil
     ) -> ProcessRunResult {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -711,7 +841,153 @@ final class CMUXOpenCommandTests: XCTestCase {
         for (key, value) in environmentOverrides {
             environment[key] = value
         }
-        return runProcess(executablePath: cliPath, arguments: arguments, environment: environment, timeout: 5)
+        return runProcess(
+            executablePath: cliPath,
+            arguments: arguments,
+            environment: environment,
+            timeout: 5,
+            currentDirectoryURL: currentDirectoryURL
+        )
+    }
+
+    private func runDiffCLIAndReadHTML(
+        cliPath: String,
+        arguments: [String],
+        environmentOverrides: [String: String] = [:],
+        currentDirectoryURL: URL? = nil
+    ) throws -> (html: String, params: [String: Any], stdout: String) {
+        let socketPath = makeSocketPath("diff-src")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String,
+                  method == "browser.open_split",
+                  let params = payload["params"] as? [String: Any],
+                  let rawURL = params["url"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "surface-id", "pane_id": "pane-id", "url": rawURL]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: arguments,
+            environmentOverrides: environmentOverrides,
+            currentDirectoryURL: currentDirectoryURL
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
+        let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
+        let rawURL = try XCTUnwrap(params["url"] as? String)
+        let viewerURL = try XCTUnwrap(URL(string: rawURL))
+        defer { try? FileManager.default.removeItem(at: viewerURL) }
+        let html = try String(contentsOf: viewerURL, encoding: .utf8)
+        return (html, params, result.stdout)
+    }
+
+    private func runDiffCLIExpectingNoOpen(
+        cliPath: String,
+        arguments: [String],
+        environmentOverrides: [String: String] = [:],
+        currentDirectoryURL: URL? = nil
+    ) -> ProcessRunResult {
+        let socketPath = makeSocketPath("diff-no")
+        guard let listenerFD = try? bindUnixSocket(at: socketPath) else {
+            return ProcessRunResult(status: -1, stdout: "", stderr: "failed to bind socket", timedOut: false)
+        }
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-open"])
+        }
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: arguments,
+            environmentOverrides: environmentOverrides,
+            currentDirectoryURL: currentDirectoryURL
+        )
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertTrue(state.commands.isEmpty, state.commands.joined(separator: "\n"))
+        return result
+    }
+
+    private func runGit(_ arguments: [String], in directory: URL) throws {
+        let result = runGitProcess(arguments, in: directory)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        if result.status != 0 {
+            throw NSError(domain: "CMUXOpenCommandTests.git", code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: result.stderr])
+        }
+    }
+
+    private func runGitStdout(_ arguments: [String], in directory: URL) throws -> String {
+        let result = runGitProcess(arguments, in: directory)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        guard result.status == 0 else {
+            throw NSError(domain: "CMUXOpenCommandTests.git", code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: result.stderr])
+        }
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func runGitProcess(_ arguments: [String], in directory: URL) -> ProcessRunResult {
+        runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git"] + arguments,
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 10,
+            currentDirectoryURL: directory
+        )
+    }
+
+    private func writeDiffBaselineStore(
+        stateDirectoryURL: URL,
+        repoURL: URL,
+        workspaceId: String,
+        surfaceId: String,
+        baseCommit: String
+    ) throws {
+        let payload: [String: Any] = [
+            "version": 1,
+            "records": [
+                [
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "sessionId": "session-1",
+                    "turnId": "turn-1",
+                    "agent": "codex",
+                    "repoRoot": repoURL.standardizedFileURL.path,
+                    "baseCommit": baseCommit,
+                    "capturedAt": Date().timeIntervalSince1970
+                ] as [String: Any]
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        try data.write(to: stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.json"), options: .atomic)
     }
 
     private func bundledCLIPath() throws -> String {
@@ -738,7 +1014,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         executablePath: String,
         arguments: [String],
         environment: [String: String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        currentDirectoryURL: URL? = nil
     ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
@@ -746,6 +1023,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
+        process.currentDirectoryURL = currentDirectoryURL
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
