@@ -42,6 +42,7 @@ extension SessionAgent {
 
 private final class AgentAssetIconCache {
     static let shared = AgentAssetIconCache()
+    private static let maxCachedImages = 96
 
     private struct Key: Hashable {
         let assetName: String
@@ -50,6 +51,7 @@ private final class AgentAssetIconCache {
     }
 
     private var images: [Key: NSImage] = [:]
+    private var insertionOrder: [Key] = []
 
     @MainActor
     func image(named assetName: String, pointSize: CGFloat, colorScheme: ColorScheme) -> NSImage? {
@@ -74,7 +76,16 @@ private final class AgentAssetIconCache {
             appearanceName: appearanceName
         )
         images[key] = image
+        insertionOrder.append(key)
+        trimCache()
         return image
+    }
+
+    private func trimCache() {
+        while images.count > Self.maxCachedImages, !insertionOrder.isEmpty {
+            let key = insertionOrder.removeFirst()
+            images.removeValue(forKey: key)
+        }
     }
 
     private static func rasterizedImage(
@@ -143,6 +154,7 @@ struct AgentAssetIconImage: View, Equatable {
     let size: CGFloat
     let fallbackSystemName: String
     let fallbackColor: Color
+    let fallbackColorID: String
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -150,18 +162,21 @@ struct AgentAssetIconImage: View, Equatable {
         assetName: String,
         size: CGFloat,
         fallbackSystemName: String,
-        fallbackColor: Color = .secondary
+        fallbackColor: Color = .secondary,
+        fallbackColorID: String = "secondary"
     ) {
         self.assetName = assetName
         self.size = size
         self.fallbackSystemName = fallbackSystemName
         self.fallbackColor = fallbackColor
+        self.fallbackColorID = fallbackColorID
     }
 
     static func == (lhs: AgentAssetIconImage, rhs: AgentAssetIconImage) -> Bool {
         lhs.assetName == rhs.assetName &&
             lhs.size == rhs.size &&
-            lhs.fallbackSystemName == rhs.fallbackSystemName
+            lhs.fallbackSystemName == rhs.fallbackSystemName &&
+            lhs.fallbackColorID == rhs.fallbackColorID
     }
 
     var body: some View {

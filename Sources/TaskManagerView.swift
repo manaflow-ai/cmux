@@ -421,7 +421,8 @@ private struct CmuxTaskManagerRowView: View {
                 assetName: agentAssetName,
                 size: 14,
                 fallbackSystemName: row.kind.systemImage,
-                fallbackColor: row.kind.tint
+                fallbackColor: row.kind.tint,
+                fallbackColorID: row.kind.rawValue
             )
         } else {
             Image(systemName: row.kind.systemImage)
