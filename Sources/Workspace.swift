@@ -8291,6 +8291,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
     private var pendingRemoteSurfaceTTYName: String?
     private var pendingRemoteSurfaceTTYSurfaceId: UUID?
+    private var pendingRemoteSurfaceDirectory: String?
+    private var pendingRemoteSurfaceDirectorySurfaceId: UUID?
     private var pendingRemoteSurfacePortKickReason: WorkspaceRemoteSessionController.PortScanKickReason?
     private var pendingRemoteSurfacePortKickSurfaceId: UUID?
     // When the last live remote terminal is detached out, the source workspace may be
@@ -8983,8 +8985,7 @@ final class Workspace: Identifiable, ObservableObject {
         if panelDirectories[panelId] != trimmed {
             panelDirectories[panelId] = trimmed
         }
-        if remoteConnectionState == .connected,
-           activeRemoteTerminalSurfaceIds.contains(panelId) {
+        if activeRemoteTerminalSurfaceIds.contains(panelId) {
             remoteTerminalDirectorySurfaceIds.insert(panelId)
         }
         // Update current directory if this is the focused panel
@@ -9844,6 +9845,8 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
+        pendingRemoteSurfaceDirectory = nil
+        pendingRemoteSurfaceDirectorySurfaceId = nil
         pendingRemoteSurfacePortKickReason = nil
         pendingRemoteSurfacePortKickSurfaceId = nil
         clearRemoteDetectedSurfacePorts()
@@ -9896,6 +9899,7 @@ final class Workspace: Identifiable, ObservableObject {
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        applyPendingRemoteSurfaceDirectoryIfNeeded(to: panelId)
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
         _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
     }
@@ -9931,6 +9935,14 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func rememberPendingRemoteSurfaceDirectory(_ directory: String, requestedSurfaceId: UUID?) {
+        let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDirectory.isEmpty else { return }
+        pendingRemoteSurfaceDirectory = trimmedDirectory
+        pendingRemoteSurfaceDirectorySurfaceId = requestedSurfaceId
+    }
+
+    @MainActor
     func rememberPendingRemoteSurfacePortKick(
         reason: WorkspaceRemoteSessionController.PortScanKickReason,
         requestedSurfaceId: UUID?
@@ -9955,6 +9967,21 @@ final class Workspace: Identifiable, ObservableObject {
         if !applyPendingRemoteSurfacePortKickIfNeeded(to: panelId) {
             kickRemotePortScan(panelId: panelId, reason: .command)
         }
+    }
+
+    @MainActor
+    private func applyPendingRemoteSurfaceDirectoryIfNeeded(to panelId: UUID) {
+        guard let directory = pendingRemoteSurfaceDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !directory.isEmpty else {
+            return
+        }
+        if let requestedSurfaceId = pendingRemoteSurfaceDirectorySurfaceId,
+           requestedSurfaceId != panelId {
+            return
+        }
+        pendingRemoteSurfaceDirectory = nil
+        pendingRemoteSurfaceDirectorySurfaceId = nil
+        updatePanelDirectory(panelId: panelId, directory: directory)
     }
 
     @MainActor

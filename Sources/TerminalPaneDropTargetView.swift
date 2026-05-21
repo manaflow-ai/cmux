@@ -140,7 +140,9 @@ final class PaneDropTargetView: NSView {
 
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess {
-            let zone = resolvedZone(for: sender, transfer: transfer, context: dropContext, workspace: workspace)
+            let zone = transfer.isFilePreview
+                ? fileDropZone(for: sender)
+                : resolvedZone(for: sender, transfer: transfer, context: dropContext, workspace: workspace)
             if transfer.isFilePreview {
                 guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId) else {
 #if DEBUG
@@ -245,12 +247,14 @@ final class PaneDropTargetView: NSView {
                 clearDragState(phase: "\(phase).reject")
                 return []
             }
-            let zone = resolvedZone(
-                for: sender,
-                transfer: transfer,
-                context: dropContext,
-                workspace: workspace
-            )
+            let zone = transfer.isFilePreview
+                ? fileDropZone(for: sender)
+                : resolvedZone(
+                    for: sender,
+                    transfer: transfer,
+                    context: dropContext,
+                    workspace: workspace
+                )
             setActiveDropZone(zone)
 #if DEBUG
             cmuxDebugLog(

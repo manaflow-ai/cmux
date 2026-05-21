@@ -13,37 +13,24 @@ struct RemoteFilePreviewSource: Equatable, Sendable {
 
 enum RemoteFilePreviewMaterializerError: LocalizedError {
     case sshCommandFailed(status: Int32, detail: String)
-    case launchFailed(String)
+    case launchFailed
+    case materializationFailed
 
     var errorDescription: String? {
         switch self {
-        case .sshCommandFailed(let status, let detail):
-            let normalized = detail.trimmingCharacters(in: .whitespacesAndNewlines)
-            if normalized.isEmpty {
-                return String.localizedStringWithFormat(
-                    String(
-                        localized: "filePreview.remote.error.downloadFailedWithStatus",
-                        defaultValue: "Unable to download the remote file. SSH exited with status %d."
-                    ),
-                    Int(status)
-                )
-            }
-            return String.localizedStringWithFormat(
-                String(
-                    localized: "filePreview.remote.error.downloadFailedWithDetail",
-                    defaultValue: "Unable to download the remote file: %@"
-                ),
-                normalized
-            )
-        case .launchFailed(let detail):
-            return String.localizedStringWithFormat(
-                String(
-                    localized: "filePreview.remote.error.sshLaunchFailed",
-                    defaultValue: "Unable to start SSH for remote preview: %@"
-                ),
-                detail
-            )
+        case .sshCommandFailed, .materializationFailed:
+            return String(localized: "filePreview.remote.error.downloadFailed", defaultValue: "Unable to download the remote file.")
+        case .launchFailed:
+            return String(localized: "filePreview.remote.error.sshLaunchFailed", defaultValue: "Unable to start SSH for remote preview.")
         }
+    }
+
+    static func logDiagnostic(_ message: String) {
+#if DEBUG
+        NSLog("[RemoteFilePreview] %@", message)
+#else
+        _ = message
+#endif
     }
 }
 
@@ -121,10 +108,16 @@ private final class RemoteFilePreviewDownloadOperation: @unchecked Sendable {
         let directoryURL = destinationURL.deletingLastPathComponent()
         let temporaryURL = directoryURL.appendingPathComponent(".\(destinationURL.lastPathComponent).download-\(UUID().uuidString)", isDirectory: false)
 
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        fileManager.createFile(atPath: temporaryURL.path, contents: nil)
+        do {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            fileManager.createFile(atPath: temporaryURL.path, contents: nil)
+        } catch {
+            RemoteFilePreviewMaterializerError.logDiagnostic("cache preparation failed: \(error.localizedDescription)")
+            throw RemoteFilePreviewMaterializerError.materializationFailed
+        }
         guard let outputHandle = try? FileHandle(forWritingTo: temporaryURL) else {
-            throw RemoteFilePreviewMaterializerError.launchFailed("could not create cache file")
+            RemoteFilePreviewMaterializerError.logDiagnostic("cache file handle creation failed")
+            throw RemoteFilePreviewMaterializerError.materializationFailed
         }
         defer {
             try? outputHandle.close()
@@ -139,7 +132,8 @@ private final class RemoteFilePreviewDownloadOperation: @unchecked Sendable {
             try process.run()
         } catch {
             try? fileManager.removeItem(at: temporaryURL)
-            throw RemoteFilePreviewMaterializerError.launchFailed(error.localizedDescription)
+            RemoteFilePreviewMaterializerError.logDiagnostic("ssh launch failed: \(error.localizedDescription)")
+            throw RemoteFilePreviewMaterializerError.launchFailed
         }
 
         lock.lock()
@@ -163,13 +157,20 @@ private final class RemoteFilePreviewDownloadOperation: @unchecked Sendable {
         guard process.terminationStatus == 0 else {
             try? fileManager.removeItem(at: temporaryURL)
             let detail = String(data: stderrData, encoding: .utf8) ?? ""
+            RemoteFilePreviewMaterializerError.logDiagnostic("ssh exited with status \(process.terminationStatus): \(detail)")
             throw RemoteFilePreviewMaterializerError.sshCommandFailed(status: process.terminationStatus, detail: detail)
         }
 
-        if fileManager.fileExists(atPath: destinationURL.path) {
-            try fileManager.removeItem(at: destinationURL)
+        do {
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+        } catch {
+            try? fileManager.removeItem(at: temporaryURL)
+            RemoteFilePreviewMaterializerError.logDiagnostic("cache commit failed: \(error.localizedDescription)")
+            throw RemoteFilePreviewMaterializerError.materializationFailed
         }
-        try fileManager.moveItem(at: temporaryURL, to: destinationURL)
         return destinationURL
     }
 

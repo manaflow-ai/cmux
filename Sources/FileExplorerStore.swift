@@ -586,18 +586,22 @@ enum FileExplorerError: LocalizedError {
         case .providerUnavailable:
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
         case .sshCommandFailed(let detail):
-            let normalized = detail.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalized.isEmpty else {
-                return String(
-                    localized: "fileExplorer.error.sshFailedGeneric",
-                    defaultValue: "SSH command failed. Check the SSH connection and try again."
-                )
-            }
-            return String.localizedStringWithFormat(
-                String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed: %@"),
-                normalized
+            FileExplorerError.logSSHDiagnostic(detail)
+            return String(
+                localized: "fileExplorer.error.sshFailedGeneric",
+                defaultValue: "SSH command failed. Check the SSH connection and try again."
             )
         }
+    }
+
+    private static func logSSHDiagnostic(_ detail: String) {
+#if DEBUG
+        let normalized = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return }
+        NSLog("[FileExplorer] SSH command failed: %@", normalized)
+#else
+        _ = detail
+#endif
     }
 }
 
@@ -1046,16 +1050,9 @@ final class FileExplorerStore: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let normalizedPreferredRoot,
            normalizedPreferredRoot.hasPrefix("/") {
+            cancelRemoteHomeResolution()
             setRootStatusMessage(nil)
             setRootPath(normalizedPreferredRoot)
-            if sshProvider.homePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                resolveRemoteHome(
-                    workspaceId: workspaceId,
-                    provider: sshProvider,
-                    connection: connection,
-                    shouldChangeRootPath: false
-                )
-            }
             return
         }
 

@@ -648,7 +648,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
             if fileURLString != nil {
                 types.append(.fileURL)
             }
-            pasteboard.addTypes(types, owner: nil)
+            pasteboard.declareTypes(types, owner: nil)
             pasteboard.setData(transferData, forType: Self.bonsplitTransferType)
             pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
             if let fileURLString {
@@ -961,6 +961,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
     private var remoteMaterializationTask: Task<Void, Never>?
+    private var remoteMaterializationGeneration = 0
     private weak var textView: NSTextView?
     private let focusCoordinator: FilePreviewFocusCoordinator
 
@@ -1012,6 +1013,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func close() {
         remoteMaterializationTask?.cancel()
         remoteMaterializationTask = nil
+        remoteMaterializationGeneration += 1
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
@@ -1251,16 +1253,19 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     private func startRemoteMaterialization(_ source: RemoteFilePreviewSource) {
         remoteMaterializationTask?.cancel()
+        remoteMaterializationGeneration += 1
+        let generation = remoteMaterializationGeneration
         isLoadingRemoteFile = true
         isFileUnavailable = false
         remoteFileError = nil
         nativeViewSessions.closeAll()
 
         let destinationURL = fileURL
-        remoteMaterializationTask = Task { [weak self, source, destinationURL] in
+        remoteMaterializationTask = Task { [weak self, source, destinationURL, generation] in
             do {
                 _ = try await RemoteFilePreviewMaterializer.materialize(source: source, to: destinationURL)
-                guard let self else { return }
+                guard let self,
+                      self.remoteMaterializationGeneration == generation else { return }
                 self.remoteMaterializationTask = nil
                 self.isLoadingRemoteFile = false
                 self.remoteFileError = nil
@@ -1268,17 +1273,26 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 self.prepareContentForPreviewMode()
                 self.resolvePreviewModeIfNeeded(for: destinationURL)
             } catch is CancellationError {
-                guard let self else { return }
+                guard let self,
+                      self.remoteMaterializationGeneration == generation else { return }
                 self.remoteMaterializationTask = nil
                 self.isLoadingRemoteFile = false
             } catch {
-                guard let self else { return }
+                guard let self,
+                      self.remoteMaterializationGeneration == generation else { return }
                 self.remoteMaterializationTask = nil
                 self.isLoadingRemoteFile = false
-                self.remoteFileError = error.localizedDescription
+                self.remoteFileError = Self.remoteMaterializationErrorMessage(error)
                 self.isFileUnavailable = true
             }
         }
+    }
+
+    private static func remoteMaterializationErrorMessage(_ error: any Error) -> String {
+        if let materializerError = error as? RemoteFilePreviewMaterializerError {
+            return materializerError.localizedDescription
+        }
+        return String(localized: "filePreview.remote.error.downloadFailed", defaultValue: "Unable to download the remote file.")
     }
 }
 

@@ -238,6 +238,7 @@ final class FileExplorerStoreTests: XCTestCase {
 
         XCTAssertEqual(store.rootPath, "/home/dev/project")
         XCTAssertEqual(transport.listedPaths, ["/home/dev/project"])
+        XCTAssertTrue(transport.resolvedHomeConnections.isEmpty)
     }
 
     func testSwitchingFromLocalToRemoteRepointsTreeToRemoteHome() async throws {
@@ -532,14 +533,25 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertFalse(message.contains("%@"))
     }
 
-    func testRemotePreviewEmptySSHStderrIncludesExitStatus() {
+    func testSSHCommandFailureDoesNotExposeRawDetail() {
+        let message = FileExplorerError.sshCommandFailed("connection reset from /home/secret").localizedDescription
+
+        XCTAssertTrue(message.contains("SSH command failed"))
+        XCTAssertFalse(message.contains("connection reset"))
+        XCTAssertFalse(message.contains("/home/secret"))
+    }
+
+    func testRemotePreviewSSHFailureUsesGenericMessage() {
         let message = RemoteFilePreviewMaterializerError
-            .sshCommandFailed(status: 255, detail: "")
+            .sshCommandFailed(status: 255, detail: "Permission denied: /home/secret/movie.mov")
             .localizedDescription
 
-        XCTAssertTrue(message.contains("status 255"))
+        XCTAssertTrue(message.contains("Unable to download"))
+        XCTAssertFalse(message.contains("Permission denied"))
+        XCTAssertFalse(message.contains("/home/secret"))
+        XCTAssertFalse(message.contains("255"))
         XCTAssertFalse(message.hasSuffix(":"))
-        XCTAssertFalse(message.contains("%d"))
+        XCTAssertFalse(message.contains("%@"))
     }
 
     @MainActor

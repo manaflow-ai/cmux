@@ -704,6 +704,63 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(portsKickData["surface_id"] as? String, unknownSurfaceId.uuidString)
     }
 
+    func testRemoteSurfaceReportPwdQueuesUntilFirstSurfaceExists() async throws {
+        let socketPath = makeSocketPath("relay-pwd-pending")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+
+        workspace.configureRemoteConnection(
+            .init(
+                destination: "example.com",
+                port: 2222,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 4444,
+                relayID: "relay-id",
+                relayToken: "relay-token",
+                localSocketPath: "/tmp/cmux-test.sock",
+                terminalStartupCommand: "ssh example.com"
+            ),
+            autoConnect: false
+        )
+        workspace.panels.removeAll()
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "surface.report_pwd",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "directory": "/home/demo/project"
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(result["pending"] as? Bool, true)
+        XCTAssertEqual(result["directory"] as? String, "/home/demo/project")
+        XCTAssertTrue(workspace.panelDirectories.isEmpty)
+
+        let panel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+
+        XCTAssertEqual(workspace.panelDirectories[panel.id], "/home/demo/project")
+        XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
+    }
+
     func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
         let socketPath = makeSocketPath("close-pinned")
         let manager = TabManager()

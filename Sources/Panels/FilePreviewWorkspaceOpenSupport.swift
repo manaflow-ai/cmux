@@ -15,36 +15,16 @@ extension Workspace {
         var openedPanels: [any Panel] = []
 
         for filePath in filePaths {
-            let panel: (any Panel)?
-            if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
-                if reuseExisting {
-                    panel = openOrFocusMarkdownSurface(
-                        inPane: paneId,
-                        filePath: filePath,
-                        focus: shouldFocusNewTabs
-                    )
-                } else {
-                    panel = newMarkdownSurface(
-                        inPane: paneId,
-                        filePath: filePath,
-                        focus: shouldFocusNewTabs,
-                        targetIndex: nextIndex
-                    )
-                }
-            } else if reuseExisting {
-                panel = openOrFocusFilePreviewSurface(
-                    inPane: paneId,
+            let panel = openFileSurface(
+                inPane: paneId,
+                entry: FilePreviewDragEntry(
                     filePath: filePath,
-                    focus: shouldFocusNewTabs
-                )
-            } else {
-                panel = newFilePreviewSurface(
-                    inPane: paneId,
-                    filePath: filePath,
-                    focus: shouldFocusNewTabs,
-                    targetIndex: nextIndex
-                )
-            }
+                    displayTitle: (filePath as NSString).lastPathComponent
+                ),
+                focus: shouldFocusNewTabs,
+                targetIndex: nextIndex,
+                reuseExisting: reuseExisting
+            )
 
             if let panel {
                 openedPanels.append(panel)
@@ -70,40 +50,13 @@ extension Workspace {
         var openedPanels: [any Panel] = []
 
         for entry in entries {
-            let panel: (any Panel)?
-            if entry.remoteSource == nil, MarkdownPanelFileLinkResolver.isMarkdownPathLike(entry.filePath) {
-                if reuseExisting {
-                    panel = openOrFocusMarkdownSurface(
-                        inPane: paneId,
-                        filePath: entry.filePath,
-                        focus: shouldFocusNewTabs
-                    )
-                } else {
-                    panel = newMarkdownSurface(
-                        inPane: paneId,
-                        filePath: entry.filePath,
-                        focus: shouldFocusNewTabs,
-                        targetIndex: nextIndex
-                    )
-                }
-            } else if reuseExisting {
-                panel = openOrFocusFilePreviewSurface(
-                    inPane: paneId,
-                    filePath: entry.filePath,
-                    displayPath: entry.displayPath,
-                    remoteSource: entry.remoteSource,
-                    focus: shouldFocusNewTabs
-                )
-            } else {
-                panel = newFilePreviewSurface(
-                    inPane: paneId,
-                    filePath: entry.filePath,
-                    displayPath: entry.displayPath,
-                    remoteSource: entry.remoteSource,
-                    focus: shouldFocusNewTabs,
-                    targetIndex: nextIndex
-                )
-            }
+            let panel = openFileSurface(
+                inPane: paneId,
+                entry: entry,
+                focus: shouldFocusNewTabs,
+                targetIndex: nextIndex,
+                reuseExisting: reuseExisting
+            )
 
             if let panel {
                 openedPanels.append(panel)
@@ -114,6 +67,38 @@ extension Workspace {
         }
 
         return openedPanels
+    }
+
+    private func openFileSurface(
+        inPane paneId: PaneID,
+        entry: FilePreviewDragEntry,
+        focus: Bool,
+        targetIndex: Int?,
+        reuseExisting: Bool
+    ) -> (any Panel)? {
+        if entry.remoteSource == nil, MarkdownPanelFileLinkResolver.isMarkdownPathLike(entry.filePath) {
+            if reuseExisting {
+                return openOrFocusMarkdownSurface(
+                    inPane: paneId,
+                    filePath: entry.filePath,
+                    focus: focus
+                )
+            }
+            return newMarkdownSurface(
+                inPane: paneId,
+                filePath: entry.filePath,
+                focus: focus,
+                targetIndex: targetIndex
+            )
+        }
+
+        return openFilePreviewPanel(
+            inPane: paneId,
+            entry: entry,
+            focus: focus,
+            targetIndex: targetIndex,
+            reuseExisting: reuseExisting
+        )
     }
 
     @discardableResult
@@ -129,21 +114,16 @@ extension Workspace {
         var openedPanels: [FilePreviewPanel] = []
 
         for filePath in filePaths {
-            let panel: FilePreviewPanel?
-            if reuseExisting {
-                panel = openOrFocusFilePreviewSurface(
-                    inPane: paneId,
+            let panel = openFilePreviewPanel(
+                inPane: paneId,
+                entry: FilePreviewDragEntry(
                     filePath: filePath,
-                    focus: shouldFocusNewTabs
-                )
-            } else {
-                panel = newFilePreviewSurface(
-                    inPane: paneId,
-                    filePath: filePath,
-                    focus: shouldFocusNewTabs,
-                    targetIndex: nextIndex
-                )
-            }
+                    displayTitle: (filePath as NSString).lastPathComponent
+                ),
+                focus: shouldFocusNewTabs,
+                targetIndex: nextIndex,
+                reuseExisting: reuseExisting
+            )
 
             if let panel {
                 openedPanels.append(panel)
@@ -154,5 +134,31 @@ extension Workspace {
         }
 
         return openedPanels
+    }
+
+    private func openFilePreviewPanel(
+        inPane paneId: PaneID,
+        entry: FilePreviewDragEntry,
+        focus: Bool,
+        targetIndex: Int?,
+        reuseExisting: Bool
+    ) -> FilePreviewPanel? {
+        if reuseExisting {
+            return openOrFocusFilePreviewSurface(
+                inPane: paneId,
+                filePath: entry.filePath,
+                displayPath: entry.displayPath,
+                remoteSource: entry.remoteSource,
+                focus: focus
+            )
+        }
+        return newFilePreviewSurface(
+            inPane: paneId,
+            filePath: entry.filePath,
+            displayPath: entry.displayPath,
+            remoteSource: entry.remoteSource,
+            focus: focus,
+            targetIndex: targetIndex
+        )
     }
 }

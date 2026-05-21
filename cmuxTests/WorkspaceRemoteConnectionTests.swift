@@ -544,7 +544,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoteFileExplorerPreferredRootIgnoresConnectingLocalDirectoryReport() throws {
+    func testRemoteFileExplorerPreferredRootUsesRemotePwdBeforeConnectedDirectoryReport() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -562,9 +562,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         workspace.remoteConnectionState = .connecting
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        workspace.updatePanelDirectory(panelId: panelID, directory: "/Users/lawrence/fun")
+        workspace.updatePanelDirectory(panelId: panelID, directory: "/home/demo/project")
 
-        XCTAssertNil(workspace.preferredRemoteFileExplorerRootPath())
+        XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
     }
 
     @MainActor

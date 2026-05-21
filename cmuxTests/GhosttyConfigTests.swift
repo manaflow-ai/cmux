@@ -4224,7 +4224,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             cd "\(root.path)"
             _cmux_precmd
             repeat 20; do
-              [[ -s "\(logPath.path)" ]] && break
+              grep -q 'rpc surface.ports_kick' "\(logPath.path)" && grep -q 'rpc surface.report_pwd' "\(logPath.path)" && break
               sleep 0.05
             done
             cat "\(logPath.path)"
@@ -4371,7 +4371,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             cd "\(root.path)"
             _cmux_prompt_command
             for _cmux_i in $(seq 1 20); do
-              [ -s "\(logPath.path)" ] && break
+              grep -q 'rpc surface.ports_kick' "\(logPath.path)" && grep -q 'rpc surface.report_pwd' "\(logPath.path)" && break
               sleep 0.05
             done
             cat "\(logPath.path)"

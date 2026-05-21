@@ -2478,11 +2478,14 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
             textInsertionPath: source.remotePath
         )
         let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.declareTypes([.fileURL], owner: nil)
+        dragPasteboard.setString("file:///tmp/stale-local-file.txt", forType: .fileURL)
 
         let writableTypes = writer.writableTypes(for: dragPasteboard)
         XCTAssertTrue(writableTypes.contains(DragOverlayRoutingPolicy.filePreviewTransferType))
         XCTAssertTrue(writableTypes.contains(FilePreviewDragPasteboardWriter.bonsplitTransferType))
         XCTAssertFalse(writableTypes.contains(.fileURL))
+        XCTAssertFalse(dragPasteboard.types?.contains(.fileURL) ?? false)
         XCTAssertNil(writer.pasteboardPropertyList(forType: .fileURL))
 
         let dragID = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
@@ -2490,6 +2493,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         XCTAssertEqual(entry.filePath, localPreviewURL.path)
         XCTAssertEqual(entry.displayPath, source.displayPath)
         XCTAssertEqual(entry.remoteSource, source)
+        XCTAssertEqual(entry.textInsertionPath, source.remotePath)
         XCTAssertEqual(
             DragOverlayRoutingPolicy.fileURLs(from: dragPasteboard).map(\.path),
             [source.remotePath]

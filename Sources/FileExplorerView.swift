@@ -1073,6 +1073,9 @@ final class FileExplorerContainerView: NSView {
         headerView.update(displayPath: store.displayRootPath)
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
+            searchController.cancel(clear: true)
+            searchSnapshot = .empty
+            searchResultsView.reloadData()
             refreshSearchIfNeeded()
         } else if contentRevisionChanged {
             refreshSearchAfterContentRevisionIfNeeded()
