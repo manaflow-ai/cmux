@@ -331,10 +331,6 @@ extension CMUXCLI {
         return ThemeReloadStatus(requested: true, targetBundleIdentifier: targetBundleIdentifier)
     }
 
-    func themeReloadTargetBundleIdentifier(socketPath: String) -> String {
-        themeTargetBundleIdentifier(socketPath: socketPath)
-    }
-
     func themeTargetBundleIdentifier(socketPath: String) -> String {
         bundleIdentifierForThemeReloadSocketPath(socketPath)
             ?? currentCmuxAppBundleIdentifier()
