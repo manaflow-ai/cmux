@@ -100,8 +100,8 @@ fi
 
 TAG_SLUG="$(sanitize_path "$TAG")"
 TAG_ID="$(sanitize_bundle "$TAG")"
-TAG_REGEX="$(escape_process_regex "$TAG")"
-APP="${CMUX_TEST_APP_PATH:-$HOME/Library/Developer/Xcode/DerivedData/cmux-${TAG_SLUG}/Build/Products/Debug/cmux DEV ${TAG}.app}"
+TAG_SLUG_REGEX="$(escape_process_regex "$TAG_SLUG")"
+APP="${CMUX_TEST_APP_PATH:-$HOME/Library/Developer/Xcode/DerivedData/cmux-${TAG_SLUG}/Build/Products/Debug/cmux DEV ${TAG_SLUG}.app}"
 BIN="$APP/Contents/MacOS/cmux DEV"
 CLI="${CMUX_TEST_CLI_PATH:-$APP/Contents/Resources/bin/cmux}"
 SOCK="/tmp/cmux-debug-${TAG_SLUG}.sock"
@@ -134,7 +134,7 @@ cleanup() {
     wait "$APP_PID" >/dev/null 2>&1 || true
     APP_PID=""
   fi
-  pkill -f "cmux DEV ${TAG_REGEX}\.app/Contents/MacOS/cmux DEV" >/dev/null 2>&1 || true
+  pkill -f "cmux DEV ${TAG_SLUG_REGEX}\.app/Contents/MacOS/cmux DEV" >/dev/null 2>&1 || true
   rm -f "$SOCK" "$CMUXD_SOCK" "$DEBUG_LOG" "$LAUNCH_LOG"
   rm -f "$CONTROL_OUT" "$CONTROL_ERR" "$CONTROL_V2_OUT" "$CONTROL_V2_ERR" "$DENIED_OUT" "$DENIED_ERR"
 }
