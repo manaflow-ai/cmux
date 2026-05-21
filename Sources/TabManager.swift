@@ -1332,10 +1332,12 @@ class TabManager: ObservableObject {
         workspacePullRequestPollTimer?.cancel()
         workspaceGitMetadataFallbackTimer?.cancel()
         workspacePullRequestRefreshTask?.cancel()
-        MainActor.assumeIsolated {
-            cancelAllWorkspaceGitProbeTimers()
-            stopAllWorkspaceGitMetadataWatchers()
-        }
+        Self.cancelWorkspaceGitProbeTimers(&workspaceGitProbeTimersByKey)
+        Self.stopWorkspaceGitMetadataWatchers(
+            watchersByKey: &workspaceGitMetadataWatchersByKey,
+            sourceDirectoriesByKey: &workspaceGitMetadataWatcherSourceDirectoryByKey,
+            descriptorRequestsByKey: &workspaceGitMetadataWatcherDescriptorRequestsByKey
+        )
     }
 
     // MARK: - Agent PID Sweep
@@ -1583,12 +1585,24 @@ class TabManager: ObservableObject {
     }
 
     private func stopAllWorkspaceGitMetadataWatchers() {
-        for watcher in workspaceGitMetadataWatchersByKey.values {
+        Self.stopWorkspaceGitMetadataWatchers(
+            watchersByKey: &workspaceGitMetadataWatchersByKey,
+            sourceDirectoriesByKey: &workspaceGitMetadataWatcherSourceDirectoryByKey,
+            descriptorRequestsByKey: &workspaceGitMetadataWatcherDescriptorRequestsByKey
+        )
+    }
+
+    private nonisolated static func stopWorkspaceGitMetadataWatchers(
+        watchersByKey: inout [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcher],
+        sourceDirectoriesByKey: inout [WorkspaceGitProbeKey: String],
+        descriptorRequestsByKey: inout [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest]
+    ) {
+        for watcher in watchersByKey.values {
             watcher.stop()
         }
-        workspaceGitMetadataWatchersByKey.removeAll()
-        workspaceGitMetadataWatcherSourceDirectoryByKey.removeAll()
-        workspaceGitMetadataWatcherDescriptorRequestsByKey.removeAll()
+        watchersByKey.removeAll()
+        sourceDirectoriesByKey.removeAll()
+        descriptorRequestsByKey.removeAll()
     }
 
     private func refreshTrackedWorkspacePullRequestsIfNeeded(
@@ -2716,13 +2730,19 @@ class TabManager: ObservableObject {
     }
 
     private func cancelAllWorkspaceGitProbeTimers() {
-        for timers in workspaceGitProbeTimersByKey.values {
+        Self.cancelWorkspaceGitProbeTimers(&workspaceGitProbeTimersByKey)
+    }
+
+    private nonisolated static func cancelWorkspaceGitProbeTimers(
+        _ timersByKey: inout [WorkspaceGitProbeKey: [DispatchSourceTimer]]
+    ) {
+        for timers in timersByKey.values {
             for timer in timers {
                 timer.setEventHandler {}
                 timer.cancel()
             }
         }
-        workspaceGitProbeTimersByKey.removeAll()
+        timersByKey.removeAll()
     }
 
     private func clearWorkspaceGitProbe(_ key: WorkspaceGitProbeKey) {
