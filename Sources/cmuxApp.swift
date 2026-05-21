@@ -5710,6 +5710,7 @@ struct SettingsView: View {
         switch target {
         case .browser:
             loadBrowserHistoryForSettingsIfNeeded()
+            refreshDetectedImportBrowsersIfNeeded()
         case .browserImport:
             refreshDetectedImportBrowsersIfNeeded()
         default:
