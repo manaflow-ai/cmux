@@ -467,11 +467,18 @@ final class CMUXOpenCommandTests: XCTestCase {
         try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
+        func assertNoANSIEscape(_ html: String, file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertFalse(html.contains("\u{1B}"), html, file: file, line: line)
+            XCTAssertFalse(html.contains("\\u001B"), html, file: file, line: line)
+            XCTAssertFalse(html.contains("\\u001b"), html, file: file, line: line)
+        }
 
         try runGit(["init"], in: repoURL)
         try runGit(["checkout", "-b", "main"], in: repoURL)
         try runGit(["config", "user.name", "cmux tests"], in: repoURL)
         try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try runGit(["config", "color.ui", "always"], in: repoURL)
+        try runGit(["config", "color.diff", "always"], in: repoURL)
         try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "story.txt"], in: repoURL)
         try runGit(["commit", "-m", "initial"], in: repoURL)
@@ -498,6 +505,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(branch.html.contains("\"label\":\"Staged\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"label\":\"Branch\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"label\":\"Last turn\""), branch.html)
+        assertNoANSIEscape(branch.html)
 
         let unstaged = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
@@ -507,6 +515,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(unstaged.html.contains("Unstaged changes"), unstaged.html)
         XCTAssertTrue(unstaged.html.contains("+three"), unstaged.html)
         XCTAssertTrue(unstaged.html.contains("\"sourceLabel\":\"git unstaged\""), unstaged.html)
+        assertNoANSIEscape(unstaged.html)
 
         try runGit(["add", "story.txt"], in: repoURL)
         let staged = try runDiffCLIAndReadHTML(
@@ -517,6 +526,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(staged.html.contains("Staged changes"), staged.html)
         XCTAssertTrue(staged.html.contains("+three"), staged.html)
         XCTAssertTrue(staged.html.contains("\"sourceLabel\":\"git staged\""), staged.html)
+        assertNoANSIEscape(staged.html)
 
         let workspaceId = UUID().uuidString.lowercased()
         let surfaceId = UUID().uuidString.lowercased()
@@ -549,6 +559,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lastTurn.html.contains("new-turn-file.txt"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+created"), lastTurn.html)
         XCTAssertFalse(lastTurn.html.contains("preexisting.txt"), lastTurn.html)
+        assertNoANSIEscape(lastTurn.html)
 
         let refLastTurn = try runDiffCLIAndReadHTML(
             cliPath: cliPath,

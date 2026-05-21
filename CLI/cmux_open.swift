@@ -966,15 +966,15 @@ extension CMUXCLI {
         let sourceLabel: String
         switch source {
         case .unstaged:
-            patch = try gitStdout(["diff", "--no-ext-diff", "--binary", "--"], in: repoRoot)
+            patch = try gitStdout(gitDiffPatchArguments(["--"]), in: repoRoot)
             sourceLabel = "git unstaged"
         case .staged:
-            patch = try gitStdout(["diff", "--no-ext-diff", "--binary", "--cached", "--"], in: repoRoot)
+            patch = try gitStdout(gitDiffPatchArguments(["--cached", "--"]), in: repoRoot)
             sourceLabel = "git staged"
         case .branch:
             let baseRef = try gitBranchDiffBaseRef(in: repoRoot)
             let mergeBase = try gitSingleLine(["merge-base", "HEAD", baseRef], in: repoRoot)
-            patch = try gitStdout(["diff", "--no-ext-diff", "--binary", mergeBase, "--"], in: repoRoot)
+            patch = try gitStdout(gitDiffPatchArguments([mergeBase, "--"]), in: repoRoot)
             sourceLabel = "git branch \(baseRef)"
         case .lastTurn:
             guard let workspaceId = normalizedDiffSourceValue(context.workspaceId),
@@ -989,7 +989,7 @@ extension CMUXCLI {
             )
             _ = try gitStdout(["cat-file", "-e", "\(record.baseCommit)^{tree}"], in: repoRoot)
             patch = try joinedGitDiffPatches([
-                gitStdout(["diff", "--no-ext-diff", "--binary", record.baseCommit, "--"], in: repoRoot),
+                gitStdout(gitDiffPatchArguments([record.baseCommit, "--"]), in: repoRoot),
                 gitUntrackedPatchSinceBaseline(record: record, in: repoRoot)
             ])
             sourceLabel = "git last-turn \(workspaceId) \(surfaceId)"
@@ -1159,6 +1159,10 @@ extension CMUXCLI {
         return result.stdout
     }
 
+    private func gitDiffPatchArguments(_ tail: [String]) -> [String] {
+        ["diff", "--no-ext-diff", "--no-color", "--binary"] + tail
+    }
+
     private func gitStdout(
         _ arguments: [String],
         in directory: String,
@@ -1194,7 +1198,7 @@ extension CMUXCLI {
         let addedPaths = currentPaths.filter { !baselinePaths.contains($0) }
         let patches = try addedPaths.map { path in
             try gitStdout(
-                ["diff", "--no-ext-diff", "--binary", "--no-index", "--", "/dev/null", path],
+                gitDiffPatchArguments(["--no-index", "--", "/dev/null", path]),
                 in: repoRoot,
                 allowedExitStatuses: [0, 1]
             )
