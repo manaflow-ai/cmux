@@ -747,6 +747,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         waitForCondition(timeout: timeout) {
             app.state == .runningForeground ||
                 app.state == .runningBackground ||
+                // Bonsplit setup is window-driven, and headless runners can report .unknown during this handoff.
                 app.windows.firstMatch.exists
         }
     }
