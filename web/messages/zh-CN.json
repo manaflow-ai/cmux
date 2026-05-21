@@ -300,7 +300,12 @@
       "browserHostsEmbed": "在内嵌浏览器中打开的主机：适用于从终端输出点击的链接。此列表中的主机在 cmux 中打开；其他主机在默认浏览器中打开。支持单个主机或通配符，每行一个（例如：example.com、*.internal.example）。",
       "browserHostsHttp": "内嵌浏览器允许的 HTTP 主机：仅适用于 HTTP（非 HTTPS）URL。此列表中的主机可以在 cmux 中打开而不显示警告提示。默认包括 localhost、*.localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。",
       "exampleConfig": "配置示例",
-      "metaTitle": "配置"
+      "metaTitle": "配置",
+      "schemaDescriptions": {
+        "automation": {
+          "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。"
+        }
+      }
     },
     "customCommands": {
       "title": "自定义命令",
