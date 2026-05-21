@@ -16,30 +16,45 @@ FATAL_OUTPUT_MARKERS = (
 )
 
 
-def terminate_process_group(process: subprocess.Popen[bytes], grace_seconds: float) -> None:
-    if process.poll() is not None:
-        return
+def terminate_process_group(
+    process: subprocess.Popen[bytes],
+    process_group_id: int,
+    grace_seconds: float,
+) -> None:
     try:
-        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        os.killpg(process_group_id, signal.SIGTERM)
     except ProcessLookupError:
         return
     except OSError:
-        process.terminate()
+        if process.poll() is None:
+            process.terminate()
 
     deadline = time.monotonic() + grace_seconds
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            return
+            break
         time.sleep(0.2)
 
-    if process.poll() is not None:
-        return
     try:
-        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        os.killpg(process_group_id, signal.SIGKILL)
     except ProcessLookupError:
         return
     except OSError:
-        process.kill()
+        if process.poll() is None:
+            process.kill()
+
+
+def reap_process(process: subprocess.Popen[bytes], process_group_id: int, grace_seconds: float) -> int:
+    if process.poll() is not None:
+        return process.returncode
+    try:
+        return process.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired:
+        terminate_process_group(process, process_group_id, grace_seconds)
+    try:
+        return process.wait(timeout=max(1.0, grace_seconds))
+    except subprocess.TimeoutExpired:
+        return -signal.SIGKILL
 
 
 def main() -> int:
@@ -72,45 +87,71 @@ def main() -> int:
             start_new_session=True,
         )
         assert process.stdout is not None
+        try:
+            process_group_id = os.getpgid(process.pid)
+        except ProcessLookupError:
+            process_group_id = process.pid
+        stdout_fd = process.stdout.fileno()
+        os.set_blocking(stdout_fd, False)
         selector = selectors.DefaultSelector()
         selector.register(process.stdout, selectors.EVENT_READ)
+        stdout_registered = True
+
+        def write_chunk(chunk: bytes) -> None:
+            nonlocal fatal_marker, last_output, output_tail
+            output_file.write(chunk)
+            output_file.flush()
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+            last_output = time.monotonic()
+            searchable = output_tail + chunk
+            fatal_marker = next((marker for marker in FATAL_OUTPUT_MARKERS if marker in searchable), None)
+            output_tail = searchable[-4096:]
+
+        def read_available_stdout() -> bool:
+            nonlocal stdout_registered
+            while True:
+                try:
+                    chunk = os.read(stdout_fd, 8192)
+                except BlockingIOError:
+                    return True
+                except OSError:
+                    if stdout_registered:
+                        selector.unregister(process.stdout)
+                        stdout_registered = False
+                    return False
+                if chunk:
+                    write_chunk(chunk)
+                    if fatal_marker is not None:
+                        return True
+                    continue
+                if stdout_registered:
+                    selector.unregister(process.stdout)
+                    stdout_registered = False
+                return False
 
         try:
             while True:
-                events = selector.select(timeout=1.0)
-                if events:
-                    chunk = os.read(process.stdout.fileno(), 8192)
-                    if chunk:
-                        output_file.write(chunk)
-                        output_file.flush()
-                        sys.stdout.buffer.write(chunk)
-                        sys.stdout.buffer.flush()
-                        last_output = time.monotonic()
-                        searchable = output_tail + chunk
-                        fatal_marker = next((marker for marker in FATAL_OUTPUT_MARKERS if marker in searchable), None)
-                        output_tail = searchable[-4096:]
-                        if fatal_marker is not None:
-                            message = (
-                                "\n::error::Fatal output detected; terminating command before it can stall: "
-                                f"{fatal_marker.decode(errors='replace')}\n"
-                            ).encode()
-                            output_file.write(message)
-                            output_file.flush()
-                            sys.stdout.buffer.write(message)
-                            sys.stdout.buffer.flush()
-                            terminate_process_group(process, args.termination_grace_seconds)
-                            break
-                    else:
-                        selector.unregister(process.stdout)
-                        break
+                if stdout_registered:
+                    events = selector.select(timeout=1.0)
+                    if events:
+                        read_available_stdout()
+                else:
+                    time.sleep(1.0)
 
-                if process.poll() is not None:
-                    remaining = process.stdout.read()
-                    if remaining:
-                        output_file.write(remaining)
-                        output_file.flush()
-                        sys.stdout.buffer.write(remaining)
-                        sys.stdout.buffer.flush()
+                if fatal_marker is not None:
+                    message = (
+                        "\n::error::Fatal output detected; terminating command before it can stall: "
+                        f"{fatal_marker.decode(errors='replace')}\n"
+                    ).encode()
+                    output_file.write(message)
+                    output_file.flush()
+                    sys.stdout.buffer.write(message)
+                    sys.stdout.buffer.flush()
+                    terminate_process_group(process, process_group_id, args.termination_grace_seconds)
+                    break
+
+                if process.poll() is not None and not stdout_registered:
                     break
 
                 idle_seconds = time.monotonic() - last_output
@@ -124,14 +165,15 @@ def main() -> int:
                     output_file.flush()
                     sys.stdout.buffer.write(message)
                     sys.stdout.buffer.flush()
-                    terminate_process_group(process, args.termination_grace_seconds)
+                    terminate_process_group(process, process_group_id, args.termination_grace_seconds)
                     break
         finally:
             selector.close()
 
     if timed_out or fatal_marker is not None:
+        reap_process(process, process_group_id, args.termination_grace_seconds)
         return 124
-    return_code = process.wait()
+    return_code = reap_process(process, process_group_id, args.termination_grace_seconds)
     if return_code < 0:
         return 128 + abs(return_code)
     return return_code
