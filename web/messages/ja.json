@@ -109,6 +109,15 @@
     "metaDescription": "cmuxチームからのニュースとアップデート",
     "description": "cmuxチームからのニュースとアップデート",
     "posts": {
+      "deferUnread": {
+        "title": "cmuxで未読エージェントを保留・切り替えする",
+        "summary": "cmuxワークスペース間の未読コーディングエージェント通知を管理する新しいキーボードショートカット2つ。Cmd+Ctrl+Uで保留、Cmd+Opt+Uで切り替え。",
+        "date": "2026年5月21日",
+        "p1": "<link>Cmd+Shift+U</link>は最新の未読エージェントにジャンプします。でも、すぐには返信できない相手に着地することもあります。そのケースを2つの新しいショートカットが処理します。",
+        "p2": "Cmd+Ctrl+Uは現在のワークスペースを未読のまま保ち、次の未読にジャンプします。現在のワークスペースをサイクルの末尾に回すので、Cmd+Ctrl+Uを連打すれば、どれも既読にせずに未読を一周できます。",
+        "p3": "Cmd+Opt+Uは現在のワークスペースの既読/未読を切り替えます。",
+        "p4": "Cmd+Ctrl+Uはv0.64.5、Cmd+Opt+Uはv0.64.7で出荷されました。"
+      },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
         "summary": "Cmd+Shift+Uがcmuxのワークスペース間で完了したエージェントにどうナビゲートするか。",
@@ -169,6 +178,14 @@
     "zenOfCmux": {
       "metaTitle": "cmuxの禅",
       "metaDescription": "cmuxはソリューションではなくプリミティブ。組み合わせ可能なパーツを提供し、ワークフローはあなた次第。"
+    },
+    "deferUnread": {
+      "metaTitle": "cmuxで未読エージェントを保留・切り替えする（Cmd+Ctrl+U、Cmd+Opt+U）",
+      "metaDescription": "未読のコーディングエージェント通知を管理するcmuxのキーボードショートカット2つ。Cmd+Ctrl+Uは現在のワークスペースを未読のままにして次の未読にジャンプ、Cmd+Opt+Uは既読/未読を切り替えます。"
+    },
+    "sessionRestore": {
+      "metaTitle": "cmuxでClaude Code、Codex、OpenCodeのセッションを再開する方法",
+      "metaDescription": "cmuxの再起動後にClaude Code、Codex、OpenCode、Gemini、Cursor CLI、Ampなどのコーディングエージェントのセッションを自動で復元します。ウィンドウレイアウト、スクロールバック、ブラウザ履歴、ネイティブエージェントのセッションIDが戻ります。"
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
