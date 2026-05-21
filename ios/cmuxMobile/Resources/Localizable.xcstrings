@@ -15,6 +15,20 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale、LAN、またはローカルのホストとポートを入力してください。そのコンピュータからの QR/リンクでのペアリングが最も安全な設定方法です。" } }
       }
     },
+    "mobile.addDevice.accountHelp" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Manual pairing uses this account. If it does not match the Mac, scan a QR/link from the Mac." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "手動ペアリングではこのアカウントを使用します。Mac と一致しない場合は、Mac から QR/リンクをスキャンしてください。" } }
+      }
+    },
+    "mobile.addDevice.accountTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This device" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このデバイス" } }
+      }
+    },
     "mobile.addDevice.manualRouteWarning" : {
       "extractionState" : "manual",
       "localizations" : {

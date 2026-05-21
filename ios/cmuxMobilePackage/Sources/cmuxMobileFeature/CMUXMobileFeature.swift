@@ -1009,10 +1009,29 @@ struct PairingView: View {
                 }
 
                 Section {
-                    Text(signedInAccountText)
-                        .foregroundStyle(.secondary)
-                        .font(.footnote)
-                        .accessibilityIdentifier("MobileAddDeviceSignedInAccount")
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: authManager.isAuthenticated ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.exclamationmark")
+                            .font(.title3)
+                            .foregroundStyle(authManager.isAuthenticated ? .green : .orange)
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string("mobile.addDevice.accountTitle", defaultValue: "This device"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            Text(signedInAccountText)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                                .textSelection(.enabled)
+                                .accessibilityIdentifier("MobileAddDeviceSignedInAccount")
+
+                            Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Manual pairing uses this account. If it does not match the Mac, scan a QR/link from the Mac."))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
                 }
 
                 Section {

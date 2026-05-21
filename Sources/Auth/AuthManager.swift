@@ -1008,14 +1008,24 @@ private actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         if keychainWorks, let value = await keychain.getStoredAccessToken() {
             return value
         }
-        return await file.getStoredAccessToken()
+        let fallbackValue = await file.getStoredAccessToken()
+        if keychainWorks, fallbackValue != nil {
+            keychainWorks = false
+            AuthManager.authLog("keychain read missed file fallback token; switching to file fallback for this session")
+        }
+        return fallbackValue
     }
 
     func getStoredRefreshToken() async -> String? {
         if keychainWorks, let value = await keychain.getStoredRefreshToken() {
             return value
         }
-        return await file.getStoredRefreshToken()
+        let fallbackValue = await file.getStoredRefreshToken()
+        if keychainWorks, fallbackValue != nil {
+            keychainWorks = false
+            AuthManager.authLog("keychain read missed file fallback token; switching to file fallback for this session")
+        }
+        return fallbackValue
     }
 
     func setTokens(accessToken: String?, refreshToken: String?) async {
@@ -1055,6 +1065,17 @@ private actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         newAccessToken: String?
     ) async {
         if keychainWorks {
+            if await keychain.getStoredRefreshToken() != compareRefreshToken,
+               await file.getStoredRefreshToken() == compareRefreshToken {
+                keychainWorks = false
+                AuthManager.authLog("keychain compare missed file fallback token; switching to file fallback for this session")
+                await file.compareAndSet(
+                    compareRefreshToken: compareRefreshToken,
+                    newRefreshToken: newRefreshToken,
+                    newAccessToken: newAccessToken
+                )
+                return
+            }
             await keychain.compareAndSet(
                 compareRefreshToken: compareRefreshToken,
                 newRefreshToken: newRefreshToken,
