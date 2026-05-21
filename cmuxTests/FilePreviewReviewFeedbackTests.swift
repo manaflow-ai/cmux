@@ -97,6 +97,47 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertNil(previewView.previewItem)
     }
 
+    func testQuickLookSessionDismantlingRetiredViewDoesNotResetActivePreviewItem() throws {
+        let url = try temporaryBinaryFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        let retiredView = panel.nativeViewSessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        guard retiredView is QLPreviewView else {
+            return XCTFail("Expected Quick Look to vend a QLPreviewView")
+        }
+
+        panel.nativeViewSessions.quickLook.close()
+
+        let activeView = panel.nativeViewSessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        guard let activePreviewView = activeView as? QLPreviewView else {
+            return XCTFail("Expected Quick Look to vend a QLPreviewView")
+        }
+        let activeItem = try XCTUnwrap(activePreviewView.previewItem as AnyObject?)
+
+        panel.nativeViewSessions.quickLook.dismantle(retiredView)
+        panel.nativeViewSessions.quickLook.update(
+            activeView,
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+
+        let updatedItem = try XCTUnwrap(activePreviewView.previewItem as AnyObject?)
+        XCTAssertTrue(updatedItem === activeItem)
+    }
+
     func testTextLoaderRejectsOversizedTextFiles() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
