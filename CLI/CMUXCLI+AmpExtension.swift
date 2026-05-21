@@ -358,6 +358,13 @@ export default function (amp: PluginAPI) {
   // tool's status; when it returns to 0 we flip back to "thinking".
   let inFlightTools = 0;
 
+  // True between agent.start and agent.end. Used so that a tool.result that
+  // arrives after agent.end (cancellation/error races) cannot overwrite the
+  // final status badge with "thinking". cmux runs one Amp session per terminal
+  // pane, so a single flag is sufficient — concurrent threads would need a
+  // per-thread map.
+  let turnActive = false;
+
   // Best-effort cleanup so the badge doesn't get stuck after agent exits.
   const cleanup = () => {
     try {
@@ -377,6 +384,7 @@ export default function (amp: PluginAPI) {
 
   amp.on("agent.start", async (event: AgentStartEvent, ctx) => {
     inFlightTools = 0;
+    turnActive = true;
     setStatus("thinking", "brain", COLOR.thinking);
     wsLog("prompt received");
     const sessionId = threadIdFrom(event, ctx);
@@ -387,7 +395,9 @@ export default function (amp: PluginAPI) {
   amp.on("tool.call", async (event: ToolCallEvent) => {
     inFlightTools++;
     const { label, icon } = detailedToolStatus(event, helpers);
-    setStatus(label, icon, COLOR.active);
+    if (turnActive) {
+      setStatus(label, icon, COLOR.active);
+    }
     return { action: "allow" as const };
   });
 
@@ -396,13 +406,16 @@ export default function (amp: PluginAPI) {
     if (event.status === "error") {
       wsLog(`${event.tool} failed`, "error");
     }
-    if (inFlightTools === 0) {
+    // Skip status updates after agent.end so a lagging tool.result can't
+    // overwrite the final badge (done/error/interrupted) with "thinking".
+    if (turnActive && inFlightTools === 0) {
       setStatus("thinking", "brain", COLOR.thinking);
     }
   });
 
   amp.on("agent.end", async (event: AgentEndEvent, ctx) => {
     inFlightTools = 0;
+    turnActive = false;
     switch (event.status) {
       case "done":
         setStatus("done", "checkmark.circle", COLOR.done);
