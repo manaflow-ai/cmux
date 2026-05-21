@@ -5699,7 +5699,11 @@ struct ContentView: View {
         // without being blocked by the palette-visibility guard.
         DispatchQueue.main.async {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            tabManager.focusTab(workspaceId, suppressFlash: true)
+            tabManager.focusTab(
+                workspaceId,
+                suppressFlash: true,
+                dismissRestoredUnreadOnResume: true
+            )
         }
     }
 
@@ -5711,7 +5715,12 @@ struct ContentView: View {
     ) {
         DispatchQueue.main.async {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            tabManager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
+            tabManager.focusTab(
+                workspaceId,
+                surfaceId: panelId,
+                suppressFlash: true,
+                dismissRestoredUnreadOnResume: true
+            )
         }
     }
 
@@ -8678,7 +8687,12 @@ struct ContentView: View {
         if let window = observedWindow, !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
         }
-        tabManager.focusTab(target.workspaceId, surfaceId: target.panelId, suppressFlash: true)
+        tabManager.focusTab(
+            target.workspaceId,
+            surfaceId: target.panelId,
+            suppressFlash: true,
+            dismissRestoredUnreadOnResume: true
+        )
 
         guard let context = focusedPanelContext,
               context.workspace.id == target.workspaceId,

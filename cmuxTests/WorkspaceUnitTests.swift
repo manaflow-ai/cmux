@@ -809,6 +809,52 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
     }
 
+    func testSettingsFileStoreAppliesSubagentNotificationSuppression() throws {
+        let defaults = UserDefaults.standard
+        let previousValue = defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+            } else {
+                defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "suppressSubagentNotifications": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey) as? Bool,
+            false
+        )
+    }
+
     func testSettingsFileStoreAppliesBrowserHiddenWebViewDiscardDelayAtMaximum() throws {
         let defaults = UserDefaults.standard
         let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
