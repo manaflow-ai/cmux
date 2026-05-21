@@ -15985,7 +15985,9 @@ enum SidebarTabDragPayload {
         let payload = "\(prefix)\(tabId.uuidString)"
         provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
             let data = payload.data(using: .utf8)
-            completion(data, nil)
+            MainActor.assumeIsolated {
+                completion(data, nil)
+            }
             return nil
         }
         return provider
