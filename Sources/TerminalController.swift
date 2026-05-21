@@ -5807,6 +5807,40 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing directory", data: nil)
         }
 
+        if let requestedSurfaceId {
+            let shouldPublish = Self.socketFastPathState.shouldPublishDirectory(
+                workspaceId: workspaceId,
+                panelId: requestedSurfaceId,
+                directory: directory
+            )
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard let tab = self.tabForSidebarMutation(id: workspaceId) else { return }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                guard validSurfaceIds.contains(requestedSurfaceId) else { return }
+                if shouldPublish {
+                    if let owner = AppDelegate.shared?.tabManagerFor(tabId: tab.id) {
+                        owner.updateSurfaceDirectory(tabId: tab.id, surfaceId: requestedSurfaceId, directory: directory)
+                    } else {
+                        tab.updatePanelDirectory(panelId: requestedSurfaceId, directory: directory)
+                    }
+                } else if tab.isRemoteWorkspace {
+                    tab.updatePanelDirectory(panelId: requestedSurfaceId, directory: directory)
+                }
+            }
+
+            return .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_id": requestedSurfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                "directory": directory,
+                "published": shouldPublish,
+                "pending": true,
+            ])
+        }
+
         var result: V2CallResult = .err(
             code: "not_found",
             message: "Workspace not found",
@@ -5868,6 +5902,8 @@ class TerminalController {
                 } else {
                     tab.updatePanelDirectory(panelId: surfaceId, directory: directory)
                 }
+            } else if tab.isRemoteWorkspace {
+                tab.updatePanelDirectory(panelId: surfaceId, directory: directory)
             }
 
             result = .ok([

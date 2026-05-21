@@ -15,16 +15,23 @@ struct PaneDragTransfer: Equatable {
     let sourcePaneId: UUID
     let sourceProcessId: Int32
     let kind: String?
+    let isFilePreviewTransfer: Bool
 
     var isFromCurrentProcess: Bool {
         sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
     }
 
     var isFilePreview: Bool {
-        kind == "filePreview"
+        isFilePreviewTransfer
     }
 
     static func decode(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
+        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
+            return decode(from: data, isFilePreviewTransfer: true)
+        }
+        if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
+            return decode(from: Data(raw.utf8), isFilePreviewTransfer: true)
+        }
         if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
             return decode(from: data)
         }
@@ -34,7 +41,7 @@ struct PaneDragTransfer: Equatable {
         return nil
     }
 
-    static func decode(from data: Data) -> PaneDragTransfer? {
+    static func decode(from data: Data, isFilePreviewTransfer: Bool = false) -> PaneDragTransfer? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tab = json["tab"] as? [String: Any],
               let tabIdRaw = tab["id"] as? String,
@@ -50,7 +57,8 @@ struct PaneDragTransfer: Equatable {
             tabId: tabId,
             sourcePaneId: sourcePaneId,
             sourceProcessId: sourceProcessId,
-            kind: kind
+            kind: kind,
+            isFilePreviewTransfer: isFilePreviewTransfer
         )
     }
 }

@@ -681,11 +681,10 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             to: socketPath
         )
 
-        XCTAssertEqual(reportPwdResponse["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(reportPwdResponse)")
-        let reportPwdError = try XCTUnwrap(reportPwdResponse["error"] as? [String: Any], "Unexpected JSON-RPC response: \(reportPwdResponse)")
-        XCTAssertEqual(reportPwdError["code"] as? String, "not_found")
-        let reportPwdData = try XCTUnwrap(reportPwdError["data"] as? [String: Any], "Expected error data payload")
-        XCTAssertEqual(reportPwdData["surface_id"] as? String, unknownSurfaceId.uuidString)
+        XCTAssertEqual(reportPwdResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(reportPwdResponse)")
+        let reportPwdResult = try XCTUnwrap(reportPwdResponse["result"] as? [String: Any], "Unexpected JSON-RPC response: \(reportPwdResponse)")
+        XCTAssertEqual(reportPwdResult["surface_id"] as? String, unknownSurfaceId.uuidString)
+        XCTAssertEqual(reportPwdResult["pending"] as? Bool, true)
         XCTAssertNil(workspace.panelDirectories[unknownSurfaceId])
 
         let portsKickResponse = try await sendV2RequestAsync(
@@ -761,6 +760,73 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
     }
 
+    func testRemoteSurfaceReportPwdRefreshesRemoteRootOnDuplicateAfterReconnect() async throws {
+        let socketPath = makeSocketPath("relay-pwd-duplicate")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 4445,
+            relayID: "relay-id",
+            relayToken: "relay-token",
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh example.com"
+        )
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let params = [
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": panelId.uuidString,
+            "directory": "/home/demo/project"
+        ]
+        let firstResponse = try await sendV2RequestAsync(
+            method: "surface.report_pwd",
+            params: params,
+            to: socketPath
+        )
+
+        XCTAssertEqual(firstResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(firstResponse)")
+        let firstReportApplied = await waitForMainActorCondition {
+            workspace.preferredRemoteFileExplorerRootPath() == "/home/demo/project"
+        }
+        XCTAssertTrue(firstReportApplied)
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        XCTAssertNil(workspace.preferredRemoteFileExplorerRootPath())
+
+        let duplicateResponse = try await sendV2RequestAsync(
+            method: "surface.report_pwd",
+            params: params,
+            to: socketPath
+        )
+
+        XCTAssertEqual(duplicateResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(duplicateResponse)")
+        let duplicateResult = try XCTUnwrap(duplicateResponse["result"] as? [String: Any])
+        XCTAssertEqual(duplicateResult["published"] as? Bool, false)
+        let duplicateReportApplied = await waitForMainActorCondition {
+            workspace.preferredRemoteFileExplorerRootPath() == "/home/demo/project"
+        }
+        XCTAssertTrue(duplicateReportApplied)
+    }
+
     func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
         let socketPath = makeSocketPath("close-pinned")
         let manager = TabManager()
@@ -811,6 +877,21 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         }
         XCTFail("Timed out waiting for socket at \(path)")
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
+    }
+
+    @MainActor
+    private func waitForMainActorCondition(
+        timeout: TimeInterval = 2.0,
+        _ condition: @MainActor @escaping () -> Bool
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return condition()
     }
 
     private func socketMode(at path: String) throws -> UInt16 {
