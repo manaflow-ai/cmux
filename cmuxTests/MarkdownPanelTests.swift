@@ -526,38 +526,23 @@ final class MarkdownPanelTests: XCTestCase {
         components.queryItems = [URLQueryItem(name: "url", value: imageURL.absoluteString)]
         let localImageURL = try XCTUnwrap(components.url)
 
-        let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
-        let configuration = WKWebViewConfiguration()
         let coordinator = MarkdownWebRenderer.Coordinator()
-        configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
-        let webView = MarkdownWebView(frame: frame, configuration: configuration)
-        coordinator.webView = webView
-        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = webView
-        window.orderFrontRegardless()
-        defer {
-            webView.navigationDelegate = nil
-            coordinator.webView = nil
-            coordinator.cancelImageLoads()
-            window.close()
-        }
+        defer { coordinator.cancelImageLoads() }
 
-        let loaded = expectation(description: "markdown image shell loaded")
-        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
-        webView.navigationDelegate = loadDelegate
-        webView.loadHTMLString(
-            "<!doctype html><img alt=\"outside\" src=\"\(localImageURL.absoluteString)\">",
-            baseURL: nil
+        let finished = expectation(description: "local image request finished")
+        let task = MarkdownURLSchemeTaskSpy(
+            request: URLRequest(url: localImageURL),
+            finishedExpectation: finished
         )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
+        coordinator.webView(WKWebView(frame: .zero), start: task)
 
-        let image = try await waitForMarkdownImage(in: webView)
-        XCTAssertEqual(image["complete"] as? Bool, true)
-        XCTAssertEqual(image["naturalWidth"] as? Int, 0)
-        XCTAssertEqual(image["naturalHeight"] as? Int, 0)
+        await fulfillment(of: [finished], timeout: 2)
+        let snapshot = task.snapshot()
+        XCTAssertEqual(snapshot.responses.count, 1)
+        XCTAssertEqual(snapshot.responses.first?.mimeType, "image/png")
+        XCTAssertEqual(snapshot.data, Data())
+        XCTAssertTrue(snapshot.didFinish)
+        XCTAssertNil(snapshot.error)
     }
 
     func testMarkdownRenderLoadsSafeDataImage() async throws {
@@ -1335,6 +1320,65 @@ private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         self.error = error
         expectation.fulfill()
+    }
+}
+
+private final class MarkdownURLSchemeTaskSpy: NSObject, WKURLSchemeTask {
+    struct Snapshot {
+        let responses: [URLResponse]
+        let data: Data
+        let didFinish: Bool
+        let error: Error?
+    }
+
+    let request: URLRequest
+    private let finishedExpectation: XCTestExpectation
+    private let lock = NSLock()
+    private var responses: [URLResponse] = []
+    private var receivedData = Data()
+    private var finished = false
+    private var receivedError: Error?
+
+    init(request: URLRequest, finishedExpectation: XCTestExpectation) {
+        self.request = request
+        self.finishedExpectation = finishedExpectation
+    }
+
+    func didReceive(_ response: URLResponse) {
+        lock.lock()
+        responses.append(response)
+        lock.unlock()
+    }
+
+    func didReceive(_ data: Data) {
+        lock.lock()
+        receivedData.append(data)
+        lock.unlock()
+    }
+
+    func didFinish() {
+        lock.lock()
+        finished = true
+        lock.unlock()
+        finishedExpectation.fulfill()
+    }
+
+    func didFailWithError(_ error: Error) {
+        lock.lock()
+        receivedError = error
+        lock.unlock()
+        finishedExpectation.fulfill()
+    }
+
+    func snapshot() -> Snapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return Snapshot(
+            responses: responses,
+            data: receivedData,
+            didFinish: finished,
+            error: receivedError
+        )
     }
 }
 
