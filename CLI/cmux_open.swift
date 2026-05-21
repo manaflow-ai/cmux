@@ -1633,6 +1633,11 @@ extension CMUXCLI {
               --cmux-diff-line-height: 15.38px;
               --cmux-diff-bg: var(--cmux-diff-bg-light);
               --cmux-diff-fg: var(--cmux-diff-fg-light);
+              --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+              --cmux-diff-sidebar-bg: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
+              --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+              --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+              --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
               background: var(--cmux-diff-bg);
               color: var(--cmux-diff-fg);
             }
@@ -1816,6 +1821,38 @@ extension CMUXCLI {
               background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
               color: var(--cmux-diff-fg);
             }
+            .menu-segment {
+              cursor: default;
+            }
+            .menu-segment:hover {
+              background: transparent;
+            }
+            .menu-segment-controls {
+              display: inline-flex;
+              align-items: center;
+              gap: 2px;
+              justify-self: end;
+              padding: 2px;
+              border-radius: 7px;
+              background: color-mix(in lab, var(--cmux-diff-bg) 82%, var(--cmux-diff-fg));
+            }
+            .segment-button {
+              width: 27px;
+              height: 24px;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              border: 0;
+              border-radius: 5px;
+              background: transparent;
+              color: color-mix(in lab, var(--cmux-diff-fg) 62%, var(--cmux-diff-bg));
+              padding: 0;
+            }
+            .segment-button:hover,
+            .segment-button[aria-pressed="true"] {
+              background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+              color: var(--cmux-diff-fg);
+            }
             .menu-item:disabled {
               color: color-mix(in lab, var(--cmux-diff-fg) 36%, var(--cmux-diff-bg));
             }
@@ -1841,13 +1878,16 @@ extension CMUXCLI {
               position: absolute;
               top: 0;
               bottom: 0;
-              left: 0;
+              right: 0;
               width: var(--cmux-diff-files-width);
               min-height: 0;
               min-width: 190px;
-              overflow: auto;
-              border-right: 1px solid color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-              background: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
+              display: flex;
+              flex-direction: column;
+              overflow: hidden;
+              border-left: 1px solid var(--cmux-diff-border);
+              background: var(--cmux-diff-sidebar-bg);
+              contain: strict;
             }
             body[data-files-hidden="true"] #files-sidebar {
               display: none;
@@ -1860,13 +1900,92 @@ extension CMUXCLI {
               align-items: center;
               justify-content: space-between;
               min-height: 32px;
-              padding: 0 10px;
+              gap: 8px;
+              padding: 0 8px 0 10px;
               border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-              background: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
+              background: var(--cmux-diff-sidebar-bg);
               color: color-mix(in lab, var(--cmux-diff-fg) 56%, var(--cmux-diff-bg));
             }
+            #files-title {
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              min-width: 0;
+            }
+            #file-search-toggle {
+              width: 26px;
+              height: 26px;
+              flex: 0 0 auto;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              border: 0;
+              border-radius: 6px;
+              background: transparent;
+              color: color-mix(in lab, var(--cmux-diff-fg) 58%, var(--cmux-diff-bg));
+              padding: 0;
+            }
+            #file-search-toggle:hover,
+            #file-search-toggle[aria-pressed="true"] {
+              background: var(--cmux-diff-hover-bg);
+              color: var(--cmux-diff-fg);
+            }
+            #file-search-toggle svg {
+              width: 15px;
+              height: 15px;
+              fill: none;
+              stroke: currentColor;
+              stroke-width: 1.75;
+              stroke-linecap: round;
+              stroke-linejoin: round;
+            }
             #file-list {
-              padding: 6px;
+              flex: 1 1 auto;
+              min-height: 0;
+              overflow: hidden;
+              padding: 6px 4px 6px 6px;
+              --trees-bg-override: var(--cmux-diff-sidebar-bg);
+              --trees-fg-override: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
+              --trees-fg-muted-override: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
+              --trees-bg-muted-override: var(--cmux-diff-hover-bg);
+              --trees-selected-bg-override: color-mix(in lab, var(--cmux-diff-accent) 18%, var(--cmux-diff-bg));
+              --trees-selected-fg-override: var(--cmux-diff-fg);
+              --trees-selected-focused-border-color-override: color-mix(in lab, var(--cmux-diff-accent) 70%, transparent);
+              --trees-border-color-override: var(--cmux-diff-border);
+              --trees-focus-ring-color-override: color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
+              --trees-font-family-override: var(--cmux-diff-font-family);
+              --trees-font-size-override: var(--cmux-diff-font-size);
+              --trees-font-weight-semibold-override: 500;
+              --trees-density-override: 0.82;
+              --trees-item-padding-x-override: 7px;
+              --trees-padding-inline-override: 0;
+              --trees-search-bg-override: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+              --trees-status-added-override: light-dark(#257a3e, #8fd88f);
+              --trees-status-modified-override: var(--cmux-diff-accent);
+              --trees-status-renamed-override: light-dark(#a26300, #ffd166);
+              --trees-status-deleted-override: light-dark(#b42318, #ff8a80);
+            }
+            #file-list file-tree-container {
+              width: 100%;
+              height: 100%;
+            }
+            #files-footer {
+              flex: 0 0 auto;
+              padding: 8px 10px 9px;
+              border-top: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+              background: color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg));
+            }
+            .stats-row {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 10px;
+              min-height: 19px;
+              color: color-mix(in lab, var(--cmux-diff-fg) 54%, var(--cmux-diff-bg));
+            }
+            .stats-row strong {
+              color: color-mix(in lab, var(--cmux-diff-fg) 82%, var(--cmux-diff-bg));
+              font-weight: 600;
             }
             .file-entry {
               width: 100%;
@@ -1923,7 +2042,7 @@ extension CMUXCLI {
               --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
               width: calc(100% - var(--cmux-diff-files-width));
               height: 100%;
-              margin-left: var(--cmux-diff-files-width);
+              margin-right: var(--cmux-diff-files-width);
               min-height: 0;
               min-width: 0;
               overflow: auto;
@@ -1931,7 +2050,7 @@ extension CMUXCLI {
             }
             body[data-files-hidden="true"] #viewer {
               width: 100%;
-              margin-left: 0;
+              margin-right: 0;
             }
             @media (max-width: 520px) {
               #files-sidebar {
@@ -1939,7 +2058,7 @@ extension CMUXCLI {
               }
               #viewer {
                 width: 100%;
-                margin-left: 0;
+                margin-right: 0;
               }
             }
             #viewer diffs-container {
@@ -1982,10 +2101,15 @@ extension CMUXCLI {
             <section id="content">
               <aside id="files-sidebar" aria-label="Changed files">
                 <div id="files-header">
-                  <span>Files</span>
-                  <span id="files-count"></span>
+                  <span id="files-title"><span>Files</span><span id="files-count"></span></span>
+                  <button id="file-search-toggle" type="button" title="Show file search" aria-label="Show file search" aria-pressed="false"></button>
                 </div>
                 <div id="file-list"></div>
+                <div id="files-footer" aria-label="Diff stats">
+                  <div class="stats-row"><span>Files</span><strong id="stats-files">0</strong></div>
+                  <div class="stats-row"><span>Additions</span><strong id="stats-added" class="stat-add">+0</strong></div>
+                  <div class="stats-row"><span>Deletions</span><strong id="stats-deleted" class="stat-del">-0</strong></div>
+                </div>
               </aside>
               <main id="viewer" aria-label="Diff viewer">
                 <div id="status">Loading diff...</div>
@@ -1994,6 +2118,7 @@ extension CMUXCLI {
           </div>
           <script type="module">
             const DIFFS_MODULE_URL = "https://esm.run/@pierre/diffs@1.2.1";
+            const TREES_MODULE_URL = "https://esm.run/@pierre/trees@1.0.0-beta.4";
             const payload = \(payloadLiteral);
             const viewerElement = document.getElementById("viewer");
             const status = document.getElementById("status");
@@ -2008,19 +2133,30 @@ extension CMUXCLI {
             const optionsMenu = document.getElementById("options-menu");
             const fileList = document.getElementById("file-list");
             const filesCount = document.getElementById("files-count");
+            const fileSearchToggle = document.getElementById("file-search-toggle");
+            const statsFiles = document.getElementById("stats-files");
+            const statsAdded = document.getElementById("stats-added");
+            const statsDeleted = document.getElementById("stats-deleted");
             const appState = {
               layout: payload.layout === "unified" ? "unified" : "split",
               filesVisible: true,
               wordWrap: false,
               collapsed: false,
-              loadFullFiles: false,
-              richPreview: false,
+              expandUnchanged: false,
+              showBackgrounds: true,
+              lineNumbers: true,
+              diffIndicators: "bars",
               wordDiffs: false,
-              hideWhitespace: false,
+              fileSearchOpen: false,
             };
             let codeView;
+            let fileTree;
             let diffItems = [];
             let activeFileId = "";
+            let activeTreePath = "";
+            let suppressTreeSelectionChange = false;
+            let itemIdByTreePath = new Map();
+            let treePathByItemId = new Map();
             document.title = payload.title;
             applyViewerAppearance(payload.appearance);
             setupToolbar();
@@ -2042,6 +2178,11 @@ extension CMUXCLI {
                 preloadHighlighter,
                 registerCustomTheme,
               } = await import(DIFFS_MODULE_URL);
+              const treesModule = await import(TREES_MODULE_URL)
+                .catch((error) => {
+                  console.warn("cmux diff file tree import failed", error);
+                  return null;
+                });
 
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.light);
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.dark);
@@ -2062,7 +2203,7 @@ extension CMUXCLI {
               }
 
               status.textContent = "Rendering diff...";
-              setupFileExplorer(diffItems);
+              setupFileExplorer(diffItems, treesModule);
               setupJumpSelector(diffItems);
               updateToolbarState();
               preloadDiffHighlighter(payload.appearance, diffItems, getFiletypeFromFileName, preloadHighlighter)
@@ -2098,6 +2239,7 @@ extension CMUXCLI {
 
             function setupToolbar() {
               filesToggle.innerHTML = icon("files");
+              fileSearchToggle.innerHTML = icon("search");
               layoutToggle.innerHTML = icon(appState.layout);
               optionsButton.innerHTML = icon("dots");
               if (typeof payload.externalURL === "string" && payload.externalURL.length > 0) {
@@ -2106,6 +2248,7 @@ extension CMUXCLI {
                 externalLink.hidden = false;
               }
               filesToggle.addEventListener("click", () => setFilesVisible(!appState.filesVisible));
+              fileSearchToggle.addEventListener("click", () => setFileSearchOpen(!appState.fileSearchOpen));
               layoutToggle.addEventListener("click", () => setLayout(appState.layout === "split" ? "unified" : "split"));
               optionsButton.addEventListener("click", () => setOptionsMenuOpen(optionsMenu.hidden));
               document.addEventListener("click", (event) => {
@@ -2125,8 +2268,11 @@ extension CMUXCLI {
             function codeViewOptions() {
               return {
                 diffStyle: appState.layout,
+                diffIndicators: appState.diffIndicators,
                 overflow: appState.wordWrap ? "wrap" : "scroll",
-                expandUnchanged: appState.loadFullFiles,
+                expandUnchanged: appState.expandUnchanged,
+                disableBackground: !appState.showBackgrounds,
+                disableLineNumbers: !appState.lineNumbers,
                 lineDiffType: appState.wordDiffs ? "word" : "none",
                 itemMetrics: {
                   lineHeight: payload.appearance.lineHeight,
@@ -2158,6 +2304,25 @@ extension CMUXCLI {
               appState.filesVisible = visible;
               document.body.dataset.filesHidden = visible ? "false" : "true";
               updateToolbarState();
+              window.requestAnimationFrame(() => {
+                if (!codeView) {
+                  return;
+                }
+                codeView.render(true);
+                renderUntilCodeViewReady(codeView, viewerElement, performance.now());
+              });
+            }
+
+            function setFileSearchOpen(open) {
+              appState.fileSearchOpen = Boolean(open);
+              if (fileTree) {
+                if (appState.fileSearchOpen) {
+                  fileTree.openSearch("");
+                } else {
+                  fileTree.closeSearch();
+                }
+              }
+              updateToolbarState();
             }
 
             function setCollapsed(collapsed) {
@@ -2185,7 +2350,11 @@ extension CMUXCLI {
               optionsButton.setAttribute("aria-expanded", String(!optionsMenu.hidden));
               document.documentElement.dataset.layout = appState.layout;
               document.documentElement.dataset.wordWrap = String(appState.wordWrap);
-              document.documentElement.dataset.hideWhitespace = String(appState.hideWhitespace);
+              document.documentElement.dataset.diffIndicators = appState.diffIndicators;
+              fileSearchToggle.disabled = !fileTree;
+              fileSearchToggle.setAttribute("aria-pressed", String(appState.fileSearchOpen));
+              fileSearchToggle.title = appState.fileSearchOpen ? "Hide file search" : "Show file search";
+              fileSearchToggle.setAttribute("aria-label", fileSearchToggle.title);
             }
 
             function setOptionsMenuOpen(open) {
@@ -2206,23 +2375,61 @@ extension CMUXCLI {
                 } },
                 { label: appState.collapsed ? "Expand all diffs" : "Collapse all diffs", icon: "collapse", checked: appState.collapsed, action: () => setCollapsed(!appState.collapsed) },
                 "separator",
-                { label: appState.loadFullFiles ? "Don't load full files" : "Load full files", icon: "document", checked: appState.loadFullFiles, action: () => {
-                  appState.loadFullFiles = !appState.loadFullFiles;
+                { label: appState.expandUnchanged ? "Collapse unchanged context" : "Expand unchanged context", icon: "document", checked: appState.expandUnchanged, action: () => {
+                  appState.expandUnchanged = !appState.expandUnchanged;
                   applyCodeViewOptions();
                 } },
-                { label: appState.richPreview ? "Disable rich preview" : "Enable rich preview", icon: "image", checked: appState.richPreview, disabled: true },
+                { label: appState.showBackgrounds ? "Hide backgrounds" : "Show backgrounds", icon: "background", checked: appState.showBackgrounds, action: () => {
+                  appState.showBackgrounds = !appState.showBackgrounds;
+                  applyCodeViewOptions();
+                } },
+                { label: appState.lineNumbers ? "Hide line numbers" : "Show line numbers", icon: "numbers", checked: appState.lineNumbers, action: () => {
+                  appState.lineNumbers = !appState.lineNumbers;
+                  applyCodeViewOptions();
+                } },
                 { label: appState.wordDiffs ? "Disable word diffs" : "Enable word diffs", icon: "word", checked: appState.wordDiffs, action: () => {
                   appState.wordDiffs = !appState.wordDiffs;
                   applyCodeViewOptions();
                 } },
-                { label: appState.hideWhitespace ? "Show white space" : "Hide white space", icon: "eye", checked: appState.hideWhitespace, disabled: true },
-                { label: "Copy git apply command", icon: "clipboard", disabled: true },
+                { kind: "segment", label: "Indicator style", icon: "bars", options: [
+                  { value: "bars", icon: "bars", label: "Bars" },
+                  { value: "classic", icon: "classic", label: "Classic" },
+                  { value: "none", icon: "eye", label: "None" },
+                ] },
+                "separator",
+                { label: "Copy git apply command", icon: "clipboard", action: copyGitApplyCommand },
               ];
               for (const item of items) {
                 if (item === "separator") {
                   const separator = document.createElement("div");
                   separator.className = "menu-separator";
                   optionsMenu.append(separator);
+                  continue;
+                }
+                if (item.kind === "segment") {
+                  const row = document.createElement("div");
+                  row.className = "menu-item menu-segment";
+                  row.setAttribute("role", "presentation");
+                  row.innerHTML = `${icon(item.icon)}<span class="menu-label"></span><span class="menu-segment-controls"></span>`;
+                  row.querySelector(".menu-label").textContent = item.label;
+                  const controls = row.querySelector(".menu-segment-controls");
+                  for (const option of item.options) {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "segment-button";
+                    button.title = option.label;
+                    button.setAttribute("aria-label", option.label);
+                    button.setAttribute("aria-pressed", String(appState.diffIndicators === option.value));
+                    button.innerHTML = icon(option.icon);
+                    button.addEventListener("click", () => {
+                      appState.diffIndicators = option.value;
+                      applyCodeViewOptions();
+                      renderOptionsMenu();
+                      updateToolbarState();
+                    });
+                    controls.append(button);
+                  }
+                  optionsMenu.append(row);
                   continue;
                 }
                 const button = document.createElement("button");
@@ -2245,6 +2452,35 @@ extension CMUXCLI {
                 });
                 optionsMenu.append(button);
               }
+            }
+
+            async function copyGitApplyCommand() {
+              const newline = String.fromCharCode(10);
+              const patch = payload.patch.endsWith(newline) ? payload.patch : `${payload.patch}${newline}`;
+              const command = `git apply <<'PATCH'${newline}${patch}PATCH`;
+              if (navigator.clipboard?.writeText) {
+                try {
+                  await navigator.clipboard.writeText(command);
+                } catch {
+                  fallbackCopyText(command);
+                }
+              } else {
+                fallbackCopyText(command);
+              }
+              optionsButton.title = "Copied git apply command";
+              optionsButton.setAttribute("aria-label", "Copied git apply command");
+            }
+
+            function fallbackCopyText(text) {
+              const textarea = document.createElement("textarea");
+              textarea.value = text;
+              textarea.setAttribute("readonly", "");
+              textarea.style.position = "fixed";
+              textarea.style.left = "-9999px";
+              document.body.append(textarea);
+              textarea.select();
+              document.execCommand("copy");
+              textarea.remove();
             }
 
             function setupSourceSelector(options) {
@@ -2279,9 +2515,82 @@ extension CMUXCLI {
               });
             }
 
-            function setupFileExplorer(items) {
+            function setupFileExplorer(items, treesModule) {
+              if (fileTree) {
+                fileTree.cleanUp?.();
+                fileTree = null;
+              }
+              appState.fileSearchOpen = false;
+              activeTreePath = "";
+              itemIdByTreePath = new Map();
+              treePathByItemId = new Map();
               fileList.textContent = "";
               filesCount.textContent = `${items.length}`;
+              updateDiffStats(items);
+              if (treesModule?.FileTree && treesModule?.preparePresortedFileTreeInput) {
+                try {
+                  setupPierreFileTree(items, treesModule);
+                  updateToolbarState();
+                  return;
+                } catch (error) {
+                  console.warn("cmux diff file tree setup failed", error);
+                }
+              }
+              setupFlatFileExplorer(items);
+              updateToolbarState();
+            }
+
+            function setupPierreFileTree(items, treesModule) {
+              const { FileTree, preparePresortedFileTreeInput } = treesModule;
+              const treeEntries = buildTreeEntries(items);
+              const paths = treeEntries.map((entry) => entry.path);
+              const statsByPath = new Map(treeEntries.map((entry) => [entry.path, entry.stats]));
+              fileList.dataset.treeMode = "pierre";
+              fileTree = new FileTree({
+                flattenEmptyDirectories: true,
+                id: "cmux-diff-file-tree",
+                initialExpansion: "open",
+                initialSelectedPaths: paths.slice(0, 1),
+                initialVisibleRowCount: getInitialFileTreeRowCount(),
+                itemHeight: 24,
+                overscan: 12,
+                preparedInput: preparePresortedFileTreeInput(paths),
+                presorted: true,
+                search: true,
+                searchBlurBehavior: "retain",
+                stickyFolders: true,
+                gitStatus: treeEntries.map((entry) => ({ path: entry.path, status: entry.status })),
+                renderRowDecoration(context) {
+                  if (context.item.kind !== "file") {
+                    return null;
+                  }
+                  const stats = statsByPath.get(context.item.path);
+                  if (stats == null || (stats.added === 0 && stats.deleted === 0)) {
+                    return null;
+                  }
+                  return {
+                    text: `+${stats.added} -${stats.deleted}`,
+                    title: `${stats.added} additions, ${stats.deleted} deletions`,
+                  };
+                },
+                sort: () => 0,
+                unsafeCSS: fileTreeUnsafeCSS(),
+                onSelectionChange(paths) {
+                  if (suppressTreeSelectionChange) {
+                    return;
+                  }
+                  const selectedPath = paths[paths.length - 1];
+                  const itemId = itemIdByTreePath.get(selectedPath);
+                  if (itemId) {
+                    scrollToItem(itemId);
+                  }
+                },
+              });
+              fileTree.render({ containerWrapper: fileList });
+            }
+
+            function setupFlatFileExplorer(items) {
+              delete fileList.dataset.treeMode;
               for (const item of items) {
                 const fileDiff = item.fileDiff ?? {};
                 const stats = fileStats(fileDiff);
@@ -2302,6 +2611,79 @@ extension CMUXCLI {
                 button.addEventListener("click", () => scrollToItem(item.id));
                 fileList.append(button);
               }
+            }
+
+            function buildTreeEntries(items) {
+              const pathCounts = new Map();
+              const pathOrdinals = new Map();
+              for (const item of items) {
+                const name = fileName(item.fileDiff ?? {});
+                pathCounts.set(name, (pathCounts.get(name) ?? 0) + 1);
+              }
+              return items.map((item) => {
+                const fileDiff = item.fileDiff ?? {};
+                const basePath = fileName(fileDiff);
+                const nextOrdinal = (pathOrdinals.get(basePath) ?? 0) + 1;
+                pathOrdinals.set(basePath, nextOrdinal);
+                const treePath = pathCounts.get(basePath) > 1 ? `${basePath} (${nextOrdinal})` : basePath;
+                const stats = fileStats(fileDiff);
+                treePathByItemId.set(item.id, treePath);
+                itemIdByTreePath.set(treePath, item.id);
+                return {
+                  item,
+                  path: treePath,
+                  status: gitStatus(fileDiff),
+                  stats,
+                };
+              });
+            }
+
+            function getInitialFileTreeRowCount() {
+              const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+              if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
+                return 25;
+              }
+              return Math.min(96, Math.max(25, Math.ceil(viewportHeight / 24)));
+            }
+
+            function fileTreeUnsafeCSS() {
+              return `
+                [data-file-tree-search-container][data-open='false'] {
+                  display: none;
+                }
+                [data-file-tree-search-container] {
+                  margin: 0 4px 8px 0;
+                  padding: 0 5px 8px 1px;
+                  border-bottom: 1px solid var(--trees-border-color);
+                }
+                [data-file-tree-virtualized-scroll='true'] {
+                  padding-inline-start: 0;
+                  padding-inline-end: 2px;
+                  margin-inline-end: 2px;
+                }
+                [data-item-contains-git-change='true'] > [data-item-section='git'] {
+                  display: none;
+                }
+                [data-item-type='folder'] {
+                  color: color-mix(in lab, var(--trees-fg) 85%, var(--trees-bg));
+                  font-weight: 500;
+                }
+                [data-file-tree-sticky-overlay-content] {
+                  box-shadow: 0 1px 0 var(--trees-border-color);
+                }
+              `;
+            }
+
+            function updateDiffStats(items) {
+              const totals = items.reduce((sum, item) => {
+                const stats = fileStats(item.fileDiff ?? {});
+                sum.added += stats.added;
+                sum.deleted += stats.deleted;
+                return sum;
+              }, { added: 0, deleted: 0 });
+              statsFiles.textContent = `${items.length}`;
+              statsAdded.textContent = `+${totals.added}`;
+              statsDeleted.textContent = `-${totals.deleted}`;
             }
 
             function setupJumpSelector(items) {
@@ -2359,11 +2741,36 @@ extension CMUXCLI {
                 return;
               }
               activeFileId = itemId;
+              syncFileTreeSelection(itemId);
               for (const entry of fileList.querySelectorAll(".file-entry")) {
                 entry.setAttribute("aria-current", entry.dataset.itemId === itemId ? "true" : "false");
               }
               if (jumpSelect.value !== itemId) {
                 jumpSelect.value = itemId;
+              }
+            }
+
+            function syncFileTreeSelection(itemId) {
+              if (!fileTree) {
+                return;
+              }
+              const nextPath = treePathByItemId.get(itemId);
+              if (!nextPath || nextPath === activeTreePath) {
+                return;
+              }
+              suppressTreeSelectionChange = true;
+              try {
+                if (activeTreePath) {
+                  fileTree.getItem(activeTreePath)?.deselect();
+                }
+                fileTree.getItem(nextPath)?.select();
+                fileTree.focusPath(nextPath);
+                fileTree.scrollToPath(nextPath, { focus: false, offset: "nearest" });
+                activeTreePath = nextPath;
+              } finally {
+                scheduleRender(() => {
+                  suppressTreeSelectionChange = false;
+                });
               }
             }
 
@@ -2385,6 +2792,20 @@ extension CMUXCLI {
               }
             }
 
+            function gitStatus(fileDiff) {
+              switch (fileDiff.type) {
+              case "new":
+                return "added";
+              case "deleted":
+                return "deleted";
+              case "rename-pure":
+              case "rename-changed":
+                return "renamed";
+              default:
+                return "modified";
+              }
+            }
+
             function fileStats(fileDiff) {
               const stats = { added: 0, deleted: 0 };
               for (const hunk of fileDiff.hunks ?? []) {
@@ -2396,7 +2817,10 @@ extension CMUXCLI {
 
             function icon(name) {
               const paths = {
+                background: '<rect x="4" y="4" width="12" height="12" rx="2"/><path d="M7 8h6"/><path d="M7 12h6"/>',
+                bars: '<path d="M5 4v12"/><path d="M9 6v8"/><path d="M13 8v4"/>',
                 check: '<path d="M4 10.5 8 14l8-9"/>',
+                classic: '<path d="M4 5h12"/><path d="M4 10h12"/><path d="M4 15h12"/><path d="M7 3v4"/><path d="M13 8v4"/>',
                 collapse: '<path d="M7 3v4H3"/><path d="M3 7l5-5"/><path d="M13 17v-4h4"/><path d="M17 13l-5 5"/>',
                 document: '<path d="M6 3h6l4 4v10H6z"/><path d="M12 3v5h5"/>',
                 dots: '<path d="M5 10h.01"/><path d="M10 10h.01"/><path d="M15 10h.01"/>',
@@ -2404,7 +2828,9 @@ extension CMUXCLI {
                 eye: '<path d="M2.5 10s2.75-5 7.5-5 7.5 5 7.5 5-2.75 5-7.5 5-7.5-5-7.5-5z"/><circle cx="10" cy="10" r="2.4"/>',
                 files: '<path d="M3 5h5l1.5 2H17v9.5H3z"/><path d="M3 7h14"/>',
                 image: '<rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="8" cy="8" r="1.3"/><path d="m4 15 4.5-4 3 2.8 2-1.8L17 15"/>',
+                numbers: '<path d="M5 5h2v10"/><path d="M4 15h4"/><path d="M11 6.5a2 2 0 1 1 3.2 1.6L11 12h4"/><path d="M11 15h4"/>',
                 refresh: '<path d="M16 8a6 6 0 0 0-10.3-3.7L4 6"/><path d="M4 3v3h3"/><path d="M4 12a6 6 0 0 0 10.3 3.7L16 14"/><path d="M16 17v-3h-3"/>',
+                search: '<circle cx="8.5" cy="8.5" r="4.5"/><path d="m12 12 4 4"/>',
                 split: '<rect x="3" y="4" width="14" height="12" rx="2"/><path d="M10 4v12" data-accent="true"/><path d="M6 8h2"/><path d="M6 12h2"/><path d="M12 8h2"/><path d="M12 12h2"/>',
                 unified: '<rect x="4" y="3.5" width="12" height="13" rx="2"/><path d="M7 7h6"/><path d="M7 10h6" data-accent="true"/><path d="M7 13h6"/>',
                 word: '<path d="M3 6h14"/><path d="M3 10h8"/><path d="M3 14h11"/><path d="M14 10h3"/>',
