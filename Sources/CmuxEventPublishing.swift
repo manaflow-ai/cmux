@@ -103,6 +103,7 @@ extension CmuxEventBus {
     func publishWorkspaceReordered(
         workspaceIds: [UUID],
         movedWorkspaceIds: [UUID],
+        pinnedWorkspaceIds: [UUID],
         source: String
     ) {
         publish(
@@ -113,6 +114,7 @@ extension CmuxEventBus {
             payload: [
                 "workspace_ids": workspaceIds.map(\.uuidString),
                 "moved_workspace_ids": movedWorkspaceIds.map(\.uuidString),
+                "pinned_workspace_ids": pinnedWorkspaceIds.map(\.uuidString),
                 "count": workspaceIds.count
             ]
         )

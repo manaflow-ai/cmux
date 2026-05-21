@@ -153,6 +153,7 @@ public struct CmuxExtensionSidebarReducer {
             next.workspaces[index].title = title
 
         case "workspace.reordered":
+            let pinnedIds = reorderedPinnedWorkspaceIds(from: frame.payload)
             if let order = reorderedWorkspaceIds(from: frame.payload) {
                 var orderedIds: [UUID] = []
                 var seenIds: Set<UUID> = []
@@ -171,6 +172,12 @@ public struct CmuxExtensionSidebarReducer {
                       let index = reorderedWorkspaceIndex(from: frame.payload),
                       let workspaces = movingWorkspace(next.workspaces, workspaceId: workspaceId, toIndex: index) {
                 next.workspaces = workspaces
+            }
+            if let pinnedIds {
+                let pinnedSet = Set(pinnedIds)
+                for index in next.workspaces.indices {
+                    next.workspaces[index].isPinned = pinnedSet.contains(next.workspaces[index].id)
+                }
             }
 
         case "workspace.prompt.submitted":
@@ -255,6 +262,22 @@ public struct CmuxExtensionSidebarReducer {
         }
         if let params = payload["params"]?.objectValue,
            let ids = reorderedWorkspaceIds(from: params) {
+            return ids
+        }
+        return nil
+    }
+
+    private static func reorderedPinnedWorkspaceIds(from payload: [String: CmuxExtensionJSONValue]) -> [UUID]? {
+        if let ids = payload["pinned_workspace_ids"]?.uuidArrayValue
+            ?? payload["pinned_ids"]?.uuidArrayValue {
+            return ids
+        }
+        if let result = payload["result"]?.objectValue,
+           let ids = reorderedPinnedWorkspaceIds(from: result) {
+            return ids
+        }
+        if let params = payload["params"]?.objectValue,
+           let ids = reorderedPinnedWorkspaceIds(from: params) {
             return ids
         }
         return nil

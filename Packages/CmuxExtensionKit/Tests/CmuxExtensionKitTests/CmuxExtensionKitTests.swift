@@ -315,7 +315,8 @@ final class CmuxExtensionKitTests: XCTestCase {
 
     func testWorkspaceReorderedEventPreservesFrameSequence() {
         let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
-        let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
+        var second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
+        second.isPinned = true
         let snapshot = CmuxExtensionSidebarSnapshot(
             sequence: 10,
             selectedWorkspaceId: first.id,
@@ -329,7 +330,8 @@ final class CmuxExtensionKitTests: XCTestCase {
             occurredAt: Date(timeIntervalSinceReferenceDate: 4),
             workspaceId: second.id,
             payload: [
-                "workspace_ids": .array([.string(second.id.uuidString), .string(first.id.uuidString)])
+                "workspace_ids": .array([.string(second.id.uuidString), .string(first.id.uuidString)]),
+                "pinned_workspace_ids": .array([.string(first.id.uuidString)])
             ]
         )
 
@@ -337,6 +339,7 @@ final class CmuxExtensionKitTests: XCTestCase {
 
         XCTAssertEqual(updated.sequence, 12)
         XCTAssertEqual(updated.workspaces.map(\.id), [second.id, first.id])
+        XCTAssertEqual(updated.workspaces.map(\.isPinned), [false, true])
     }
 
     func testWorkspaceReorderedEventReadsSocketResultIndex() {

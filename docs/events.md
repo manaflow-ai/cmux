@@ -236,6 +236,9 @@ Workspace:
 | `workspace.action` | Workspace action command completed. |
 | `workspace.prompt.submitted` | A prompt was submitted in a workspace. Used by extension sidebars to keep derived state fresh without polling. |
 
+`workspace.reordered` payloads include ordered `workspace_ids`,
+`moved_workspace_ids`, `pinned_workspace_ids`, and `count`.
+
 `workspace.prompt.submitted` payloads include `workspace_id`, a redacted
 `message`, `message_preview`, `message_length`, and `redacted_fields`. This is
 local sensitive data, so consumers should only forward it with explicit user
