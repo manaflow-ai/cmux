@@ -178,7 +178,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         KeyboardShortcutRecorderActivity.resetForTesting()
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
         KeyboardShortcutSettings.shortcutLookupObserver = nil
-        TextBoxSubmit.debugMaxWaitFollowupTicksOverride = nil
+        TextBoxSubmit.debugResetForTesting()
         #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
@@ -6966,7 +6966,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             let surface = FakeTextBoxSubmitSurface()
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
-            pasteboard.setString("user clipboard", forType: .string)
+            pasteboard.declareTypes([.string], owner: nil)
+            XCTAssertTrue(pasteboard.setString("user clipboard", forType: .string))
             TextBoxSubmit.debugMaxWaitFollowupTicksOverride = 0
             defer { TextBoxSubmit.debugMaxWaitFollowupTicksOverride = nil }
 

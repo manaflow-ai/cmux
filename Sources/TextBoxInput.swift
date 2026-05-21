@@ -1197,7 +1197,7 @@ private struct TextBoxMentionCandidateIndex: Sendable {
                 ]
             )
         }
-        nucleoIndex = CommandPaletteNucleoSearchIndex(entries: corpus)
+        nucleoIndex = corpus.count >= 32 ? CommandPaletteNucleoSearchIndex(entries: corpus) : nil
     }
 
     func rankedCandidates(matching rawQuery: String, limit: Int) -> [TextBoxMentionCandidate] {
@@ -1412,22 +1412,55 @@ actor TextBoxMentionIndexStore {
         roots.append(home.appendingPathComponent(".codex/skills", isDirectory: true))
         roots.append(home.appendingPathComponent(".codex/skills/.system", isDirectory: true))
         roots.append(home.appendingPathComponent(".agents/skills", isDirectory: true))
-        let pluginCacheURL = home.appendingPathComponent(".codex/plugins/cache", isDirectory: true)
-        if let pluginCacheRoots = try? fileManager.contentsOfDirectory(
-            at: pluginCacheURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) {
-            roots.append(contentsOf: pluginCacheRoots.filter { url in
-                (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            })
-        }
+        roots.append(contentsOf: pluginSkillRoots(
+            pluginCacheURL: home.appendingPathComponent(".codex/plugins/cache", isDirectory: true),
+            fileManager: fileManager
+        ))
 
         var seen = Set<String>()
         return roots
             .map(\.standardizedFileURL)
             .filter { fileManager.fileExists(atPath: $0.path) }
             .filter { seen.insert($0.path).inserted }
+    }
+
+    private static func pluginSkillRoots(pluginCacheURL: URL, fileManager: FileManager) -> [URL] {
+        guard let vendors = try? fileManager.contentsOfDirectory(
+            at: pluginCacheURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var roots: [URL] = []
+        for vendor in vendors where isDirectory(vendor, fileManager: fileManager) {
+            guard let pluginNames = try? fileManager.contentsOfDirectory(
+                at: vendor,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for pluginName in pluginNames where isDirectory(pluginName, fileManager: fileManager) {
+                guard let versions = try? fileManager.contentsOfDirectory(
+                    at: pluginName,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                ) else { continue }
+
+                for version in versions where isDirectory(version, fileManager: fileManager) {
+                    let skillsURL = version.appendingPathComponent("skills", isDirectory: true)
+                    if isDirectory(skillsURL, fileManager: fileManager) {
+                        roots.append(skillsURL)
+                    }
+                }
+            }
+        }
+        return roots
+    }
+
+    private static func isDirectory(_ url: URL, fileManager: FileManager) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
 
     private static func skillName(from skillURL: URL) -> String {
@@ -1655,6 +1688,11 @@ enum TextBoxSubmit {
         onComplete: ((CompletionContext) -> Void)? = nil
     ) {
         TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
+    }
+
+    static func debugResetForTesting() {
+        TextBoxSubmitEventRunner.resetForTesting()
+        debugMaxWaitFollowupTicksOverride = nil
     }
 #endif
 
@@ -2173,6 +2211,23 @@ private final class TextBoxSubmitEventRunner {
         start(nextRun)
     }
 
+#if DEBUG
+    static func resetForTesting() {
+        for runner in active.values {
+            runner.cancelForTesting()
+        }
+        active.removeAll()
+        activeRunIDBySurface.removeAll()
+        queuedRunsBySurface.removeAll()
+    }
+
+    private func cancelForTesting() {
+        removeObservers()
+        restorePasteboardIfNeeded()
+        onComplete = nil
+    }
+#endif
+
     private func waitForVisibleText(_ expectedText: String) {
         if visibleTextReady(expectedText) {
 #if DEBUG
@@ -2252,11 +2307,14 @@ private final class TextBoxSubmitEventRunner {
         }
         observers.append(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidCompleteClipboardRead,
-            object: surface,
+            object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             Task { @MainActor in
                 guard let self, self.observationToken == token else { return }
+                if let notificationSurface = notification.object as AnyObject? {
+                    guard notificationSurface === self.surface as AnyObject else { return }
+                }
                 guard self.clipboardReadReady() else { return }
 #if DEBUG
                 cmuxDebugLog("textbox.submit.wait.clipboard.notification id=\(self.id.uuidString.prefix(5)) baseline=\(self.clipboardReadBaseline)")
