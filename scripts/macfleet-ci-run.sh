@@ -206,11 +206,19 @@ release_build() {
 
 unit_test() {
   resolve_packages cmux-unit
+  feed_xcodebuild_stdin() {
+    while true; do
+      printf '\n'
+      sleep 1
+    done
+  }
+
   run_unit_tests() {
     # Xcode 16.4's XCTest memory checker crashes in WebKit teardown for these
     # MarkdownPanelTests on hosted and GUI-less runners, then retries until the
     # job timeout. Keep the quarantine narrow and explicit.
-    run_with_timeout "$xcodebuild_timeout" xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+    set +e
+    feed_xcodebuild_stdin | run_with_timeout "$xcodebuild_timeout" xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived" \
       -clonedSourcePackagesDirPath "$spm" \
       -disableAutomaticPackageResolution \
@@ -221,6 +229,9 @@ unit_test() {
       -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate \
       -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderLoadsSafeDataImage \
       test 2>&1
+    local xcode_status=${PIPESTATUS[1]}
+    set -e
+    return "$xcode_status"
   }
 
   set +e
