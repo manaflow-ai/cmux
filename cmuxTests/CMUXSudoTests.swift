@@ -1,0 +1,308 @@
+import XCTest
+import Darwin
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+final class CMUXSudoTests: XCTestCase {
+    private var tempDirectories: [URL] = []
+
+    override func tearDown() {
+#if DEBUG
+        CMUXSudoTestHooks.reset()
+#endif
+        for url in tempDirectories {
+            try? FileManager.default.removeItem(at: url)
+        }
+        tempDirectories.removeAll()
+        super.tearDown()
+    }
+
+    func testSudoRequestParserRejectsMalformedPayloads() {
+        let valid = makeParams()
+
+        assertInvalid(valid.merging(["argv": [String]()] as [String: Any]) { _, new in new }, contains: "argv")
+        assertInvalid(
+            valid.merging(["argv": ["/usr/bin/id", "bad\0value"]] as [String: Any]) { _, new in new },
+            contains: "NUL"
+        )
+        assertInvalid(
+            valid.merging(["workspace_id": "not-a-uuid"] as [String: Any]) { _, new in new },
+            contains: "workspace_id"
+        )
+        assertInvalid(valid.merging(["caller_pid": -1] as [String: Any]) { _, new in new }, contains: "caller_pid")
+    }
+
+    func testSudoCallerValidatorRejectsRequestsOutsideCmuxPtyScope() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let request = try parsedRequest(workspaceID: workspaceID, surfaceID: surfaceID)
+        let matchingProcess = CmuxTopProcessArguments(
+            arguments: ["/usr/bin/cmux", "sudo"],
+            environment: [
+                "CMUX_WORKSPACE_ID": workspaceID.uuidString,
+                "CMUX_SURFACE_ID": surfaceID.uuidString,
+            ]
+        )
+
+        let allowed = CMUXSudoCallerValidator.validate(
+            request: request,
+            peerIdentity: CMUXSocketPeerIdentity(pid: request.callerPID, uid: request.callerUID),
+            isDescendant: { $0 == request.callerPID },
+            processArguments: { _ in matchingProcess },
+            surfaceExists: { _, _ in true }
+        )
+        XCTAssertTrue(allowed.allowed, allowed.reason ?? "")
+
+        let mismatchedPeer = CMUXSudoCallerValidator.validate(
+            request: request,
+            peerIdentity: CMUXSocketPeerIdentity(pid: request.callerPID, uid: request.callerUID + 1),
+            isDescendant: { _ in true },
+            processArguments: { _ in matchingProcess },
+            surfaceExists: { _, _ in true }
+        )
+        XCTAssertFalse(mismatchedPeer.allowed)
+        XCTAssertTrue(mismatchedPeer.reason?.contains("uid") == true)
+
+        let missingScope = CMUXSudoCallerValidator.validate(
+            request: request,
+            peerIdentity: CMUXSocketPeerIdentity(pid: request.callerPID, uid: request.callerUID),
+            isDescendant: { _ in true },
+            processArguments: { _ in CmuxTopProcessArguments(arguments: ["/bin/zsh"], environment: [:]) },
+            surfaceExists: { _, _ in true }
+        )
+        XCTAssertFalse(missingScope.allowed)
+        XCTAssertTrue(missingScope.reason?.contains("scope") == true)
+
+        let missingSurface = CMUXSudoCallerValidator.validate(
+            request: request,
+            peerIdentity: CMUXSocketPeerIdentity(pid: request.callerPID, uid: request.callerUID),
+            isDescendant: { _ in true },
+            processArguments: { _ in matchingProcess },
+            surfaceExists: { _, _ in false }
+        )
+        XCTAssertFalse(missingSurface.allowed)
+        XCTAssertTrue(missingSurface.reason?.contains("active") == true)
+    }
+
+    func testSudoHelperEnvelopeSignsCanonicalPayload() throws {
+        let request = try parsedRequest(argv: ["/bin/echo", "hello world"])
+        let envelope = try CMUXSudoHelperClient.signedEnvelope(for: request)
+        XCTAssertTrue(CMUXSudoHelperSignatureVerifier.verify(envelope))
+
+        var tamperedPayload = envelope.payload
+        tamperedPayload["argv"] = ["/usr/bin/whoami"]
+        let tampered = CMUXSudoSignedHelperEnvelope(
+            payload: tamperedPayload,
+            signatureBase64: envelope.signatureBase64,
+            publicKeyBase64: envelope.publicKeyBase64
+        )
+        XCTAssertFalse(CMUXSudoHelperSignatureVerifier.verify(tampered))
+    }
+
+    func testSudoAuditLogChainsEntriesAndUsesPrivatePermissions() throws {
+        let logURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
+        let first = try CMUXSudoAuditLogger.append(auditRecord(id: "first"), logURL: logURL)
+        let second = try CMUXSudoAuditLogger.append(auditRecord(id: "second"), logURL: logURL)
+
+        XCTAssertTrue(first["previous_sha256"] is NSNull)
+        XCTAssertEqual(second["previous_sha256"] as? String, first["entry_sha256"] as? String)
+        XCTAssertNotNil(second["entry_sha256"] as? String)
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: logURL.path)
+        let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber)
+        XCTAssertEqual(permissions.intValue & 0o777, 0o600)
+
+        let entries = try auditEntries(in: logURL)
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries[0]["request_id"] as? String, "first")
+        XCTAssertEqual(entries[1]["request_id"] as? String, "second")
+    }
+
+    func testSudoRequestDenialAuditsAndSkipsHelper() throws {
+#if DEBUG
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let logURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
+        installValidSudoHooks(workspaceID: workspaceID, surfaceID: surfaceID, logURL: logURL)
+        CMUXSudoTestHooks.approvalOverride = { _ in
+            CMUXSudoApprovalResult(approved: false, reason: "test denial")
+        }
+        CMUXSudoTestHooks.helperOverride = { _ in
+            XCTFail("Denied sudo requests must not reach the helper")
+            return CMUXSudoHelperExecutionResult(
+                status: "completed",
+                exitCode: 0,
+                stdout: nil,
+                stderr: nil,
+                errorCode: nil,
+                message: nil
+            )
+        }
+
+        let result = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
+            TerminalController.shared.v2SudoRequestOnSocketWorker(
+                params: makeParams(workspaceID: workspaceID, surfaceID: surfaceID)
+            )
+        }
+
+        guard case .err(let code, let message, _) = result else {
+            return XCTFail("Expected denial error, got \(result)")
+        }
+        XCTAssertEqual(code, "authentication_denied")
+        XCTAssertEqual(message, "test denial")
+
+        let entries = try auditEntries(in: logURL)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0]["result"] as? String, "denied")
+        XCTAssertEqual(entries[0]["error_code"] as? String, "authentication_denied")
+#else
+        throw XCTSkip("Sudo request flow hooks are debug-only.")
+#endif
+    }
+
+    func testSudoRequestApprovalExecutesSignedHelperAndAudits() throws {
+#if DEBUG
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let logURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
+        installValidSudoHooks(workspaceID: workspaceID, surfaceID: surfaceID, logURL: logURL)
+        CMUXSudoTestHooks.approvalOverride = { _ in
+            CMUXSudoApprovalResult(approved: true, reason: nil)
+        }
+        CMUXSudoTestHooks.helperOverride = { envelope in
+            XCTAssertTrue(CMUXSudoHelperSignatureVerifier.verify(envelope))
+            XCTAssertEqual(envelope.payload["argv"] as? [String], ["/usr/bin/id"])
+            return CMUXSudoHelperExecutionResult(
+                status: "completed",
+                exitCode: 0,
+                stdout: "uid=0(root)\n",
+                stderr: "",
+                errorCode: nil,
+                message: nil
+            )
+        }
+
+        let result = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
+            TerminalController.shared.v2SudoRequestOnSocketWorker(
+                params: makeParams(workspaceID: workspaceID, surfaceID: surfaceID)
+            )
+        }
+
+        guard case .ok(let payload) = result,
+              let object = payload as? [String: Any] else {
+            return XCTFail("Expected successful sudo response, got \(result)")
+        }
+        XCTAssertEqual(object["status"] as? String, "completed")
+        XCTAssertEqual(object["exit_code"] as? Int, 0)
+        XCTAssertEqual(object["stdout"] as? String, "uid=0(root)\n")
+        XCTAssertEqual(object["audit_log"] as? String, logURL.path)
+
+        let entries = try auditEntries(in: logURL)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0]["result"] as? String, "completed")
+        XCTAssertEqual(entries[0]["exit_code"] as? Int, 0)
+#else
+        throw XCTSkip("Sudo request flow hooks are debug-only.")
+#endif
+    }
+
+    private func installValidSudoHooks(workspaceID: UUID, surfaceID: UUID, logURL: URL) {
+#if DEBUG
+        CMUXSudoTestHooks.auditLogURLOverride = logURL
+        CMUXSudoTestHooks.isDescendantOverride = { $0 == getpid() }
+        CMUXSudoTestHooks.processArgumentsOverride = { _ in
+            CmuxTopProcessArguments(
+                arguments: ["/usr/bin/cmux", "sudo"],
+                environment: [
+                    "CMUX_WORKSPACE_ID": workspaceID.uuidString,
+                    "CMUX_SURFACE_ID": surfaceID.uuidString,
+                ]
+            )
+        }
+        CMUXSudoTestHooks.surfaceExistsOverride = { requestedWorkspaceID, requestedSurfaceID in
+            requestedWorkspaceID == workspaceID && requestedSurfaceID == surfaceID
+        }
+#endif
+    }
+
+    private func assertInvalid(_ params: [String: Any], contains expected: String) {
+        switch CMUXSudoCommandRequest.parse(params: params) {
+        case .success(let request):
+            XCTFail("Expected invalid sudo request, got \(request)")
+        case .failure(let error):
+            XCTAssertTrue(
+                error.message.contains(expected),
+                "Expected \(error.message) to contain \(expected)"
+            )
+        }
+    }
+
+    private func parsedRequest(
+        workspaceID: UUID = UUID(),
+        surfaceID: UUID = UUID(),
+        argv: [String] = ["/usr/bin/id"]
+    ) throws -> CMUXSudoCommandRequest {
+        switch CMUXSudoCommandRequest.parse(
+            params: makeParams(workspaceID: workspaceID, surfaceID: surfaceID, argv: argv)
+        ) {
+        case .success(let request):
+            return request
+        case .failure(let error):
+            throw error
+        }
+    }
+
+    private func makeParams(
+        workspaceID: UUID = UUID(),
+        surfaceID: UUID = UUID(),
+        argv: [String] = ["/usr/bin/id"]
+    ) -> [String: Any] {
+        [
+            "request_id": UUID().uuidString,
+            "argv": argv,
+            "workspace_id": workspaceID.uuidString,
+            "surface_id": surfaceID.uuidString,
+            "caller_pid": Int(getpid()),
+            "caller_uid": Int(getuid()),
+            "cwd": "/tmp",
+        ]
+    }
+
+    private func auditRecord(id: String) -> CMUXSudoAuditRecord {
+        CMUXSudoAuditRecord(
+            requestID: id,
+            timestamp: Date(timeIntervalSince1970: 1_800_000_000),
+            workspaceID: UUID(uuidString: "11111111-1111-1111-1111-111111111111"),
+            surfaceID: UUID(uuidString: "22222222-2222-2222-2222-222222222222"),
+            requesterPID: 123,
+            requesterUID: 501,
+            command: ["/usr/bin/id"],
+            commandDisplay: "/usr/bin/id",
+            result: "completed",
+            exitCode: 0,
+            errorCode: nil,
+            message: nil
+        )
+    }
+
+    private func auditEntries(in logURL: URL) throws -> [[String: Any]] {
+        let contents = try String(contentsOf: logURL, encoding: .utf8)
+        return try contents
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { line in
+                let data = Data(String(line).utf8)
+                return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            }
+    }
+
+    private func temporaryDirectory() -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-sudo-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        tempDirectories.append(url)
+        return url
+    }
+}

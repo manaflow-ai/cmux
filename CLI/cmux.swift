@@ -3160,6 +3160,15 @@ struct CMUXCLI {
             let output: Any = idFormatArg == nil ? response : formatIDs(response, mode: idFormat)
             print(jsonString(output))
 
+        case "sudo", "request-sudo":
+            try runSudoCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowHandle: windowId,
+                environment: processEnv
+            )
+
         case "identify":
             var params: [String: Any] = [:]
             let localWindowRaw = optionValue(commandArgs, name: "--window")
@@ -10139,6 +10148,158 @@ struct CMUXCLI {
         throw CLIError(message: "Unable to resolve surface ID")
     }
 
+    private struct ParsedSudoCommand {
+        let workspaceRaw: String?
+        let surfaceRaw: String?
+        let windowRaw: String?
+        let argv: [String]
+    }
+
+    private func runSudoCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        windowHandle globalWindowHandle: String?,
+        environment: [String: String]
+    ) throws {
+        let parsed = try parseSudoCommand(commandArgs)
+        guard !parsed.argv.isEmpty else {
+            throw CLIError(message: String(localized: "cli.sudo.error.usage", defaultValue: "Usage: cmux sudo [--workspace <id>] [--surface <id>] [--window <id>] -- <command...>"))
+        }
+
+        let windowHandle = try normalizeWindowHandle(parsed.windowRaw ?? globalWindowHandle, client: client)
+        let workspaceId = try resolveWorkspaceId(
+            parsed.workspaceRaw ?? environment["CMUX_WORKSPACE_ID"],
+            client: client,
+            windowHandle: windowHandle
+        )
+        let surfaceId = try resolveSurfaceId(
+            parsed.surfaceRaw ?? environment["CMUX_SURFACE_ID"],
+            workspaceId: workspaceId,
+            client: client
+        )
+
+        let request: [String: Any] = [
+            "request_id": UUID().uuidString,
+            "argv": parsed.argv,
+            "command_display": sudoDisplayCommand(parsed.argv),
+            "workspace_id": workspaceId,
+            "surface_id": surfaceId,
+            "caller_pid": Int(getpid()),
+            "caller_uid": Int(getuid()),
+            "cwd": FileManager.default.currentDirectoryPath,
+        ]
+
+        let response = try client.sendV2(
+            method: "sudo.request",
+            params: request,
+            responseTimeout: 10 * 60
+        )
+        if jsonOutput {
+            print(jsonString(response))
+        } else {
+            if let stdout = response["stdout"] as? String, !stdout.isEmpty {
+                print(stdout, terminator: stdout.hasSuffix("\n") ? "" : "\n")
+            }
+            if let stderr = response["stderr"] as? String, !stderr.isEmpty {
+                FileHandle.standardError.write(Data(stderr.utf8))
+                if !stderr.hasSuffix("\n") {
+                    FileHandle.standardError.write(Data("\n".utf8))
+                }
+            }
+        }
+
+        let exitCode = intFromAny(response["exit_code"]) ?? 0
+        if exitCode != 0 {
+            throw CLIError(message: "exit \(exitCode)", exitCode: Int32(exitCode))
+        }
+    }
+
+    private func parseSudoCommand(_ args: [String]) throws -> ParsedSudoCommand {
+        var workspaceRaw: String?
+        var surfaceRaw: String?
+        var windowRaw: String?
+        var argv: [String] = []
+        var index = 0
+        var parsingOptions = true
+
+        while index < args.count {
+            let arg = args[index]
+            if parsingOptions, arg == "--" {
+                parsingOptions = false
+                index += 1
+                continue
+            }
+            if parsingOptions, arg == "--workspace" {
+                guard index + 1 < args.count else {
+                    throw CLIError(message: String(localized: "cli.sudo.error.workspaceRequiresID", defaultValue: "sudo: --workspace requires an id"))
+                }
+                workspaceRaw = args[index + 1]
+                index += 2
+                continue
+            }
+            if parsingOptions, arg.hasPrefix("--workspace=") {
+                workspaceRaw = String(arg.dropFirst("--workspace=".count))
+                index += 1
+                continue
+            }
+            if parsingOptions, arg == "--surface" {
+                guard index + 1 < args.count else {
+                    throw CLIError(message: String(localized: "cli.sudo.error.surfaceRequiresID", defaultValue: "sudo: --surface requires an id"))
+                }
+                surfaceRaw = args[index + 1]
+                index += 2
+                continue
+            }
+            if parsingOptions, arg.hasPrefix("--surface=") {
+                surfaceRaw = String(arg.dropFirst("--surface=".count))
+                index += 1
+                continue
+            }
+            if parsingOptions, arg == "--window" {
+                guard index + 1 < args.count else {
+                    throw CLIError(message: String(localized: "cli.sudo.error.windowRequiresID", defaultValue: "sudo: --window requires an id"))
+                }
+                windowRaw = args[index + 1]
+                index += 2
+                continue
+            }
+            if parsingOptions, arg.hasPrefix("--window=") {
+                windowRaw = String(arg.dropFirst("--window=".count))
+                index += 1
+                continue
+            }
+            if parsingOptions, arg.hasPrefix("-") {
+                throw CLIError(
+                    message: String(
+                        format: String(localized: "cli.sudo.error.unknownOption", defaultValue: "sudo: unknown option '%@'. Use -- before commands that start with '-'."),
+                        arg
+                    )
+                )
+            }
+            argv.append(contentsOf: args[index...])
+            break
+        }
+
+        return ParsedSudoCommand(
+            workspaceRaw: workspaceRaw,
+            surfaceRaw: surfaceRaw,
+            windowRaw: windowRaw,
+            argv: argv
+        )
+    }
+
+    private func sudoDisplayCommand(_ argv: [String]) -> String {
+        argv.map { arg in
+            guard !arg.isEmpty else { return "''" }
+            let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+-./:=,@%")
+            if arg.unicodeScalars.allSatisfy({ safe.contains($0) }) {
+                return arg
+            }
+            return "'" + arg.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }.joined(separator: " ")
+    }
+
     private func resolveSurfaceTargetInWindow(
         _ raw: String,
         windowHandle: String,
@@ -10299,6 +10460,21 @@ struct CMUXCLI {
             Call a raw v2 method with an optional JSON object for params.
             Example: cmux rpc surface.report_tty '{"workspace_id":"...","surface_id":"...","tty_name":"ttys001"}'
             """
+        case "sudo", "request-sudo":
+            return String(localized: "cli.sudo.usage", defaultValue: """
+            Usage: cmux sudo [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] -- <command...>
+
+            Request one-command elevation through the cmux app. The app shows
+            the exact command and requires device owner authentication before
+            forwarding a signed request to the privileged helper.
+
+            The request must come from a real cmux terminal child process. There
+            are no persistent sudo sessions and no root shell.
+
+            Examples:
+              cmux sudo -- id
+              cmux sudo -- chown root:wheel /tmp/example
+            """)
         case "help":
             return """
             Usage: cmux help
@@ -27958,6 +28134,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          sudo [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] -- <command...>
+          request-sudo                                (alias for sudo)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows

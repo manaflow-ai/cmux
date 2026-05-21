@@ -19,6 +19,11 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let authenticated: Bool
 }
 
+nonisolated struct CMUXSocketPeerIdentity: Sendable {
+    let pid: pid_t?
+    let uid: uid_t?
+}
+
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -69,6 +74,8 @@ class TerminalController {
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
+    private nonisolated static let socketPeerPIDKey = "cmux.socketPeerPID"
+    private nonisolated static let socketPeerUIDKey = "cmux.socketPeerUID"
     private nonisolated static let socketListenBacklog: Int32 = 128
     private nonisolated static let acceptFailureBaseBackoffMs = 10
     private nonisolated static let acceptFailureMaxBackoffMs = 5_000
@@ -424,6 +431,60 @@ class TerminalController {
         }
     }
 
+    nonisolated static func currentSocketPeerIdentity() -> CMUXSocketPeerIdentity {
+        let pidNumber = Thread.current.threadDictionary[socketPeerPIDKey] as? NSNumber
+        let uidNumber = Thread.current.threadDictionary[socketPeerUIDKey] as? NSNumber
+        return CMUXSocketPeerIdentity(
+            pid: pidNumber.map { pid_t($0.int32Value) },
+            uid: uidNumber.map { uid_t($0.uint32Value) }
+        )
+    }
+
+    private nonisolated static func withSocketPeerIdentity<T>(
+        pid: pid_t?,
+        uid: uid_t?,
+        _ body: () -> T
+    ) -> T {
+        let previousPID = Thread.current.threadDictionary[socketPeerPIDKey]
+        let previousUID = Thread.current.threadDictionary[socketPeerUIDKey]
+
+        if let pid {
+            Thread.current.threadDictionary[socketPeerPIDKey] = NSNumber(value: pid)
+        } else {
+            Thread.current.threadDictionary.removeObject(forKey: socketPeerPIDKey)
+        }
+        if let uid {
+            Thread.current.threadDictionary[socketPeerUIDKey] = NSNumber(value: uid)
+        } else {
+            Thread.current.threadDictionary.removeObject(forKey: socketPeerUIDKey)
+        }
+
+        defer {
+            if let previousPID {
+                Thread.current.threadDictionary[socketPeerPIDKey] = previousPID
+            } else {
+                Thread.current.threadDictionary.removeObject(forKey: socketPeerPIDKey)
+            }
+            if let previousUID {
+                Thread.current.threadDictionary[socketPeerUIDKey] = previousUID
+            } else {
+                Thread.current.threadDictionary.removeObject(forKey: socketPeerUIDKey)
+            }
+        }
+
+        return body()
+    }
+
+#if DEBUG
+    nonisolated static func withSocketPeerIdentityForTesting<T>(
+        pid: pid_t?,
+        uid: uid_t?,
+        _ body: () -> T
+    ) -> T {
+        withSocketPeerIdentity(pid: pid, uid: uid, body)
+    }
+#endif
+
     private nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
         let previous = currentSocketCommandFocusAllowanceStack()
         setCurrentSocketCommandFocusAllowanceStack(stack)
@@ -692,11 +753,16 @@ class TerminalController {
     /// Check if the peer has the same UID as this process using LOCAL_PEERCRED.
     /// This works even after the peer has disconnected (unlike LOCAL_PEERPID).
     private nonisolated func peerHasSameUID(_ socket: Int32) -> Bool {
+        getPeerUID(socket) == getuid()
+    }
+
+    /// Get the peer UID of a connected Unix domain socket using LOCAL_PEERCRED.
+    private nonisolated func getPeerUID(_ socket: Int32) -> uid_t? {
         var cred = xucred()
         var credLen = socklen_t(MemoryLayout<xucred>.size)
         let result = getsockopt(socket, SOL_LOCAL, LOCAL_PEERCRED, &cred, &credLen)
-        guard result == 0 else { return false }
-        return cred.cr_uid == getuid()
+        guard result == 0 else { return nil }
+        return cred.cr_uid
     }
 
     /// Check if `pid` is a descendant of this process by walking the process tree.
@@ -1775,6 +1841,7 @@ class TerminalController {
         "browser.import.cookies",
         "system.top",
         "system.memory",
+        "sudo.request",
     ]
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
@@ -1886,6 +1953,8 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "sudo.request":
+            return v2Result(id: request.id, v2SudoRequestOnSocketWorker(params: request.params))
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         default:
@@ -2178,6 +2247,8 @@ class TerminalController {
     private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
         defer { close(socket) }
 
+        let peerUID = getPeerUID(socket)
+
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
         // In allowAll mode (env-var only), skip the ancestry check.
         if accessMode == .cmuxOnly {
@@ -2239,7 +2310,12 @@ class TerminalController {
                     return
                 }
 
-                let result = processSocketLine(trimmed, authenticated: authenticated)
+                let result = processSocketLine(
+                    trimmed,
+                    authenticated: authenticated,
+                    peerPid: peerPid ?? getPeerPid(socket),
+                    peerUID: peerUID
+                )
                 authenticated = result.authenticated
                 let didWriteResponse = writeSocketResponse(result.response, to: socket)
                 publishSocketEvents(command: trimmed, response: result.response)
@@ -2252,8 +2328,11 @@ class TerminalController {
 
     private nonisolated func processSocketLine(
         _ command: String,
-        authenticated: Bool
+        authenticated: Bool,
+        peerPid: pid_t? = nil,
+        peerUID: uid_t? = nil
     ) -> SocketLineProcessingResult {
+        Self.withSocketPeerIdentity(pid: peerPid, uid: peerUID) {
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
         let debugStart = DispatchTime.now().uptimeNanoseconds
@@ -2287,6 +2366,7 @@ class TerminalController {
         )
 #endif
         return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        }
     }
 
 #if DEBUG
@@ -3275,6 +3355,7 @@ class TerminalController {
             "system.tree",
             "system.top",
             "system.memory",
+            "sudo.request",
             "events.stream",
             "auth.login",
             "auth.status",

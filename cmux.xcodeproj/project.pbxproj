@@ -121,6 +121,7 @@
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
 		C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */; };
+		D53D00030000000000000003 /* CMUXSudoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53D00040000000000000004 /* CMUXSudoTests.swift */; };
 		8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 		9C1BEA3D2E6F49709A71C020 /* TerminalControllerSocketWriteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C1BEA3D2E6F49709A71C021 /* TerminalControllerSocketWriteTests.swift */; };
 		E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000004 /* CmuxEventBusTests.swift */; };
@@ -201,6 +202,7 @@
 		E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */; };
 		E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000008 /* CmuxEventPublishing.swift */; };
 		A5001007 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001019 /* TerminalController.swift */; };
+		D53D00010000000000000001 /* CMUXSudo.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53D00010000000000000002 /* CMUXSudo.swift */; };
 		E7E000000000000000000001 /* CmuxEventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000002 /* CmuxEventStream.swift */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
@@ -606,6 +608,7 @@
 		42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerUnitTests.swift; sourceTree = "<group>"; };
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
 		C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSSHURLRequestTests.swift; sourceTree = "<group>"; };
+		D53D00040000000000000004 /* CMUXSudoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXSudoTests.swift; sourceTree = "<group>"; };
 		491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 		51D800000000000000000002 /* SidebarIdentifierFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarIdentifierFormattingTests.swift; sourceTree = "<group>"; };
 		D7AB34300000000000000006 /* SidebarWorkspaceDropPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceDropPlannerTests.swift; sourceTree = "<group>"; };
@@ -740,6 +743,7 @@
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
+		D53D00010000000000000002 /* CMUXSudo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXSudo.swift; sourceTree = "<group>"; };
 		E7E000000000000000000006 /* CmuxEventBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventBus.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000E /* CmuxEventLogWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriter.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
@@ -1329,6 +1333,7 @@
 					E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */,
 					E7E000000000000000000008 /* CmuxEventPublishing.swift */,
 					A5001019 /* TerminalController.swift */,
+					D53D00010000000000000002 /* CMUXSudo.swift */,
 					E7E000000000000000000002 /* CmuxEventStream.swift */,
 					E7E00000000000000000000A /* CmuxSocketEventMapper.swift */,
 						A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */,
@@ -1629,6 +1634,7 @@
 				C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */,
 				D7AB34300000000000000006 /* SidebarWorkspaceDropPlannerTests.swift */,
 				C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */,
+				D53D00040000000000000004 /* CMUXSudoTests.swift */,
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */,
 				9C1BEA3D2E6F49709A71C021 /* TerminalControllerSocketWriteTests.swift */,
 				E7E000000000000000000004 /* CmuxEventBusTests.swift */,
@@ -2072,6 +2078,7 @@
 					E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */,
 					E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */,
 					A5001007 /* TerminalController.swift in Sources */,
+					D53D00010000000000000001 /* CMUXSudo.swift in Sources */,
 					E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
 					E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */,
 					A5001441A5001441A5001441 /* FileOpenSocketSupport.swift in Sources */,
@@ -2413,6 +2420,7 @@
 				C7A50C000000000000000002 /* CmuxTopProcessCPUTests.swift in Sources */,
 				D7AB34300000000000000005 /* SidebarWorkspaceDropPlannerTests.swift in Sources */,
 				C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */,
+				D53D00030000000000000003 /* CMUXSudoTests.swift in Sources */,
 				8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 				9C1BEA3D2E6F49709A71C020 /* TerminalControllerSocketWriteTests.swift in Sources */,
 				E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */,
