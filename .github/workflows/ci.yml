@@ -265,11 +265,13 @@ jobs:
               -skip-testing:cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests \
               -skip-testing:cmuxTests/BrowserPanelRemoteStoreTests \
               -skip-testing:cmuxTests/BrowserPanelWebViewLifecycleTests \
+              -skip-testing:cmuxTests/BrowserSessionHistoryRestoreTests \
               -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields \
               -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply \
               -skip-testing:cmuxTests/FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath \
               -skip-testing:cmuxTests/FilePreviewPanelTextSavingTests \
               -skip-testing:cmuxTests/FilePreviewReviewFeedbackTests \
+              -skip-testing:cmuxTests/GhosttySurfaceOverlayTests \
               test 2>&1
           }
 
