@@ -21210,11 +21210,6 @@ struct CMUXCLI {
             return kind
         }
 
-        let nameBase = Self.agentProcessBasename(name)
-        if let nameBase, nameBase != "node", nameBase != "bun" {
-            return nil
-        }
-
         return Self.nativeAgentProcessKind(
             processName: name,
             arguments: processArguments(for: pid) ?? []
@@ -21231,7 +21226,7 @@ struct CMUXCLI {
         if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
             if let wrappedKind = nativeAgentProcessKindFromArguments(
                 arguments,
-                includingIdentifiers: ["claude"]
+                excludingIdentifiers: ["codex"]
             ) {
                 return wrappedKind
             }
@@ -21241,6 +21236,10 @@ struct CMUXCLI {
         if let kind = nativeAgentProcessKindFromBasename(nameBase)
             ?? nativeAgentProcessKindFromBasename(executableBase) {
             return kind
+        }
+
+        if let executableKind = nativeAgentProcessKindFromExecutablePath(arguments.first) {
+            return executableKind
         }
 
         return nil
@@ -21370,24 +21369,32 @@ struct CMUXCLI {
         return HookAgentProcessKind(identifier: basename)
     }
 
+    private static func nativeAgentProcessKindFromExecutablePath(_ value: String?) -> HookAgentProcessKind? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        if let kind = nativeAgentProcessKindFromBasename(agentProcessBasename(value)) {
+            return kind
+        }
+        let lowered = value.lowercased()
+        for wrappedKind in wrappedAgentArgumentNeedles
+            where wrappedKind.needles.contains(where: { lowered.contains($0) }) {
+            return HookAgentProcessKind(identifier: wrappedKind.identifier)
+        }
+        return nil
+    }
+
     private static func nativeAgentProcessKindFromArguments(
         _ arguments: [String],
         includingIdentifiers: Set<String>? = nil,
         excludingIdentifiers: Set<String> = []
     ) -> HookAgentProcessKind? {
         for argument in arguments.dropFirst() {
-            if let kind = nativeAgentProcessKindFromBasename(agentProcessBasename(argument)),
+            if let kind = nativeAgentProcessKindFromExecutablePath(argument),
                includingIdentifiers?.contains(kind.identifier) ?? true,
                !excludingIdentifiers.contains(kind.identifier) {
                 return kind
-            }
-            let lowered = argument.lowercased()
-            for wrappedKind in wrappedAgentArgumentNeedles {
-                if includingIdentifiers?.contains(wrappedKind.identifier) ?? true,
-                   !excludingIdentifiers.contains(wrappedKind.identifier),
-                   wrappedKind.needles.contains(where: { lowered.contains($0) }) {
-                    return HookAgentProcessKind(identifier: wrappedKind.identifier)
-                }
             }
         }
         return nil
