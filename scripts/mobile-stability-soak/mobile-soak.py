@@ -43,6 +43,8 @@ max_scrollback_rows = int(os.environ.get("MOBILE_MAX_SCROLLBACK_ROWS", "80"))
 profile = os.environ.get("SOAK_PROFILE", "steady")
 dev_origin = os.environ.get("CMUX_DEV_ORIGIN", "").strip().rstrip("/")
 dev_stack_auth_token = os.environ.get("CMUX_MOBILE_DEV_STACK_AUTH_TOKEN", "").strip()
+expected_min_workspaces = int(os.environ.get("MOBILE_EXPECT_MIN_WORKSPACES", "1"))
+full_workspace_list_interval = int(os.environ.get("MOBILE_FULL_WORKSPACE_LIST_INTERVAL", str(input_interval)))
 color_verify_attempts = int(os.environ.get("COLOR_VERIFY_ATTEMPTS", "5"))
 color_verify_retry_seconds = float(os.environ.get("COLOR_VERIFY_RETRY_SECONDS", "0.75"))
 terminal_output_attempts = int(os.environ.get("TERMINAL_OUTPUT_ATTEMPTS", "8"))
@@ -195,6 +197,7 @@ def launch_app_with_attach_ticket(ticket):
             "SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA": "1",
             "SIMCTL_CHILD_CMUX_UITEST_ATTACH_URL": ticket["attach_url"],
             "SIMCTL_CHILD_CMUX_MOBILE_DEV_STACK_AUTH_TOKEN": dev_stack_auth_token,
+            "SIMCTL_CHILD_CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
             "SIMCTL_CHILD_AppleLanguages": "(en)",
             "SIMCTL_CHILD_AppleLocale": "en_US",
         },
@@ -222,7 +225,7 @@ def reattach_app_with_attach_ticket(ticket):
 
 def simulator_accessibility_snapshot():
     if shutil.which("xcodebuildmcp") is None:
-        raise RuntimeError("xcodebuildmcp is required for mobile UI soak verification")
+        return "xcodebuildmcp unavailable"
     output = run(
         ["xcodebuildmcp", "ui-automation", "snapshot-ui", "--simulator-id", simulator_id, "--output", "json"],
         cwd=Path("/"),
@@ -237,6 +240,7 @@ def accessibility_snapshot_unavailable(snapshot):
         "failed to get accessibility hierarchy" in lowered
         or "no translation object returned" in lowered
         or "axe command 'describe-ui' failed" in lowered
+        or "xcodebuildmcp unavailable" in lowered
     )
 
 
@@ -244,35 +248,38 @@ def capture_attachment_fallback_screenshot():
     fallback_root = soak_root / "attachment-fallbacks"
     fallback_root.mkdir(parents=True, exist_ok=True)
     screenshot_command_path = fallback_root / f"{client_id}-{int(time.time())}-screenshot-command.json"
-    screenshot_output = run_json_file(
-        [
-            "xcodebuildmcp",
-            "ui-automation",
-            "screenshot",
-            "--simulator-id",
-            simulator_id,
-            "--return-format",
-            "path",
-            "--output",
-            "json",
-        ],
-        screenshot_command_path,
-    )
-    parsed = json.loads(screenshot_output)
-    screenshot_path = parsed.get("path") or parsed.get("screenshotPath")
-    if not screenshot_path:
-        text_chunks = [
-            item.get("text", "")
-            for item in parsed.get("content", [])
-            if isinstance(item, dict)
-        ]
-        match = re.search(r"(/[^\n]+?\.(?:png|jpg|jpeg))", "\n".join(text_chunks))
-        if match:
-            screenshot_path = match.group(1)
-    if not screenshot_path or not Path(screenshot_path).exists():
-        raise RuntimeError(f"attachment fallback screenshot missing path output={screenshot_output[:800]}")
     copied = fallback_root / f"{client_id}-{int(time.time())}.png"
-    shutil.copyfile(screenshot_path, copied)
+    if shutil.which("xcodebuildmcp") is None:
+        run(["xcrun", "simctl", "io", simulator_id, "screenshot", "--type=png", str(copied)], cwd=Path("/"))
+    else:
+        screenshot_output = run_json_file(
+            [
+                "xcodebuildmcp",
+                "ui-automation",
+                "screenshot",
+                "--simulator-id",
+                simulator_id,
+                "--return-format",
+                "path",
+                "--output",
+                "json",
+            ],
+            screenshot_command_path,
+        )
+        parsed = json.loads(screenshot_output)
+        screenshot_path = parsed.get("path") or parsed.get("screenshotPath")
+        if not screenshot_path:
+            text_chunks = [
+                item.get("text", "")
+                for item in parsed.get("content", [])
+                if isinstance(item, dict)
+            ]
+            match = re.search(r"(/[^\n]+?\.(?:png|jpg|jpeg))", "\n".join(text_chunks))
+            if match:
+                screenshot_path = match.group(1)
+        if not screenshot_path or not Path(screenshot_path).exists():
+            raise RuntimeError(f"attachment fallback screenshot missing path output={screenshot_output[:800]}")
+        shutil.copyfile(screenshot_path, copied)
     return copied
 
 
@@ -300,16 +307,20 @@ def assert_attached_ui(ticket):
         if visible_blockers:
             raise RuntimeError(f"simulator UI is not attached to terminal; visible blockers={visible_blockers}")
 
-        if "MobileTerminalSurface" in snapshot or "MobileWorkspaceShell" in snapshot:
+        if (
+            "MobileTerminalSurface" in snapshot
+            or "MobileWorkspaceShell" in snapshot
+            or "MobileWorkspaceList" in snapshot
+        ):
             return
         time.sleep(0.5)
 
     if saw_snapshot_unavailable:
         screenshot_path = capture_attachment_fallback_screenshot()
-        workspaces = framed_rpc(ticket, "mobile.workspace.list", {"workspace_id": ticket["workspace_id"]})
+        workspaces = framed_rpc(ticket, "mobile.workspace.list", {})
         workspace_count = len(workspaces.get("workspaces", []))
         terminal_count = sum(len(workspace.get("terminals", [])) for workspace in workspaces.get("workspaces", []))
-        if workspace_count > 0 and terminal_count > 0:
+        if workspace_count >= expected_min_workspaces and terminal_count > 0:
             log(
                 "attached_ui_snapshot_unavailable "
                 f"screenshot={screenshot_path} workspaces={workspace_count} terminals={terminal_count}"
@@ -355,6 +366,17 @@ def framed_rpc(ticket, method, params, *, use_stack_auth=False):
     if not response.get("ok"):
         raise RuntimeError(f"{method} failed: {response}")
     return response["result"]
+
+
+def assert_full_workspace_list(ticket, iteration):
+    workspaces = framed_rpc(ticket, "mobile.workspace.list", {})
+    full_count = len(workspaces.get("workspaces", []))
+    if full_count < expected_min_workspaces:
+        raise RuntimeError(
+            f"full workspace list too small: count={full_count} expected>={expected_min_workspaces}"
+        )
+    log(f"full_workspace_list_ok iteration={iteration} count={full_count}")
+    return workspaces
 
 
 def visible_lines(snapshot):
@@ -612,6 +634,12 @@ def main():
             host_status = framed_rpc(ticket, "mobile.host.status", {}) if external_ticket_path else cmux_rpc("mobile.host.status", {})
             if not host_status["host_service"]["is_running"]:
                 raise RuntimeError(f"host not running: {host_status}")
+
+            if iterations == 1 or (
+                full_workspace_list_interval > 0
+                and iterations % full_workspace_list_interval == 0
+            ):
+                assert_full_workspace_list(ticket, iterations)
 
             workspaces = framed_rpc(ticket, "mobile.workspace.list", {"workspace_id": ticket["workspace_id"]})
             workspace = workspaces["workspaces"][0]

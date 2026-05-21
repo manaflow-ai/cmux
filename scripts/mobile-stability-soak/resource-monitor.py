@@ -15,8 +15,8 @@ INTERVAL_SECONDS = float(os.environ.get("RESOURCE_SAMPLE_INTERVAL", "60"))
 soak_root = Path(os.environ.get("SOAK_ROOT", f"/tmp/cmux-mobile-soak-{TAG}"))
 LOG_PATH = Path(os.environ.get("RESOURCE_LOG", soak_root / "resources.jsonl"))
 STATUS_PATH = Path(os.environ.get("RESOURCE_STATUS", soak_root / "resources.status"))
-IPHONE_SIM_ID = os.environ["IPHONE_SIM_ID"]
-IPAD_SIM_ID = os.environ["IPAD_SIM_ID"]
+IPHONE_SIM_ID = os.environ.get("IPHONE_SIM_ID", "")
+IPAD_SIM_ID = os.environ.get("IPAD_SIM_ID", "")
 MAX_GROWTH_KB = int(os.environ.get("RESOURCE_MAX_GROWTH_KB", "524288"))
 MAX_RSS_KB = int(os.environ.get("RESOURCE_MAX_RSS_KB", "1258291"))
 MAX_CPU_PERCENT = float(os.environ.get("RESOURCE_MAX_CPU_PERCENT", "250"))
@@ -31,7 +31,11 @@ PID_CHANGE_ALLOWED_LABELS = {
 }
 
 
-LABELS = ("mac", "iphone", "ipad")
+LABELS = tuple(
+    value.strip()
+    for value in os.environ.get("RESOURCE_LABELS", "mac,iphone,ipad").split(",")
+    if value.strip()
+)
 STARTED_MONOTONIC = time.monotonic()
 
 

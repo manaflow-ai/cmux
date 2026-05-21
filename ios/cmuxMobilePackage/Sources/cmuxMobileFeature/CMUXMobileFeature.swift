@@ -1481,6 +1481,7 @@ struct WorkspaceShellView: View {
                 currentPath: compactNavigationPath,
                 selectedWorkspaceID: selectedWorkspaceID
             )
+            autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onChange(of: compactNavigationPath) { _, path in
             guard let selectedWorkspaceID = path.last,
@@ -1491,6 +1492,10 @@ struct WorkspaceShellView: View {
         }
         .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
             compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
+            autoOpenSelectedWorkspaceForSoakIfNeeded()
+        }
+        .onAppear {
+            autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
     }
 
@@ -1530,6 +1535,18 @@ struct WorkspaceShellView: View {
         if let selectedWorkspaceID = store.selectedWorkspaceID {
             compactNavigationPath = [selectedWorkspaceID]
         }
+    }
+
+    private func autoOpenSelectedWorkspaceForSoakIfNeeded() {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE"] == "1",
+              compactNavigationPath.isEmpty,
+              let selectedWorkspaceID = store.selectedWorkspaceID,
+              store.workspaces.contains(where: { $0.id == selectedWorkspaceID }) else {
+            return
+        }
+        compactNavigationPath = [selectedWorkspaceID]
+        #endif
     }
 
     @ViewBuilder
