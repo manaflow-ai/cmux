@@ -28,6 +28,25 @@ RUNTIME_WEIGHT_OVERRIDES = {
     "BrowserFindJavaScriptTests": 90,
 }
 
+METHOD_SPLIT_CLASSES = {
+    # These app-host tests mutate process-wide AppKit/UserDefaults/shortcut state.
+    # Keep each method independently selectable so CI can run them in isolated
+    # test-host processes instead of depending on cross-class execution order.
+    "AppDelegateShortcutRoutingTests",
+    "BrowserDeveloperToolsConfigurationTests",
+    "BrowserPanelWebViewLifecycleTests",
+    "BrowserSessionHistoryRestoreTests",
+    "BrowserThemeSettingsTests",
+    "CmuxWebViewKeyEquivalentTests",
+    "CommandPaletteShortcutCustomizationTests",
+    "GhosttyBackquoteRegressionTests",
+    "GhosttyKeyEquivalentRegressionTests",
+    "GlobalSearchShortcutSettingsTests",
+    "KeyboardShortcutSettingsFileStoreMigrationTests",
+    "KeyboardShortcutSettingsFileStoreStartupTests",
+    "KeyboardShortcutSettingsFileStoreTests",
+}
+
 METHOD_SPLIT_METHOD_COUNT = 40
 METHOD_SPLIT_WEIGHT = 80
 
@@ -206,7 +225,11 @@ def discover_test_classes(root: Path) -> list[TestClass]:
 def test_units(classes: list[TestClass]) -> list[TestUnit]:
     units: list[TestUnit] = []
     for test_class in classes:
-        should_split = test_class.method_count >= METHOD_SPLIT_METHOD_COUNT or test_class.weight >= METHOD_SPLIT_WEIGHT
+        should_split = (
+            test_class.name in METHOD_SPLIT_CLASSES
+            or test_class.method_count >= METHOD_SPLIT_METHOD_COUNT
+            or test_class.weight >= METHOD_SPLIT_WEIGHT
+        )
         if should_split:
             method_weight = max(1.0, test_class.weight / test_class.method_count)
             for method in test_class.methods:

@@ -9,6 +9,7 @@ REQUIRED_PATTERNS=(
   "run_unit_tests()"
   "python3 .github/scripts/run-with-output-watchdog.py"
   "CMUX_TEST_CHUNK_SIZE: 48"
+  "should_isolate_selector()"
   "-parallel-testing-enabled NO"
   "--output \"\$output_path\""
   "OUTPUT=\$(cat /tmp/test-output.txt)"

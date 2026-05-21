@@ -296,7 +296,27 @@ jobs:
           CHUNK_COUNT=0
           CHUNK_ARG_COUNT=0
           CURRENT_CHUNK_FILE=""
+          should_isolate_selector() {
+            local selector_class="${1#-only-testing:cmuxTests/}"
+            selector_class="${selector_class%%/*}"
+            case "$selector_class" in
+              AppDelegateShortcutRoutingTests|BrowserDeveloperToolsConfigurationTests|BrowserPanelWebViewLifecycleTests|BrowserSessionHistoryRestoreTests|BrowserThemeSettingsTests|CmuxWebViewKeyEquivalentTests|CommandPaletteShortcutCustomizationTests|GhosttyBackquoteRegressionTests|GhosttyKeyEquivalentRegressionTests|GlobalSearchShortcutSettingsTests|KeyboardShortcutSettingsFileStoreMigrationTests|KeyboardShortcutSettingsFileStoreStartupTests|KeyboardShortcutSettingsFileStoreTests)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
           for arg in "${ONLY_TESTING_ARGS[@]}"; do
+            if should_isolate_selector "$arg"; then
+              CHUNK_ARG_COUNT=0
+              CHUNK_COUNT=$((CHUNK_COUNT + 1))
+              CURRENT_CHUNK_FILE="$CHUNK_DIR/chunk-$(printf '%03d' "$CHUNK_COUNT").args"
+              printf '%s\n' "$arg" > "$CURRENT_CHUNK_FILE"
+              continue
+            fi
             if [ "$CHUNK_ARG_COUNT" -eq 0 ]; then
               CHUNK_COUNT=$((CHUNK_COUNT + 1))
               CURRENT_CHUNK_FILE="$CHUNK_DIR/chunk-$(printf '%03d' "$CHUNK_COUNT").args"
