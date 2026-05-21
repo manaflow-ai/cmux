@@ -1683,7 +1683,7 @@ extension CMUXCLI {
                     inputs[source] = input
                 }
             } catch {
-                messages[source] = String(describing: error)
+                messages[source] = (error as? CLIError)?.message ?? error.localizedDescription
             }
         }
 
