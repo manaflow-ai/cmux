@@ -335,8 +335,7 @@ extension Workspace {
             from: snapshot,
             oldToNewPanelIds: oldToNewPanelIds
         )
-        let hasUnreadWorkspaceNotification = snapshot.notifications?.contains { !$0.isRead } == true
-        if snapshot.hasUnreadIndicator == true, !hasUnreadWorkspaceNotification {
+        if snapshot.hasUnreadIndicator == true {
             AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
         } else {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
@@ -10874,8 +10873,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Keyboard/browser-open paths want "new tab at end" regardless of global new-tab placement.
         if insertAtEnd {
-            let targetIndex = max(0, bonsplitController.tabs(inPane: paneId).count - 1)
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+            _ = bonsplitController.reorderTab(
+                newTabId,
+                toIndex: bonsplitController.tabs(inPane: paneId).count
+            )
         }
         publishCmuxSurfaceCreated(browserPanel.id, paneId: paneId, kind: "browser", origin: "browser_tab", focused: shouldFocusNewTab)
 

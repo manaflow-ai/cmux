@@ -881,7 +881,11 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private var workspaceUnreadIndicatorCount: Int {
-        workspaceUnreadIndicatorIds.count
+        workspaceUnreadIndicatorIds.subtracting(unreadNotificationTabIds).count
+    }
+
+    private var unreadNotificationTabIds: Set<UUID> {
+        Set(notifications.lazy.filter { !$0.isRead }.map(\.tabId))
     }
 
     private func refreshUnreadPresentation() {
@@ -1104,7 +1108,7 @@ final class TerminalNotificationStore: ObservableObject {
         let hasWorkspaceUnreadIndicator = manualUnreadWorkspaceIds.contains(tabId) ||
             panelDerivedUnreadWorkspaceIds.contains(tabId) ||
             restoredUnreadWorkspaceIds.contains(tabId)
-        return (indexes.unreadCountByTabId[tabId] ?? 0) + (hasWorkspaceUnreadIndicator ? 1 : 0)
+        return max(indexes.unreadCountByTabId[tabId] ?? 0, hasWorkspaceUnreadIndicator ? 1 : 0)
     }
 
     func workspaceIsUnread(forTabId tabId: UUID) -> Bool {

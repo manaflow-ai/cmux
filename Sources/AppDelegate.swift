@@ -21,6 +21,14 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
+#if DEBUG
+extension NSWindow {
+    func cmuxMakeFirstResponderBypassingGuardForTesting(_ responder: NSResponder?) -> Bool {
+        cmux_makeFirstResponder(responder)
+    }
+}
+#endif
+
 private struct MultiWindowRouteCLIResult {
     let status: String
     let stdout: String

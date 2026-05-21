@@ -3059,6 +3059,10 @@ final class BrowserPanel: Panel, ObservableObject {
 #if DEBUG
     func markWebViewIdleForTesting() {
         webView.stopLoading()
+        let deadline = Date().addingTimeInterval(0.5)
+        while webView.isLoading && Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
         isLoading = false
         isMainFrameProvisionalNavigationActive = false
     }

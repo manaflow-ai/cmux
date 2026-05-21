@@ -335,6 +335,24 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
 
 @MainActor
 final class TabManagerPullRequestProbeTests: XCTestCase {
+    private var previousWatchGitStatus: Any?
+
+    override func setUp() {
+        super.setUp()
+        previousWatchGitStatus = UserDefaults.standard.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        UserDefaults.standard.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+    }
+
+    override func tearDown() {
+        if let previousWatchGitStatus {
+            UserDefaults.standard.set(previousWatchGitStatus, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+        previousWatchGitStatus = nil
+        super.tearDown()
+    }
+
     func testGitHubRepositorySlugsPrioritizeUpstreamThenOriginAndDeduplicate() {
         let output = """
         origin https://github.com/austinwang/cmux.git (fetch)

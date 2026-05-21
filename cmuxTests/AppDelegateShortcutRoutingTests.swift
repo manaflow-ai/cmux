@@ -1321,6 +1321,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
 
 #if DEBUG
+            AppDelegate.setWindowFirstResponderGuardTesting(currentEvent: event, hitView: nil)
+            defer { AppDelegate.clearWindowFirstResponderGuardTesting() }
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
@@ -5431,7 +5433,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Expected terminal surface to own first responder before repair test"
         )
 
-        XCTAssertTrue(window.makeFirstResponder(nil), "Expected test to clear the window first responder")
+        XCTAssertTrue(
+            window.cmuxMakeFirstResponderBypassingGuardForTesting(nil),
+            "Expected test to clear the window first responder"
+        )
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         XCTAssertFalse(
@@ -5974,7 +5979,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Expected terminal surface to own first responder before repair test"
         )
 
-        XCTAssertTrue(window.makeFirstResponder(strayView), "Expected test to install a visible wrong first responder")
+        XCTAssertTrue(
+            window.cmuxMakeFirstResponderBypassingGuardForTesting(strayView),
+            "Expected test to install a visible wrong first responder"
+        )
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         XCTAssertFalse(

@@ -2692,13 +2692,13 @@ final class WindowBrowserPortal: NSObject {
             in: containerView,
             primaryWebView: webView
         )
-        guard !hostedWebKitSubviews.isEmpty else { return }
+        let refreshTargets = hostedWebKitSubviews.isEmpty ? [webView] : hostedWebKitSubviews
 
         containerView.needsLayout = true
         containerView.needsDisplay = true
         containerView.setNeedsDisplay(containerView.bounds)
 
-        for webKitSubview in hostedWebKitSubviews {
+        for webKitSubview in refreshTargets {
             if let scrollView = webKitSubview.enclosingScrollView {
                 scrollView.needsLayout = true
                 scrollView.needsDisplay = true
@@ -2713,7 +2713,7 @@ final class WindowBrowserPortal: NSObject {
         }
 
         containerView.layoutSubtreeIfNeeded()
-        for webKitSubview in hostedWebKitSubviews {
+        for webKitSubview in refreshTargets {
             if let scrollView = webKitSubview.enclosingScrollView {
                 scrollView.layoutSubtreeIfNeeded()
                 scrollView.contentView.layoutSubtreeIfNeeded()
@@ -2979,6 +2979,18 @@ final class WindowBrowserPortal: NSObject {
     func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
         guard entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return }
+        if entry.visibleInUI,
+           !visibleInUI,
+           let containerView = entry.containerView,
+           !containerView.isHidden,
+           let webView = entry.webView,
+           webView.superview === containerView {
+            notifyHostedWebKitHidden(
+                in: containerView,
+                primaryWebView: webView,
+                reason: "visibility"
+            )
+        }
         entry.visibleInUI = visibleInUI
         entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
@@ -3420,9 +3432,6 @@ final class WindowBrowserPortal: NSObject {
                     hideContainerView(reason: "anchorWindowMismatch")
                     return
                 }
-            }
-            if preserveVisibleDuringTransientDetach(reason: "anchorWindowMismatch") {
-                return
             }
             if scheduleTransientDetachRecovery(reason: "anchorWindowMismatch") {
                 hideContainerView(reason: "anchorWindowMismatch")

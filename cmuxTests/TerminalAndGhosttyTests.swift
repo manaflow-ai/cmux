@@ -2823,7 +2823,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
     }
 
     func testHostViewStopsSidebarPassThroughJustInsideTerminalContent() {
-        let terminalSideOverlapWidth: CGFloat = 2
+        let terminalSideOverlapWidth: CGFloat = 5
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
             styleMask: [.titled, .closable],

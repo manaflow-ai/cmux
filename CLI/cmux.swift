@@ -1237,6 +1237,7 @@ final class SocketClient {
     private let path: String
     private var socketFD: Int32 = -1
     private var lastConfiguredReceiveTimeout: TimeInterval?
+    private var usesManualReceiveTimeout = false
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
@@ -1373,6 +1374,7 @@ final class SocketClient {
             socketFD = -1
         }
         lastConfiguredReceiveTimeout = nil
+        usesManualReceiveTimeout = false
     }
 
     func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {
@@ -1418,6 +1420,15 @@ final class SocketClient {
             recordOperation(operation)
             if lastConfiguredReceiveTimeout != currentTimeout {
                 try configureReceiveTimeout(currentTimeout)
+            }
+            if usesManualReceiveTimeout {
+                guard try waitForReadable(timeout: currentTimeout) else {
+                    if sawNewline {
+                        receivedCompleteResponse = true
+                        break
+                    }
+                    throw CLIError(message: "Command timed out")
+                }
             }
 
             var buffer = [UInt8](repeating: 0, count: 8192)
@@ -1760,6 +1771,11 @@ final class SocketClient {
 
         while data.count < maxBytes {
             try configureReceiveTimeout(Self.responseTimeoutSeconds)
+            if usesManualReceiveTimeout {
+                guard try waitForReadable(timeout: Self.responseTimeoutSeconds) else {
+                    throw CLIError(message: "Relay command timed out")
+                }
+            }
 
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
@@ -1803,10 +1819,36 @@ final class SocketClient {
         }
         guard result == 0 else {
             let errorCode = errno
+            if errorCode == EINVAL {
+                usesManualReceiveTimeout = true
+                lastConfiguredReceiveTimeout = timeout
+                return
+            }
             let reason = String(cString: strerror(errorCode))
             throw CLIError(message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))")
         }
+        usesManualReceiveTimeout = false
         lastConfiguredReceiveTimeout = timeout
+    }
+
+    private func waitForReadable(timeout: TimeInterval) throws -> Bool {
+        let clampedTimeout = min(max(timeout.isFinite ? timeout : Self.defaultResponseTimeoutSeconds, 0), 24.0 * 60.0 * 60.0)
+        let timeoutMilliseconds = Int32(min(Double(Int32.max), (clampedTimeout * 1000.0).rounded(.up)))
+        var descriptor = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
+        while true {
+            let result = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            if result > 0 {
+                return (descriptor.revents & Int16(POLLIN | POLLHUP | POLLERR)) != 0
+            }
+            if result == 0 {
+                return false
+            }
+            if errno == EINTR {
+                continue
+            }
+            let reason = String(cString: strerror(errno))
+            throw CLIError(message: "Relay socket poll error (\(reason), errno \(errno))")
+        }
     }
 
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
@@ -23993,7 +24035,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 excludingSessionId: sessionId,
-                onlyNewerThanExcludedSession: true
+                onlyNewerThanExcludedSession: !isGrokHook
             )) == true
         }
         func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {

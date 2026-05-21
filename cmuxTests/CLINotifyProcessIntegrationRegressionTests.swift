@@ -971,20 +971,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let workspace = manager.addWorkspace(title: "CLI|Notification Workspace", select: true)
         let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-        window.makeKeyAndOrderFront(nil)
 
         defer {
             TerminalController.shared.stop()
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            window.orderOut(nil)
-            window.close()
             manager.teardownAllWorkspacesForTesting(notificationStore: store)
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
@@ -996,6 +986,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
+        TerminalController.shared.stop()
         TerminalController.shared.start(
             tabManager: manager,
             socketPath: socketPath,

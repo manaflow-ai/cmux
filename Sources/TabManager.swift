@@ -4510,8 +4510,11 @@ class TabManager: ObservableObject {
         _ pullRequest: GitHubPullRequestProbeItem,
         now: Date
     ) -> Bool {
+        let url = URL(string: pullRequest.url)
         guard pullRequestStatus(from: pullRequest.state) != nil,
-              URL(string: pullRequest.url) != nil else {
+              let scheme = url?.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              url?.host?.isEmpty == false else {
             return false
         }
         return !isStaleMergedPullRequest(pullRequest, now: now)

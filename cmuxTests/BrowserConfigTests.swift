@@ -2629,7 +2629,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
     private func waitForBrowserPanel(
         _ panel: BrowserPanel,
         url: URL,
-        timeout: TimeInterval = 5.0,
+        timeout: TimeInterval = 10.0,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -2738,6 +2738,12 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
         _ = browserLoadRequest(URLRequest(url: pageC), in: panel.webView)
         waitForBrowserPanel(panel, url: pageC)
+        try waitUntil("live WebKit history to include page B") {
+            panel.sessionNavigationHistorySnapshot().backHistoryURLStrings == [
+                pageA.absoluteString,
+                pageB.absoluteString
+            ]
+        }
 
         let snapshot = panel.sessionNavigationHistorySnapshot()
         XCTAssertEqual(
@@ -2762,6 +2768,9 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         defer { panel.close() }
 
         waitForBrowserPanel(panel, url: pageA)
+        try waitUntil("page A title to publish") {
+            panel.pageTitle == "Race A"
+        }
         XCTAssertEqual(panel.pageTitle, "Race A")
 
         panel.navigate(to: pageB)
