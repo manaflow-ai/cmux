@@ -237,7 +237,12 @@ jobs:
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            if python3 .github/scripts/run-with-output-watchdog.py \
+              --idle-timeout-seconds "${CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS:-300}" \
+              --termination-grace-seconds 15 \
+              --output "/tmp/cmux-unit-spm-resolve-${{ matrix.shard }}.txt" \
+              -- \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -457,7 +462,12 @@ jobs:
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            if python3 .github/scripts/run-with-output-watchdog.py \
+              --idle-timeout-seconds "${CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS:-300}" \
+              --termination-grace-seconds 15 \
+              --output /tmp/cmux-build-spm-resolve.txt \
+              -- \
+              xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -474,10 +484,15 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+          python3 .github/scripts/run-with-output-watchdog.py \
+            --idle-timeout-seconds "${CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS:-300}" \
+            --termination-grace-seconds 15 \
+            --output /tmp/cmux-build-output.txt \
+            -- \
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
-            -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-build-output.txt
+            -destination "platform=macOS" build
 
       - name: Validate Swift warning budget
         run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
@@ -642,7 +657,12 @@ jobs:
       - name: Build universal app (Release)
         run: |
           set -euo pipefail
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
+          python3 .github/scripts/run-with-output-watchdog.py \
+            --idle-timeout-seconds "${CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS:-300}" \
+            --termination-grace-seconds 15 \
+            --output /tmp/cmux-release-build-output.txt \
+            -- \
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             ARCHS="arm64 x86_64" \
@@ -709,7 +729,12 @@ jobs:
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            if python3 .github/scripts/run-with-output-watchdog.py \
+              --idle-timeout-seconds "${CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS:-300}" \
+              --termination-grace-seconds 15 \
+              --output /tmp/cmux-ui-spm-resolve.txt \
+              -- \
+              xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -726,7 +751,12 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+          python3 .github/scripts/run-with-output-watchdog.py \
+            --idle-timeout-seconds "${CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS:-300}" \
+            --termination-grace-seconds 15 \
+            --output /tmp/cmux-ui-build-for-testing-output.txt \
+            -- \
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
@@ -905,7 +935,12 @@ jobs:
           PRELAUNCH_EOF
 
             # Run test — app is already launched from shell
-            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            if python3 .github/scripts/run-with-output-watchdog.py \
+              --idle-timeout-seconds "${CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS:-300}" \
+              --termination-grace-seconds 15 \
+              --output "/tmp/cmux-display-ui-test-output-${attempt}.txt" \
+              -- \
+              xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
@@ -929,7 +964,12 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+          python3 .github/scripts/run-with-output-watchdog.py \
+            --idle-timeout-seconds "${CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS:-300}" \
+            --termination-grace-seconds 15 \
+            --output /tmp/cmux-browser-find-ui-test-output.txt \
+            -- \
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
