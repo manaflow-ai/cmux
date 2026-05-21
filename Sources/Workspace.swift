@@ -8962,9 +8962,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
     private var backgroundPrimeTerminalPanels: [TerminalPanel] {
         var seenPanelIds = Set<UUID>()
-        return bonsplitController.allPaneIds.compactMap { paneId -> TerminalPanel? in
-            guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id ?? bonsplitController.tabs(inPane: paneId).first?.id, let panelId = panelIdFromSurfaceId(tabId), seenPanelIds.insert(panelId).inserted else { return nil }
-            return panels[panelId] as? TerminalPanel
+        return allBonsplitControllers.flatMap { controller in
+            controller.allPaneIds.compactMap { paneId -> TerminalPanel? in
+                guard let tabId = controller.selectedTab(inPane: paneId)?.id ?? controller.tabs(inPane: paneId).first?.id,
+                      let panelId = panelIdFromSurfaceId(tabId),
+                      seenPanelIds.insert(panelId).inserted else { return nil }
+                return panels[panelId] as? TerminalPanel
+            }
         }
     }
     func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
@@ -9464,7 +9468,8 @@ final class Workspace: Identifiable, ObservableObject {
             _ = updatePanelTitle(panelId: browserPanel.id, title: nextTitle)
 
             guard let tabId = surfaceIdFromPanelId(browserPanel.id),
-                  let existing = bonsplitController.tab(tabId) else {
+                  let controller = bonsplitController(containingTab: tabId),
+                  let existing = controller.tab(tabId) else {
                 continue
             }
 
@@ -9475,7 +9480,7 @@ final class Workspace: Identifiable, ObservableObject {
                 continue
             }
 
-            bonsplitController.updateTab(
+            controller.updateTab(
                 tabId,
                 iconImageData: faviconUpdate,
                 hasCustomTitle: panelCustomTitles[browserPanel.id] != nil,
@@ -9498,10 +9503,11 @@ final class Workspace: Identifiable, ObservableObject {
         // Update bonsplit tab title only when this panel's title changed.
         if didMutate,
            let tabId = surfaceIdFromPanelId(panelId),
+           let controller = bonsplitController(containingTab: tabId),
            let panel = panels[panelId] {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
-            bonsplitController.updateTab(
+            controller.updateTab(
                 tabId,
                 title: resolvedTitle,
                 hasCustomTitle: panelCustomTitles[panelId] != nil
@@ -9577,22 +9583,30 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarOrderedPanelIds() -> [UUID] {
-        let paneTabs: [String: [UUID]] = Dictionary(
-            uniqueKeysWithValues: bonsplitController.allPaneIds.map { paneId in
-                let panelIds = bonsplitController
-                    .tabs(inPane: paneId)
-                    .compactMap { panelIdFromSurfaceId($0.id) }
-                return (paneId.id.uuidString, panelIds)
-            }
-        )
-
+        var orderedPanelIds: [UUID] = []
+        var seenPanelIds = Set<UUID>()
         let fallbackPanelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
-        let tree = bonsplitController.treeSnapshot()
-        return SidebarBranchOrdering.orderedPanelIds(
-            tree: tree,
-            paneTabs: paneTabs,
-            fallbackPanelIds: fallbackPanelIds
-        )
+        for controller in allBonsplitControllers {
+            let paneTabs: [String: [UUID]] = Dictionary(
+                uniqueKeysWithValues: controller.allPaneIds.map { paneId in
+                    let panelIds = controller
+                        .tabs(inPane: paneId)
+                        .compactMap { panelIdFromSurfaceId($0.id) }
+                    return (paneId.id.uuidString, panelIds)
+                }
+            )
+            for panelId in SidebarBranchOrdering.orderedPanelIds(
+                tree: controller.treeSnapshot(),
+                paneTabs: paneTabs,
+                fallbackPanelIds: []
+            ) where seenPanelIds.insert(panelId).inserted {
+                orderedPanelIds.append(panelId)
+            }
+        }
+        for panelId in fallbackPanelIds where seenPanelIds.insert(panelId).inserted {
+            orderedPanelIds.append(panelId)
+        }
+        return orderedPanelIds
     }
 
     private func normalizedSidebarDirectory(_ directory: String?) -> String? {
@@ -10511,8 +10525,10 @@ final class Workspace: Identifiable, ObservableObject {
             appendCandidate(terminalPanel)
         }
 
+        let preferredPaneController = preferredPaneId.flatMap { bonsplitController(containingPane: $0) }
+
         if let preferredPaneId,
-           let selectedSurfaceId = bonsplitController.selectedTab(inPane: preferredPaneId)?.id,
+           let selectedSurfaceId = preferredPaneController?.selectedTab(inPane: preferredPaneId)?.id,
            let selectedPanelId = panelIdFromSurfaceId(selectedSurfaceId),
            let selectedTerminalPanel = terminalPanel(for: selectedPanelId) {
             appendCandidate(selectedTerminalPanel)
@@ -10526,8 +10542,8 @@ final class Workspace: Identifiable, ObservableObject {
             appendCandidate(rememberedTerminalPanel)
         }
 
-        if let preferredPaneId {
-            for tab in bonsplitController.tabs(inPane: preferredPaneId) {
+        if let preferredPaneId, let preferredPaneController {
+            for tab in preferredPaneController.tabs(inPane: preferredPaneId) {
                 guard let panelId = panelIdFromSurfaceId(tab.id),
                       let terminalPanel = terminalPanel(for: panelId) else { continue }
                 appendCandidate(terminalPanel)
@@ -11575,15 +11591,16 @@ final class Workspace: Identifiable, ObservableObject {
             for: NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder
         )?.terminalSurface?.id
         let targetIsActive = focusedPanelId == panelId || firstResponderPanelId == panelId
+        let controller = currentFocusNavigationController()
         guard targetIsActive,
-              let focusedPane = bonsplitController.focusedPaneId,
-              let selected = bonsplitController.selectedTab(inPane: focusedPane) else {
+              let focusedPane = controller.focusedPaneId,
+              let selected = controller.selectedTab(inPane: focusedPane) else {
 #if DEBUG
             cmuxDebugLog(
                 "surface.close.fallback.skip panel=\(panelId.uuidString.prefix(5)) " +
                 "focusedPanel=\(focusedPanelId?.uuidString.prefix(5) ?? "nil") " +
                 "firstResponderPanel=\(firstResponderPanelId?.uuidString.prefix(5) ?? "nil") " +
-                "focusedPane=\(bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil")"
+                "focusedPane=\(controller.focusedPaneId?.id.uuidString.prefix(5) ?? "nil")"
             )
 #endif
             return false
@@ -13045,19 +13062,34 @@ final class Workspace: Identifiable, ObservableObject {
         // Source of truth: bonsplit focused pane + selected tab.
         // AppKit first responder must converge to this model state, not the other way around.
         var targetPanelId: UUID?
+        var targetController = currentFocusNavigationController()
 
-        if let focusedPane = bonsplitController.focusedPaneId,
-           let focusedTab = bonsplitController.selectedTab(inPane: focusedPane),
+        if let focusedPane = targetController.focusedPaneId,
+           let focusedTab = targetController.selectedTab(inPane: focusedPane),
            let mappedPanelId = panelIdFromSurfaceId(focusedTab.id),
            panels[mappedPanelId] != nil {
             targetPanelId = mappedPanelId
         } else {
-            for pane in bonsplitController.allPaneIds {
-                guard let selectedTab = bonsplitController.selectedTab(inPane: pane),
+            for pane in targetController.allPaneIds {
+                guard let selectedTab = targetController.selectedTab(inPane: pane),
                       let mappedPanelId = panelIdFromSurfaceId(selectedTab.id),
                       panels[mappedPanelId] != nil else { continue }
-                bonsplitController.focusPane(pane)
-                bonsplitController.selectTab(selectedTab.id)
+                targetController.focusPane(pane)
+                targetController.selectTab(selectedTab.id)
+                targetPanelId = mappedPanelId
+                break
+            }
+        }
+
+        if targetPanelId == nil {
+            for controller in renderedBonsplitControllers where controller !== targetController {
+                guard let pane = preferredNavigationPane(in: controller),
+                      let selectedTab = controller.selectedTab(inPane: pane),
+                      let mappedPanelId = panelIdFromSurfaceId(selectedTab.id),
+                      panels[mappedPanelId] != nil else { continue }
+                controller.focusPane(pane)
+                controller.selectTab(selectedTab.id)
+                targetController = controller
                 targetPanelId = mappedPanelId
                 break
             }
@@ -13066,15 +13098,18 @@ final class Workspace: Identifiable, ObservableObject {
         if targetPanelId == nil, let fallbackPanelId = panels.keys.first {
             targetPanelId = fallbackPanelId
             if let fallbackTabId = surfaceIdFromPanelId(fallbackPanelId),
-               let fallbackPane = bonsplitController.allPaneIds.first(where: { paneId in
-                   bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == fallbackTabId })
+               let fallbackController = renderedBonsplitControllers.first(where: { $0.tab(fallbackTabId) != nil }),
+               let fallbackPane = fallbackController.allPaneIds.first(where: { paneId in
+                   fallbackController.tabs(inPane: paneId).contains(where: { $0.id == fallbackTabId })
                }) {
-                bonsplitController.focusPane(fallbackPane)
-                bonsplitController.selectTab(fallbackTabId)
+                fallbackController.focusPane(fallbackPane)
+                fallbackController.selectTab(fallbackTabId)
+                targetController = fallbackController
             }
         }
 
         guard let targetPanelId, let targetPanel = panels[targetPanelId] else { return }
+        focusedBonsplitController = targetController
 
         for (panelId, panel) in panels where panelId != targetPanelId {
             panel.unfocus()
@@ -13650,6 +13685,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
 #if DEBUG
+    func debugReconcileFocusStateForTesting() {
+        reconcileFocusState()
+    }
+
     @discardableResult
     func debugReconcileTerminalPortalVisibilityForTesting() -> Bool {
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()

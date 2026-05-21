@@ -3826,6 +3826,74 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertTrue(dock.controller.tab(dockTabId)?.isPinned == false)
     }
 
+    func testDockPanelTitleUpdateUsesDockController() {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: false
+              ),
+              let dockTabId = workspace.surfaceIdFromPanelId(dockPanel.id) else {
+            XCTFail("Expected dock terminal panel")
+            return
+        }
+
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: dockPanel.id, title: "Dock Terminal"))
+
+        XCTAssertEqual(dock.controller.tab(dockTabId)?.title, "Dock Terminal")
+        XCTAssertNil(workspace.bonsplitController.tab(dockTabId))
+    }
+
+    func testDockPaneConfigInheritancePrefersDockTerminal() {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        guard let mainPanelId = workspace.focusedPanelId,
+              let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: false
+              ) else {
+            XCTFail("Expected main and dock terminal panels")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, mainPanelId)
+        XCTAssertEqual(workspace.terminalPanelForConfigInheritance(inPane: dockPaneId)?.id, dockPanel.id)
+    }
+
+    func testDockFocusedTerminalSurvivesFocusReconcile() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        guard let mainPanelId = workspace.focusedPanelId,
+              let mainPanel = workspace.terminalPanel(for: mainPanelId),
+              let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: true
+              ) else {
+            XCTFail("Expected main and dock terminal panels")
+            return
+        }
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        mainPanel.hostedView.setActive(false)
+        dockPanel.hostedView.setActive(true)
+
+        workspace.debugReconcileFocusStateForTesting()
+
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+        XCTAssertTrue(dockPanel.hostedView.debugRenderStats().isActive)
+        XCTAssertFalse(mainPanel.hostedView.debugRenderStats().isActive)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId,
