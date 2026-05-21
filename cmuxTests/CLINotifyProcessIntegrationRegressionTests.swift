@@ -7,6 +7,23 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+    func testRunProcessTimeoutReturnsWhenSubprocessKeepsPipesOpenAfterTermination() throws {
+        let startedAt = Date()
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "trap '' TERM; sleep 5"],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 0.1
+        )
+
+        XCTAssertTrue(result.timedOut)
+        XCTAssertLessThan(
+            Date().timeIntervalSince(startedAt),
+            3.0,
+            "Timed-out subprocesses must not block while draining stdout/stderr pipes"
+        )
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
