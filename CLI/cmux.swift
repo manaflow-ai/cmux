@@ -13831,6 +13831,12 @@ struct CMUXCLI {
         return trimmed
     }
 
+    private func tmuxSelectorToken(_ raw: String) -> (token: String, sigiled: Bool) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = tmuxTrimIdSigil(trimmed)
+        return (token, token != trimmed)
+    }
+
     private func tmuxNumericIdMatches(_ handle: String, candidates: [String?]) -> Bool {
         let token = tmuxTrimIdSigil(handle)
         guard !token.isEmpty else { return false }
@@ -13900,7 +13906,7 @@ struct CMUXCLI {
     private func tmuxPaneSelector(from raw: String?) -> String? {
         guard let trimmed = normalizedTmuxTarget(raw) else { return nil }
         if trimmed.hasPrefix("%") {
-            return String(trimmed.dropFirst())
+            return trimmed
         }
         if trimmed.hasPrefix("pane:") {
             return trimmed
@@ -13944,7 +13950,8 @@ struct CMUXCLI {
         workspaceId: String,
         client: SocketClient
     ) throws -> String {
-        let normalizedHandle = tmuxTrimIdSigil(handle)
+        let selector = tmuxSelectorToken(handle)
+        let normalizedHandle = selector.token
         if isUUID(normalizedHandle) {
             return normalizedHandle
         }
@@ -13954,7 +13961,7 @@ struct CMUXCLI {
         for pane in panes {
             let id = pane["id"] as? String
             let ref = pane["ref"] as? String
-            if ref == normalizedHandle || id == normalizedHandle {
+            if id == normalizedHandle || (!selector.sigiled && ref == normalizedHandle) {
                 if let id = pane["id"] as? String {
                     return id
                 }
@@ -13965,7 +13972,7 @@ struct CMUXCLI {
             }
         }
 
-        if let index = Int(normalizedHandle) {
+        if !selector.sigiled, let index = Int(normalizedHandle) {
             for pane in panes where intFromAny(pane["index"]) == index {
                 if let id = pane["id"] as? String {
                     return id
@@ -13981,13 +13988,14 @@ struct CMUXCLI {
         workspaceId: String,
         client: SocketClient
     ) throws -> String {
-        let normalizedHandle = tmuxTrimIdSigil(handle)
+        let selector = tmuxSelectorToken(handle)
+        let normalizedHandle = selector.token
         let payload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
         let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
         for surface in surfaces {
             let id = surface["id"] as? String
             let ref = surface["ref"] as? String
-            if ref == normalizedHandle || id == normalizedHandle {
+            if id == normalizedHandle || (!selector.sigiled && ref == normalizedHandle) {
                 if let id = surface["id"] as? String {
                     return id
                 }
@@ -13998,7 +14006,7 @@ struct CMUXCLI {
             }
         }
 
-        if let index = Int(normalizedHandle) {
+        if !selector.sigiled, let index = Int(normalizedHandle) {
             for surface in surfaces where intFromAny(surface["index"]) == index {
                 if let id = surface["id"] as? String {
                     return id
@@ -14010,7 +14018,8 @@ struct CMUXCLI {
     }
 
     private func tmuxWorkspaceIdForPaneHandle(_ handle: String, client: SocketClient) throws -> String? {
-        let normalizedHandle = tmuxTrimIdSigil(handle)
+        let selector = tmuxSelectorToken(handle)
+        let normalizedHandle = selector.token
 
         let workspaces = try tmuxWorkspaceItems(client: client)
         for workspace in workspaces {
@@ -14021,9 +14030,9 @@ struct CMUXCLI {
                 let id = pane["id"] as? String
                 let ref = pane["ref"] as? String
                 return id == normalizedHandle
-                    || ref == normalizedHandle
+                    || (!selector.sigiled && ref == normalizedHandle)
                     || tmuxNumericIdMatches(normalizedHandle, candidates: [id, ref])
-                    || tmuxIndexMatches(normalizedHandle, index: intFromAny(pane["index"]))
+                    || (!selector.sigiled && tmuxIndexMatches(normalizedHandle, index: intFromAny(pane["index"])))
             }) {
                 return workspaceId
             }
@@ -14033,18 +14042,19 @@ struct CMUXCLI {
     }
 
     private func tmuxWorkspaceIdForCompatHandle(_ handle: String, client: SocketClient) throws -> String? {
-        let normalizedHandle = tmuxTrimIdSigil(handle)
+        let selector = tmuxSelectorToken(handle)
+        let normalizedHandle = selector.token
         let items = try tmuxWorkspaceItems(client: client)
         for item in items {
             let id = item["id"] as? String
             let ref = item["ref"] as? String
-            if id == normalizedHandle || ref == normalizedHandle {
+            if id == normalizedHandle || (!selector.sigiled && ref == normalizedHandle) {
                 return id
             }
             if tmuxNumericIdMatches(normalizedHandle, candidates: [id, ref]) {
                 return id
             }
-            if tmuxIndexMatches(normalizedHandle, index: intFromAny(item["index"])) {
+            if !selector.sigiled, tmuxIndexMatches(normalizedHandle, index: intFromAny(item["index"])) {
                 return id
             }
         }
@@ -14085,12 +14095,7 @@ struct CMUXCLI {
             let suffix = token[token.index(after: colon)...]
             token = suffix.isEmpty ? String(token[..<colon]) : String(suffix)
         }
-        if token.hasPrefix("@") {
-            token = String(token.dropFirst())
-        }
-        if token.hasPrefix("$") {
-            token = String(token.dropFirst())
-        }
+        let selector = tmuxSelectorToken(token)
 
         if let resolvedHandle = try? normalizeWorkspaceHandle(token, client: client, allowCurrent: true) {
             return try resolveWorkspaceId(resolvedHandle, client: client)
@@ -14098,6 +14103,10 @@ struct CMUXCLI {
 
         if let workspaceId = try tmuxWorkspaceIdForCompatHandle(token, client: client) {
             return workspaceId
+        }
+
+        if selector.sigiled {
+            throw CLIError(message: "Workspace target not found")
         }
 
         let needle = token.trimmingCharacters(in: .whitespacesAndNewlines)

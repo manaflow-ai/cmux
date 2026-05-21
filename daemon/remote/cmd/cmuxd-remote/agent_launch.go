@@ -360,13 +360,23 @@ func getFocusedContext(rc *rpcContext) *focusedContext {
 			return
 		}
 
-		canonicalPaneId := stringFromAny(focused["pane_id"])
-		if canonicalPaneId == "" {
-			if canonicalWsId, err := tmuxResolveWorkspaceId(rc, wsId); err == nil {
+		canonicalPaneId := strings.TrimSpace(stringFromAny(focused["pane_uuid"]))
+		if canonicalWsId, err := tmuxResolveWorkspaceId(rc, wsId); err == nil {
+			if canonicalPaneId == "" {
+				if pid := strings.TrimSpace(stringFromAny(focused["pane_id"])); pid != "" {
+					if resolved, err := tmuxCanonicalPaneId(rc, pid, canonicalWsId); err == nil {
+						canonicalPaneId = resolved
+					}
+				}
+			}
+			if canonicalPaneId == "" {
 				if pid, err := tmuxCanonicalPaneId(rc, paneHandle, canonicalWsId); err == nil {
 					canonicalPaneId = pid
 				}
 			}
+		}
+		if canonicalPaneId == "" {
+			canonicalPaneId = strings.TrimSpace(stringFromAny(focused["pane_id"]))
 		}
 
 		ch <- result{focused: &focusedContext{

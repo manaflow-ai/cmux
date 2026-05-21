@@ -270,6 +270,9 @@ func TestTmuxDisplayReporterFormatFields(t *testing.T) {
 	if !filepath.IsAbs(values["pane_current_path"]) {
 		t.Fatalf("pane_current_path = %q, want an absolute path", values["pane_current_path"])
 	}
+	if values["pane_active"] != "1" {
+		t.Fatalf("pane_active = %q, want 1 for stringy focused metadata", values["pane_active"])
+	}
 	assertTmuxFieldMatch(t, values["pane_active"], `^[01]$`, "pane_active")
 	assertTmuxFieldMatch(t, values["window_active"], `^[01]$`, "window_active")
 	assertTmuxFieldMatch(t, values["session_attached"], `^[01]$`, "session_attached")

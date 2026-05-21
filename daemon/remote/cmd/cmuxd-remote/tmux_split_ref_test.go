@@ -54,6 +54,7 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 						"focused": map[string]any{
 							"workspace_id":  "11111111-1111-4111-8111-111111111111",
 							"workspace_ref": "workspace:1",
+							"pane_id":       "pane:1",
 							"pane_ref":      "pane:1",
 							"surface_ref":   "surface:1",
 						},
@@ -73,8 +74,8 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 					surfaces := []map[string]any{{
 						"id":                          "44444444-4444-4444-8444-444444444444",
 						"ref":                         "surface:1",
-						"focused":                     true,
-						"selected_in_pane":            true,
+						"focused":                     "1",
+						"selected_in_pane":            "1",
 						"pane_id":                     "33333333-3333-4333-8333-333333333333",
 						"pane_ref":                    "pane:1",
 						"title":                       "leader",
@@ -84,8 +85,8 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 						surfaces = append(surfaces, map[string]any{
 							"id":                          "77777777-7777-4777-8777-777777777777",
 							"ref":                         "surface:2",
-							"focused":                     false,
-							"selected_in_pane":            true,
+							"focused":                     "0",
+							"selected_in_pane":            "1",
 							"pane_id":                     "66666666-6666-4666-8666-666666666666",
 							"pane_ref":                    "pane:2",
 							"title":                       "teammate",
@@ -107,7 +108,7 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 						"id":                  "33333333-3333-4333-8333-333333333333",
 						"ref":                 "pane:1",
 						"index":               1,
-						"focused":             true,
+						"focused":             "1",
 						"columns":             120,
 						"rows":                40,
 						"cell_width_px":       10,
@@ -123,7 +124,7 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 							"id":                  "66666666-6666-4666-8666-666666666666",
 							"ref":                 "pane:2",
 							"index":               2,
-							"focused":             false,
+							"focused":             "0",
 							"columns":             120,
 							"rows":                40,
 							"cell_width_px":       10,
@@ -144,15 +145,15 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 					surface := map[string]any{
 						"id":       "44444444-4444-4444-8444-444444444444",
 						"ref":      "surface:1",
-						"selected": true,
-						"focused":  true,
+						"selected": "1",
+						"focused":  "1",
 					}
 					if paneId == "66666666-6666-4666-8666-666666666666" || paneId == "pane:2" {
 						surface = map[string]any{
 							"id":       "77777777-7777-4777-8777-777777777777",
 							"ref":      "surface:2",
-							"selected": true,
-							"focused":  false,
+							"selected": "1",
+							"focused":  "0",
 						}
 					}
 					resp["result"] = map[string]any{"surfaces": []map[string]any{surface}}

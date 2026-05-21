@@ -307,7 +307,7 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 					if idx := intFromAnyGo(pane["index"]); idx >= 0 {
 						ctx["pane_index"] = fmt.Sprintf("%d", idx)
 					}
-					if focused, ok := pane["focused"].(bool); ok {
+					if focused, ok := boolFromAnyGo(pane["focused"]); ok {
 						if focused {
 							ctx["pane_active"] = "1"
 						} else {
@@ -350,7 +350,7 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 }
 
 func tmuxEnrichContextWithGeometry(ctx map[string]string, pane map[string]any, containerFrame map[string]any) {
-	isFocused, _ := pane["focused"].(bool)
+	isFocused, _ := boolFromAnyGo(pane["focused"])
 	if isFocused {
 		ctx["pane_active"] = "1"
 	} else {
@@ -1008,7 +1008,7 @@ func tmuxSelectedSurfaceId(rc *rpcContext, workspaceId string, paneId string) (s
 		if surface == nil {
 			continue
 		}
-		if sel, _ := surface["selected"].(bool); sel {
+		if sel, _ := boolFromAnyGo(surface["selected"]); sel {
 			if id, _ := surface["id"].(string); id != "" {
 				return id, nil
 			}
@@ -1085,7 +1085,7 @@ func tmuxResolveSurfaceTarget(rc *rpcContext, raw string) (workspaceId string, p
 			if surf == nil {
 				continue
 			}
-			if focused, _ := surf["focused"].(bool); focused {
+			if focused, _ := boolFromAnyGo(surf["focused"]); focused {
 				if id, _ := surf["id"].(string); id != "" {
 					surfaceId = id
 					return workspaceId, "", surfaceId, nil
@@ -1703,7 +1703,7 @@ func tmuxDisplayMessage(rc *rpcContext, args []string) error {
 		if matchingPane == nil {
 			for _, p := range panes {
 				pn, _ := p.(map[string]any)
-				if focused, _ := pn["focused"].(bool); focused {
+				if focused, _ := boolFromAnyGo(pn["focused"]); focused {
 					matchingPane = pn
 					break
 				}
@@ -2060,7 +2060,7 @@ func tmuxGetFirstSurface(rc *rpcContext, workspaceId string) (string, error) {
 	// Prefer focused surface
 	for _, s := range surfaces {
 		surf, _ := s.(map[string]any)
-		if focused, _ := surf["focused"].(bool); focused {
+		if focused, _ := boolFromAnyGo(surf["focused"]); focused {
 			if id, _ := surf["id"].(string); id != "" {
 				return id, nil
 			}
