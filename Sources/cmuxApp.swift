@@ -5143,7 +5143,11 @@ struct SettingsView: View {
     @State private var showOpenAccessConfirmation = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
+    @State private var didLoadBrowserHistoryForSettings = false
     @State private var detectedImportBrowsers: [InstalledBrowserCandidate] = []
+    @State private var didRequestBrowserImportDetection = false
+    @State private var isDetectingImportBrowsers = false
+    @State private var browserImportDetectionGeneration = 0
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
@@ -5500,6 +5504,13 @@ struct SettingsView: View {
     }
 
     private var browserHistorySubtitle: String {
+        guard didLoadBrowserHistoryForSettings else {
+            return String(
+                localized: "settings.browser.history.subtitleLoading",
+                defaultValue: "Checking browsing history..."
+            )
+        }
+
         switch browserHistoryEntryCount {
         case 0:
             return String(localized: "settings.browser.history.subtitleEmpty", defaultValue: "No saved pages yet.")
@@ -5511,7 +5522,13 @@ struct SettingsView: View {
     }
 
     private var browserImportSubtitle: String {
-        InstalledBrowserDetector.summaryText(for: detectedImportBrowsers)
+        if isDetectingImportBrowsers || !didRequestBrowserImportDetection {
+            return String(
+                localized: "settings.browser.import.detecting",
+                defaultValue: "Checking installed browsers..."
+            )
+        }
+        return InstalledBrowserDetector.summaryText(for: detectedImportBrowsers)
     }
 
     private var browserImportHintSettingsNote: String {
@@ -5686,6 +5703,7 @@ struct SettingsView: View {
         settingsNavigationGeneration += 1
         let navigationGeneration = settingsNavigationGeneration
         let sectionID = SettingsSearchIndex.sectionID(for: destination.target)
+        prepareSettingsDestinationIfNeeded(destination)
         if destination.shouldHighlight {
             highlightedSearchAnchorID = destination.anchorID
             searchHighlightStartedAt = Date()
@@ -5701,6 +5719,63 @@ struct SettingsView: View {
                 proxy.scrollTo(destination.anchorID, anchor: .center)
             }
         }
+    }
+
+    private func prepareSettingsDestinationIfNeeded(_ destination: SettingsNavigationDestination) {
+        if destination.anchorID == SettingsSearchIndex.settingID(for: .browser, idSuffix: "history") {
+            loadBrowserHistoryForSettingsIfNeeded()
+        }
+
+        let browserImportAnchorIDs: Set<String> = [
+            SettingsSearchIndex.sectionID(for: .browserImport),
+            SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-data"),
+            SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-hint")
+        ]
+        if destination.target == .browserImport || browserImportAnchorIDs.contains(destination.anchorID) {
+            refreshDetectedImportBrowsersIfNeeded()
+        }
+    }
+
+    private func handleSettingsLazyLoadFrames(
+        _ frames: [SettingsLazyLoadTrigger: CGRect],
+        viewportHeight: CGFloat
+    ) {
+        guard viewportHeight > 0 else { return }
+
+        for trigger in SettingsLazyLoadTrigger.allCases {
+            guard let frame = frames[trigger],
+                  Self.settingsLazyLoadFrameIsNearVisible(frame, viewportHeight: viewportHeight) else {
+                continue
+            }
+            switch trigger {
+            case .browserHistory:
+                loadBrowserHistoryForSettingsIfNeeded()
+            case .browserImport:
+                refreshDetectedImportBrowsersIfNeeded()
+            }
+        }
+    }
+
+    private static func settingsLazyLoadFrameIsNearVisible(
+        _ frame: CGRect,
+        viewportHeight: CGFloat
+    ) -> Bool {
+        let preloadPadding: CGFloat = 160
+        return frame.maxY >= -preloadPadding && frame.minY <= viewportHeight + preloadPadding
+    }
+
+    private func loadBrowserHistoryForSettingsIfNeeded() {
+        guard !didLoadBrowserHistoryForSettings else { return }
+        BrowserHistoryStore.shared.loadIfNeeded()
+        didLoadBrowserHistoryForSettings = BrowserHistoryStore.shared.isLoaded
+        guard didLoadBrowserHistoryForSettings else { return }
+        browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+    }
+
+    private func refreshDetectedImportBrowsersIfNeeded() {
+        guard !didRequestBrowserImportDetection else { return }
+        didRequestBrowserImportDetection = true
+        refreshDetectedImportBrowsers()
     }
 
     private func chooseNotificationSoundFile() {
@@ -5782,9 +5857,10 @@ struct SettingsView: View {
     var body: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let _ = Self.validateBypassedSettingsConfigurationReviews()
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+        GeometryReader { viewportProxy in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .account))
                     SettingsCard {
@@ -6970,6 +7046,7 @@ struct SettingsView: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
+                                        .accessibilityIdentifier("SettingsBrowserImportSummary")
 
                                     Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
                                         .font(.system(size: 10.5))
@@ -7005,6 +7082,7 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .disabled(isDetectingImportBrowsers)
                             }
                             .accessibilityIdentifier("SettingsBrowserImportActions")
 
@@ -7026,6 +7104,7 @@ struct SettingsView: View {
                             SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-data")
                         ])
                         .accessibilityIdentifier("SettingsBrowserImportSection")
+                        .settingsLazyLoadTrigger(.browserImport)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
 
@@ -7056,8 +7135,9 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
-                            .disabled(browserHistoryEntryCount == 0)
+                            .disabled(!didLoadBrowserHistoryForSettings || browserHistoryEntryCount == 0)
                         }
+                        .settingsLazyLoadTrigger(.browserHistory)
                     }
 
                     GlobalHotkeySection()
@@ -7348,15 +7428,18 @@ struct SettingsView: View {
                     SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken, startedAt: searchHighlightStartedAt)
                 )
             }
+            .coordinateSpace(name: SettingsScrollCoordinateSpace.name)
+            .onPreferenceChange(SettingsLazyLoadFramePreferenceKey.self) { frames in
+                handleSettingsLazyLoadFrames(frames, viewportHeight: viewportProxy.size.height)
+            }
         .toggleStyle(.switch)
         .onAppear {
-            BrowserHistoryStore.shared.loadIfNeeded()
             notificationStore.refreshAuthorizationStatus()
             browserThemeMode = BrowserThemeSettings.mode(defaults: .standard).rawValue
             browserImportHintVariantRaw = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw).rawValue
-            browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+            didLoadBrowserHistoryForSettings = BrowserHistoryStore.shared.isLoaded
+            browserHistoryEntryCount = didLoadBrowserHistoryForSettings ? BrowserHistoryStore.shared.entries.count : 0
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
-            refreshDetectedImportBrowsers()
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
@@ -7384,6 +7467,8 @@ struct SettingsView: View {
             }
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
+            guard BrowserHistoryStore.shared.isLoaded else { return }
+            didLoadBrowserHistoryForSettings = true
             browserHistoryEntryCount = entries.count
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
@@ -7440,6 +7525,7 @@ struct SettingsView: View {
             Button(String(localized: "common.ok", defaultValue: "OK"), role: .cancel) {}
         } message: {
             Text(notificationCustomSoundErrorAlertMessage)
+        }
         }
         }
     }
@@ -7628,7 +7714,23 @@ struct SettingsView: View {
     }
 
     private func refreshDetectedImportBrowsers() {
-        detectedImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
+        didRequestBrowserImportDetection = true
+        isDetectingImportBrowsers = true
+        browserImportDetectionGeneration += 1
+        let generation = browserImportDetectionGeneration
+        let homeDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+        let bundleLookupSnapshot = InstalledBrowserDetector.applicationBundleLookupSnapshot()
+        Task.detached(priority: .userInitiated) {
+            let detectedBrowsers = InstalledBrowserDetector.detectInstalledBrowsers(
+                homeDirectoryURL: homeDirectoryURL,
+                bundleLookup: { bundleLookupSnapshot[$0] }
+            )
+            await MainActor.run {
+                guard generation == browserImportDetectionGeneration else { return }
+                detectedImportBrowsers = detectedBrowsers
+                isDetectingImportBrowsers = false
+            }
+        }
     }
 }
 
