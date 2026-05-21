@@ -469,13 +469,13 @@ struct SocketControlSettings {
     ) -> String {
         guard !isDebugBuild,
               normalizedBundleIdentifier(bundleIdentifier) == "com.cmuxterm.app",
-              pathsMatch(preferredPath, stableDefaultSocketPath) else {
+              isStableReleaseSocketPath(preferredPath, currentUserID: currentUserID) else {
             return preferredPath
         }
 
-        switch probeStableDefaultPathEntry(stableDefaultSocketPath) {
+        switch probeStableDefaultPathEntry(preferredPath) {
         case .missing:
-            return stableDefaultSocketCanBeReclaimed(stableDefaultSocketPath)
+            return stableDefaultSocketCanBeReclaimed(preferredPath)
                 ? preferredPath
                 : userScopedStableSocketPath(currentUserID: currentUserID)
         case .socket(let ownerUserID) where ownerUserID == currentUserID:
@@ -485,15 +485,53 @@ struct SocketControlSettings {
         }
     }
 
-    private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
-        socketPathStringsMatch(
-            (lhs as NSString).standardizingPath,
-            (rhs as NSString).standardizingPath
-        )
+    static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsForms = socketPathComparisonForms(lhs)
+        let rhsForms = socketPathComparisonForms(rhs)
+        return lhsForms.contains { lhsForm in
+            rhsForms.contains { rhsForm in
+                socketPathStringsMatch(lhsForm, rhsForm)
+            }
+        }
     }
 
     private static func socketPathStringsMatch(_ lhs: String, _ rhs: String) -> Bool {
         lhs == rhs || lhs.caseInsensitiveCompare(rhs) == .orderedSame
+    }
+
+    private static func socketPathComparisonForms(_ path: String) -> [String] {
+        let standardizedPath = (path as NSString).standardizingPath
+        return dedupe([
+            standardizedPath,
+            canonicalSocketPath(path),
+            privateTmpAlias(for: standardizedPath),
+        ].compactMap(\.self))
+    }
+
+    private static func privateTmpAlias(for path: String) -> String? {
+        if path == "/private/tmp" {
+            return "/tmp"
+        }
+        if path.hasPrefix("/private/tmp/") {
+            return "/tmp/" + path.dropFirst("/private/tmp/".count)
+        }
+        if path == "/tmp" {
+            return "/private/tmp"
+        }
+        if path.hasPrefix("/tmp/") {
+            return "/private/tmp/" + path.dropFirst("/tmp/".count)
+        }
+        return nil
+    }
+
+    private static func dedupe(_ paths: [String]) -> [String] {
+        var seen: Set<String> = []
+        var ordered: [String] = []
+        ordered.reserveCapacity(paths.count)
+        for path in paths where seen.insert(path).inserted {
+            ordered.append(path)
+        }
+        return ordered
     }
 
     private static func canonicalSocketPath(_ path: String, visitedSymlinks: Set<String> = []) -> String? {

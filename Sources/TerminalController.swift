@@ -1483,7 +1483,7 @@ class TerminalController {
             )
         }
 
-        if existing.isRunning && existing.socketPath == socketPath {
+        if existing.isRunning && SocketControlSettings.pathsMatch(existing.socketPath, socketPath) {
             self.accessMode = accessMode
             applySocketPermissions()
             return
@@ -1491,7 +1491,7 @@ class TerminalController {
 
         let canConsumeReservedStartupLock = !existing.isRunning
             && existing.socketPathLockHeld
-            && existing.reservedStartupSocketPath == socketPath
+            && existing.reservedStartupSocketPath.map { SocketControlSettings.pathsMatch($0, socketPath) } == true
         if existing.isRunning || (existing.hasRetainedInactiveListenerState && !canConsumeReservedStartupLock) {
             stop()
         }
@@ -1502,7 +1502,7 @@ class TerminalController {
         var activeBoundSocketPathIdentity: SocketPathIdentity?
         withListenerState {
             if socketPathLockFD >= 0,
-               reservedStartupSocketPath == activeSocketPath,
+               reservedStartupSocketPath.map({ SocketControlSettings.pathsMatch($0, activeSocketPath) }) == true,
                !isRunning,
                !acceptLoopAlive,
                serverSocket < 0 {

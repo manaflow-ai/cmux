@@ -2697,6 +2697,15 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
     }
 
+    func testSocketPathMatchingTreatsPrivateTmpLegacyStableAliasAsSamePath() {
+        XCTAssertTrue(
+            SocketControlSettings.pathsMatch(
+                SocketControlSettings.legacyStableDefaultSocketPath,
+                "/private/tmp/cmux.sock"
+            )
+        )
+    }
+
     func testTaggedDebugBundleRefusesCaseVariantStableSocketAliasesEvenWithOptInFlag() {
         let aliases = [
             "/tmp/CMUX.sock",
@@ -2865,6 +2874,21 @@ final class SocketControlSettingsTests: XCTestCase {
             isDebugBuild: false,
             currentUserID: 501,
             probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchTreatsPrivateTmpLegacyStableAliasAsStablePath() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: "/private/tmp/cmux.sock",
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { socketPath in
+                XCTAssertEqual(socketPath, "/private/tmp/cmux.sock")
+                return .socket(ownerUserID: 501)
+            }
         )
 
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
