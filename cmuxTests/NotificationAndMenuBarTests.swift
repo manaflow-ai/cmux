@@ -1325,13 +1325,19 @@ final class NotificationDockBadgeTests: XCTestCase {
             defer: false
         )
 
-        var openedURL: URL?
+        var openedURLs: [URL] = []
         store.configureNotificationSettingsPromptHooksForTesting(
             windowProvider: { window },
             alertFactory: { alertSpy },
             scheduler: { _, block in block() },
-            urlOpener: { openedURL = $0 }
+            urlOpener: { url in
+                openedURLs.append(url)
+                return true
+            }
         )
+        addTeardownBlock {
+            store.resetNotificationSettingsPromptHooksForTesting()
+        }
 
         store.promptToEnableNotificationsForTesting()
         let drained = expectation(description: "main queue drained")
@@ -1340,14 +1346,36 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 1)
         XCTAssertEqual(alertSpy.runModalCallCount, 0)
-        let encodedBundleIdentifier = Bundle.main.bundleIdentifier?
-            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
         XCTAssertEqual(
-            openedURL?.absoluteString,
-            encodedBundleIdentifier.map {
-                "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\($0)"
+            openedURLs.first?.absoluteString,
+            TerminalNotificationStore.notificationSettingsURLs(bundleIdentifier: Bundle.main.bundleIdentifier)
+                .first?
+                .absoluteString
+        )
+    }
+
+    func testNotificationSettingsOpenFallsBackWhenPrimaryURLFails() {
+        let store = TerminalNotificationStore.shared
+        var openedURLs: [URL] = []
+        store.configureNotificationSettingsPromptHooksForTesting(
+            windowProvider: { nil },
+            alertFactory: { NSAlert() },
+            scheduler: { _, _ in },
+            urlOpener: { url in
+                openedURLs.append(url)
+                return openedURLs.count == 2
             }
         )
+        addTeardownBlock {
+            store.resetNotificationSettingsPromptHooksForTesting()
+        }
+
+        store.openNotificationSettings()
+
+        let expectedURLs = TerminalNotificationStore.notificationSettingsURLs(
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
+        XCTAssertEqual(openedURLs, Array(expectedURLs.prefix(2)))
     }
 
     func testNotificationSettingsPromptRetriesUntilWindowExists() {
@@ -1361,8 +1389,14 @@ final class NotificationDockBadgeTests: XCTestCase {
             windowProvider: { promptWindow },
             alertFactory: { alertSpy },
             scheduler: { _, block in queuedRetryBlocks.append(block) },
-            urlOpener: { _ in XCTFail("Should not open settings for Not Now response") }
+            urlOpener: { _ in
+                XCTFail("Should not open settings for Not Now response")
+                return false
+            }
         )
+        addTeardownBlock {
+            store.resetNotificationSettingsPromptHooksForTesting()
+        }
 
         store.promptToEnableNotificationsForTesting()
         let drained = expectation(description: "main queue drained")

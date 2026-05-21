@@ -807,7 +807,7 @@ final class TerminalNotificationStore: ObservableObject {
             block()
         }
     }
-    private var notificationSettingsURLOpener: (URL) -> Void = { url in
+    private var notificationSettingsURLOpener: (URL) -> Bool = { url in
         NSWorkspace.shared.open(url)
     }
     private var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
@@ -937,11 +937,27 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func openNotificationSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else {
-            return
+        let urls = Self.notificationSettingsURLs(bundleIdentifier: Bundle.main.bundleIdentifier)
+        for url in urls {
+            logAuthorization("open settings url=\(url.absoluteString)")
+            if notificationSettingsURLOpener(url) {
+                return
+            }
         }
-        logAuthorization("open settings url=\(url.absoluteString)")
-        notificationSettingsURLOpener(url)
+    }
+
+    static func notificationSettingsURLs(bundleIdentifier: String?) -> [URL] {
+        var rawURLs: [String] = []
+        if let bundleIdentifier = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundleIdentifier.isEmpty,
+           let encodedBundleIdentifier = bundleIdentifier.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            rawURLs.append(
+                "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(encodedBundleIdentifier)"
+            )
+        }
+        rawURLs.append("x-apple.systempreferences:com.apple.Notifications-Settings.extension")
+        rawURLs.append("x-apple.systempreferences:com.apple.preference.notifications")
+        return rawURLs.compactMap(URL.init(string:))
     }
 
     func sendSettingsTestNotification() {
@@ -2150,7 +2166,7 @@ final class TerminalNotificationStore: ObservableObject {
         windowProvider: @escaping () -> NSWindow?,
         alertFactory: @escaping () -> NSAlert,
         scheduler: @escaping (_ delay: TimeInterval, _ block: @escaping () -> Void) -> Void,
-        urlOpener: @escaping (URL) -> Void
+        urlOpener: @escaping (URL) -> Bool
     ) {
         notificationSettingsWindowProvider = windowProvider
         notificationSettingsAlertFactory = alertFactory
@@ -2167,9 +2183,7 @@ final class TerminalNotificationStore: ObservableObject {
                 block()
             }
         }
-        notificationSettingsURLOpener = { url in
-            NSWorkspace.shared.open(url)
-        }
+        notificationSettingsURLOpener = { url in NSWorkspace.shared.open(url) }
         hasPromptedForSettings = false
     }
 

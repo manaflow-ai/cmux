@@ -5128,7 +5128,10 @@ struct SettingsView: View {
     @State private var showOpenAccessConfirmation = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
+    @State private var didLoadBrowserHistoryForSettings = false
     @State private var detectedImportBrowsers: [InstalledBrowserCandidate] = []
+    @State private var didRequestBrowserImportDetection = false
+    @State private var browserImportDetectionGeneration = 0
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
@@ -5671,6 +5674,7 @@ struct SettingsView: View {
         settingsNavigationGeneration += 1
         let navigationGeneration = settingsNavigationGeneration
         let sectionID = SettingsSearchIndex.sectionID(for: destination.target)
+        prepareSettingsSectionIfNeeded(destination.target)
         if destination.shouldHighlight {
             highlightedSearchAnchorID = destination.anchorID
             searchHighlightStartedAt = Date()
@@ -5686,6 +5690,29 @@ struct SettingsView: View {
                 proxy.scrollTo(destination.anchorID, anchor: .center)
             }
         }
+    }
+
+    private func prepareSettingsSectionIfNeeded(_ target: SettingsNavigationTarget) {
+        switch target {
+        case .browser, .browserImport:
+            loadBrowserHistoryForSettingsIfNeeded()
+            refreshDetectedImportBrowsersIfNeeded()
+        default:
+            break
+        }
+    }
+
+    private func loadBrowserHistoryForSettingsIfNeeded() {
+        guard !didLoadBrowserHistoryForSettings else { return }
+        didLoadBrowserHistoryForSettings = true
+        BrowserHistoryStore.shared.loadIfNeeded()
+        browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+    }
+
+    private func refreshDetectedImportBrowsersIfNeeded() {
+        guard !didRequestBrowserImportDetection else { return }
+        didRequestBrowserImportDetection = true
+        refreshDetectedImportBrowsers()
     }
 
     private func chooseNotificationSoundFile() {
@@ -7316,13 +7343,11 @@ struct SettingsView: View {
             }
         .toggleStyle(.switch)
         .onAppear {
-            BrowserHistoryStore.shared.loadIfNeeded()
             notificationStore.refreshAuthorizationStatus()
             browserThemeMode = BrowserThemeSettings.mode(defaults: .standard).rawValue
             browserImportHintVariantRaw = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw).rawValue
-            browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+            browserHistoryEntryCount = didLoadBrowserHistoryForSettings ? BrowserHistoryStore.shared.entries.count : 0
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
-            refreshDetectedImportBrowsers()
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
@@ -7593,7 +7618,19 @@ struct SettingsView: View {
     }
 
     private func refreshDetectedImportBrowsers() {
-        detectedImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
+        didRequestBrowserImportDetection = true
+        browserImportDetectionGeneration += 1
+        let generation = browserImportDetectionGeneration
+        let homeDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+        DispatchQueue.global(qos: .userInitiated).async {
+            let detectedBrowsers = InstalledBrowserDetector.detectInstalledBrowsers(
+                homeDirectoryURL: homeDirectoryURL
+            )
+            DispatchQueue.main.async {
+                guard generation == browserImportDetectionGeneration else { return }
+                detectedImportBrowsers = detectedBrowsers
+            }
+        }
     }
 }
 
