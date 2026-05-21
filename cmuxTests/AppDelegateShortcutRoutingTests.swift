@@ -946,14 +946,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let windowId = UUID()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-
+        let window = makeRegisteredShortcutRoutingWindow(id: windowId)
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let sidebarState = SidebarState(isVisible: true)
         let sidebarSelectionState = SidebarSelectionState()
@@ -970,11 +963,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            window.orderOut(nil)
-            window.close()
+            closeRegisteredShortcutRoutingWindow(window, id: windowId)
             tabManager.teardownAllWorkspacesForTesting(notificationStore: appDelegate.notificationStore)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
 
         window.makeKeyAndOrderFront(nil)
