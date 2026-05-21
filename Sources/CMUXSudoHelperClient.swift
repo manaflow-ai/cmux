@@ -45,6 +45,7 @@ enum CMUXSudoHelperSignatureVerifier {
 enum CMUXSudoHelperClient {
     static let helperSocketPath = "/var/run/cmux-sudo-helper.sock"
     private static let maxHelperResponseBytes = 2 * 1024 * 1024
+    private static let helperSocketTimeoutSeconds = 30
     private static let sessionSigningKey = P256.Signing.PrivateKey()
 
     static func signedEnvelope(for request: CMUXSudoCommandRequest) throws -> CMUXSudoSignedHelperEnvelope {
@@ -148,6 +149,12 @@ enum CMUXSudoHelperClient {
         guard fd >= 0 else {
             throw HelperTransportError(lastErrnoMessage("socket"))
         }
+        do {
+            try configureTimeouts(fd)
+        } catch {
+            Darwin.close(fd)
+            throw error
+        }
 
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -179,6 +186,23 @@ enum CMUXSudoHelperClient {
         return fd
     }
 
+    private static func configureTimeouts(_ fd: Int32) throws {
+        var timeout = timeval(tv_sec: helperSocketTimeoutSeconds, tv_usec: 0)
+        let size = socklen_t(MemoryLayout<timeval>.size)
+        let sendResult = withUnsafePointer(to: &timeout) { pointer in
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, pointer, size)
+        }
+        guard sendResult == 0 else {
+            throw HelperTransportError(lastErrnoMessage("setsockopt(SO_SNDTIMEO)"))
+        }
+        let receiveResult = withUnsafePointer(to: &timeout) { pointer in
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, size)
+        }
+        guard receiveResult == 0 else {
+            throw HelperTransportError(lastErrnoMessage("setsockopt(SO_RCVTIMEO)"))
+        }
+    }
+
     private static func writeAll(_ data: Data, to fd: Int32) throws {
         try data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress else { return }
@@ -191,6 +215,9 @@ enum CMUXSudoHelperClient {
                 )
                 if written < 0 {
                     if errno == EINTR { continue }
+                    if errno == EAGAIN || errno == EWOULDBLOCK {
+                        throw HelperTransportError("helper socket write timed out")
+                    }
                     throw HelperTransportError(lastErrnoMessage("write"))
                 }
                 guard written > 0 else {
@@ -208,6 +235,9 @@ enum CMUXSudoHelperClient {
             let count = Darwin.read(fd, &buffer, buffer.count)
             if count < 0 {
                 if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw HelperTransportError("helper socket read timed out")
+                }
                 throw HelperTransportError(lastErrnoMessage("read"))
             }
             if count == 0 {
@@ -221,9 +251,16 @@ enum CMUXSudoHelperClient {
     }
 
     private static func int32Value(_ value: Any?) -> Int32? {
-        if let value = value as? Int { return Int32(value) }
-        if let value = value as? NSNumber { return value.int32Value }
-        if let value = value as? String, let parsed = Int32(value) { return parsed }
+        func checked(_ value: Int64) -> Int32? {
+            guard value >= Int64(Int32.min), value <= Int64(Int32.max) else { return nil }
+            return Int32(value)
+        }
+        if let value = value as? Int { return checked(Int64(value)) }
+        if let value = value as? NSNumber { return checked(value.int64Value) }
+        if let value = value as? String,
+           let parsed = Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return checked(parsed)
+        }
         return nil
     }
 

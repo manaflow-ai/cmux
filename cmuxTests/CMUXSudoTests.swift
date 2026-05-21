@@ -39,6 +39,14 @@ final class CMUXSudoTests: XCTestCase {
             contains: "workspace_id"
         )
         assertInvalid(valid.merging(["caller_pid": -1] as [String: Any]) { _, new in new }, contains: "caller_pid")
+        assertInvalid(
+            valid.merging(["caller_pid": NSNumber(value: Int64(Int32.max) + 1)] as [String: Any]) { _, new in new },
+            contains: "caller_pid"
+        )
+        assertInvalid(
+            valid.merging(["caller_uid": NSNumber(value: Int64(UInt32.max) + 1)] as [String: Any]) { _, new in new },
+            contains: "caller_uid"
+        )
     }
 
     func testSudoCallerValidatorRejectsRequestsOutsideCmuxPtyScope() throws {
@@ -120,6 +128,12 @@ final class CMUXSudoTests: XCTestCase {
         let attributes = try FileManager.default.attributesOfItem(atPath: logURL.path)
         let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber)
         XCTAssertEqual(permissions.intValue & 0o777, 0o600)
+
+        let directoryAttributes = try FileManager.default.attributesOfItem(
+            atPath: logURL.deletingLastPathComponent().path
+        )
+        let directoryPermissions = try XCTUnwrap(directoryAttributes[.posixPermissions] as? NSNumber)
+        XCTAssertEqual(directoryPermissions.intValue & 0o777, 0o700)
 
         let entries = try auditEntries(in: logURL)
         XCTAssertEqual(entries.count, 2)

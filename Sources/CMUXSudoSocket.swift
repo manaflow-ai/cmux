@@ -40,6 +40,8 @@ struct CMUXSudoSocketResponse: Sendable {
 
 final class CMUXSudoPendingRequestStore: @unchecked Sendable {
     static let shared = CMUXSudoPendingRequestStore()
+    private static let pendingTTL: TimeInterval = 11 * 60
+    private static let finishedTTL: TimeInterval = 2 * 60
 
     struct Access: Sendable {
         let pid: pid_t
@@ -53,50 +55,80 @@ final class CMUXSudoPendingRequestStore: @unchecked Sendable {
     }
 
     private enum State {
-        case pending(Access)
-        case finished(Access, CMUXSudoSocketResponse)
+        case pending(Access, Date)
+        case finished(Access, CMUXSudoSocketResponse, Date)
     }
 
-    private let lock = NSLock()
+    private let condition = NSCondition()
     private var states: [String: State] = [:]
 
     func begin(_ requestID: String, access: Access) {
-        lock.lock()
-        states[requestID] = .pending(access)
-        lock.unlock()
+        condition.lock()
+        pruneLocked(now: Date())
+        states[requestID] = .pending(access, Date())
+        condition.broadcast()
+        condition.unlock()
     }
 
     func finish(_ requestID: String, response: CMUXSudoSocketResponse) {
-        lock.lock()
+        condition.lock()
+        pruneLocked(now: Date())
         switch states[requestID] {
-        case .pending(let access), .finished(let access, _):
-            states[requestID] = .finished(access, response)
+        case .pending(let access, _), .finished(let access, _, _):
+            states[requestID] = .finished(access, response, Date())
         case .none:
             break
         }
-        lock.unlock()
+        condition.broadcast()
+        condition.unlock()
     }
 
-    func state(for requestID: String, peerIdentity: CMUXSocketPeerIdentity) -> CMUXSudoPendingState {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let state = states[requestID] else { return .missing }
-        switch state {
-        case .pending(let access):
-            guard access.matches(peerIdentity: peerIdentity) else { return .forbidden }
-            return .pending
-        case .finished(let access, let response):
-            guard access.matches(peerIdentity: peerIdentity) else { return .forbidden }
-            states.removeValue(forKey: requestID)
-            return .finished(response)
+    func state(
+        for requestID: String,
+        peerIdentity: CMUXSocketPeerIdentity,
+        waitMilliseconds: Int = 0
+    ) -> CMUXSudoPendingState {
+        let clampedWait = max(0, min(waitMilliseconds, 30_000))
+        let deadline = clampedWait > 0
+            ? Date().addingTimeInterval(TimeInterval(clampedWait) / 1000.0)
+            : nil
+
+        condition.lock()
+        defer { condition.unlock() }
+
+        while true {
+            pruneLocked(now: Date())
+            guard let state = states[requestID] else { return .missing }
+            switch state {
+            case .pending(let access, _):
+                guard access.matches(peerIdentity: peerIdentity) else { return .forbidden }
+                guard let deadline, Date() < deadline else { return .pending }
+                _ = condition.wait(until: deadline)
+            case .finished(let access, let response, _):
+                guard access.matches(peerIdentity: peerIdentity) else { return .forbidden }
+                states.removeValue(forKey: requestID)
+                return .finished(response)
+            }
+        }
+    }
+
+    private func pruneLocked(now: Date) {
+        states = states.filter { _, state in
+            switch state {
+            case .pending(_, let createdAt):
+                return now.timeIntervalSince(createdAt) <= Self.pendingTTL
+            case .finished(_, _, let finishedAt):
+                return now.timeIntervalSince(finishedAt) <= Self.finishedTTL
+            }
         }
     }
 
 #if DEBUG
     func reset() {
-        lock.lock()
+        condition.lock()
         states.removeAll()
-        lock.unlock()
+        condition.broadcast()
+        condition.unlock()
     }
 #endif
 }
@@ -229,9 +261,12 @@ extension TerminalController {
             )
         }
 
+        let waitMilliseconds = Self.sudoWaitMilliseconds(params["wait_ms"])
+
         switch CMUXSudoPendingRequestStore.shared.state(
             for: requestID,
-            peerIdentity: Self.currentSocketPeerIdentity()
+            peerIdentity: Self.currentSocketPeerIdentity(),
+            waitMilliseconds: waitMilliseconds
         ) {
         case .missing:
             return .err(
@@ -256,6 +291,20 @@ extension TerminalController {
         case .finished(let response):
             return response.toV2CallResult()
         }
+    }
+
+    private nonisolated static func sudoWaitMilliseconds(_ value: Any?) -> Int {
+        let parsed: Int?
+        if let value = value as? Int {
+            parsed = value
+        } else if let value = value as? NSNumber {
+            parsed = value.intValue
+        } else if let value = value as? String {
+            parsed = Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+            parsed = nil
+        }
+        return max(0, min(parsed ?? 0, 30_000))
     }
 
     private nonisolated func performSudoRequest(

@@ -66,20 +66,34 @@ struct CMUXSudoCommandRequest: Sendable {
     }
 
     private static func pidValue(_ value: Any?) -> pid_t? {
-        if let value = value as? Int { return pid_t(value) }
-        if let value = value as? NSNumber { return pid_t(value.int32Value) }
-        if let value = value as? String, let parsed = Int32(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return pid_t(parsed)
+        func checked(_ value: Int64) -> pid_t? {
+            guard value > 0, value <= Int64(Int32.max) else { return nil }
+            return pid_t(value)
+        }
+        if let value = value as? Int { return checked(Int64(value)) }
+        if let value = value as? NSNumber { return checked(value.int64Value) }
+        if let value = value as? String,
+           let parsed = Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return checked(parsed)
         }
         return nil
     }
 
     private static func uidValue(_ value: Any?) -> uid_t? {
-        if let value = value as? UInt { return uid_t(value) }
-        if let value = value as? Int, value >= 0 { return uid_t(value) }
-        if let value = value as? NSNumber { return uid_t(value.uint32Value) }
-        if let value = value as? String, let parsed = UInt32(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return uid_t(parsed)
+        func checked(_ value: UInt64) -> uid_t? {
+            guard value <= UInt64(UInt32.max) else { return nil }
+            return uid_t(value)
+        }
+        if let value = value as? UInt { return checked(UInt64(value)) }
+        if let value = value as? Int, value >= 0 { return checked(UInt64(value)) }
+        if let value = value as? NSNumber {
+            let signed = value.int64Value
+            guard signed >= 0 else { return nil }
+            return checked(UInt64(signed))
+        }
+        if let value = value as? String,
+           let parsed = UInt64(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return checked(parsed)
         }
         return nil
     }

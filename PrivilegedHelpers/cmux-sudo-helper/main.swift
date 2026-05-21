@@ -20,6 +20,7 @@ private let allowedBundleIdentifierPrefixes = [
 private let allowedTeamIdentifiers: Set<String> = [
     "7WLXT3NR37",
 ]
+private let maxEnvelopeAge: TimeInterval = 5 * 60
 
 struct HelperError: LocalizedError {
     let code: String
@@ -41,28 +42,37 @@ struct HelperEnvelope {
 
 @main
 enum CMUXSudoHelper {
+    private static var seenRequestIDs = Set<String>()
+
     static func main() {
         do {
-            try runOnce()
+            try runServer()
         } catch {
             writeLog("fatal \(String(describing: error))")
             exit(1)
         }
     }
 
-    private static func runOnce() throws {
+    private static func runServer() throws {
         let listener = try makeListener()
         defer {
             Darwin.close(listener)
             unlink(socketPath)
         }
 
-        let client = accept(listener, nil, nil)
-        guard client >= 0 else {
-            throw HelperError(code: "accept_failed", message: errnoMessage("accept"))
+        while true {
+            let client = accept(listener, nil, nil)
+            if client < 0 {
+                if errno == EINTR { continue }
+                writeLog("accept_failed \(errnoMessage("accept"))")
+                continue
+            }
+            handleClient(client)
         }
-        defer { Darwin.close(client) }
+    }
 
+    private static func handleClient(_ client: Int32) {
+        defer { Darwin.close(client) }
         let response: [String: Any]
         do {
             let peer = try peerIdentity(for: client)
@@ -90,7 +100,11 @@ enum CMUXSudoHelper {
                 "message": "The sudo helper failed before running the command",
             ]
         }
-        try writeJSONLine(response, to: client)
+        do {
+            try writeJSONLine(response, to: client)
+        } catch {
+            writeLog("write_response_failed \(String(describing: error))")
+        }
     }
 
     private static func makeListener() throws -> Int32 {
@@ -125,8 +139,16 @@ enum CMUXSudoHelper {
             throw HelperError(code: "bind_failed", message: message)
         }
 
-        _ = chown(socketPath, 0, 80)
-        _ = chmod(socketPath, 0o660)
+        guard chown(socketPath, 0, 80) == 0 else {
+            let message = errnoMessage("chown")
+            Darwin.close(fd)
+            throw HelperError(code: "socket_chown_failed", message: message)
+        }
+        guard chmod(socketPath, 0o660) == 0 else {
+            let message = errnoMessage("chmod")
+            Darwin.close(fd)
+            throw HelperError(code: "socket_chmod_failed", message: message)
+        }
 
         guard listen(fd, 8) == 0 else {
             let message = errnoMessage("listen")
@@ -221,6 +243,19 @@ enum CMUXSudoHelper {
               publicKey.isValidSignature(signature, for: payloadData) else {
             throw HelperError(code: "bad_signature", message: "Helper request signature is invalid")
         }
+        guard let requestID = envelope.payload["request_id"] as? String,
+              !requestID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw HelperError(code: "missing_request_id", message: "Helper request is missing a request id")
+        }
+        guard let createdAtRaw = envelope.payload["created_at"] as? String,
+              let createdAt = parseISO8601(createdAtRaw),
+              abs(Date().timeIntervalSince(createdAt)) <= maxEnvelopeAge else {
+            throw HelperError(code: "stale_request", message: "Helper request has expired")
+        }
+        guard !seenRequestIDs.contains(requestID) else {
+            throw HelperError(code: "replayed_request", message: "Helper request was already used")
+        }
+        seenRequestIDs.insert(requestID)
     }
 
     private static func execute(envelope: HelperEnvelope, peer: PeerIdentity) throws -> [String: Any] {
@@ -247,8 +282,11 @@ enum CMUXSudoHelper {
         let stderrPipe = Pipe()
         let stdout = OutputCollector()
         let stderr = OutputCollector()
+        let stdinHandle = try FileHandle(forReadingFrom: URL(fileURLWithPath: "/dev/null"))
+        defer { try? stdinHandle.close() }
         stdoutPipe.fileHandleForReading.readabilityHandler = { stdout.append($0.availableData) }
         stderrPipe.fileHandleForReading.readabilityHandler = { stderr.append($0.availableData) }
+        process.standardInput = stdinHandle
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
@@ -291,17 +329,25 @@ enum CMUXSudoHelper {
 
     private static func readLineData(from fd: Int32) throws -> Data {
         var data = Data()
-        var byte: UInt8 = 0
+        var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
-            let count = Darwin.read(fd, &byte, 1)
+            let count = Darwin.read(fd, &buffer, buffer.count)
             if count < 0 {
                 if errno == EINTR { continue }
                 throw HelperError(code: "read_failed", message: errnoMessage("read"))
             }
-            if count == 0 || byte == 0x0a {
+            if count == 0 {
                 return data
             }
-            data.append(byte)
+            let chunk = buffer.prefix(Int(count))
+            if let newlineIndex = chunk.firstIndex(of: 0x0a) {
+                data.append(contentsOf: chunk[..<newlineIndex])
+                if data.count > maxCapturedOutputBytes {
+                    throw HelperError(code: "request_too_large", message: "Helper request is too large")
+                }
+                return data
+            }
+            data.append(contentsOf: chunk)
             if data.count > maxCapturedOutputBytes {
                 throw HelperError(code: "request_too_large", message: "Helper request is too large")
             }
@@ -330,6 +376,16 @@ enum CMUXSudoHelper {
 
     private static func canonicalJSONData(_ object: Any) throws -> Data {
         try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    private static func parseISO8601(_ raw: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: raw) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: raw)
     }
 
     private static func intValue(_ value: Any?) -> Int? {

@@ -10214,7 +10214,7 @@ struct CMUXCLI {
 
         let exitCode = intFromAny(response["exit_code"]) ?? 0
         if exitCode != 0 {
-            throw CLIError(message: "exit \(exitCode)", exitCode: Int32(exitCode))
+            Darwin.exit(Int32(clamping: exitCode))
         }
     }
 
@@ -10223,8 +10223,8 @@ struct CMUXCLI {
         while true {
             let response = try client.sendV2(
                 method: "sudo.result",
-                params: ["request_id": requestID],
-                responseTimeout: 30
+                params: ["request_id": requestID, "wait_ms": 30_000],
+                responseTimeout: 35
             )
             if (response["status"] as? String) != "pending" {
                 return response
@@ -10237,7 +10237,6 @@ struct CMUXCLI {
                     )
                 )
             }
-            Thread.sleep(forTimeInterval: 0.25)
         }
     }
 
@@ -10296,11 +10295,9 @@ struct CMUXCLI {
                 continue
             }
             if parsingOptions, arg.hasPrefix("-") {
+                let format = String(localized: "cli.sudo.error.unknownOption", defaultValue: "sudo: unknown option '%@'. Use -- before commands that start with '-'.")
                 throw CLIError(
-                    message: String(
-                        format: String(localized: "cli.sudo.error.unknownOption", defaultValue: "sudo: unknown option '%@'. Use -- before commands that start with '-'."),
-                        arg
-                    )
+                    message: String.localizedStringWithFormat(format, arg)
                 )
             }
             argv.append(contentsOf: args[index...])

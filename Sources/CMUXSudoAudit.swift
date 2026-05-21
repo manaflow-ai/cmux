@@ -36,6 +36,7 @@ struct CMUXSudoAuditRecord: Sendable {
 enum CMUXSudoAuditLogger {
     static let maxBytes: UInt64 = 10 * 1024 * 1024
     static let maxRotatedFiles = 5
+    private static let lock = NSLock()
 
     static var defaultLogURL: URL {
         let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
@@ -53,15 +54,19 @@ enum CMUXSudoAuditLogger {
     }
 
     static func ensureWritable(logURL: URL = defaultLogURL) throws {
+        lock.lock()
+        defer { lock.unlock() }
         try prepareLogFile(logURL: logURL)
     }
 
     @discardableResult
     static func append(_ record: CMUXSudoAuditRecord, logURL: URL = defaultLogURL) throws -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
         try prepareLogFile(logURL: logURL)
+        let previousHash = previousEntryHash(logURL: logURL)
         try rotateIfNeeded(logURL: logURL)
 
-        let previousHash = previousEntryHash(logURL: logURL)
         var object = record.jsonObject
         object["previous_sha256"] = previousHash as Any? ?? NSNull()
         let entryHash = try sha256Hex(canonicalJSONData(object))
@@ -85,10 +90,15 @@ enum CMUXSudoAuditLogger {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
+        try setPrivateDirectoryPermissions(directory)
         if !FileManager.default.fileExists(atPath: logURL.path) {
             FileManager.default.createFile(atPath: logURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
         }
         try setPrivatePermissions(logURL)
+    }
+
+    private static func setPrivateDirectoryPermissions(_ directory: URL) throws {
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
     }
 
     private static func setPrivatePermissions(_ logURL: URL) throws {
@@ -111,6 +121,7 @@ enum CMUXSudoAuditLogger {
             }
             if FileManager.default.fileExists(atPath: source.path) {
                 try FileManager.default.moveItem(at: source, to: destination)
+                try setPrivatePermissions(destination)
             }
         }
         let first = rotatedURL(logURL, index: 1)
@@ -118,7 +129,9 @@ enum CMUXSudoAuditLogger {
             try FileManager.default.removeItem(at: first)
         }
         try FileManager.default.moveItem(at: logURL, to: first)
+        try setPrivatePermissions(first)
         FileManager.default.createFile(atPath: logURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        try setPrivatePermissions(logURL)
     }
 
     private static func rotatedURL(_ logURL: URL, index: Int) -> URL {
@@ -127,8 +140,8 @@ enum CMUXSudoAuditLogger {
 
     private static func previousEntryHash(logURL: URL) -> String? {
         guard let data = try? Data(contentsOf: logURL), !data.isEmpty else { return nil }
-        let lines = String(decoding: data, as: UTF8.self)
-            .split(separator: "\n", omittingEmptySubsequences: true)
+        guard let decoded = String(data: data, encoding: .utf8) else { return nil }
+        let lines = decoded.split(separator: "\n", omittingEmptySubsequences: true)
         guard let last = lines.last,
               let lineData = String(last).data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
