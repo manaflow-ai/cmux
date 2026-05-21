@@ -555,17 +555,26 @@ def codex_command_hook_hash(
 
 
 def cmux_codex_hook_command(subcommand: str) -> str:
+    routed_arguments = f"hooks codex {subcommand}"
     return (
-        '[ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] '
-        f"&& command -v cmux >/dev/null 2>&1 && cmux hooks codex {subcommand} || echo '{{}}'"
+        'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; '
+        'then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi; if [ -n "$CMUX_SURFACE_ID" ] '
+        '&& [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] && [ -n "$cmux_cli" ]; then { '
+        f'if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then "$cmux_cli" --socket "$CMUX_SOCKET_PATH" {routed_arguments}; '
+        f'else "$cmux_cli" {routed_arguments}; fi; '
+        "} || echo '{}'; else echo '{}'; fi"
     )
 
 
 def cmux_codex_feed_command(agent_event: str) -> str:
+    routed_arguments = f"hooks feed --source codex --event {agent_event}"
     return (
-        '[ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] '
-        f"&& command -v cmux >/dev/null 2>&1 && cmux hooks feed --source codex --event {agent_event} "
-        "|| echo '{}'"
+        'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; '
+        'then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi; if [ -n "$CMUX_SURFACE_ID" ] '
+        '&& [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] && [ -n "$cmux_cli" ]; then { '
+        f'if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then "$cmux_cli" --socket "$CMUX_SOCKET_PATH" {routed_arguments}; '
+        f'else "$cmux_cli" {routed_arguments}; fi; '
+        "} || echo '{}'; else echo '{}'; fi"
     )
 
 
@@ -704,7 +713,7 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
         if not groups:
             raise AssertionError(f"missing {event_name} hook group: {hooks!r}")
         command = groups[-1]["hooks"][0]["command"]
-        if f"cmux hooks feed --source codex --event {event_name}" not in command:
+        if command != cmux_codex_feed_command(event_name):
             raise AssertionError(f"wrong {event_name} feed command: {command!r}")
         if groups[-1]["hooks"][0].get("timeout") != 120_000:
             raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")
@@ -760,10 +769,7 @@ def test_install_escapes_codex_hook_trust_state_keys(cli_path: str, root: Path) 
 def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-third-party"
     codex_home.mkdir()
-    cmux_pre_tool = (
-        '[ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] '
-        "&& command -v cmux >/dev/null 2>&1 && cmux hooks feed --source codex --event PreToolUse || echo '{}'"
-    )
+    cmux_pre_tool = cmux_codex_feed_command("PreToolUse")
     orca_hook = (
         "if [ -x '/Users/lawrence/Library/Application Support/orca/agent-hooks/codex-hook.sh' ]; "
         "then /bin/sh '/Users/lawrence/Library/Application Support/orca/agent-hooks/codex-hook.sh'; fi"
@@ -802,13 +808,13 @@ def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: 
     groups = hooks["hooks"]["PreToolUse"]
     first_command = groups[0]["hooks"][0]["command"]
     second_command = groups[1]["hooks"][0]["command"]
-    if "cmux hooks feed --source codex --event PreToolUse" not in first_command:
+    if first_command != cmux_pre_tool:
         raise AssertionError(f"cmux hook did not keep its existing position: {groups!r}")
     if second_command != orca_hook:
         raise AssertionError(f"third-party hook was not preserved after cmux hook: {groups!r}")
 
 
-def test_install_preserves_each_codex_hook_position_with_interleaved_third_party_hooks(
+def test_install_deduplicates_interleaved_codex_hook_positions(
     cli_path: str, root: Path
 ) -> None:
     codex_home = root / "codex-home-interleaved"
@@ -856,11 +862,10 @@ def test_install_preserves_each_codex_hook_position_with_interleaved_third_party
         user_hook_before,
         cmux_pre_tool,
         user_hook_middle,
-        cmux_pre_tool,
         user_hook_after,
     ]
     if commands != expected:
-        raise AssertionError(f"interleaved cmux hook positions changed: {commands!r}")
+        raise AssertionError(f"interleaved cmux hook dedupe changed: {commands!r}")
 
 
 def test_install_collapses_consecutive_codex_hook_positions(cli_path: str, root: Path) -> None:
@@ -2078,7 +2083,7 @@ def main() -> int:
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
-            test_install_preserves_each_codex_hook_position_with_interleaved_third_party_hooks(cli_path, root)
+            test_install_deduplicates_interleaved_codex_hook_positions(cli_path, root)
             test_install_collapses_consecutive_codex_hook_positions(cli_path, root)
             test_install_replaces_legacy_codex_hook_commands(cli_path, root)
             test_install_migrates_legacy_codex_hooks_feature(cli_path, root)
