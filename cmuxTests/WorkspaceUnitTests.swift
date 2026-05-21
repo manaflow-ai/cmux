@@ -3800,6 +3800,32 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 #endif
     }
 
+    func testDockPanelPinStateUpdatesDockController() {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .bottom)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: true
+              ),
+              let dockTabId = workspace.surfaceIdFromPanelId(dockPanel.id) else {
+            XCTFail("Expected dock terminal panel")
+            return
+        }
+
+        workspace.setPanelPinned(panelId: dockPanel.id, pinned: true)
+
+        XCTAssertTrue(workspace.isPanelPinned(dockPanel.id))
+        XCTAssertTrue(dock.controller.tab(dockTabId)?.isPinned == true)
+        XCTAssertNil(workspace.bonsplitController.tab(dockTabId))
+
+        workspace.setPanelPinned(panelId: dockPanel.id, pinned: false)
+
+        XCTAssertFalse(workspace.isPanelPinned(dockPanel.id))
+        XCTAssertTrue(dock.controller.tab(dockTabId)?.isPinned == false)
+    }
+
     func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId,

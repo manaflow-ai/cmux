@@ -9026,9 +9026,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let tabId = surfaceIdFromPanelId(panelId),
+              let controller = bonsplitController(containingTab: tabId),
               let paneId = paneId(forPanelId: panelId) else { return }
-        bonsplitController.updateTab(tabId, isPinned: pinned)
-        normalizePinnedTabs(in: paneId)
+        controller.updateTab(tabId, isPinned: pinned)
+        normalizePinnedTabs(in: paneId, controller: controller)
     }
 
     func markPanelUnread(_ panelId: UUID) {
