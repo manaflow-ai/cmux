@@ -251,8 +251,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let handle = pipe.fileHandleForReading
         let fd = handle.fileDescriptor
         let flags = Darwin.fcntl(fd, F_GETFL)
-        if flags >= 0 {
-            _ = Darwin.fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+        // Timeout cleanup must not fall back to a blocking read.
+        guard flags >= 0 else {
+            try? handle.close()
+            return Data()
+        }
+        guard Darwin.fcntl(fd, F_SETFL, flags | O_NONBLOCK) >= 0 else {
+            try? handle.close()
+            return Data()
         }
 
         var data = Data()

@@ -23965,6 +23965,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ?? normalizedHookValue(env["PWD"])
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let action = Self.subcommandActions[subcommand] ?? .noop
+        let isGrokHook = def.name == "grok"
+        let isAntigravityHook = def.name == "antigravity"
 #if DEBUG
         agentHookDebugLog(
             "agentHook.start agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) inputSession=\(agentHookDebugShort(input.sessionId)) rawBytes=\(rawInput.utf8.count) hasCwd=\(hookCwd == nil ? 0 : 1) envWorkspace=\(env["CMUX_WORKSPACE_ID"] == nil ? 0 : 1) envSurface=\(env["CMUX_SURFACE_ID"] == nil ? 0 : 1) directWorkspace=\(directWorkspaceArg == nil ? 0 : 1) directSurface=\(directSurfaceArg == nil ? 0 : 1) invalidDirect=\(hasUnusableDirectBinding ? 1 : 0) processBinding=\(processBindingDebugState()) socketName=\(agentHookDebugSocketName(client.socketPath))",
@@ -24022,13 +24024,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
         }
         func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
-            guard (def.name == "grok" || def.name == "antigravity"), !sessionId.isEmpty, status == .idle else {
+            guard (isGrokHook || isAntigravityHook), !sessionId.isEmpty, status == .idle else {
                 return nil
             }
             return "idle-turn"
         }
         func hasActiveAntigravityBackgroundWork() -> Bool {
-            def.name == "antigravity" && (input.rawObject?["fullyIdle"] as? Bool) == false
+            isAntigravityHook && (input.rawObject?["fullyIdle"] as? Bool) == false
         }
         func shouldSendNotification(fingerprint: String?) -> Bool {
             guard let fingerprint else { return true }
@@ -24330,7 +24332,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 codexSubagentSignals = CodexTranscriptSubagentSignals()
             }
             let antigravityFailure: AgentHookNotificationSummary? = {
-                guard def.name == "antigravity", let rawObject = input.rawObject else { return nil }
+                guard isAntigravityHook, let rawObject = input.rawObject else { return nil }
                 let signal = firstString(in: rawObject, keys: ["terminationReason", "reason", "type", "kind"]) ?? ""
                 let message = firstString(in: rawObject, keys: ["error", "message", "description"]) ?? signal
                 let summary = classifyAgentHookNotification(
@@ -24344,7 +24346,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             let cwd = hookCwd ?? mapped?.cwd
             let grokAssistantMessage: String? = {
-                guard def.name == "grok" else { return nil }
+                guard isGrokHook else { return nil }
                 return latestGrokAssistantMessage(
                     cwd: cwd,
                     sessionId: input.sessionId ?? sessionId,
@@ -24448,8 +24450,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
             let shouldPublishStopNotification = def.publishesStopNotification && (!antigravityHasActiveBackgroundWork || stopNotificationStatus == .error)
-            let hasGrokTranscriptContext = def.name == "grok" && normalizedHookValue(cwd) != nil
-            let shouldPublishGrokStopFallbackNotification = def.name == "grok"
+            let hasGrokTranscriptContext = isGrokHook && normalizedHookValue(cwd) != nil
+            let shouldPublishGrokStopFallbackNotification = isGrokHook
                 && stopNotificationStatus == .idle
                 && (grokAssistantMessage != nil || !hasGrokTranscriptContext)
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
@@ -24541,7 +24543,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 env: env
             )
 #endif
-            if def.name == "grok",
+            if isGrokHook,
                let notificationMessage = normalizedAgentHookNotificationMessage(parsedInput: input) {
                 if isGrokInternalSessionNotification(notificationMessage) {
 #if DEBUG
@@ -24571,7 +24573,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     isFallback: false
                 )
             }
-            let antigravitySuppressDuplicateIdleWhileBackgroundWork = def.name == "antigravity"
+            let antigravitySuppressDuplicateIdleWhileBackgroundWork = isAntigravityHook
                 && summary.status == .idle
                 && mapped?.runtimeStatus == .running
                 && mapped?.lastNotificationStatus == .idle
@@ -24585,7 +24587,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
 #endif
 
-            if def.name == "grok", summary.status == nil {
+            if isGrokHook, summary.status == nil {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=nonTerminalNotification subtitleLen=\(summary.subtitle.count) bodyLen=\(summary.body.count)",
@@ -24618,7 +24620,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                if def.name == "grok", summary.status == .idle {
+                if summary.status == .idle {
                     _ = try? store.recordPromptStop(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
@@ -24723,7 +24725,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
             }
-            if def.name == "grok" || def.name == "antigravity" {
+            if isGrokHook || isAntigravityHook {
                 if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                     sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
                 }

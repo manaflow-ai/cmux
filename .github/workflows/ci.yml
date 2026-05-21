@@ -151,6 +151,8 @@ jobs:
   tests-unit-shards:
     name: tests-unit-${{ matrix.shard }}/3
     runs-on: warp-macos-15-arm64-6x
+    permissions:
+      contents: read
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -158,8 +160,8 @@ jobs:
         shard: [1, 2, 3]
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
-      # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
-      # backtracer until the job timeout. Disable the crash catcher entirely.
+      # XCTest app-host crashes can leave xcodebuild waiting at Swift's
+      # interactive crash prompt. Keep backtraces, but disable prompting/color.
       SWIFT_BACKTRACE: "interactive=no,color=no"
     steps:
       - name: Checkout
@@ -355,6 +357,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: tests-unit-shards
     if: always()
+    permissions:
+      contents: read
     steps:
       - name: Verify unit test shards
         run: |
