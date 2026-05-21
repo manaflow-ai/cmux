@@ -35,6 +35,7 @@ enum CommandPaletteOverlayPromotionPolicy {
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
+    private var didBufferPendingTextInput = false
 
     override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { true }
@@ -42,6 +43,43 @@ private final class CommandPaletteOverlayContainerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard capturesMouseEvents else { return nil }
         return super.hitTest(point)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard !normalizedFlags.contains(.command),
+              !normalizedFlags.contains(.control) else {
+            super.keyDown(with: event)
+            return
+        }
+        didBufferPendingTextInput = false
+        interpretKeyEvents([event])
+        if !didBufferPendingTextInput {
+            super.keyDown(with: event)
+        }
+    }
+
+    override func insertText(_ insertString: Any) {
+        guard let text = Self.plainText(from: insertString),
+              !text.isEmpty else { return }
+        didBufferPendingTextInput = true
+        NotificationCenter.default.post(
+            name: .commandPalettePendingTextInputRequested,
+            object: window,
+            userInfo: ["text": text]
+        )
+    }
+
+    private static func plainText(from insertString: Any) -> String? {
+        if let text = insertString as? String {
+            return text
+        }
+        if let attributedText = insertString as? NSAttributedString {
+            return attributedText.string
+        }
+        return nil
     }
 }
 
@@ -3024,6 +3062,19 @@ struct ContentView: View {
             ) else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
             moveCommandPaletteSelection(by: delta)
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPalettePendingTextInputRequested)) { notification in
+            guard isCommandPalettePresented else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            guard let text = notification.userInfo?["text"] as? String else { return }
+            handleCommandPalettePendingTextInput(text)
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameInputInteractionRequested)) { notification in
@@ -8461,6 +8512,35 @@ struct ContentView: View {
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
         scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
         syncCommandPaletteOverlayCommandListState()
+        resetCommandPaletteSearchFocus()
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func handleCommandPalettePendingTextInput(_ text: String) {
+        guard case .commands = commandPaletteMode else { return }
+        let filteredText = text.filter { character in
+            !character.isNewline && !character.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+        }
+        guard !filteredText.isEmpty else { return }
+        let oldQuery = commandPaletteQuery
+        commandPaletteQuery.append(contentsOf: filteredText)
+        commandPaletteSelectedResultIndex = 0
+        commandPaletteSelectionAnchorCommandID = nil
+        commandPaletteScrollTargetIndex = nil
+        commandPaletteScrollTargetAnchor = nil
+        if Self.commandPaletteShouldResetVisibleResultsForQueryTransition(
+            oldQuery: oldQuery,
+            newQuery: commandPaletteQuery,
+            hasVisibleResults: commandPaletteVisibleResultsScope != nil
+        ) {
+            cachedCommandPaletteResults = []
+            commandPaletteVisibleResults = []
+            commandPaletteVisibleResultsScope = nil
+            commandPaletteVisibleResultsFingerprint = nil
+            commandPaletteVisibleResultsVersion &+= 1
+        }
+        scheduleCommandPaletteResultsRefresh(query: commandPaletteQuery)
+        updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
     }
