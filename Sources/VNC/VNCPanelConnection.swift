@@ -26,6 +26,7 @@ final class VNCPanelConnection {
     private var listenerFileDescriptor: Int32 = -1
     private var clientFileDescriptor: Int32 = -1
     private var pendingControlMessages: [Data] = []
+    private var framebufferComposer = VNCFramebufferComposer()
     private var isClosed = false
 
     private enum AcceptedClientActivationResult {
@@ -287,18 +288,22 @@ final class VNCPanelConnection {
     }
 
     private func publish(_ message: VNCIPCMessage) {
-        Task { @MainActor in
-            guard !isCurrentlyClosed() else { return }
-            switch message {
-            case .control(let control):
+        switch message {
+        case .control(let control):
+            Task { @MainActor in
+                guard !isCurrentlyClosed() else { return }
                 onControl(control)
                 if control.state == "failed" {
                     let reason = control.message ?? VNCPanelText.stateFailed
                     close()
                     onExit(.failure(reason: reason, shouldRestart: false))
                 }
-            case .frame(let header, let payload):
-                onFrame(header, payload)
+            }
+        case .frame(let header, let payload):
+            guard let frame = framebufferComposer.apply(header: header, payload: payload) else { return }
+            Task { @MainActor in
+                guard !isCurrentlyClosed() else { return }
+                onFrame(frame.header, frame.payload)
             }
         }
     }

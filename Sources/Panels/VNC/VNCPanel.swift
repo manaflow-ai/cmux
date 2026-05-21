@@ -183,7 +183,6 @@ final class VNCPanel: Panel, ObservableObject {
     }
 
     private func applyFrame(header: VNCFrameHeader, payload: Data) {
-        guard VNCFrameValidator.validate(header: header, payloadByteCount: payload.count) == nil else { return }
         latestFrame = VNCDisplayFrame(header: header, payload: payload)
     }
 
