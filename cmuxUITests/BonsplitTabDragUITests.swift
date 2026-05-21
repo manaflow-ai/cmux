@@ -744,11 +744,27 @@ final class BonsplitTabDragUITests: XCTestCase {
     }
 
     private func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
+        let launched = waitForCondition(timeout: timeout) {
             app.state == .runningForeground ||
                 app.state == .runningBackground ||
-                // Bonsplit setup is window-driven, and headless runners can report .unknown during this handoff.
                 app.windows.firstMatch.exists
+        }
+        guard launched else { return false }
+        // Bonsplit setup is window-driven, and headless runners can report .unknown during this handoff.
+        return ensureAppForegroundForInteraction(app, timeout: 6.0)
+    }
+
+    private func ensureAppForegroundForInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.state == .runningForeground {
+            return true
+        }
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App foreground activation may fail on headless CI runners", options: options) {
+            app.activate()
+        }
+        return waitForCondition(timeout: timeout) {
+            app.state == .runningForeground
         }
     }
 

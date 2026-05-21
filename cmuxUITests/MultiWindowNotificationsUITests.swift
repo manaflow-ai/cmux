@@ -70,6 +70,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         // Sanity: ensure the second window was actually created.
         XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before sending notification shortcut. state=\(app.state.rawValue)"
+        )
 
         // Jump to latest unread (Cmd+Shift+U). This should bring the owning window forward.
         let beforeToken = loadData()?["focusToken"]
@@ -132,6 +136,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening notifications popover. state=\(app.state.rawValue)"
+        )
 
         app.typeKey("i", modifierFlags: [.command])
         let targetButton = app.buttons["NotificationPopoverRow.\(notifId1)"]
@@ -160,6 +168,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         XCTAssertTrue(waitForData(keys: ["notifId1"], timeout: 15.0), "Expected multi-window notification setup data")
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening notifications popover. state=\(app.state.rawValue)"
+        )
 
         app.typeKey("i", modifierFlags: [.command])
 
@@ -198,6 +210,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         _ = socketCommand("clear_notifications")
 
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening empty notifications popover. state=\(app.state.rawValue)"
+        )
         app.typeKey("i", modifierFlags: [.command])
         XCTAssertTrue(app.staticTexts["No notifications yet"].waitForExistence(timeout: 6.0), "Expected empty notifications popover state")
         let jumpButton = app.buttons["notificationsPopover.jumpToLatest"]
@@ -336,6 +352,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return
         }
 
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before typing delayed notify command. state=\(app.state.rawValue)"
+        )
         app.typeText("sh \(commandScriptPath)")
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
@@ -648,6 +668,20 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     private func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
             app.state == .runningForeground || app.state == .runningBackground
+        }
+    }
+
+    private func ensureAppForegroundForInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.state == .runningForeground {
+            return true
+        }
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App foreground activation may fail on headless CI runners", options: options) {
+            app.activate()
+        }
+        return waitForCondition(timeout: timeout) {
+            app.state == .runningForeground
         }
     }
 
