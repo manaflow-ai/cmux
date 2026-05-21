@@ -33,6 +33,8 @@ final class cmuxMobileUITests: XCTestCase {
         XCTAssertTrue(app.textFields["MobileAddDeviceNameField"].exists)
         XCTAssertTrue(app.textFields["MobileAddDeviceHostField"].exists)
         XCTAssertTrue(app.textFields["MobileAddDevicePortField"].exists)
+        XCTAssertTrue(app.staticTexts["MobileAddDeviceSignedInAccount"].exists)
+        XCTAssertTrue(app.staticTexts["MobileAddDeviceSignedInAccount"].label.contains("uitest@cmux.local"))
         XCTAssertTrue(app.buttons["MobileScanQRCodeButton"].exists)
 
         let pairButton = app.buttons["MobilePairButton"]

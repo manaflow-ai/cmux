@@ -10,6 +10,8 @@ Environment:
   IPHONE_SIM_ID   Required if no booted iPhone simulator can be auto-detected.
   IPAD_SIM_ID     Required if no booted iPad simulator can be auto-detected.
   SOAK_ROOT       Output directory. Defaults to /tmp/cmux-mobile-soak-<tag>-<profile>.
+  CMUX_MOBILE_DEV_STACK_AUTH_TOKEN
+                 DEBUG-only token used by simulator apps and the tagged Mac host.
 
 Profiles:
   crash-finder    Aggressive attach, viewport, input, color, surface, and resource churn.
@@ -26,6 +28,7 @@ profile="crash-finder"
 seconds=""
 iphone_sim_id="${IPHONE_SIM_ID:-}"
 ipad_sim_id="${IPAD_SIM_ID:-}"
+dev_stack_auth_token="${CMUX_MOBILE_DEV_STACK_AUTH_TOKEN:-cmux-dev-mobile-stack-token}"
 
 while (( $# > 0 )); do
   case "$1" in
@@ -197,6 +200,10 @@ fi
 (
   cd "$repo_root"
   CMUX_TAG="$tag" scripts/cmux-debug-cli.sh ping >/dev/null
+  if [[ -n "$dev_stack_auth_token" ]]; then
+    CMUX_TAG="$tag" scripts/cmux-debug-cli.sh rpc mobile.dev_stack_auth.configure \
+      "$(jq -n --arg token "$dev_stack_auth_token" '{token:$token}')" >/dev/null
+  fi
 )
 
 if [[ "$profile" == "crash-finder" ]]; then
@@ -237,6 +244,7 @@ screen -dmS "${session_prefix}-iphone" bash -lc "
   export CMUX_TAG='$tag' CMUX_REPO='$repo_root' SIMULATOR_ID='$iphone_sim_id' CLIENT_ID='${profile}-iphone'
   export SOAK_ROOT='$root' SOAK_PROFILE='$profile' SOAK_SECONDS='$seconds'
   export SOAK_LOG='$root/mobile-iphone.log' SOAK_STATUS='$root/mobile-iphone.status'
+  export CMUX_MOBILE_DEV_STACK_AUTH_TOKEN='$dev_stack_auth_token'
   export COLOR_PROBE_INTERVAL='$color_interval' MOBILE_TICKET_TTL_SECONDS='$ticket_ttl' MOBILE_REATTACH_INTERVAL_SECONDS='$reattach_seconds'
   export COLOR_FAILURE_IS_FATAL='$color_fatal' COLOR_MIN_PIXELS=2000
   export MOBILE_INPUT_INTERVAL='$mobile_input_interval' MOBILE_INPUT_BURST_COMMANDS='$mobile_input_burst' MOBILE_SCREENSHOT_INTERVAL=30
@@ -252,6 +260,7 @@ screen -dmS "${session_prefix}-ipad" bash -lc "
   export CMUX_TAG='$tag' CMUX_REPO='$repo_root' SIMULATOR_ID='$ipad_sim_id' CLIENT_ID='${profile}-ipad'
   export SOAK_ROOT='$root' SOAK_PROFILE='$profile' SOAK_SECONDS='$seconds'
   export SOAK_LOG='$root/mobile-ipad.log' SOAK_STATUS='$root/mobile-ipad.status'
+  export CMUX_MOBILE_DEV_STACK_AUTH_TOKEN='$dev_stack_auth_token'
   export COLOR_PROBE_INTERVAL='$color_interval' MOBILE_TICKET_TTL_SECONDS='$ticket_ttl' MOBILE_REATTACH_INTERVAL_SECONDS='$reattach_seconds'
   export COLOR_FAILURE_IS_FATAL='$color_fatal' COLOR_MIN_PIXELS=2000
   export MOBILE_INPUT_INTERVAL='$mobile_input_interval' MOBILE_INPUT_BURST_COMMANDS='$mobile_input_burst' MOBILE_SCREENSHOT_INTERVAL=30

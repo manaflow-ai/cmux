@@ -38,6 +38,7 @@ screenshot_interval = int(os.environ.get("MOBILE_SCREENSHOT_INTERVAL", "120"))
 max_scrollback_rows = int(os.environ.get("MOBILE_MAX_SCROLLBACK_ROWS", "80"))
 profile = os.environ.get("SOAK_PROFILE", "steady")
 dev_origin = os.environ.get("CMUX_DEV_ORIGIN", "").strip().rstrip("/")
+dev_stack_auth_token = os.environ.get("CMUX_MOBILE_DEV_STACK_AUTH_TOKEN", "").strip()
 color_verify_attempts = int(os.environ.get("COLOR_VERIFY_ATTEMPTS", "5"))
 color_verify_retry_seconds = float(os.environ.get("COLOR_VERIFY_RETRY_SECONDS", "0.75"))
 terminal_output_attempts = int(os.environ.get("TERMINAL_OUTPUT_ATTEMPTS", "8"))
@@ -142,6 +143,7 @@ def launch_app_with_attach_ticket(ticket):
         extra_env={
             "SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA": "1",
             "SIMCTL_CHILD_CMUX_UITEST_ATTACH_URL": ticket["attach_url"],
+            "SIMCTL_CHILD_CMUX_MOBILE_DEV_STACK_AUTH_TOKEN": dev_stack_auth_token,
             "SIMCTL_CHILD_AppleLanguages": "(en)",
             "SIMCTL_CHILD_AppleLocale": "en_US",
         },
@@ -207,12 +209,15 @@ def assert_attached_ui():
     )
 
 
-def framed_rpc(ticket, method, params):
+def framed_rpc(ticket, method, params, *, use_stack_auth=False):
+    auth = {"attach_token": ticket["token"]}
+    if use_stack_auth and dev_stack_auth_token:
+        auth["stack_access_token"] = dev_stack_auth_token
     request = {
         "id": f"{method}-{int(time.time() * 1000)}",
         "method": method,
         "params": params,
-        "auth": {"attach_token": ticket["token"]},
+        "auth": auth,
     }
     data = json.dumps(request, separators=(",", ":")).encode()
     started = time.monotonic()
@@ -497,6 +502,12 @@ def main():
 
             workspaces = framed_rpc(ticket, "mobile.workspace.list", {"workspace_id": ticket["workspace_id"]})
             workspace = workspaces["workspaces"][0]
+            if dev_stack_auth_token and (iterations == 1 or iterations % max(1, input_interval) == 0):
+                full_list = framed_rpc(ticket, "mobile.workspace.list", {}, use_stack_auth=True)
+                full_count = len(full_list.get("workspaces", []))
+                if full_count < 1:
+                    raise RuntimeError("dev stack auth workspace list returned no workspaces")
+                log(f"dev_auth_workspace_list_ok iteration={iterations} count={full_count}")
             terminals = workspace.get("terminals", [])
             if not terminals:
                 raise RuntimeError("workspace has no terminals")

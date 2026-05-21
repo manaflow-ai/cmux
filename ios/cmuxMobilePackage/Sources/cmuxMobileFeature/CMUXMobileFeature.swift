@@ -955,6 +955,7 @@ struct PairingView: View {
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
     @State private var host = UITestConfig.addDeviceHost ?? ""
     @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
+    @State private var authManager = AuthManager.shared
     @State private var validationError: String?
     @State private var isPairing = false
     @State private var pairingTask: Task<Void, Never>?
@@ -1005,6 +1006,13 @@ struct PairingView: View {
                             .accessibilityIdentifier("MobileAddDeviceForm")
                     }
                     #endif
+                }
+
+                Section {
+                    Text(signedInAccountText)
+                        .foregroundStyle(.secondary)
+                        .font(.footnote)
+                        .accessibilityIdentifier("MobileAddDeviceSignedInAccount")
                 }
 
                 Section {
@@ -1120,6 +1128,27 @@ struct PairingView: View {
             "mobile.addDevice.manualRouteWarning",
             defaultValue: "This will connect directly to that address. Use this only on a trusted LAN, VPN, or device you control."
         )
+    }
+
+    private var signedInAccountText: String {
+        guard authManager.isAuthenticated else {
+            return L10n.string(
+                "mobile.addDevice.notSignedIn",
+                defaultValue: "Not signed in on this device."
+            )
+        }
+        guard let email = authManager.currentUser?.primaryEmail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !email.isEmpty else {
+            return L10n.string(
+                "mobile.addDevice.signedInUnknown",
+                defaultValue: "Signed in, email unavailable."
+            )
+        }
+        let format = L10n.string(
+            "mobile.addDevice.signedInFormat",
+            defaultValue: "Signed in as %@"
+        )
+        return String(format: format, email)
     }
 
     private func pair() {

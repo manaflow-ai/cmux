@@ -64,6 +64,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "仕事用 Mac" } }
       }
     },
+    "mobile.addDevice.notSignedIn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Not signed in on this device." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このデバイスではサインインしていません。" } }
+      }
+    },
     "mobile.addDevice.pair" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -83,6 +90,20 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "58465" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "58465" } }
+      }
+    },
+    "mobile.addDevice.signedInFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Signed in as %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ としてサインイン中" } }
+      }
+    },
+    "mobile.addDevice.signedInUnknown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Signed in, email unavailable." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインイン済みですが、メールアドレスを取得できません。" } }
       }
     },
     "mobile.addDevice.title" : {
