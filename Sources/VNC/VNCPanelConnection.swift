@@ -8,6 +8,8 @@ enum VNCPanelConnectionExit {
 }
 
 final class VNCPanelConnection {
+    private static let helperConnectionFailureExitStatus: Int32 = 67
+
     typealias ControlHandler = @MainActor (VNCControlMessage) -> Void
     typealias FrameHandler = @MainActor (VNCFrameHeader, Data) -> Void
     typealias ExitHandler = @MainActor (VNCPanelConnectionExit) -> Void
@@ -27,6 +29,7 @@ final class VNCPanelConnection {
     private var clientFileDescriptor: Int32 = -1
     private var pendingControlMessages: [Data] = []
     private var framebufferComposer = VNCFramebufferComposer()
+    private var helperReportedFailureReason: String?
     private var isClosed = false
 
     private enum AcceptedClientActivationResult {
@@ -153,12 +156,9 @@ final class VNCPanelConnection {
             Task { @MainActor in
                 guard let self, !self.isCurrentlyClosed() else { return }
                 let status = process.terminationStatus
+                let exit = self.helperExit(for: status)
                 self.close()
-                if status == 0 {
-                    self.onExit(.disconnected)
-                } else {
-                    self.onExit(.failure(reason: VNCPanelText.helperExited(Int(status)), shouldRestart: true))
-                }
+                self.onExit(exit)
             }
         }
         try process.run()
@@ -290,11 +290,15 @@ final class VNCPanelConnection {
     private func publish(_ message: VNCIPCMessage) {
         switch message {
         case .control(let control):
+            let failedReason = control.state == "failed" ? (control.message ?? VNCPanelText.stateFailed) : nil
+            if let failedReason {
+                recordHelperReportedFailure(reason: failedReason)
+            }
             Task { @MainActor in
                 guard !isCurrentlyClosed() else { return }
                 onControl(control)
                 if control.state == "failed" {
-                    let reason = control.message ?? VNCPanelText.stateFailed
+                    let reason = failedReason ?? VNCPanelText.stateFailed
                     close()
                     onExit(.failure(reason: reason, shouldRestart: false))
                 }
@@ -306,6 +310,23 @@ final class VNCPanelConnection {
                 onFrame(frame.header, frame.payload)
             }
         }
+    }
+
+    private func recordHelperReportedFailure(reason: String) {
+        stateLock.withLock {
+            helperReportedFailureReason = reason
+        }
+    }
+
+    private func helperExit(for status: Int32) -> VNCPanelConnectionExit {
+        if status == 0 {
+            return .disconnected
+        }
+        if status == Self.helperConnectionFailureExitStatus {
+            let reason = stateLock.withLock { helperReportedFailureReason } ?? VNCPanelText.stateFailed
+            return .failure(reason: reason, shouldRestart: false)
+        }
+        return .failure(reason: VNCPanelText.helperExited(Int(status)), shouldRestart: true)
     }
 
     private func notifyExit(_ exit: VNCPanelConnectionExit) {
