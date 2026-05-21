@@ -118,8 +118,8 @@ final class SidebarResizeUITests: XCTestCase {
         XCTAssertTrue(window.waitForExistence(timeout: 5.0))
 
         let elements = app.descendants(matching: .any)
-        let leftSidebar = elements.matching(identifier: "Sidebar").firstMatch
-        let rightSidebar = elements.matching(identifier: "RightSidebar").firstMatch
+        let leftSidebar = elements.matching(identifier: "SidebarContainer").firstMatch
+        let rightSidebar = elements.matching(identifier: "RightSidebarContainer").firstMatch
         let leftResizer = elements.matching(identifier: "SidebarResizer").firstMatch
         let rightResizer = elements.matching(identifier: "RightSidebarResizer").firstMatch
 
