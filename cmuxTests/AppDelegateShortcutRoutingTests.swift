@@ -17,6 +17,10 @@ private final class FakeTextBoxSubmitSurface: TextBoxSubmitSurfaceControlling {
     var textBoxSubmitObservationWindow: NSWindow?
     var textBoxSubmitTerminalSurface: TerminalSurface? { nil }
     var visibleTextValue: String?
+    var sendKeyTextResult = true
+    var sendTextResult = true
+    var sendNamedKeyResult: TerminalSurface.NamedKeySendResult = .sent
+    var performBindingActionResult = true
     private(set) var sentText: [String] = []
     private(set) var sentKeys: [String] = []
 
@@ -24,26 +28,28 @@ private final class FakeTextBoxSubmitSurface: TextBoxSubmitSurfaceControlling {
         visibleTextValue
     }
 
-    func sendKeyText(_ text: String) {
+    @discardableResult
+    func sendKeyText(_ text: String) -> Bool {
         sentText.append(text)
+        return sendKeyTextResult
     }
 
     @discardableResult
     func sendText(_ text: String) -> Bool {
         sentText.append(text)
-        return true
+        return sendTextResult
     }
 
     @discardableResult
     func sendNamedKey(_ keyName: String) -> TerminalSurface.NamedKeySendResult {
         sentKeys.append(keyName)
-        return .sent
+        return sendNamedKeyResult
     }
 
     @discardableResult
     func performBindingAction(_ action: String) -> Bool {
         sentKeys.append(action)
-        return true
+        return performBindingActionResult
     }
 
     func completeClipboardRead() {
@@ -6955,6 +6961,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(surface.sentText, ["after"])
         XCTAssertEqual(completionContext, TextBoxSubmit.CompletionContext.empty)
+#else
+        XCTFail("debugRunDispatchEvents is only available in DEBUG")
+#endif
+    }
+
+    func testTextBoxSubmitReportsRejectedTerminalWriteWithoutContinuing() {
+#if DEBUG
+        let surface = FakeTextBoxSubmitSurface()
+        surface.sendTextResult = false
+
+        var completionContext: TextBoxSubmit.CompletionContext?
+        TextBoxSubmit.debugRunDispatchEvents(
+            [
+                .pasteText("draft"),
+                .namedKey("return")
+            ],
+            via: surface
+        ) { context in
+            completionContext = context
+        }
+
+        XCTAssertEqual(surface.sentText, ["draft"])
+        XCTAssertEqual(surface.sentKeys, [])
+        XCTAssertEqual(completionContext?.failure, .terminalWriteRejected)
 #else
         XCTFail("debugRunDispatchEvents is only available in DEBUG")
 #endif

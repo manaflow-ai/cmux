@@ -1652,7 +1652,8 @@ protocol TextBoxSubmitSurfaceControlling: AnyObject {
     var textBoxSubmitTerminalSurface: TerminalSurface? { get }
 
     func visibleText() -> String?
-    func sendKeyText(_ text: String)
+    @discardableResult
+    func sendKeyText(_ text: String) -> Bool
     @discardableResult
     func sendText(_ text: String) -> Bool
     @discardableResult
@@ -1671,10 +1672,30 @@ extension TerminalSurface: TextBoxSubmitSurfaceControlling {
     }
 }
 
+private extension TerminalSurface.NamedKeySendResult {
+    var acceptedForTextBoxSubmit: Bool {
+        switch self {
+        case .sent, .queued:
+            return true
+        case .unknownKey, .inputQueueFull, .surfaceUnavailable, .processExited:
+            return false
+        }
+    }
+}
+
 @MainActor
 enum TextBoxSubmit {
     struct CompletionContext: Equatable {
+        enum Failure: Equatable {
+            case terminalWriteRejected
+        }
+
         var confirmedClaudeImageSubmissionTexts: [String: Int] = [:]
+        var failure: Failure?
+
+        var didSubmit: Bool {
+            failure == nil
+        }
 
         static let empty = CompletionContext()
     }
@@ -2152,18 +2173,33 @@ private final class TextBoxSubmitEventRunner {
 
             switch event {
             case .keyText(let text):
-                surface.sendKeyText(text)
+                guard surface.sendKeyText(text) else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
             case .pasteText(let text):
-                surface.sendText(text)
+                guard surface.sendText(text) else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
             case .pasteFilePath(let path):
-                pasteFilePath(path)
+                guard pasteFilePath(path) else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
             case .namedKeyRepeat(let key, let count):
                 guard count > 0 else { continue }
                 for _ in 0..<count {
-                    _ = surface.sendNamedKey(key)
+                    guard surface.sendNamedKey(key).acceptedForTextBoxSubmit else {
+                        fail(.terminalWriteRejected)
+                        return
+                    }
                 }
             case .namedKey(let key):
-                _ = surface.sendNamedKey(key)
+                guard surface.sendNamedKey(key).acceptedForTextBoxSubmit else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
             case .captureClipboardReadBaseline:
                 clipboardReadBaseline = surface.clipboardReadGeneration
                 filePasteFallbackSatisfiedClipboardRead = false
@@ -2184,6 +2220,22 @@ private final class TextBoxSubmitEventRunner {
         }
 
         finish()
+    }
+
+    private func fail(_ failure: TextBoxSubmit.CompletionContext.Failure) {
+        removeObservers()
+        restorePasteboardIfNeeded()
+        let completion = onComplete
+        onComplete = nil
+        Self.active[id] = nil
+        if Self.activeRunIDBySurface[surfaceKey] == id {
+            Self.activeRunIDBySurface[surfaceKey] = nil
+        }
+        completion?(TextBoxSubmit.CompletionContext(
+            confirmedClaudeImageSubmissionTexts: confirmedClaudeImageSubmissionTexts,
+            failure: failure
+        ))
+        Self.startNextQueuedRun(for: surfaceKey)
     }
 
     private func finish() {
@@ -2476,7 +2528,7 @@ private final class TextBoxSubmitEventRunner {
         return token
     }
 
-    private func pasteFilePath(_ path: String) {
+    private func pasteFilePath(_ path: String) -> Bool {
         let pasteboard = NSPasteboard.general
         if originalPasteboardItems == nil {
             originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
@@ -2513,11 +2565,13 @@ private final class TextBoxSubmitEventRunner {
 #if DEBUG
         cmuxDebugLog("textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)")
 #endif
-        guard handled else {
+        if handled {
+            return true
+        } else {
             filePasteFallbackSatisfiedClipboardRead = true
-            surface.sendText(TerminalImageTransferPlanner.escapeForShell(path))
+            let sentFallback = surface.sendText(TerminalImageTransferPlanner.escapeForShell(path))
             restorePasteboardIfNeeded()
-            return
+            return sentFallback
         }
     }
 
@@ -2805,6 +2859,7 @@ struct TextBoxInputContainer: View {
         let submittedParts = textViewReference.textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
         let submittedTextView = textViewReference.textView
+        let preservedContent = submittedTextView?.attributedContentForPreservation()
         submittedTextView?.prepareForSubmit()
         submittedTextView?.clearContent(cleanupAttachmentFiles: false)
         text = ""
@@ -2816,6 +2871,19 @@ struct TextBoxInputContainer: View {
             via: surface,
             terminalAgentContext: terminalAgentContext
         ) { completionContext in
+            guard completionContext.didSubmit else {
+                if let preservedContent {
+                    submittedTextView?.installPreservedContent(preservedContent)
+                } else {
+                    text = TextBoxSubmissionFormatter.formattedText(from: submittedParts)
+                    attachments = submittedParts.compactMap { part in
+                        if case .attachment(let attachment) = part { return attachment }
+                        return nil
+                    }
+                }
+                NSSound.beep()
+                return
+            }
             let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
                 if case .attachment(let attachment) = part { return attachment }
                 return nil

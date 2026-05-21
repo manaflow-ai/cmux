@@ -6245,12 +6245,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
-    func sendKeyText(_ text: String) {
-        guard !text.isEmpty else { return }
+    @discardableResult
+    func sendKeyText(_ text: String) -> Bool {
+        guard !text.isEmpty else { return true }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
-            return
+            return false
         }
-        guard !ghostty_surface_process_exited(liveSurface) else { return }
+        guard !ghostty_surface_process_exited(liveSurface) else { return false }
 
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
@@ -6259,9 +6260,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.unshifted_codepoint = 0
         keyEvent.composing = false
-        text.withCString { ptr in
+        return text.withCString { ptr in
             keyEvent.text = ptr
-            _ = ghostty_surface_key(liveSurface, keyEvent)
+            return ghostty_surface_key(liveSurface, keyEvent)
         }
     }
 
