@@ -7756,13 +7756,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard event.keyCode == 9 || event.charactersIgnoringModifiers?.lowercased() == "v" else {
             return nil
         }
-        if normalizedFlags == [.command] {
-            return .standard
+        let shortcutFlags = normalizedFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard shortcutFlags.contains(.command),
+              shortcutFlags.isDisjoint(with: [.control, .option]) else {
+            return nil
         }
-        if normalizedFlags == [.command, .shift] {
+        if shortcutFlags.contains(.shift) {
             return .plainText
         }
-        return nil
+        return .standard
     }
 
     @discardableResult
