@@ -263,9 +263,10 @@ extension Workspace {
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
         if let restoredRemoteConfiguration {
-            let shouldAutoConnect =
-                !SessionRestorePolicy.isRunningUnderAutomatedTests()
-                && restoredRemoteConfiguration.foregroundAuthToken == nil
+            let shouldAutoConnect = Self.shouldAutoConnectRestoredRemote(
+                foregroundAuthToken: restoredRemoteConfiguration.foregroundAuthToken,
+                snapshot: snapshot
+            )
             configureRemoteConnection(
                 restoredRemoteConfiguration,
                 autoConnect: shouldAutoConnect
@@ -613,6 +614,18 @@ extension Workspace {
         // old TUI scrollback can print stale launch commands and race the resume input.
         // OMX HUD panes restore from their tmux start command for the same reason.
         restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil && resumeStartupInput == nil
+    }
+
+    nonisolated static func shouldAutoConnectRestoredRemote(
+        foregroundAuthToken: String?,
+        snapshot: SessionWorkspaceSnapshot,
+        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
+    ) -> Bool {
+        guard !isRunningUnderAutomatedTests else { return false }
+        let normalizedForegroundAuthToken = foregroundAuthToken?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedForegroundAuthToken?.isEmpty == false else { return true }
+        return !snapshot.panels.contains { $0.terminal != nil }
     }
 
     nonisolated static func surfaceResumeStartupInput(
@@ -977,7 +990,8 @@ extension Workspace {
                 )
             }
 #endif
-            let restoredScrollback = shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
+            let shouldReplayLocalScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
+            let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: restoredScrollback)
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,

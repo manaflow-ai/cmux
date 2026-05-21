@@ -47,6 +47,40 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(manager.selectedTabId)
     }
 
+    func testRestoredPersistentSSHBrowserOnlyWorkspaceAutoConnectsWithoutForegroundAuthTerminal() {
+        let browserPanelId = UUID()
+        let browserOnlySnapshot = Self.persistentSSHWorkspaceSnapshot(
+            panel: Self.browserPanelSnapshot(id: browserPanelId),
+            focusedPanelId: browserPanelId
+        )
+        XCTAssertTrue(Workspace.shouldAutoConnectRestoredRemote(
+            foregroundAuthToken: " token-a ",
+            snapshot: browserOnlySnapshot,
+            isRunningUnderAutomatedTests: false
+        ))
+
+        let terminalPanelId = UUID()
+        let terminalSnapshot = Self.persistentSSHWorkspaceSnapshot(
+            panel: Self.terminalPanelSnapshot(id: terminalPanelId),
+            focusedPanelId: terminalPanelId
+        )
+        XCTAssertFalse(Workspace.shouldAutoConnectRestoredRemote(
+            foregroundAuthToken: "token-a",
+            snapshot: terminalSnapshot,
+            isRunningUnderAutomatedTests: false
+        ))
+        XCTAssertTrue(Workspace.shouldAutoConnectRestoredRemote(
+            foregroundAuthToken: nil,
+            snapshot: terminalSnapshot,
+            isRunningUnderAutomatedTests: false
+        ))
+        XCTAssertFalse(Workspace.shouldAutoConnectRestoredRemote(
+            foregroundAuthToken: nil,
+            snapshot: browserOnlySnapshot,
+            isRunningUnderAutomatedTests: true
+        ))
+    }
+
     func testSessionSnapshotIncludesRemoteWorkspacesForRestore() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
@@ -289,9 +323,16 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
         XCTAssertEqual(roundTrip.panels.first?.terminal?.remotePTYSessionID, expectedSessionID)
         XCTAssertEqual(
-            restoredWorkspace.sessionSnapshot(includeScrollback: true).panels.first?.terminal?.scrollback,
+            persistedWorkspace.panels.first { $0.id == remotePanelId }?.terminal?.scrollback,
             expectedScrollback
         )
+        XCTAssertNil(
+            restoredWorkspace
+                .terminalPanel(for: restoredPanelId)?
+                .surface
+                .debugAdditionalEnvironmentForTesting()[SessionScrollbackReplayStore.environmentKey]
+        )
+        XCTAssertNil(restoredWorkspace.sessionSnapshot(includeScrollback: true).panels.first?.terminal?.scrollback)
     }
 
     func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {
@@ -309,5 +350,85 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertNil(configuration.port)
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -tt dev@example.com")
+    }
+
+    private static func persistentSSHWorkspaceSnapshot(
+        panel: SessionPanelSnapshot,
+        focusedPanelId: UUID
+    ) -> SessionWorkspaceSnapshot {
+        SessionWorkspaceSnapshot(
+            processTitle: "Persistent SSH",
+            customTitle: "Persistent SSH",
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            terminalScrollBarHidden: nil,
+            currentDirectory: NSHomeDirectory(),
+            focusedPanelId: focusedPanelId,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [focusedPanelId],
+                selectedPanelId: focusedPanelId
+            )),
+            panels: [panel],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil,
+            remote: SessionRemoteWorkspaceSnapshot(
+                transport: .ssh,
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                preserveAfterTerminalExit: true,
+                skipDaemonBootstrap: nil
+            )
+        )
+    }
+
+    private static func browserPanelSnapshot(id: UUID) -> SessionPanelSnapshot {
+        SessionPanelSnapshot(
+            id: id,
+            type: .browser,
+            title: "Browser",
+            customTitle: nil,
+            directory: nil,
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: nil,
+            browser: SessionBrowserPanelSnapshot(
+                urlString: "http://localhost:3000",
+                profileID: nil,
+                shouldRenderWebView: true,
+                pageZoom: 1,
+                developerToolsVisible: false,
+                backHistoryURLStrings: nil,
+                forwardHistoryURLStrings: nil
+            ),
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
+    }
+
+    private static func terminalPanelSnapshot(id: UUID) -> SessionPanelSnapshot {
+        SessionPanelSnapshot(
+            id: id,
+            type: .terminal,
+            title: "Terminal",
+            customTitle: nil,
+            directory: nil,
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
     }
 }
