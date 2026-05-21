@@ -1138,6 +1138,11 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 	for {
 		select {
 		case <-ctx.Done():
+			_ = s.frameWriter.writeEvent(rpcEvent{
+				Event:        "pty.exit",
+				SessionID:    attachment.sessionKey.sessionID,
+				AttachmentID: attachment.id,
+			})
 			return
 		case <-sessionDone:
 			for {

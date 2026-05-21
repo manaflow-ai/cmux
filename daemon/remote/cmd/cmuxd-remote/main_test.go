@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -749,6 +750,41 @@ func TestRPCServerUntrackPTYAttachmentKeepsNewerReattach(t *testing.T) {
 	server.mu.Unlock()
 	if exists {
 		t.Fatalf("newer attachment remained tracked after untrack")
+	}
+}
+
+func TestPTYRPCPumpEmitsExitWhenAttachmentContextCanceled(t *testing.T) {
+	eventOutput := newNotifyingBuffer()
+	server := &rpcServer{
+		frameWriter: &stdioFrameWriter{
+			writer: bufio.NewWriter(eventOutput),
+		},
+	}
+	sessionKey := persistentPTYSessionKey("replaced")
+	attachment := &wsPTYAttachment{
+		sessionKey: sessionKey,
+		id:         "same",
+		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		persistent: true,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	sessionDone := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		server.ptyAttachmentPump(ctx, attachment, sessionDone)
+	}()
+
+	cancel()
+	waitForRPCEvent(t, eventOutput, 0, func(event map[string]any) bool {
+		return event["event"] == "pty.exit" &&
+			event["session_id"] == "replaced" &&
+			event["attachment_id"] == "same"
+	})
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("PTY attachment pump did not stop after context cancellation")
 	}
 }
 
