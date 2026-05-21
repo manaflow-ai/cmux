@@ -248,12 +248,7 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
-            UNIT_CMUX_TAG="ci-tests-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
-            UNIT_CMUX_SOCKET_PATH="/tmp/cmux-debug-${UNIT_CMUX_TAG}.sock"
-            rm -f "$UNIT_CMUX_SOCKET_PATH"
-            CMUX_TAG="$UNIT_CMUX_TAG" \
-            CMUX_SOCKET_PATH="$UNIT_CMUX_SOCKET_PATH" \
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
