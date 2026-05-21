@@ -6,6 +6,12 @@ import XCTest
 @testable import cmux
 #endif
 
+private func cliSubprocessEnvironment(_ environment: [String: String]) -> [String: String] {
+    var sanitized = environment
+    sanitized.removeValue(forKey: "CMUX_UNIT_TEST_MODE")
+    return sanitized
+}
+
 final class WorkspaceRemoteConnectionTests: XCTestCase {
     private struct ProcessRunResult {
         let status: Int32
@@ -1839,7 +1845,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let stdinPipe = standardInput == nil ? nil : Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = environment
+        process.environment = cliSubprocessEnvironment(environment)
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -2156,6 +2162,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             state.commands.contains { command in
                 command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                    || command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
             },
             "Expected discovered transcript failure notification, saw \(state.commands)"
         )

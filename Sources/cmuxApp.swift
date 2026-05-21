@@ -17,6 +17,7 @@ struct cmuxApp: App {
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
+    private let isUnitTestRuntime: Bool
 
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
@@ -27,6 +28,7 @@ struct cmuxApp: App {
         let env = ProcessInfo.processInfo.environment
         let isUITestLaunch = env.keys.contains { $0.hasPrefix("CMUX_UI_TEST_") }
         let isUnitTestLaunch = cmuxProcessIsRunningUnderXCTest(env) && !isUITestLaunch
+        isUnitTestRuntime = isUnitTestLaunch
         UITestLaunchManifest.applyIfPresent()
         StartupBreadcrumbLog.append("app.init.uiTestManifest.applied")
 
@@ -214,30 +216,35 @@ struct cmuxApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainWindowBootstrapView()
-                .cmuxAppearanceColorScheme(appearanceMode)
-                .onAppear {
-                    SettingsWindowPresenter.configure(
-                        openWindow: {
-                            openWindow(id: SettingsWindowPresenter.windowID)
-                        },
-                        parentWindowProvider: {
-                            AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
-                        }
-                    )
+            if isUnitTestRuntime {
+                Color.clear
+                    .frame(width: 1, height: 1)
+            } else {
+                MainWindowBootstrapView()
+                    .cmuxAppearanceColorScheme(appearanceMode)
+                    .onAppear {
+                        SettingsWindowPresenter.configure(
+                            openWindow: {
+                                openWindow(id: SettingsWindowPresenter.windowID)
+                            },
+                            parentWindowProvider: {
+                                AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
+                            }
+                        )
 #if DEBUG
-                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-                        UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
-                    }
+                        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
+                            UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
+                        }
 #endif
-                    bootstrapMainWindowScene()
-                }
-                .onChange(of: appearanceMode) { _ in
-                    applyAppearance()
-                }
-                .onChange(of: socketControlMode) { _ in
-                    updateSocketController()
-                }
+                        bootstrapMainWindowScene()
+                    }
+                    .onChange(of: appearanceMode) { _ in
+                        applyAppearance()
+                    }
+                    .onChange(of: socketControlMode) { _ in
+                        updateSocketController()
+                    }
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {

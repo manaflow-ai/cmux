@@ -1063,10 +1063,13 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
     private var temporaryDirectoryURL: URL?
+    private var savedDockEnabled: Any?
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        savedDockEnabled = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         savedShortcutData = Dictionary(
             uniqueKeysWithValues: touchedShortcutActions.map { action in
                 (action, UserDefaults.standard.data(forKey: action.defaultsKey))
@@ -1096,6 +1099,12 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
                 UserDefaults.standard.removeObject(forKey: action.defaultsKey)
             }
         }
+        if let savedDockEnabled {
+            UserDefaults.standard.set(savedDockEnabled, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        }
+        savedDockEnabled = nil
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         KeyboardShortcutSettings.notifySettingsFileDidChange()
         if let temporaryDirectoryURL {

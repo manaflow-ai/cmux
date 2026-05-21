@@ -519,13 +519,17 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
             return
         }
 
-        let overlayContainer = NSView(frame: contentView.bounds)
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let overlayHost = contentView.superview ?? contentView
+        let overlayContainer = NSView(frame: overlayHost.bounds)
         overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
         overlayContainer.alphaValue = 1
         overlayContainer.isHidden = false
-        contentView.addSubview(overlayContainer)
+        overlayHost.addSubview(overlayContainer)
         appDelegate.setCommandPaletteVisible(true, for: window)
-        contentView.layoutSubtreeIfNeeded()
+        overlayHost.layoutSubtreeIfNeeded()
 
         defer {
             appDelegate.setCommandPaletteVisible(false, for: window)
