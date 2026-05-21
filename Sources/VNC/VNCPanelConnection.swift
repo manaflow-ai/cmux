@@ -275,7 +275,7 @@ final class VNCPanelConnection {
                 continue
             }
             if byteCount == 0 {
-                notifyExit(.disconnected)
+                clearClientFileDescriptor(fileDescriptor)
                 return
             }
             if errno == EINTR {
@@ -335,6 +335,17 @@ final class VNCPanelConnection {
             }
             pendingControlMessages.append(message)
             return nil
+        }
+    }
+
+    private func clearClientFileDescriptor(_ fileDescriptor: Int32) {
+        let shouldClose = stateLock.withLock { () -> Bool in
+            guard clientFileDescriptor == fileDescriptor else { return false }
+            clientFileDescriptor = -1
+            return true
+        }
+        if shouldClose {
+            Darwin.close(fileDescriptor)
         }
     }
 
