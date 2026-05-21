@@ -1716,6 +1716,11 @@ class GhosttyApp {
     private var reloadConfigurationDepth = 0
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
+
+    static func retainTickNotifications() -> () -> Void {
+        GhosttyTickNotificationDemand.retain()
+    }
+
     private static func resolveBackgroundLogURL(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
@@ -3256,7 +3261,9 @@ class GhosttyApp {
         let start = CACurrentMediaTime()
         ghostty_app_tick(app)
         let elapsedMs = (CACurrentMediaTime() - start) * 1000
-        NotificationCenter.default.post(name: .ghosttyDidTick, object: self)
+        if GhosttyTickNotificationDemand.isActive {
+            NotificationCenter.default.post(name: .ghosttyDidTick, object: self)
+        }
 
         // Track lag during scrolling
         if isScrolling {
@@ -4675,6 +4682,29 @@ private enum GhosttyRenderedFrameNotificationDemand {
     }
 }
 
+private enum GhosttyTickNotificationDemand {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var count = 0
+
+    static func retain() -> () -> Void {
+        lock.lock()
+        count += 1
+        lock.unlock()
+
+        return {
+            lock.lock()
+            count = max(0, count - 1)
+            lock.unlock()
+        }
+    }
+
+    static var isActive: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return count > 0
+    }
+}
+
 /// Lightweight instrumentation to detect whether Ghostty is actually requesting Metal drawables.
 /// This helps catch "frozen until refocus" regressions without relying on screenshots (which can
 /// mask redraw issues by forcing a window server flush).
@@ -4682,7 +4712,19 @@ final class GhosttyMetalLayer: CAMetalLayer {
     private let lock = NSLock()
     private var drawableCount: Int = 0
     private var lastDrawableTime: CFTimeInterval = 0
-    weak var surfaceView: GhosttyNSView?
+    private weak var surfaceView: GhosttyNSView?
+
+    func setSurfaceView(_ surfaceView: GhosttyNSView?) {
+        lock.lock()
+        self.surfaceView = surfaceView
+        lock.unlock()
+    }
+
+    private func currentSurfaceView() -> GhosttyNSView? {
+        lock.lock()
+        defer { lock.unlock() }
+        return surfaceView
+    }
 
     func debugStats() -> (count: Int, last: CFTimeInterval) {
         lock.lock()
@@ -4697,7 +4739,7 @@ final class GhosttyMetalLayer: CAMetalLayer {
         lastDrawableTime = CACurrentMediaTime()
         lock.unlock()
         guard GhosttyRenderedFrameNotificationDemand.isActive else { return drawable }
-        if let surfaceView {
+        if let surfaceView = currentSurfaceView() {
             DispatchQueue.main.async { [weak surfaceView] in
                 surfaceView?.enqueueRenderedFrameUpdate()
             }
@@ -7134,7 +7176,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func makeBackingLayer() -> CALayer {
         let metalLayer = GhosttyMetalLayer()
-        metalLayer.surfaceView = self
+        metalLayer.setSurfaceView(self)
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.isOpaque = false
         // framebufferOnly=false lets the macOS compositor read the drawable

@@ -2098,6 +2098,7 @@ private final class TextBoxSubmitEventRunner {
     private var filePasteFallbackSatisfiedClipboardRead = false
     private var confirmedClaudeImageSubmissionTexts: [String: Int] = [:]
     private var observers: [NSObjectProtocol] = []
+    private var releaseTickNotifications: (() -> Void)?
     private var releaseRenderedFrameNotifications: (() -> Void)?
     private var originalPasteboardItems: [PasteboardItemSnapshot]?
     private var temporaryPasteboardRestorationToken: TextBoxPasteboardRestorationToken?
@@ -2430,6 +2431,7 @@ private final class TextBoxSubmitEventRunner {
         performInitialCheck: Bool = true
     ) -> UUID? {
         let center = NotificationCenter.default
+        releaseTickNotifications = GhosttyApp.retainTickNotifications()
         releaseRenderedFrameNotifications = GhosttyNSView.retainRenderedFrameNotifications()
         let token = UUID()
         observationToken = token
@@ -2676,6 +2678,8 @@ private final class TextBoxSubmitEventRunner {
             NotificationCenter.default.removeObserver(observer)
         }
         observers.removeAll(keepingCapacity: false)
+        releaseTickNotifications?()
+        releaseTickNotifications = nil
         releaseRenderedFrameNotifications?()
         releaseRenderedFrameNotifications = nil
     }

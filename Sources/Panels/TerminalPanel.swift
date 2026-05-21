@@ -438,6 +438,13 @@ final class TerminalPanel: Panel, ObservableObject {
         if clearTextBoxHideArm {
             shouldHideTextBoxOnNextEscape = false
         }
+        if isTextBoxActive,
+           respectForeignFirstResponder,
+           textBoxInputFocusIntent == .textBox {
+            hostedView.yieldTerminalSurfaceFocusForForeignResponder(reason: "textbox.preserveFocusIntent")
+            hostedView.setActive(false)
+            return true
+        }
         if isTextBoxActive {
             textBoxInputFocusIntent = .terminal
             shouldFocusTextBoxWhenAvailable = false
@@ -647,7 +654,7 @@ final class TerminalPanel: Panel, ObservableObject {
             return true
         }
         guard let view = responder as? NSView else { return false }
-        return view === textBoxInputView || view.isDescendant(of: textBoxInputView)
+        return view.isDescendant(of: textBoxInputView)
     }
 
     private func textBoxOrSurfaceOwnsResponder(in window: NSWindow?) -> Bool {
