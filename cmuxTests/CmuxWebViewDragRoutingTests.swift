@@ -345,4 +345,24 @@ final class BrowserScreenshotPipelineTests: XCTestCase {
         XCTAssertEqual(croppedImage.size.width, 200)
         XCTAssertEqual(croppedImage.size.height, 100)
     }
+
+    func testTilePlacementUsesTopOfOversizedTileWhenClampingSourceRect() throws {
+        let rects = try XCTUnwrap(
+            BrowserScreenshotTilePlacement.drawRects(
+                tileSize: NSSize(width: 100, height: 160),
+                origin: NSPoint(x: 0, y: 100),
+                contentSize: NSSize(width: 100, height: 300),
+                viewportSize: NSSize(width: 100, height: 100)
+            )
+        )
+
+        XCTAssertEqual(rects.source.origin.x, 0, accuracy: 0.001)
+        XCTAssertEqual(rects.source.origin.y, 60, accuracy: 0.001)
+        XCTAssertEqual(rects.source.width, 100, accuracy: 0.001)
+        XCTAssertEqual(rects.source.height, 100, accuracy: 0.001)
+        XCTAssertEqual(rects.destination.origin.x, 0, accuracy: 0.001)
+        XCTAssertEqual(rects.destination.origin.y, 100, accuracy: 0.001)
+        XCTAssertEqual(rects.destination.width, 100, accuracy: 0.001)
+        XCTAssertEqual(rects.destination.height, 100, accuracy: 0.001)
+    }
 }

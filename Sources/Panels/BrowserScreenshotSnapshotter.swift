@@ -7,6 +7,39 @@ private struct BrowserScreenshotWebContentMetrics {
     let scrollOffset: NSPoint
 }
 
+struct BrowserScreenshotTileDrawRects: Equatable {
+    let source: NSRect
+    let destination: NSRect
+}
+
+enum BrowserScreenshotTilePlacement {
+    static func drawRects(
+        tileSize: NSSize,
+        origin: NSPoint,
+        contentSize: NSSize,
+        viewportSize: NSSize
+    ) -> BrowserScreenshotTileDrawRects? {
+        let drawWidth = min(viewportSize.width, tileSize.width, max(0, contentSize.width - origin.x))
+        let drawHeight = min(viewportSize.height, tileSize.height, max(0, contentSize.height - origin.y))
+        guard drawWidth > 0, drawHeight > 0 else { return nil }
+
+        return BrowserScreenshotTileDrawRects(
+            source: NSRect(
+                x: 0,
+                y: max(0, tileSize.height - drawHeight),
+                width: drawWidth,
+                height: drawHeight
+            ),
+            destination: NSRect(
+                x: origin.x,
+                y: contentSize.height - origin.y - drawHeight,
+                width: drawWidth,
+                height: drawHeight
+            )
+        )
+    }
+}
+
 @MainActor
 enum BrowserScreenshotWebViewSnapshotter {
     static func captureFullPage(from webView: WKWebView) async throws -> NSImage {
@@ -136,24 +169,23 @@ enum BrowserScreenshotWebViewSnapshotter {
         contentSize: NSSize,
         viewportSize: NSSize
     ) {
-        let drawWidth = min(viewportSize.width, tile.size.width, max(0, contentSize.width - origin.x))
-        let drawHeight = min(viewportSize.height, tile.size.height, max(0, contentSize.height - origin.y))
-        guard drawWidth > 0, drawHeight > 0 else { return }
+        guard let rects = BrowserScreenshotTilePlacement.drawRects(
+            tileSize: tile.size,
+            origin: origin,
+            contentSize: contentSize,
+            viewportSize: viewportSize
+        ) else {
+            return
+        }
 
-        let destination = NSRect(
-            x: origin.x,
-            y: contentSize.height - origin.y - drawHeight,
-            width: drawWidth,
-            height: drawHeight
-        )
         output.lockFocus()
+        defer { output.unlockFocus() }
         tile.draw(
-            in: destination,
-            from: NSRect(origin: .zero, size: NSSize(width: drawWidth, height: drawHeight)),
+            in: rects.destination,
+            from: rects.source,
             operation: .copy,
             fraction: 1.0
         )
-        output.unlockFocus()
     }
 
     private static func webContentMetrics(for webView: WKWebView) async throws -> BrowserScreenshotWebContentMetrics {
