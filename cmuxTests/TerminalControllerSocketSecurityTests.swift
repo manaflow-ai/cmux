@@ -59,6 +59,23 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         return event
     }
 
+    private func makeVNCMouseEvent(type: NSEvent.EventType = .leftMouseDown) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: NSPoint(x: 1, y: 1),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ) else {
+            fatalError("Failed to construct VNC mouse event")
+        }
+        return event
+    }
+
     private func makeVNCDisplayFrame(sequence: UInt64) -> VNCDisplayFrame {
         VNCDisplayFrame(
             header: VNCFrameHeader(
@@ -905,6 +922,20 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 
         coordinator.detach()
         XCTAssertNil(secondPanel.ownedFocusIntent(for: view, in: window))
+    }
+
+    func testVNCCanvasMouseDownRequestsPanelFocus() throws {
+        let view = VNCMetalCanvasView()
+        var focusRequestCount = 0
+        view.onRequestFocus = {
+            focusRequestCount += 1
+        }
+
+        view.mouseDown(with: makeVNCMouseEvent())
+        XCTAssertEqual(focusRequestCount, 1)
+
+        view.rightMouseDown(with: makeVNCMouseEvent(type: .rightMouseDown))
+        XCTAssertEqual(focusRequestCount, 2)
     }
 
     func testVNCWorkspaceIdentityMatchSurvivesRename() throws {

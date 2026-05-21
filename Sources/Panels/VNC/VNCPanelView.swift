@@ -11,7 +11,7 @@ struct VNCPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            VNCMetalCanvasRepresentable(panel: panel)
+            VNCMetalCanvasRepresentable(panel: panel, onRequestPanelFocus: onRequestPanelFocus)
                 .overlay {
                     if !panel.hasFrame {
                         Text(VNCPanelText.noFrame)

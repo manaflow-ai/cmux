@@ -6,6 +6,7 @@ import SwiftUI
 
 struct VNCMetalCanvasRepresentable: NSViewRepresentable {
     @ObservedObject var panel: VNCPanel
+    let onRequestPanelFocus: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -22,6 +23,7 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
         view.onPointer = { [weak panel] x, y, button, isDown in
             panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
         }
+        view.onRequestFocus = onRequestPanelFocus
         view.onWindowAttachmentChanged = { [weak panel, weak view] in
             guard let view else { return }
             panel?.focusViewWindowDidChange(view)
@@ -40,6 +42,7 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
         view.onPointer = { [weak panel] x, y, button, isDown in
             panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
         }
+        view.onRequestFocus = onRequestPanelFocus
         view.onWindowAttachmentChanged = { [weak panel, weak view] in
             guard let view else { return }
             panel?.focusViewWindowDidChange(view)
@@ -49,6 +52,7 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
 
     static func dismantleNSView(_ view: VNCMetalCanvasView, coordinator: Coordinator) {
         coordinator.detach()
+        view.onRequestFocus = nil
         view.onWindowAttachmentChanged = nil
         view.close()
     }
@@ -91,6 +95,7 @@ final class VNCMetalCanvasView: NSView {
     var onText: ((String) -> Void)?
     var onKey: ((UInt16, Bool) -> Void)?
     var onPointer: ((Int, Int, Int?, Bool?) -> Void)?
+    var onRequestFocus: (() -> Void)?
     var onWindowAttachmentChanged: (() -> Void)?
 
     private static let maxFramebufferDimension = 16_384
@@ -169,6 +174,7 @@ final class VNCMetalCanvasView: NSView {
         onText = nil
         onKey = nil
         onPointer = nil
+        onRequestFocus = nil
         resetFrameSequence()
         removePointerTrackingArea()
     }
@@ -262,6 +268,7 @@ final class VNCMetalCanvasView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        onRequestFocus?()
         window?.makeFirstResponder(self)
         sendPointer(event, button: 0, isDown: true)
     }
@@ -283,6 +290,7 @@ final class VNCMetalCanvasView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        onRequestFocus?()
         sendPointer(event, button: 2, isDown: true)
     }
 
