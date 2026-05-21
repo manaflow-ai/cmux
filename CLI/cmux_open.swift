@@ -21,11 +21,11 @@ struct CMUXAgentTurnDiffBaselineStore: Codable {
 enum CMUXAgentTurnDiffBaselineFile {
     static func path(env: [String: String] = ProcessInfo.processInfo.environment) -> String {
         if let overrideDirectory = normalized(env["CMUX_AGENT_HOOK_STATE_DIR"]) {
-            return URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
+            return URL(fileURLWithPath: homeExpandedPath(overrideDirectory, env: env), isDirectory: true)
                 .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
                 .path
         }
-        return NSString(string: "~/.cmuxterm/agent-turn-diff-baselines.json").expandingTildeInPath
+        return homeExpandedPath("~/.cmuxterm/agent-turn-diff-baselines.json", env: env)
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -34,6 +34,22 @@ enum CMUXAgentTurnDiffBaselineFile {
             return nil
         }
         return trimmed
+    }
+
+    private static func homeExpandedPath(_ rawPath: String, env: [String: String]) -> String {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed == "~" || trimmed.hasPrefix("~/") else {
+            return NSString(string: trimmed).expandingTildeInPath
+        }
+        guard let home = normalized(env["HOME"]) else {
+            return NSString(string: trimmed).expandingTildeInPath
+        }
+        if trimmed == "~" {
+            return home
+        }
+        return URL(fileURLWithPath: home, isDirectory: true)
+            .appendingPathComponent(String(trimmed.dropFirst(2)), isDirectory: false)
+            .path
     }
 }
 
@@ -151,6 +167,15 @@ extension CMUXCLI {
         var url: URL
         var title: String
         var input: DiffInput
+        var deferredSourceSet: DiffViewerDeferredSourceSet? = nil
+    }
+
+    private struct DiffViewerDeferredSourceSet {
+        var selectedSource: DiffSource
+        var urls: [DiffSource: URL]
+        var layout: String
+        var appearance: DiffViewerAppearance
+        var context: DiffSourceContext
     }
 
     private struct DiffViewerSourceOption {
@@ -591,12 +616,14 @@ extension CMUXCLI {
             response["title"] = viewer.title
             response["source"] = viewer.input.sourceLabel
             print(jsonString(formatIDs(response, mode: idFormat)))
+            completeDeferredDiffViewerSources(viewer.deferredSourceSet)
             return
         }
 
         let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
         let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
         print("OK surface=\(surfaceText) pane=\(paneText) path=\(viewer.url.path)")
+        completeDeferredDiffViewerSources(viewer.deferredSourceSet)
     }
 
     private func canonicalDiffSourceContext(
@@ -1866,28 +1893,8 @@ extension CMUXCLI {
         let directory = try diffViewerDirectory()
         let timestamp = Int(Date().timeIntervalSince1970)
         let groupID = "\(timestamp)-\(UUID().uuidString.prefix(8))"
-        var inputs: [DiffSource: DiffInput] = [:]
-        var messages: [DiffSource: String] = [:]
-
-        for source in DiffSource.allCases {
-            do {
-                let input = try readGitDiffInput(source: source, context: context)
-                let trimmedPatch = input.patch.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmedPatch.isEmpty {
-                    messages[source] = input.emptyMessage ?? "No changes to diff."
-                } else {
-                    inputs[source] = input
-                }
-            } catch {
-                messages[source] = (error as? CLIError)?.message ?? error.localizedDescription
-            }
-        }
-
-        guard let selectedInput = inputs[selectedSource] else {
-            throw CLIError(message: messages[selectedSource] ?? selectedSource.emptyMessage)
-        }
-
-        let urls = Dictionary(uniqueKeysWithValues: inputs.keys.map { source in
+        let selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: context)
+        let urls = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
             (
                 source,
                 directory.appendingPathComponent(
@@ -1897,40 +1904,170 @@ extension CMUXCLI {
             )
         })
 
-        for source in inputs.keys {
-            guard let input = inputs[source], let url = urls[source] else { continue }
-            let sourceOptions = DiffSource.allCases.map { option in
-                DiffViewerSourceOption(
-                    value: option.slug,
-                    label: option.menuLabel,
-                    selected: option == source,
-                    url: urls[option]?.absoluteString,
-                    disabled: inputs[option] == nil,
-                    message: messages[option],
-                    sourceLabel: inputs[option]?.sourceLabel
+        let sourceOptions = diffViewerSourceOptions(selected: selectedSource, urls: urls)
+        for source in DiffSource.allCases where source != selectedSource {
+            if let url = urls[source] {
+                try writePendingDiffViewerHTML(
+                    to: url,
+                    title: source.title,
+                    message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(source.menuLabel)",
+                    pollForReplacement: true
                 )
             }
-            let title = source == selectedSource ? (titleOverride ?? input.defaultTitle) : input.defaultTitle
-            try writeDiffViewerHTML(
-                to: url,
-                patch: input.patch,
-                title: title,
-                sourceLabel: input.sourceLabel,
-                externalURL: input.externalURL,
-                layout: layout,
-                appearance: appearance,
-                sourceOptions: sourceOptions
-            )
         }
 
         guard let selectedURL = urls[selectedSource] else {
             throw CLIError(message: "Failed to write diff viewer")
         }
+        try writeDiffViewerHTML(
+            to: selectedURL,
+            patch: selectedInput.patch,
+            title: titleOverride ?? selectedInput.defaultTitle,
+            sourceLabel: selectedInput.sourceLabel,
+            externalURL: selectedInput.externalURL,
+            layout: layout,
+            appearance: appearance,
+            sourceOptions: sourceOptions
+        )
+
         return DiffViewerWriteResult(
             url: selectedURL,
             title: titleOverride ?? selectedInput.defaultTitle,
-            input: selectedInput
+            input: selectedInput,
+            deferredSourceSet: DiffViewerDeferredSourceSet(
+                selectedSource: selectedSource,
+                urls: urls,
+                layout: layout,
+                appearance: appearance,
+                context: context
+            )
         )
+    }
+
+    private func completeDeferredDiffViewerSources(_ sourceSet: DiffViewerDeferredSourceSet?) {
+        guard let sourceSet else { return }
+        for source in DiffSource.allCases where source != sourceSet.selectedSource {
+            guard let url = sourceSet.urls[source] else { continue }
+            do {
+                let input = try nonEmptyGitDiffInput(source: source, context: sourceSet.context)
+                try writeDiffViewerHTML(
+                    to: url,
+                    patch: input.patch,
+                    title: input.defaultTitle,
+                    sourceLabel: input.sourceLabel,
+                    externalURL: input.externalURL,
+                    layout: sourceSet.layout,
+                    appearance: sourceSet.appearance,
+                    sourceOptions: diffViewerSourceOptions(selected: source, urls: sourceSet.urls)
+                )
+            } catch {
+                let message = (error as? CLIError)?.message ?? error.localizedDescription
+                try? writePendingDiffViewerHTML(to: url, title: source.title, message: message, pollForReplacement: false)
+            }
+        }
+    }
+
+    private func nonEmptyGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
+        let input = try readGitDiffInput(source: source, context: context)
+        guard !input.patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CLIError(message: input.emptyMessage ?? "No changes to diff.")
+        }
+        return input
+    }
+
+    private func diffViewerSourceOptions(
+        selected: DiffSource,
+        urls: [DiffSource: URL]
+    ) -> [DiffViewerSourceOption] {
+        DiffSource.allCases.map { option in
+            DiffViewerSourceOption(
+                value: option.slug,
+                label: option.menuLabel,
+                selected: option == selected,
+                url: urls[option]?.absoluteString,
+                disabled: false,
+                message: nil,
+                sourceLabel: nil
+            )
+        }
+    }
+
+    private func writePendingDiffViewerHTML(
+        to url: URL,
+        title: String,
+        message: String,
+        pollForReplacement: Bool
+    ) throws {
+        let escapedTitle = htmlEscaped(title)
+        let escapedMessage = htmlEscaped(message)
+        let pendingAttribute = pollForReplacement ? " data-cmux-diff-pending=\"true\"" : ""
+        let pollScript = pollForReplacement ? """
+          <script>
+            const startedAt = Date.now();
+            async function poll() {
+              try {
+                const response = await fetch(location.href, { cache: "reload" });
+                const text = await response.text();
+                if (!text.includes("data-cmux-diff-pending=\\"true\\"")) {
+                  document.open();
+                  document.write(text);
+                  document.close();
+                  return;
+                }
+              } catch {}
+              if (Date.now() - startedAt < 30000) {
+                setTimeout(poll, 500);
+              }
+            }
+            setTimeout(poll, 500);
+          </script>
+        """ : ""
+        let html = """
+        <!doctype html>
+        <html\(pendingAttribute)>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>\(escapedTitle)</title>
+          <style>
+            :root { color-scheme: light dark; }
+            body {
+              margin: 0;
+              min-height: 100vh;
+              display: grid;
+              place-items: center;
+              background: Canvas;
+              color: CanvasText;
+              font: 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            }
+            main {
+              display: grid;
+              gap: 10px;
+              padding: 24px;
+              max-width: 520px;
+            }
+            h1 {
+              margin: 0;
+              font-size: 14px;
+              font-weight: 600;
+            }
+            p {
+              margin: 0;
+              opacity: 0.72;
+              line-height: 1.45;
+            }
+          </style>
+        </head>
+        <body>
+          <main>
+            <h1>\(escapedTitle)</h1>
+            <p>\(escapedMessage)</p>
+          </main>
+        \(pollScript)
+        </body>
+        </html>
+        """
+        try html.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private func diffViewerDirectory() throws -> URL {

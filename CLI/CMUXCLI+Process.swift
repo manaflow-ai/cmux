@@ -75,9 +75,9 @@ enum CLIProcessRunner {
             stdoutPipe.fileHandleForWriting.closeFile()
             stderrPipe.fileHandleForWriting.closeFile()
             stdinPipe?.fileHandleForWriting.closeFile()
-            _ = stdoutFinished.wait(timeout: .now() + 0.5)
-            _ = stderrFinished.wait(timeout: .now() + 0.5)
-            return CLIProcessResult(status: 1, stdout: "", stderr: String(describing: error), timedOut: false)
+            stdoutFinished.wait()
+            stderrFinished.wait()
+            return CLIProcessResult(status: 1, stdout: "", stderr: error.localizedDescription, timedOut: false)
         }
 
         if let stdinText, let stdinPipe {
@@ -102,8 +102,8 @@ enum CLIProcessRunner {
         }
 
         if timedOut {
-            _ = stdoutFinished.wait(timeout: .now() + 1)
-            _ = stderrFinished.wait(timeout: .now() + 1)
+            stdoutFinished.wait()
+            stderrFinished.wait()
         } else {
             stdoutFinished.wait()
             stderrFinished.wait()

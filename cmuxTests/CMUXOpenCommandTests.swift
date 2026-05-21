@@ -620,6 +620,30 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(refLastTurn.params["surface_id"] as? String, surfaceId)
         XCTAssertTrue(refLastTurn.html.contains("Last turn diff"), refLastTurn.html)
 
+        let homeURL = rootURL.appendingPathComponent("custom-home", isDirectory: true)
+        let homeStateURL = homeURL.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeStateURL, withIntermediateDirectories: true)
+        try writeDiffBaselineStore(
+            stateDirectoryURL: homeStateURL,
+            repoURL: repoURL,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            baseCommit: initialCommit,
+            untrackedPaths: ["preexisting.txt"]
+        )
+        let homeLastTurn = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn"],
+            environmentOverrides: [
+                "HOME": homeURL.path,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId
+            ],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(homeLastTurn.html.contains("Last turn diff"), homeLastTurn.html)
+        XCTAssertTrue(homeLastTurn.html.contains("new-turn-file.txt"), homeLastTurn.html)
+
         let wrongSurfaceResult = runDiffCLIExpectingNoOpen(
             cliPath: cliPath,
             arguments: ["diff", "--last-turn"],
@@ -1170,7 +1194,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             executablePath: "/usr/bin/env",
             arguments: ["git"] + arguments,
             environment: ProcessInfo.processInfo.environment,
-            timeout: 10,
+            timeout: 30,
             currentDirectoryURL: directory
         )
     }
