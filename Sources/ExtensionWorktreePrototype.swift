@@ -50,8 +50,9 @@ enum CmuxExtensionWorktreePrototype {
             let projectRoot = URL(fileURLWithPath: projectRootPath, isDirectory: true).standardizedFileURL
             try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
             try await ensureGitRepository(at: projectRoot)
+            try await ensureCmuxWorktreeDirectoryIsLocallyIgnored(projectRoot: projectRoot)
 
-            let branchName = "cmux-sidebar-\(Int(Date().timeIntervalSince1970))"
+            let branchName = "cmux-sidebar-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8).lowercased())"
             let worktreeRoot = projectRoot
                 .appendingPathComponent(".cmux", isDirectory: true)
                 .appendingPathComponent("worktrees", isDirectory: true)
@@ -81,6 +82,34 @@ enum CmuxExtensionWorktreePrototype {
         )
     }
 
+    private static func ensureCmuxWorktreeDirectoryIsLocallyIgnored(projectRoot: URL) async throws {
+        let output = try await runCapturingOutput("git", ["-C", projectRoot.path, "rev-parse", "--git-path", "info/exclude"])
+        guard let rawPath = String(data: output, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            throw NSError(
+                domain: "CmuxExtensionWorktreePrototype",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Could not resolve git exclude file."]
+            )
+        }
+
+        let excludeURL = rawPath.hasPrefix("/")
+            ? URL(fileURLWithPath: rawPath).standardizedFileURL
+            : projectRoot.appendingPathComponent(rawPath).standardizedFileURL
+        try FileManager.default.createDirectory(at: excludeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let existing = (try? String(contentsOf: excludeURL, encoding: .utf8)) ?? ""
+        let alreadyIgnored = existing
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .contains { $0 == ".cmux" || $0 == ".cmux/" }
+        guard !alreadyIgnored else { return }
+
+        let separator = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
+        let next = existing + separator + "# cmux extension worktrees\n.cmux/\n"
+        try next.write(to: excludeURL, atomically: true, encoding: .utf8)
+    }
+
     private static func writeSampleDevServerFiles(in worktree: URL, projectName: String) throws {
         let sample = worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true)
         try FileManager.default.createDirectory(at: sample, withIntermediateDirectories: true)
@@ -102,6 +131,10 @@ enum CmuxExtensionWorktreePrototype {
     }
 
     private static func run(_ executable: String, _ arguments: [String]) async throws {
+        _ = try await runCapturingOutput(executable, arguments)
+    }
+
+    private static func runCapturingOutput(_ executable: String, _ arguments: [String]) async throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [executable] + arguments
@@ -127,6 +160,7 @@ enum CmuxExtensionWorktreePrototype {
                 ]
             )
         }
+        return outputData
     }
 
     private static func shellEscaped(_ value: String) -> String {

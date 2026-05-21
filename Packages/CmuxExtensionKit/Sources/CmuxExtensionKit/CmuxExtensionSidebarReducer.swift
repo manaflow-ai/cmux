@@ -154,6 +154,7 @@ public struct CmuxExtensionSidebarReducer {
 
         case "workspace.reordered":
             let pinnedIds = reorderedPinnedWorkspaceIds(from: frame.payload)
+            var didApplyLocalReorder = false
             if let order = reorderedWorkspaceIds(from: frame.payload) {
                 var orderedIds: [UUID] = []
                 var seenIds: Set<UUID> = []
@@ -165,15 +166,21 @@ public struct CmuxExtensionSidebarReducer {
                     uniquingKeysWith: { _, replacement in replacement }
                 )
                 let orderedSet = Set(orderedIds)
-                var known = orderedIds.compactMap { workspacesById[$0] }
+                var known: [CmuxExtensionWorkspaceSnapshot] = []
+                for id in orderedIds {
+                    guard let workspace = workspacesById[id] else { continue }
+                    didApplyLocalReorder = true
+                    known.append(workspace)
+                }
                 known.append(contentsOf: next.workspaces.filter { !orderedSet.contains($0.id) })
                 next.workspaces = known
             } else if let workspaceId = resolvedWorkspaceId(frame),
                       let index = reorderedWorkspaceIndex(from: frame.payload),
                       let workspaces = movingWorkspace(next.workspaces, workspaceId: workspaceId, toIndex: index) {
                 next.workspaces = workspaces
+                didApplyLocalReorder = true
             }
-            if let pinnedIds {
+            if let pinnedIds, didApplyLocalReorder {
                 let pinnedSet = Set(pinnedIds)
                 for index in next.workspaces.indices {
                     next.workspaces[index].isPinned = pinnedSet.contains(next.workspaces[index].id)

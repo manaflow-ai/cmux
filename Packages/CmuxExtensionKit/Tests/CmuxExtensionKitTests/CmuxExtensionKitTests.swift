@@ -342,6 +342,37 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(updated.workspaces.map(\.isPinned), [false, true])
     }
 
+    func testWorkspaceReorderedEventWithoutLocalOverlapPreservesPinnedState() {
+        var first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
+        first.isPinned = true
+        let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
+        let foreign = UUID()
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceId: first.id,
+            workspaces: [first, second],
+            windowId: UUID()
+        )
+        let event = CmuxExtensionEventFrame(
+            sequence: 12,
+            name: "workspace.reordered",
+            category: "workspace",
+            source: "workspace.lifecycle",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 4),
+            workspaceId: foreign,
+            payload: [
+                "workspace_ids": .array([.string(foreign.uuidString)]),
+                "pinned_workspace_ids": .array([.string(foreign.uuidString)])
+            ]
+        )
+
+        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
+
+        XCTAssertEqual(updated.sequence, 12)
+        XCTAssertEqual(updated.workspaces.map(\.id), [first.id, second.id])
+        XCTAssertEqual(updated.workspaces.map(\.isPinned), [true, false])
+    }
+
     func testWorkspaceReorderedEventReadsSocketResultIndex() {
         let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
         let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
