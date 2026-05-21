@@ -23988,7 +23988,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return nil
             }
         }
-        func hasNewerRunningSession(workspaceId: String, surfaceId: String) -> Bool {
+        func hasNewerRunningSession(workspaceId: String, surfaceId: String?) -> Bool {
             (try? store.hasRunningSession(
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
