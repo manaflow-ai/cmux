@@ -8635,7 +8635,7 @@ struct ContentView: View {
 
     private func commandPalettePendingMultilineText(from text: String) -> String {
         text.filter { character in
-            character.isNewline || !character.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+            character.isNewline || character == "\t" || !character.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
         }
     }
 
