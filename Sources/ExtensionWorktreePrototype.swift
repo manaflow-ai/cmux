@@ -184,10 +184,14 @@ final class CmuxExtensionPipeOutputCollector: @unchecked Sendable {
     func finish() async -> Data {
         await withCheckedContinuation { continuation in
             fileHandle.readabilityHandler = nil
+            let remainingOutput = fileHandle.readDataToEndOfFile()
             try? fileHandle.close()
 
             lock.lock()
             isFinished = true
+            if !remainingOutput.isEmpty {
+                output.append(remainingOutput)
+            }
             let finalOutput = self.output
             lock.unlock()
             continuation.resume(returning: finalOutput)

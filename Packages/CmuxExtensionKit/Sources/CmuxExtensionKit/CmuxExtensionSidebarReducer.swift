@@ -95,8 +95,9 @@ public struct CmuxExtensionSidebarReducer {
         _ snapshot: CmuxExtensionSidebarSnapshot,
         event frame: CmuxExtensionEventFrame
     ) -> CmuxExtensionSidebarSnapshot {
+        guard frame.sequence > snapshot.sequence else { return snapshot }
         var next = snapshot
-        next.sequence = max(snapshot.sequence, frame.sequence)
+        next.sequence = frame.sequence
 
         switch frame.name {
         case "workspace.created":

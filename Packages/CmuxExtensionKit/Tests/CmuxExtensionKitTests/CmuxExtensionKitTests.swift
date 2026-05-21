@@ -236,6 +236,53 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(updated.workspaces[0].latestSubmittedAt, existingDate)
     }
 
+    func testStaleEventFrameDoesNotMutateFreshSnapshot() {
+        let existingDate = Date(timeIntervalSinceReferenceDate: 200)
+        var workspace = workspace(
+            title: "API",
+            rootPath: "/tmp/cmux/api",
+            projectRootPath: "/tmp/cmux",
+            latestSubmittedMessage: "newer",
+            latestSubmittedAt: existingDate
+        )
+        workspace.unreadCount = 1
+        workspace.latestNotificationText = "fresh"
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 20,
+            selectedWorkspaceId: workspace.id,
+            workspaces: [workspace]
+        )
+        let staleNotification = CmuxExtensionEventFrame(
+            sequence: 20,
+            name: "notification.created",
+            category: "notification",
+            source: "notification.store",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 100),
+            workspaceId: workspace.id,
+            payload: [
+                "body": .string("old notification"),
+                "is_read": .bool(false)
+            ]
+        )
+        let stalePrompt = CmuxExtensionEventFrame(
+            sequence: 19,
+            name: "workspace.prompt.submitted",
+            category: "workspace",
+            source: "workspace.prompt_submit",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 100),
+            workspaceId: workspace.id,
+            payload: [
+                "message_preview": .string("older prompt")
+            ]
+        )
+
+        let afterNotification = CmuxExtensionSidebarReducer.reduce(snapshot, event: staleNotification)
+        let afterPrompt = CmuxExtensionSidebarReducer.reduce(snapshot, event: stalePrompt)
+
+        XCTAssertEqual(afterNotification, snapshot)
+        XCTAssertEqual(afterPrompt, snapshot)
+    }
+
     func testWorkspacesReorderedHandlesDuplicatesAndPartialPayload() {
         let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
         let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
