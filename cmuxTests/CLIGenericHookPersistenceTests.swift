@@ -905,6 +905,64 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected enriched completion notification to leave Grok idle, saw \(genericCompletionCommands)"
         )
 
+        let notificationFirstSessionId = "grok-notification-before-stop"
+        let notificationFirstStart = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(notificationFirstSessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        XCTAssertFalse(notificationFirstStart.timedOut, notificationFirstStart.stderr)
+        XCTAssertEqual(notificationFirstStart.status, 0, notificationFirstStart.stderr)
+
+        let notificationFirstPrompt = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(notificationFirstSessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"write release notes"}"#
+        )
+        XCTAssertFalse(notificationFirstPrompt.timedOut, notificationFirstPrompt.stderr)
+        XCTAssertEqual(notificationFirstPrompt.status, 0, notificationFirstPrompt.stderr)
+
+        let notificationFirstAssistantMessage = "Grok wrote the release notes."
+        try writeGrokAssistantTranscript(
+            grokHome: grokHome,
+            cwd: root.path,
+            sessionId: notificationFirstSessionId,
+            text: notificationFirstAssistantMessage
+        )
+        let notificationBeforeStopCommandStart = state.commands.count
+        let notificationBeforeStop = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(notificationFirstSessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 1.0s."}"#
+        )
+        XCTAssertFalse(notificationBeforeStop.timedOut, notificationBeforeStop.stderr)
+        XCTAssertEqual(notificationBeforeStop.status, 0, notificationBeforeStop.stderr)
+        XCTAssertEqual(notificationBeforeStop.stdout, "{}\n")
+
+        let notificationBeforeStopCommands = Array(state.commands.dropFirst(notificationBeforeStopCommandStart))
+        XCTAssertTrue(
+            notificationBeforeStopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|\(notificationFirstAssistantMessage)")
+            },
+            "Expected Notification to publish the Grok assistant response before Stop arrives, saw \(notificationBeforeStopCommands)"
+        )
+
+        let stopAfterNotificationCommandStart = state.commands.count
+        let stopAfterNotification = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(notificationFirstSessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        XCTAssertFalse(stopAfterNotification.timedOut, stopAfterNotification.stderr)
+        XCTAssertEqual(stopAfterNotification.status, 0, stopAfterNotification.stderr)
+        XCTAssertEqual(stopAfterNotification.stdout, "{}\n")
+
+        let stopAfterNotificationCommands = Array(state.commands.dropFirst(stopAfterNotificationCommandStart))
+        XCTAssertFalse(
+            stopAfterNotificationCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Grok Stop must not double-notify after Notification already published the same idle turn, saw \(stopAfterNotificationCommands)"
+        )
+        XCTAssertTrue(
+            stopAfterNotificationCommands.contains { $0.contains("set_status grok Idle") },
+            "Expected Stop after Notification to keep Grok idle, saw \(stopAfterNotificationCommands)"
+        )
+
         let sameCwdMissingSessionId = "grok-session-without-own-history"
         let sameCwdMissingCommandStart = state.commands.count
         let sameCwdMissing = runGrokHook(

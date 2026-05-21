@@ -24512,6 +24512,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 && !suppressCompletionNotification
             let shouldForceGrokAssistantStopNotification = shouldPublishGrokStopFallbackNotification
                 && grokAssistantMessage != nil
+                && max(0, mapped?.activePromptDepth ?? 0) > 0
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.stop.nested-suppressed")
             } else if suppressCompletionNotification {
