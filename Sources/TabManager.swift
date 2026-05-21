@@ -178,6 +178,17 @@ enum WorkspaceOrderChangeNotificationKey {
     static let movedWorkspaceIds = "movedWorkspaceIds"
 }
 
+struct WorkspaceReorderPlanItem: Equatable {
+    let workspaceId: UUID
+    let fromIndex: Int
+    let toIndex: Int
+}
+
+enum WorkspaceBatchReorderError: Error, Equatable {
+    case duplicateWorkspace(UUID)
+    case workspaceNotFound(UUID)
+}
+
 enum LastSurfaceCloseShortcutSettings {
     static let key = "closeWorkspaceOnLastSurfaceShortcut"
     // Keep the legacy stored meaning so existing values still map to the same
@@ -5325,17 +5336,24 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int) -> Bool {
-        guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
-        if tabs.count <= 1 { return true }
+        guard let plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex) else { return false }
+        if tabs.count <= 1 || plan.fromIndex == plan.toIndex { return true }
+
+        let workspace = tabs.remove(at: plan.fromIndex)
+        tabs.insert(workspace, at: plan.toIndex)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        return true
+    }
+
+    func workspaceReorderPlan(tabId: UUID, toIndex targetIndex: Int) -> WorkspaceReorderPlanItem? {
+        guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        if tabs.count <= 1 {
+            return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: currentIndex)
+        }
 
         let workspace = tabs[currentIndex]
         let clamped = clampedReorderIndex(for: workspace, targetIndex: targetIndex)
-        if currentIndex == clamped { return true }
-
-        tabs.remove(at: currentIndex)
-        tabs.insert(workspace, at: clamped)
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
-        return true
+        return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: clamped)
     }
 
     private func postWorkspaceOrderDidChange(movedWorkspaceIds: [UUID]) {
@@ -5349,16 +5367,71 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> Bool {
-        guard tabs.contains(where: { $0.id == tabId }) else { return false }
+        guard let plan = workspaceReorderPlan(tabId: tabId, before: beforeId, after: afterId) else { return false }
+        return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex)
+    }
+
+    func workspaceReorderPlan(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> WorkspaceReorderPlanItem? {
+        guard tabs.contains(where: { $0.id == tabId }) else { return nil }
         if let beforeId {
-            guard let idx = tabs.firstIndex(where: { $0.id == beforeId }) else { return false }
-            return reorderWorkspace(tabId: tabId, toIndex: idx)
+            guard let idx = tabs.firstIndex(where: { $0.id == beforeId }) else { return nil }
+            return workspaceReorderPlan(tabId: tabId, toIndex: idx)
         }
         if let afterId {
-            guard let idx = tabs.firstIndex(where: { $0.id == afterId }) else { return false }
-            return reorderWorkspace(tabId: tabId, toIndex: idx + 1)
+            guard let idx = tabs.firstIndex(where: { $0.id == afterId }) else { return nil }
+            return workspaceReorderPlan(tabId: tabId, toIndex: idx + 1)
         }
-        return false
+        return nil
+    }
+
+    func workspaceBatchReorderPlan(
+        orderedWorkspaceIds: [UUID]
+    ) -> Result<[WorkspaceReorderPlanItem], WorkspaceBatchReorderError> {
+        var seen = Set<UUID>()
+        for workspaceId in orderedWorkspaceIds {
+            guard seen.insert(workspaceId).inserted else {
+                return .failure(.duplicateWorkspace(workspaceId))
+            }
+        }
+
+        let currentIndexes = Dictionary(uniqueKeysWithValues: tabs.enumerated().map { ($0.element.id, $0.offset) })
+        for workspaceId in orderedWorkspaceIds where currentIndexes[workspaceId] == nil {
+            return .failure(.workspaceNotFound(workspaceId))
+        }
+
+        let orderedSet = Set(orderedWorkspaceIds)
+        let finalIds = orderedWorkspaceIds + tabs.map(\.id).filter { !orderedSet.contains($0) }
+        let finalIndexes = Dictionary(uniqueKeysWithValues: finalIds.enumerated().map { ($0.element, $0.offset) })
+
+        let plan = orderedWorkspaceIds.map { workspaceId in
+            WorkspaceReorderPlanItem(
+                workspaceId: workspaceId,
+                fromIndex: currentIndexes[workspaceId] ?? 0,
+                toIndex: finalIndexes[workspaceId] ?? 0
+            )
+        }
+        return .success(plan)
+    }
+
+    @discardableResult
+    func reorderWorkspaces(
+        orderedWorkspaceIds: [UUID],
+        dryRun: Bool = false
+    ) -> Result<[WorkspaceReorderPlanItem], WorkspaceBatchReorderError> {
+        let result = workspaceBatchReorderPlan(orderedWorkspaceIds: orderedWorkspaceIds)
+        guard case .success(let plan) = result else { return result }
+        guard !dryRun else { return result }
+
+        let movedWorkspaceIds = plan
+            .filter { $0.fromIndex != $0.toIndex }
+            .map(\.workspaceId)
+        guard !movedWorkspaceIds.isEmpty else { return result }
+
+        let orderedSet = Set(orderedWorkspaceIds)
+        let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        tabs = orderedWorkspaceIds.compactMap { workspacesById[$0] } + tabs.filter { !orderedSet.contains($0.id) }
+        postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
+        return result
     }
 
     func setCustomTitle(tabId: UUID, title: String?) {

@@ -2306,7 +2306,7 @@ struct CMUXCLI {
         "--dx", "--dy", "--email", "--event", "--expires", "--focus",
         "--function", "--id", "--image", "--index", "--key", "--kind",
         "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
-        "--out", "--pane", "--panel", "--path", "--profile", "--property",
+        "--order", "--out", "--pane", "--panel", "--path", "--profile", "--property",
         "--provider", "--relay-port", "--script", "--selector", "--session",
         "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane",
         "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
@@ -3274,6 +3274,9 @@ struct CMUXCLI {
 
         case "reorder-workspace":
             try runReorderWorkspace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "reorder-workspaces":
+            try runReorderWorkspaces(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "workspace-action":
             try runWorkspaceAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
@@ -5653,10 +5656,66 @@ struct CMUXCLI {
         if let windowHandle {
             params["window_id"] = windowHandle
         }
+        let dryRun = hasFlag(commandArgs, name: "--dry-run")
+        if dryRun {
+            params["dry_run"] = true
+        }
 
         let payload = try client.sendV2(method: "workspace.reorder", params: params)
-        let summary = "OK workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown") window=\(formatHandle(payload, kind: "window", idFormat: idFormat) ?? "unknown") index=\(payload["index"] ?? "?")"
+        let summary = dryRun
+            ? reorderPlanLines(payload, idFormat: idFormat).joined(separator: "\n")
+            : "OK workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown") window=\(formatHandle(payload, kind: "window", idFormat: idFormat) ?? "unknown") index=\(payload["index"] ?? "?")"
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
+    }
+
+    private func runReorderWorkspaces(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        guard let orderRaw = optionValue(commandArgs, name: "--order") else {
+            throw CLIError(message: "reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,...")
+        }
+
+        let rawRefs = orderRaw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !rawRefs.isEmpty else {
+            throw CLIError(message: "reorder-workspaces requires at least one workspace in --order")
+        }
+
+        let windowRaw = optionValue(commandArgs, name: "--window")
+        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+        let workspaceHandles = try rawRefs.map { rawRef in
+            guard let workspaceHandle = try normalizeWorkspaceHandle(rawRef, client: client, windowHandle: windowHandle) else {
+                throw CLIError(message: "Workspace not found: \(rawRef)")
+            }
+            return workspaceHandle
+        }
+
+        var params: [String: Any] = ["workspace_ids": workspaceHandles]
+        if let windowHandle {
+            params["window_id"] = windowHandle
+        }
+        if hasFlag(commandArgs, name: "--dry-run") {
+            params["dry_run"] = true
+        }
+
+        let payload = try client.sendV2(method: "workspace.reorder_many", params: params)
+        let summary = reorderPlanLines(payload, idFormat: idFormat).joined(separator: "\n")
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
+    }
+
+    private func reorderPlanLines(_ payload: [String: Any], idFormat: CLIIDFormat) -> [String] {
+        let planItems = payload["plan"] as? [[String: Any]] ?? [payload]
+        return planItems.map { item in
+            let workspace = formatHandle(item, kind: "workspace", idFormat: idFormat) ?? "unknown"
+            let window = formatHandle(item, kind: "window", idFormat: idFormat) ?? "unknown"
+            let index = item["to_index"] ?? item["index"] ?? "?"
+            return "OK plan workspace=\(workspace) window=\(window) index=\(index)"
+        }
     }
 
     private func runWorkspaceAction(
@@ -10693,10 +10752,29 @@ struct CMUXCLI {
               --after-workspace <id|ref|index>
                                          Alias for --after
               --window <id|ref|index>      Window context
+              --dry-run                    Print the resolved final index without applying
 
             Example:
               cmux reorder-workspace --workspace workspace:2 --index 0
               cmux reorder-workspace --workspace workspace:3 --after workspace:1
+              cmux reorder-workspace --workspace workspace:2 --index 0 --dry-run
+            """
+        case "reorder-workspaces":
+            return """
+            Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]
+
+            Reorder workspaces within a window as one atomic batch. The comma-separated
+            order is the final leading order; unmentioned workspaces keep their relative
+            order after the listed workspaces.
+
+            Flags:
+              --order <refs>                Comma-separated workspace refs to place first
+              --window <id|ref|index>       Window context
+              --dry-run                     Print the resolved final indexes without applying
+
+            Example:
+              cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31
+              cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run
             """
         case "workspace-action":
             return """
@@ -27966,7 +28044,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           focus-window --window <id>
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
-          reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
+          reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
+          reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]

@@ -2865,6 +2865,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceMoveToWindow(params: params))
         case "workspace.reorder":
             return v2Result(id: id, self.v2WorkspaceReorder(params: params))
+        case "workspace.reorder_many":
+            return v2Result(id: id, self.v2WorkspaceReorderMany(params: params))
         case "workspace.prompt_submit":
             return v2Result(id: id, self.v2WorkspacePromptSubmit(params: params))
         case "workspace.rename":
@@ -3298,6 +3300,7 @@ class TerminalController {
             "workspace.close",
             "workspace.move_to_window",
             "workspace.reorder",
+            "workspace.reorder_many",
             "workspace.prompt_submit",
             "workspace.rename",
             "workspace.action",
@@ -5080,6 +5083,7 @@ class TerminalController {
         let index = v2Int(params, "index")
         let beforeId = v2UUID(params, "before_workspace_id")
         let afterId = v2UUID(params, "after_workspace_id")
+        let dryRun = v2Bool(params, "dry_run") ?? false
 
         let targetCount = (index != nil ? 1 : 0) + (beforeId != nil ? 1 : 0) + (afterId != nil ? 1 : 0)
         if targetCount != 1 {
@@ -5090,29 +5094,144 @@ class TerminalController {
             )
         }
 
-        var moved = false
-        var newIndex: Int?
+        var plan: WorkspaceReorderPlanItem?
         v2MainSync {
             if let index {
-                moved = tabManager.reorderWorkspace(tabId: workspaceId, toIndex: index)
+                plan = tabManager.workspaceReorderPlan(tabId: workspaceId, toIndex: index)
             } else {
-                moved = tabManager.reorderWorkspace(tabId: workspaceId, before: beforeId, after: afterId)
+                plan = tabManager.workspaceReorderPlan(tabId: workspaceId, before: beforeId, after: afterId)
             }
-            newIndex = tabManager.tabs.firstIndex(where: { $0.id == workspaceId })
+            if let plan, !dryRun {
+                _ = tabManager.reorderWorkspace(tabId: workspaceId, toIndex: plan.toIndex)
+            }
         }
 
-        guard moved else {
+        guard let plan else {
             return .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": workspaceId.uuidString])
         }
 
         let windowId = v2ResolveWindowId(tabManager: tabManager)
+        var payload = v2WorkspaceReorderPlanPayload(plan, windowId: windowId)
+        payload["dry_run"] = dryRun
+        payload["index"] = plan.toIndex
+        payload["plan"] = [v2WorkspaceReorderPlanPayload(plan, windowId: windowId)]
+        payload["events"] = (!dryRun && plan.fromIndex != plan.toIndex)
+            ? [v2WorkspaceReorderPlanPayload(plan, windowId: windowId)]
+            : []
+        return .ok(payload)
+    }
+
+    private func v2WorkspaceReorderMany(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let rawOrder = v2WorkspaceReorderManyOrder(params), !rawOrder.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: workspaceReorderManyMissingOrderMessage(),
+                data: nil
+            )
+        }
+
+        var workspaceIds: [UUID] = []
+        workspaceIds.reserveCapacity(rawOrder.count)
+        for raw in rawOrder {
+            guard let workspaceId = v2UUIDAny(raw) else {
+                return .err(
+                    code: "not_found",
+                    message: workspaceReorderManyWorkspaceNotFoundMessage(),
+                    data: ["workspace": raw]
+                )
+            }
+            workspaceIds.append(workspaceId)
+        }
+
+        let dryRun = v2Bool(params, "dry_run") ?? false
+        let result = v2MainSync {
+            tabManager.reorderWorkspaces(orderedWorkspaceIds: workspaceIds, dryRun: dryRun)
+        }
+
+        let plans: [WorkspaceReorderPlanItem]
+        switch result {
+        case .success(let planned):
+            plans = planned
+        case .failure(.duplicateWorkspace(let workspaceId)):
+            return .err(
+                code: "invalid_params",
+                message: workspaceReorderManyDuplicateWorkspaceMessage(),
+                data: [
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+                ]
+            )
+        case .failure(.workspaceNotFound(let workspaceId)):
+            return .err(
+                code: "not_found",
+                message: workspaceReorderManyWorkspaceNotFoundMessage(),
+                data: [
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+                ]
+            )
+        }
+
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        let planPayloads = plans.map { v2WorkspaceReorderPlanPayload($0, windowId: windowId) }
         return .ok([
-            "workspace_id": workspaceId.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
-            "index": v2OrNull(newIndex)
+            "dry_run": dryRun,
+            "plan": planPayloads,
+            "events": dryRun ? [] : planPayloads.filter { item in
+                (item["from_index"] as? Int) != (item["to_index"] as? Int)
+            }
         ])
+    }
+
+    private func v2WorkspaceReorderManyOrder(_ params: [String: Any]) -> [String]? {
+        if let workspaceIds = v2StringArray(params, "workspace_ids") {
+            return workspaceIds
+        }
+        guard let order = v2String(params, "order") else { return nil }
+        return order
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func v2WorkspaceReorderPlanPayload(
+        _ plan: WorkspaceReorderPlanItem,
+        windowId: UUID?
+    ) -> [String: Any] {
+        [
+            "workspace_id": plan.workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: plan.workspaceId),
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "from_index": plan.fromIndex,
+            "to_index": plan.toIndex
+        ]
+    }
+
+    private func workspaceReorderManyMissingOrderMessage() -> String {
+        String(
+            localized: "socket.workspace.reorderMany.missingOrder",
+            defaultValue: "Missing workspace_ids"
+        )
+    }
+
+    private func workspaceReorderManyDuplicateWorkspaceMessage() -> String {
+        String(
+            localized: "socket.workspace.reorderMany.duplicateWorkspace",
+            defaultValue: "Duplicate workspace in order"
+        )
+    }
+
+    private func workspaceReorderManyWorkspaceNotFoundMessage() -> String {
+        String(
+            localized: "socket.workspace.reorderMany.workspaceNotFound",
+            defaultValue: "Workspace not found"
+        )
     }
 
     private func v2WorkspacePromptSubmit(params: [String: Any]) -> V2CallResult {
