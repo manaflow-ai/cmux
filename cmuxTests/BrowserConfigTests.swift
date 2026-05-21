@@ -1236,7 +1236,8 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         manager.window = window
         guard let workspace = manager.selectedWorkspace,
               let panelId = manager.openBrowser(inWorkspace: workspace.id),
-              let browserPanel = workspace.browserPanel(for: panelId) else {
+              let browserPanel = workspace.browserPanel(for: panelId),
+              let webView = browserPanel.webView as? CmuxWebView else {
             XCTFail("Expected browser panel in test main-window context")
             return
         }
@@ -1248,7 +1249,6 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         container.addSubview(field)
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
 
-        let webView = browserPanel.webView
         webView.frame = NSRect(x: 0, y: 0, width: 640, height: 360)
         webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
