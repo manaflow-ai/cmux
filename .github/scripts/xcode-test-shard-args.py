@@ -9,7 +9,22 @@ from pathlib import Path
 CLASS_RE = re.compile(
     r"(?m)^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:final\s+)?class\s+([A-Za-z_]\w*)\s*:\s*XCTestCase\b"
 )
+CONTAINER_RE = re.compile(
+    r"(?m)^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:final\s+)?class\s+([A-Za-z_]\w*)\s*:\s*XCTestCase\b|extension\s+([A-Za-z_]\w*)\b)"
+)
 TEST_METHOD_RE = re.compile(r"(?m)^\s*(?:@\w+(?:\([^)]*\))?\s+)*func\s+test[A-Za-z0-9_]*\s*\(")
+
+
+RUNTIME_WEIGHT_OVERRIDES = {
+    # Method count underestimates these app-host, browser, and socket integration tests.
+    "CLINotifyProcessIntegrationRegressionTests": 240,
+    "CLINotifyProcessIntegrationTests": 90,
+    "BrowserPanelWebViewLifecycleTests": 100,
+    "BrowserPanelRemoteStoreTests": 80,
+    "PanelOwnedNativeViewSessionTests": 70,
+    "BrowserPanelPopupContextTests": 50,
+    "BrowserFindJavaScriptTests": 50,
+}
 
 
 @dataclass(frozen=True)
@@ -20,29 +35,39 @@ class TestClass:
 
     @property
     def weight(self) -> int:
-        return max(self.method_count, 1)
+        return max(self.method_count, RUNTIME_WEIGHT_OVERRIDES.get(self.name, 0), 1)
 
 
 def discover_test_classes(root: Path) -> list[TestClass]:
-    classes: list[TestClass] = []
-    for path in sorted((root / "cmuxTests").glob("*.swift")):
+    test_root = root / "cmuxTests"
+    class_paths: dict[str, str] = {}
+    method_counts: dict[str, int] = {}
+
+    for path in sorted(test_root.glob("*.swift")):
         text = path.read_text(encoding="utf-8")
-        matches = list(CLASS_RE.finditer(text))
+        for match in CLASS_RE.finditer(text):
+            name = match.group(1)
+            class_paths[name] = path.relative_to(root).as_posix()
+            method_counts.setdefault(name, 0)
+
+    for path in sorted(test_root.glob("*.swift")):
+        text = path.read_text(encoding="utf-8")
+        matches = list(CONTAINER_RE.finditer(text))
         for index, match in enumerate(matches):
+            name = match.group(1) or match.group(2)
+            if name not in class_paths:
+                continue
             start = match.end()
             end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
             body = text[start:end]
             method_count = len(TEST_METHOD_RE.findall(body))
-            if method_count == 0:
-                continue
-            classes.append(
-                TestClass(
-                    name=match.group(1),
-                    method_count=method_count,
-                    path=path.relative_to(root).as_posix(),
-                )
-            )
-    return classes
+            method_counts[name] += method_count
+
+    return [
+        TestClass(name=name, method_count=method_count, path=class_paths[name])
+        for name, method_count in method_counts.items()
+        if method_count > 0
+    ]
 
 
 def split_shards(classes: list[TestClass], shard_total: int) -> list[list[TestClass]]:
@@ -84,9 +109,10 @@ def main() -> int:
         return 1
 
     method_count = sum(item.method_count for item in selected)
+    weight = sum(item.weight for item in selected)
     print(
         f"Selected shard {args.shard_index}/{args.shard_total}: "
-        f"{len(selected)} XCTestCase classes, {method_count} test methods",
+        f"{len(selected)} XCTestCase classes, {method_count} test methods, estimated weight {weight}",
         file=sys.stderr,
     )
     for item in selected:
