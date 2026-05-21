@@ -109,6 +109,10 @@ enum CLISocketPathResolver {
         return stablePath ?? legacyDefaultSocketPath
     }
 
+    private static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
+        "/tmp/cmux-\(currentUserID).sock"
+    }
+
     static func isImplicitDefaultPath(
         _ path: String,
         bundleIdentifier: String? = currentAppBundleIdentifier(),
@@ -332,6 +336,7 @@ enum CLISocketPathResolver {
         dedupe([
             stableDefaultSocketPath,
             legacyDefaultSocketPath,
+            userScopedStableSocketPath(),
         ])
     }
 
@@ -339,6 +344,7 @@ enum CLISocketPathResolver {
         Set(dedupe([
             stableDefaultSocketPath,
             legacyDefaultSocketPath,
+            userScopedStableSocketPath(),
             fallbackSocketPath,
             nightlySocketPath,
             stagingSocketPath,
@@ -354,10 +360,29 @@ enum CLISocketPathResolver {
     }
 
     private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
-        let lhsStandardized = (lhs as NSString).standardizingPath
-        let rhsStandardized = (rhs as NSString).standardizingPath
-        return lhsStandardized == rhsStandardized
-            || lhsStandardized.caseInsensitiveCompare(rhsStandardized) == .orderedSame
+        let lhsForms = pathComparisonForms(lhs)
+        let rhsForms = pathComparisonForms(rhs)
+        return lhsForms.contains { lhsForm in
+            rhsForms.contains { rhsForm in
+                lhsForm == rhsForm
+                    || lhsForm.caseInsensitiveCompare(rhsForm) == .orderedSame
+            }
+        }
+    }
+
+    private static func pathComparisonForms(_ path: String) -> [String] {
+        var forms = [
+            (path as NSString).standardizingPath,
+            (path as NSString).resolvingSymlinksInPath,
+        ]
+        for form in forms {
+            if form.hasPrefix("/private/tmp/") {
+                forms.append("/tmp/" + String(form.dropFirst("/private/tmp/".count)))
+            } else if form.hasPrefix("/tmp/") {
+                forms.append("/private/tmp/" + String(form.dropFirst("/tmp/".count)))
+            }
+        }
+        return dedupe(forms)
     }
 
     private static func lastSocketPathFiles(
