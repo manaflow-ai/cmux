@@ -288,6 +288,16 @@ extension CMUXCLI {
     }
 
     private func removeStaleReleaseManagedThemeOverrideIfNeeded() throws {
+        do {
+            try removeStaleReleaseManagedThemeOverride()
+        } catch let error as CLIError {
+            throw error
+        } catch {
+            throw CLIError(message: "Unable to clean stale cmux theme override")
+        }
+    }
+
+    private func removeStaleReleaseManagedThemeOverride() throws {
         guard let activeBundleIdentifier = currentCmuxAppBundleIdentifier()?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !activeBundleIdentifier.isEmpty,
