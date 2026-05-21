@@ -3108,6 +3108,8 @@ struct CMUXCLI {
             try runSSHPTYAttach(commandArgs: commandArgs, client: client)
         case "ssh-session-list":
             try runSSHSessionList(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "ssh-session-attach":
+            try runSSHSessionAttach(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
         case "ssh-session-cleanup":
             try runSSHSessionCleanup(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
         case "ssh-session-end":
@@ -7635,6 +7637,87 @@ struct CMUXCLI {
         }
     }
 
+    private func runSSHSessionAttach(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (sessionIDOpt, rem1) = parseOption(rem0, name: "--session-id")
+        let (paneOpt, rem2) = parseOption(rem1, name: "--pane")
+        let (surfaceOpt, rem3) = parseOption(rem2, name: "--surface")
+        let (splitOpt, rem4) = parseOption(rem3, name: "--split")
+        let (focusOpt, remaining) = parseOption(rem4, name: "--focus")
+        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
+            throw CLIError(message: "ssh-session-attach: unknown flag '\(unknown)'. Known flags: --workspace <workspace>, --session-id <id>, --pane <pane>, --surface <surface>, --split <direction>, --focus <true|false>")
+        }
+        guard remaining.isEmpty else {
+            throw CLIError(message: "Usage: cmux ssh-session-attach --session-id <id> [--workspace <workspace>] [--pane <pane> | --split <left|right|up|down> [--surface <surface>]]")
+        }
+        guard let sessionID = sessionIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            throw CLIError(message: "ssh-session-attach requires --session-id <id>")
+        }
+        if paneOpt != nil, splitOpt != nil {
+            throw CLIError(message: "ssh-session-attach: --pane cannot be combined with --split")
+        }
+
+        let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        let workspaceID = try normalizeWorkspaceHandle(workspaceRaw, client: client)
+        let initialCommand = sshSessionAttachStartupCommand(sessionID: sessionID)
+        var params: [String: Any] = [
+            "initial_command": initialCommand,
+            "remote_pty_session_id": sessionID,
+        ]
+        if let workspaceID {
+            params["workspace_id"] = workspaceID
+        }
+        try applyFocusOption(focusOpt, defaultValue: true, to: &params)
+
+        let payload: [String: Any]
+        if let split = splitOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !split.isEmpty {
+            params["direction"] = split
+            let surfaceID = try normalizeSurfaceHandle(
+                surfaceOpt ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"],
+                client: client,
+                workspaceHandle: workspaceID
+            )
+            if let surfaceID {
+                params["surface_id"] = surfaceID
+            }
+            payload = try client.sendV2(method: "surface.split", params: params)
+        } else {
+            let paneID = try normalizePaneHandle(paneOpt, client: client, workspaceHandle: workspaceID)
+            if let paneID {
+                params["pane_id"] = paneID
+            }
+            payload = try client.sendV2(method: "surface.create", params: params)
+        }
+
+        var output = payload
+        output["session_id"] = sessionID
+        printV2Payload(
+            output,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            fallbackText: v2OKSummary(output, idFormat: idFormat, kinds: ["surface", "pane", "workspace"])
+        )
+    }
+
+    private func sshSessionAttachStartupCommand(sessionID: String) -> String {
+        let quotedSessionID = shellQuote(sessionID)
+        return [
+            "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
+            "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+            "if [ -z \"$cmux_ssh_attach_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for SSH PTY attach.' >&2; exit 127; fi",
+            "if [ -z \"${CMUX_SOCKET_PATH:-}\" ]; then printf '%s\\n' '[cmux] CMUX_SOCKET_PATH is missing for SSH PTY attach.' >&2; exit 1; fi",
+            "if [ -z \"${CMUX_WORKSPACE_ID:-}\" ]; then printf '%s\\n' '[cmux] CMUX_WORKSPACE_ID is missing for SSH PTY attach.' >&2; exit 1; fi",
+            "exec \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --workspace \"$CMUX_WORKSPACE_ID\" --session-id \(quotedSessionID) --attachment-id \"${CMUX_SURFACE_ID:-}\"",
+        ].joined(separator: "\n")
+    }
+
     private func sshSessionTargetParams(
         commandName: String,
         workspaceOpt: String?,
@@ -10725,6 +10808,24 @@ struct CMUXCLI {
               cmux ssh-session-list
               cmux ssh-session-list --workspace workspace:2
               cmux ssh-session-list --all-workspaces
+            """
+        case "ssh-session-attach":
+            return """
+            Usage: cmux ssh-session-attach --session-id <id> [flags]
+
+            Open a terminal surface attached to a persisted cmux ssh PTY session.
+
+            Flags:
+              --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID/current)
+              --session-id <id>           Persisted SSH PTY session ID
+              --pane <id|ref|index>       Target pane for a new surface
+              --split <left|right|up|down> Create a new split instead of a surface
+              --surface <id|ref|index>    Source surface for --split
+              --focus <true|false>        Focus the attached surface (default: true)
+
+            Example:
+              cmux ssh-session-attach --session-id ssh-abc
+              cmux ssh-session-attach --workspace workspace:2 --session-id ssh-abc --split right
             """
         case "ssh-session-cleanup":
             return """
@@ -26761,6 +26862,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
+          ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>] [--focus <true|false>]

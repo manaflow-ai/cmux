@@ -1042,6 +1042,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
     var resumeBinding: SurfaceResumeBindingSnapshot?
+    var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
@@ -1052,6 +1053,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
@@ -1059,6 +1061,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
         self.resumeBinding = resumeBinding
+        self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
     }
 }

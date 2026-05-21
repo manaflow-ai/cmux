@@ -511,6 +511,7 @@ extension Workspace {
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
                 resumeBinding: resumeBinding,
+                remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
@@ -936,6 +937,9 @@ extension Workspace {
                 restoredAgentResumeInput != nil ||
                 (restoredBindingInput != nil && resumeBinding?.isAgentHookBinding == true)
             )
+            let restoredRemotePTYSessionID = normalizedRemotePTYSessionID(snapshot.terminal?.remotePTYSessionID)
+                .flatMap { remoteConfiguration?.preserveAfterTerminalExit == true ? $0 : nil }
+            let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map(Self.sshPTYAttachStartupCommand)
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -959,16 +963,17 @@ extension Workspace {
             }
 #endif
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
-                for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
+                for: restoredRemotePTYAttachCommand == nil && shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
             )
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: localWorkingDirectory,
-                initialCommand: restoredTmuxStartupScript?.path,
+                initialCommand: restoredRemotePTYAttachCommand ?? restoredTmuxStartupScript?.path,
                 tmuxStartCommand: restoredTmuxStartCommand,
-                initialInput: restoredStartupInput,
-                startupEnvironment: replayEnvironment
+                initialInput: restoredRemotePTYAttachCommand == nil ? restoredStartupInput : nil,
+                startupEnvironment: replayEnvironment,
+                remotePTYSessionID: restoredRemotePTYSessionID
             ) else {
                 return nil
             }
@@ -977,7 +982,7 @@ extension Workspace {
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
-            let fallbackScrollback = shouldReplayScrollback
+            let fallbackScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
                 ? SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
                 : nil
             if let fallbackScrollback {
@@ -8326,6 +8331,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
     /// Display target of the remote workspace that just disconnected. Set right before
     /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
@@ -10131,6 +10137,7 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        remotePTYSessionIDsByPanelId = remotePTYSessionIDsByPanelId.filter { validSurfaceIds.contains($0.key) }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
@@ -10710,6 +10717,31 @@ final class Workspace: Identifiable, ObservableObject {
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
 
+    private func normalizedRemotePTYSessionID(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func remotePTYSessionIDForSnapshot(panelId: UUID) -> String? {
+        guard remoteConfiguration?.preserveAfterTerminalExit == true,
+              activeRemoteTerminalSurfaceIds.contains(panelId) else {
+            return nil
+        }
+        return normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId])
+            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+    }
+
+    nonisolated static func defaultSSHPTYSessionID(workspaceId: UUID, panelId: UUID) -> String {
+        "ssh-\(workspaceId.uuidString)-\(panelId.uuidString)"
+    }
+
+    nonisolated static func sshPTYAttachStartupCommand(sessionID: String) -> String {
+        SSHPTYAttachStartupCommandBuilder.command(sessionID: sessionID)
+    }
+
     private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {
         guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
         if remoteConfiguration?.preserveAfterTerminalExit == true {
@@ -11269,7 +11301,8 @@ final class Workspace: Identifiable, ObservableObject {
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -11354,6 +11387,9 @@ final class Workspace: Identifiable, ObservableObject {
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if let remotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID) {
+            remotePTYSessionIDsByPanelId[newPanel.id] = remotePTYSessionID
+        }
         if remoteTerminalStartupCommand != nil {
             trackRemoteTerminalSurface(newPanel.id)
         }
@@ -11388,6 +11424,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
             if remoteTerminalStartupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
@@ -11452,7 +11489,8 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
-        startupEnvironment: [String: String] = [:]
+        startupEnvironment: [String: String] = [:],
+        remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -11487,6 +11525,9 @@ final class Workspace: Identifiable, ObservableObject {
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if let remotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID) {
+            remotePTYSessionIDsByPanelId[newPanel.id] = remotePTYSessionID
+        }
         if remoteTerminalStartupCommand != nil {
             trackRemoteTerminalSurface(newPanel.id)
         }
@@ -11503,6 +11544,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             if remoteTerminalStartupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }

@@ -5680,7 +5680,8 @@ class TabManager: ObservableObject {
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        remotePTYSessionID: String? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
@@ -5691,7 +5692,8 @@ class TabManager: ObservableObject {
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
-            initialDividerPosition: initialDividerPosition
+            initialDividerPosition: initialDividerPosition,
+            remotePTYSessionID: remotePTYSessionID
         )?.id
     }
 

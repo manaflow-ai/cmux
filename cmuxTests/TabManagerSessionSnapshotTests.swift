@@ -204,6 +204,77 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
+    func testSessionSnapshotRestoresPersistentSSHPTYSessionForReattach() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Persistent SSH")
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64003,
+            relayID: "relay-persist-test",
+            relayToken: String(repeating: "e", count: 64),
+            localSocketPath: "/tmp/cmux-persist-test.sock",
+            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+            preserveAfterTerminalExit: true
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
+        let expectedSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: remoteWorkspace.id,
+            panelId: remotePanelId
+        )
+
+        let snapshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-pty-session-restore-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: snapshotURL) }
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: manager.sessionSnapshot(includeScrollback: false),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let persistedTabManager = try XCTUnwrap(
+            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+        )
+        let persistedWorkspace = try XCTUnwrap(
+            persistedTabManager.workspaces.first { $0.customTitle == "Persistent SSH" }
+        )
+        XCTAssertEqual(persistedWorkspace.remote?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(
+            persistedWorkspace.panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID,
+            expectedSessionID
+        )
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(persistedTabManager)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Persistent SSH" })
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertTrue(restoredWorkspace.remoteConfiguration?.terminalStartupCommand?.contains("ssh-pty-attach") == true)
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        let restoredInitialCommand = try XCTUnwrap(
+            restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
+        )
+        XCTAssertTrue(restoredInitialCommand.contains("ssh-pty-attach"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)
+
+        let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(roundTrip.panels.first?.terminal?.remotePTYSessionID, expectedSessionID)
+    }
+
     func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
@@ -211,6 +282,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             port: 99_999,
             identityFile: nil,
             sshOptions: [],
+            preserveAfterTerminalExit: nil,
             skipDaemonBootstrap: nil
         )
 

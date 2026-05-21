@@ -58,6 +58,7 @@ nonisolated struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable 
     var port: Int?
     var identityFile: String?
     var sshOptions: [String]
+    var preserveAfterTerminalExit: Bool?
     var skipDaemonBootstrap: Bool?
 }
 
@@ -75,6 +76,44 @@ struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
             String(expiresAtUnix),
         ]
             .joined(separator: "\u{1f}")
+    }
+}
+
+nonisolated enum SSHPTYAttachStartupCommandBuilder {
+    static func command(sessionID: String? = nil) -> String {
+        var lines = [
+            "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
+            "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+            "if [ -z \"$cmux_ssh_attach_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for SSH PTY attach.' >&2; exit 127; fi",
+            "if [ -z \"${CMUX_SOCKET_PATH:-}\" ]; then printf '%s\\n' '[cmux] CMUX_SOCKET_PATH is missing for SSH PTY attach.' >&2; exit 1; fi",
+            "if [ -z \"${CMUX_WORKSPACE_ID:-}\" ]; then printf '%s\\n' '[cmux] CMUX_WORKSPACE_ID is missing for SSH PTY attach.' >&2; exit 1; fi",
+        ]
+        if let sessionID = normalized(sessionID) {
+            lines.append("cmux_ssh_attach_session_id=\(shellQuote(sessionID))")
+        } else {
+            lines += [
+                "if [ -z \"${CMUX_SURFACE_ID:-}\" ]; then printf '%s\\n' '[cmux] CMUX_SURFACE_ID is missing for SSH PTY attach.' >&2; exit 1; fi",
+                "cmux_ssh_attach_session_id=\"ssh-$CMUX_WORKSPACE_ID-$CMUX_SURFACE_ID\"",
+            ]
+        }
+        lines.append("exec \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
+        if value.range(of: safePattern, options: .regularExpression) != nil {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 }
 
@@ -176,6 +215,7 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
+        let preservePTYSession = preserveAfterTerminalExit == true
         return WorkspaceRemoteConfiguration(
             transport: transport,
             destination: normalizedDestination,
@@ -187,12 +227,13 @@ extension SessionRemoteWorkspaceSnapshot {
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
-            terminalStartupCommand: sshReconnectCommand(
+            terminalStartupCommand: preservePTYSession ? SSHPTYAttachStartupCommandBuilder.command() : sshReconnectCommand(
                 destination: normalizedDestination,
                 port: normalizedPort
             ),
             foregroundAuthToken: nil,
             daemonWebSocketEndpoint: nil,
+            preserveAfterTerminalExit: preservePTYSession,
             skipDaemonBootstrap: skipDaemonBootstrap == true
         )
     }
@@ -252,6 +293,7 @@ extension WorkspaceRemoteConfiguration {
             port: port,
             identityFile: WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile),
             sshOptions: WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions),
+            preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
     }

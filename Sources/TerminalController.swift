@@ -7119,6 +7119,7 @@ class TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        let remotePTYSessionID = v2OptionalTrimmedRawString(params, "remote_pty_session_id")
         let parsedInitialDivider = v2InitialDividerPosition(params)
         if let error = parsedInitialDivider.error {
             return error
@@ -7176,7 +7177,8 @@ class TerminalController {
                     workingDirectory: workingDirectory,
                     initialCommand: initialCommand,
                     tmuxStartCommand: tmuxStartCommand,
-                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
+                    remotePTYSessionID: remotePTYSessionID
                 )
             }
 
@@ -7211,6 +7213,7 @@ class TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        let remotePTYSessionID = v2OptionalTrimmedRawString(params, "remote_pty_session_id")
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -7252,7 +7255,8 @@ class TerminalController {
                     focus: focus,
                     workingDirectory: workingDirectory,
                     initialCommand: initialCommand,
-                    tmuxStartCommand: tmuxStartCommand
+                    tmuxStartCommand: tmuxStartCommand,
+                    remotePTYSessionID: remotePTYSessionID
                 )?.id
             }
 

@@ -664,6 +664,73 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(state.snapshot().count, 1)
     }
 
+    func testSSHSessionAttachCreatesSurfaceWithPersistedPTYSessionID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshattach")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "ssh-existing-session"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "surface.create")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+            XCTAssertEqual(params["remote_pty_session_id"] as? String, sessionId)
+            XCTAssertEqual(params["focus"] as? Bool, true)
+            let initialCommand = params["initial_command"] as? String ?? ""
+            XCTAssertTrue(initialCommand.contains("ssh-pty-attach"), initialCommand)
+            XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
+            XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
+            XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspace_id": workspaceId,
+                    "workspace_ref": "workspace:1",
+                    "pane_id": "44444444-4444-4444-4444-444444444444",
+                    "pane_ref": "pane:1",
+                    "surface_id": surfaceId,
+                    "surface_ref": "surface:1",
+                    "type": "terminal",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-session-attach",
+                "--workspace", workspaceId,
+                "--session-id", sessionId,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(state.snapshot().count, 1)
+    }
+
     func testRightSidebarCLIResolvesWindowAndWorkspaceHandlesBeforeForwarding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rs-target")
