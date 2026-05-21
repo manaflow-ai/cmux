@@ -10888,6 +10888,906 @@
         }
       }
     },
+    "browser.contextMenu.screenshotPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot Page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページのスクリーンショット"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截取页面截图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擷取頁面截圖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페이지 스크린샷"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតអេក្រង់ទំព័រ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seite als Screenshot aufnehmen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar página"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture d’écran de la page"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot pagina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tag skærmbillede af side"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrzut ekranu strony"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок страницы"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimi ekran stranice"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التقاط لقطة شاشة للصفحة"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta skjermbilde av side"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar página"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถ่ายภาพหน้าจอหน้าเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sayfanın ekran görüntüsünü al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок сторінки"
+          }
+        }
+      }
+    },
+    "browser.contextMenu.screenshotSection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot Section"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲のスクリーンショット"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截取区域截图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擷取區域截圖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "영역 스크린샷"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតអេក្រង់ផ្នែក"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich als Screenshot aufnehmen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar sección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture d’écran de la section"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot sezione"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tag skærmbillede af område"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrzut ekranu sekcji"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок области"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimi ekran odjeljka"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التقاط لقطة شاشة للقسم"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta skjermbilde av område"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar seção"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถ่ายภาพหน้าจอเฉพาะส่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölümün ekran görüntüsünü al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок області"
+          }
+        }
+      }
+    },
+    "browser.screenshotPage.copy.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ لقطة شاشة الصفحة إلى الحافظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimi stranicu u međuspremnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmbillede af side til udklipsholder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seiten-Screenshot in die Zwischenablage"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot Page to Clipboard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar página al portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture de la page vers le presse-papiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot pagina negli appunti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページのスクリーンショットをクリップボードへ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតអេក្រង់ទំព័រទៅក្តារតម្បៀតខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페이지 스크린샷을 클립보드로 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermbilde av side til utklippstavlen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrzut ekranu strony do schowka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar página para a área de transferência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок страницы в буфер обмена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถ่ายภาพหน้าจอหน้าเว็บไปยังคลิปบอร์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sayfanın ekran görüntüsünü panoya kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок сторінки до буфера обміну"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将页面截图复制到剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將頁面截圖複製到剪貼簿"
+          }
+        }
+      }
+    },
+    "browser.screenshotPage.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم النسخ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー済み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចម្លង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skopiowano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировано"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopyalandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопійовано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已複製"
+          }
+        }
+      }
+    },
+    "browser.screenshotPage.copied.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم نسخ لقطة الشاشة إلى الحافظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimak ekrana je kopiran u međuspremnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmbillede kopieret til udklipsholder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot in die Zwischenablage kopiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot copied to clipboard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captura de pantalla copiada al portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture d’écran copiée dans le presse-papiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot copiato negli appunti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリーンショットをクリップボードにコピーしました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចម្លងរូបថតអេក្រង់ទៅក្តារតម្បៀតខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크린샷이 클립보드에 복사됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermbilde kopiert til utklippstavlen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrzut ekranu skopiowany do schowka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captura de tela copiada para a área de transferência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок экрана скопирован в буфер обмена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกภาพหน้าจอไปยังคลิปบอร์ดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran görüntüsü panoya kopyalandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок екрана скопійовано до буфера обміну"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截图已复制到剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截圖已複製到剪貼簿"
+          }
+        }
+      }
+    },
+    "browser.screenshotSection.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقر واسحب للتحديد. Esc للإلغاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknite i povucite za odabir. Esc otkazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klik og træk for at vælge. Esc annullerer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Auswählen klicken und ziehen. Esc bricht ab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click and drag to select. Esc cancels."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz clic y arrastra para seleccionar. Esc cancela."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cliquez et faites glisser pour sélectionner. Échap annule."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fai clic e trascina per selezionare. Esc annulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグで選択。Escでキャンセル。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចុចហើយអូសដើម្បីជ្រើស។ Esc បោះបង់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택하려면 클릭하고 드래그하세요. Esc 취소."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klikk og dra for å velge. Esc avbryter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknij i przeciągnij, aby zaznaczyć. Esc anuluje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clique e arraste para selecionar. Esc cancela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите и перетащите, чтобы выбрать. Esc отменяет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คลิกแล้วลากเพื่อเลือก กด Esc เพื่อยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçmek için tıklayıp sürükleyin. Esc iptal eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Клацніть і перетягніть, щоб вибрати. Esc скасовує."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击并拖动以选择。按 Esc 取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按一下並拖移以選取。按 Esc 取消。"
+          }
+        }
+      }
+    },
+    "browser.screenshot.error.captureAreaTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Seite ist zu groß, um sie zu erfassen."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The page is too large to capture."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La página es demasiado grande para capturarla."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La page est trop grande pour être capturée."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La pagina è troppo grande per essere acquisita."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ページが大きすぎるためキャプチャできません。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "페이지가 너무 커서 캡처할 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Siden er for stor til å fanges."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A página é grande demais para capturar."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Страница слишком велика для снимка экрана."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Сторінка завелика для знімка екрана."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "页面太大，无法捕获。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "頁面太大，無法擷取。"}}
+      }
+    },
+    "browser.screenshot.error.emptySnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Es wurde kein Screenshot zurückgegeben."}},
+        "en": {"stringUnit": {"state": "translated", "value": "No screenshot was returned."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se devolvió ninguna captura de pantalla."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aucune capture d’écran n’a été renvoyée."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Non è stato restituito alcuno screenshot."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スクリーンショットが返されませんでした。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "스크린샷이 반환되지 않았습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Det ble ikke returnert noe skjermbilde."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Nenhuma captura de tela foi retornada."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Снимок экрана не был возвращён."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Знімок екрана не було повернуто."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "未返回屏幕截图。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "未傳回螢幕截圖。"}}
+      }
+    },
+    "browser.screenshot.error.invalidImageRepresentation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Das Screenshot-Bild konnte nicht codiert werden."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The screenshot image could not be encoded."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo codificar la imagen de la captura de pantalla."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’image de la capture d’écran n’a pas pu être encodée."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Non è stato possibile codificare l’immagine dello screenshot."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スクリーンショット画像をエンコードできませんでした。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "스크린샷 이미지를 인코딩할 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skjermbildet kunne ikke kodes."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível codificar a imagem da captura de tela."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось закодировать изображение снимка экрана."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося закодувати зображення знімка екрана."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法编码屏幕截图图像。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法編碼螢幕截圖影像。"}}
+      }
+    },
+    "browser.screenshot.error.invalidSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Screenshot-Auswahl ist leer oder liegt außerhalb der Browseransicht."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The screenshot selection is empty or outside the browser view."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La selección de captura de pantalla está vacía o fuera de la vista del navegador."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La sélection de capture d’écran est vide ou en dehors de la vue du navigateur."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La selezione dello screenshot è vuota o fuori dalla vista del browser."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スクリーンショットの選択範囲が空か、ブラウザ表示の外側です。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "스크린샷 선택 영역이 비어 있거나 브라우저 보기 밖에 있습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skjermbildeutvalget er tomt eller utenfor nettleservisningen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A seleção da captura de tela está vazia ou fora da visualização do navegador."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Область снимка экрана пуста или находится за пределами области просмотра браузера."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Область знімка екрана порожня або поза межами подання браузера."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "屏幕截图选择区域为空或位于浏览器视图之外。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "螢幕截圖選取範圍為空或位於瀏覽器檢視之外。"}}
+      }
+    },
+    "browser.screenshot.error.pasteboardWriteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Screenshot konnte nicht in die Zwischenablage geschrieben werden."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The screenshot could not be written to the clipboard."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo escribir la captura de pantalla en el portapapeles."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La capture d’écran n’a pas pu être écrite dans le presse-papiers."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Non è stato possibile scrivere lo screenshot negli appunti."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スクリーンショットをクリップボードに書き込めませんでした。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "스크린샷을 클립보드에 쓸 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skjermbildet kunne ikke skrives til utklippstavlen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível gravar a captura de tela na área de transferência."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось записать снимок экрана в буфер обмена."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося записати знімок екрана до буфера обміну."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法将屏幕截图写入剪贴板。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法將螢幕截圖寫入剪貼簿。"}}
+      }
+    },
+    "browser.screenshot.error.webContentMetricsUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Seitenabmessungen konnten nicht gelesen werden."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The page dimensions could not be read."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudieron leer las dimensiones de la página."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les dimensions de la page n’ont pas pu être lues."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Non è stato possibile leggere le dimensioni della pagina."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ページの寸法を読み取れませんでした。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "페이지 크기를 읽을 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Sidedimensjonene kunne ikke leses."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível ler as dimensões da página."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось прочитать размеры страницы."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося прочитати розміри сторінки."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法读取页面尺寸。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法讀取頁面尺寸。"}}
+      }
+    },
     "browser.dialog.pageSays": {
       "extractionState": "manual",
       "localizations": {
