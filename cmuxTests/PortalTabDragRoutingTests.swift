@@ -377,6 +377,22 @@ final class PortalTabDragRoutingTests: XCTestCase {
                 eventType: .leftMouseUp
             )
         )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType, DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .leftMouseUp
+            )
+        )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView(frame: .zero).registeredDraggedTypes.contains(
+                DragOverlayRoutingPolicy.filePreviewTransferType
+            )
+        )
+        XCTAssertTrue(
+            FileDropOverlayView(frame: .zero).registeredDraggedTypes.contains(
+                DragOverlayRoutingPolicy.filePreviewTransferType
+            )
+        )
 
         let externalPayloads: [[NSPasteboard.PasteboardType]] = [
             [.URL],

@@ -103149,6 +103149,74 @@
         }
       }
     },
+    "filePreview.remote.error.downloadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to download the remote file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルをダウンロードできません。"
+          }
+        }
+      }
+    },
+    "filePreview.remote.error.downloadFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to download the remote file: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルをダウンロードできません: %@"
+          }
+        }
+      }
+    },
+    "filePreview.remote.error.sshLaunchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to start SSH for remote preview: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートプレビュー用のSSHを開始できません: %@"
+          }
+        }
+      }
+    },
+    "filePreview.remote.loading.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading remote file..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルを読み込み中..."
+          }
+        }
+      }
+    },
     "filePreview.openExternally": {
       "extractionState": "manual",
       "localizations": {

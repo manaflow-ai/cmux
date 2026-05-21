@@ -58,6 +58,65 @@ extension Workspace {
     }
 
     @discardableResult
+    func openFileSurfaces(
+        inPane paneId: PaneID,
+        entries: [FilePreviewDragEntry],
+        focus: Bool? = nil,
+        targetIndex: Int? = nil,
+        reuseExisting: Bool = false
+    ) -> [any Panel] {
+        let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
+        var nextIndex = targetIndex
+        var openedPanels: [any Panel] = []
+
+        for entry in entries {
+            let panel: (any Panel)?
+            if entry.remoteSource == nil, MarkdownPanelFileLinkResolver.isMarkdownPathLike(entry.filePath) {
+                if reuseExisting {
+                    panel = openOrFocusMarkdownSurface(
+                        inPane: paneId,
+                        filePath: entry.filePath,
+                        focus: shouldFocusNewTabs
+                    )
+                } else {
+                    panel = newMarkdownSurface(
+                        inPane: paneId,
+                        filePath: entry.filePath,
+                        focus: shouldFocusNewTabs,
+                        targetIndex: nextIndex
+                    )
+                }
+            } else if reuseExisting {
+                panel = openOrFocusFilePreviewSurface(
+                    inPane: paneId,
+                    filePath: entry.filePath,
+                    displayPath: entry.displayPath,
+                    remoteSource: entry.remoteSource,
+                    focus: shouldFocusNewTabs
+                )
+            } else {
+                panel = newFilePreviewSurface(
+                    inPane: paneId,
+                    filePath: entry.filePath,
+                    displayPath: entry.displayPath,
+                    remoteSource: entry.remoteSource,
+                    focus: shouldFocusNewTabs,
+                    targetIndex: nextIndex
+                )
+            }
+
+            if let panel {
+                openedPanels.append(panel)
+                if let index = nextIndex {
+                    nextIndex = index + 1
+                }
+            }
+        }
+
+        return openedPanels
+    }
+
+    @discardableResult
     func openFilePreviewSurfaces(
         inPane paneId: PaneID,
         filePaths: [String],

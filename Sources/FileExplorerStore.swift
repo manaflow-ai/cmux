@@ -284,6 +284,7 @@ enum FileExplorerWorkspaceRoot: Equatable {
         workspaceId: UUID,
         connection: SSHFileExplorerConnection,
         displayTarget: String,
+        preferredRootPath: String?,
         isAvailable: Bool,
         unavailableDetail: String?
     )
@@ -683,11 +684,12 @@ final class FileExplorerStore: ObservableObject {
             }
             setRootPath(path)
 
-        case .remoteSSH(let workspaceId, let connection, let displayTarget, let isAvailable, let unavailableDetail):
+        case .remoteSSH(let workspaceId, let connection, let displayTarget, let preferredRootPath, let isAvailable, let unavailableDetail):
             applyRemoteSSHWorkspaceRoot(
                 workspaceId: workspaceId,
                 connection: connection,
                 displayTarget: displayTarget,
+                preferredRootPath: preferredRootPath,
                 isAvailable: isAvailable,
                 unavailableDetail: unavailableDetail,
                 sshTransport: sshTransport
@@ -788,9 +790,10 @@ final class FileExplorerStore: ObservableObject {
         guard !rootPath.isEmpty, provider != nil else { return }
         isRootLoading = true
         let path = rootPath
+        let generation = contentRevision
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.loadChildren(for: nil, at: path)
+            await self.loadChildren(for: nil, at: path, generation: generation)
         }
         loadTasks[rootPath] = task
     }
@@ -803,9 +806,10 @@ final class FileExplorerStore: ObservableObject {
             node.error = nil
             objectWillChange.send()
             let nodePath = node.path
+            let generation = contentRevision
             let task = Task { [weak self] in
                 guard let self else { return }
-                await self.loadChildren(for: node, at: nodePath)
+                await self.loadChildren(for: node, at: nodePath, generation: generation)
             }
             loadTasks[node.path] = task
         }
@@ -862,7 +866,7 @@ final class FileExplorerStore: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
                 // Silent prefetch: don't show loading indicator
-                await self.loadChildren(for: node, at: path, silent: true)
+                await self.loadChildren(for: node, at: path, silent: true, generation: self.contentRevision)
             }
         }
         prefetchWorkItems[path] = workItem
@@ -887,7 +891,13 @@ final class FileExplorerStore: ObservableObject {
     // MARK: - Private
 
     @MainActor
-    private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
+    private func loadChildren(
+        for parentNode: FileExplorerNode?,
+        at path: String,
+        silent: Bool = false,
+        generation: Int
+    ) async {
+        guard generation == contentRevision else { return }
         guard let provider else { return }
 
         if !silent {
@@ -899,6 +909,7 @@ final class FileExplorerStore: ObservableObject {
         do {
             let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
             try Task.checkCancellation()
+            guard generation == contentRevision else { return }
             let children = entries.map { entry in
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
                 nodesByPath[entry.path] = node
@@ -936,9 +947,10 @@ final class FileExplorerStore: ObservableObject {
                 child.isLoading = true
                 objectWillChange.send()
                 let childPath = child.path
+                let generation = contentRevision
                 let childTask = Task { [weak self] in
                     guard let self else { return }
-                    await self.loadChildren(for: child, at: childPath)
+                    await self.loadChildren(for: child, at: childPath, generation: generation)
                 }
                 loadTasks[child.path] = childTask
             }
@@ -976,6 +988,7 @@ final class FileExplorerStore: ObservableObject {
         workspaceId: UUID,
         connection: SSHFileExplorerConnection,
         displayTarget: String,
+        preferredRootPath: String?,
         isAvailable: Bool,
         unavailableDetail: String?,
         sshTransport: SSHFileExplorerTransport
@@ -1019,6 +1032,23 @@ final class FileExplorerStore: ObservableObject {
             return
         }
 
+        let normalizedPreferredRoot = preferredRootPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalizedPreferredRoot,
+           normalizedPreferredRoot.hasPrefix("/") {
+            setRootStatusMessage(nil)
+            setRootPath(normalizedPreferredRoot)
+            if sshProvider.homePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                resolveRemoteHome(
+                    workspaceId: workspaceId,
+                    provider: sshProvider,
+                    connection: connection,
+                    shouldChangeRootPath: false
+                )
+            }
+            return
+        }
+
         let currentHomePath = sshProvider.homePath
         if !currentHomePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             setRootStatusMessage(nil)
@@ -1029,14 +1059,16 @@ final class FileExplorerStore: ObservableObject {
         resolveRemoteHome(
             workspaceId: workspaceId,
             provider: sshProvider,
-            connection: connection
+            connection: connection,
+            shouldChangeRootPath: true
         )
     }
 
     private func resolveRemoteHome(
         workspaceId: UUID,
         provider sshProvider: SSHFileExplorerProvider,
-        connection: SSHFileExplorerConnection
+        connection: SSHFileExplorerConnection,
+        shouldChangeRootPath: Bool
     ) {
         let resolutionKey = [
             workspaceId.uuidString,
@@ -1049,8 +1081,10 @@ final class FileExplorerStore: ObservableObject {
         guard remoteHomeResolutionKey != resolutionKey else { return }
         remoteHomeResolutionTask?.cancel()
         remoteHomeResolutionKey = resolutionKey
-        setRootPath("")
-        setRootStatusMessage(String(localized: "fileExplorer.status.sshResolvingHome", defaultValue: "Resolving remote home..."))
+        if shouldChangeRootPath {
+            setRootPath("")
+            setRootStatusMessage(String(localized: "fileExplorer.status.sshResolvingHome", defaultValue: "Resolving remote home..."))
+        }
 
         remoteHomeResolutionTask = Task { [weak self, weak sshProvider] in
             guard let sshProvider else { return }
@@ -1064,8 +1098,10 @@ final class FileExplorerStore: ObservableObject {
                     self.remoteHomeResolutionKey = nil
                     self.remoteHomeResolutionTask = nil
                     sshProvider.updateAvailability(true, homePath: homePath)
-                    self.setRootStatusMessage(nil)
-                    self.setRootPath(homePath)
+                    if shouldChangeRootPath {
+                        self.setRootStatusMessage(nil)
+                        self.setRootPath(homePath)
+                    }
                 }
             } catch {
                 await MainActor.run { [weak self, weak sshProvider] in
@@ -1075,13 +1111,15 @@ final class FileExplorerStore: ObservableObject {
                           self.provider === sshProvider else { return }
                     self.remoteHomeResolutionKey = nil
                     self.remoteHomeResolutionTask = nil
-                    self.setRootPath("")
-                    self.setRootStatusMessage(
-                        String(
-                            localized: "fileExplorer.status.sshHomeFailed",
-                            defaultValue: "Unable to resolve SSH home: \(error.localizedDescription)"
+                    if shouldChangeRootPath {
+                        self.setRootPath("")
+                        self.setRootStatusMessage(
+                            String(
+                                localized: "fileExplorer.status.sshHomeFailed",
+                                defaultValue: "Unable to resolve SSH home: \(error.localizedDescription)"
+                            )
                         )
-                    )
+                    }
                 }
             }
         }

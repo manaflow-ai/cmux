@@ -11110,6 +11110,8 @@ final class Workspace: Identifiable, ObservableObject {
     func openOrFocusFilePreviewSurface(
         inPane paneId: PaneID,
         filePath: String,
+        displayPath: String? = nil,
+        remoteSource: RemoteFilePreviewSource? = nil,
         focus: Bool = true
     ) -> FilePreviewPanel? {
         let canonical = (filePath as NSString).resolvingSymlinksInPath
@@ -11123,7 +11125,13 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return newFilePreviewSurface(
+            inPane: paneId,
+            filePath: filePath,
+            displayPath: displayPath,
+            remoteSource: remoteSource,
+            focus: focus
+        )
     }
 
     @discardableResult
@@ -11157,6 +11165,8 @@ final class Workspace: Identifiable, ObservableObject {
     func newFilePreviewSurface(
         inPane paneId: PaneID,
         filePath: String,
+        displayPath: String? = nil,
+        remoteSource: RemoteFilePreviewSource? = nil,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> FilePreviewPanel? {
@@ -11164,7 +11174,12 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = FilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            displayPath: displayPath,
+            remoteSource: remoteSource
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 
@@ -11278,9 +11293,16 @@ final class Workspace: Identifiable, ObservableObject {
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
-        filePath: String
+        filePath: String,
+        displayPath: String? = nil,
+        remoteSource: RemoteFilePreviewSource? = nil
     ) -> FilePreviewPanel? {
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = FilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            displayPath: displayPath,
+            remoteSource: remoteSource
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 
@@ -13479,7 +13501,7 @@ final class Workspace: Identifiable, ObservableObject {
         case .insert(let paneId, let index):
             return !openFileSurfaces(
                 inPane: paneId,
-                filePaths: [entry.filePath],
+                entries: [entry],
                 focus: true,
                 targetIndex: index
             ).isEmpty
@@ -13488,7 +13510,7 @@ final class Workspace: Identifiable, ObservableObject {
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
-                filePath: entry.filePath
+                entry: entry
             ) != nil
         }
     }
@@ -13554,6 +13576,31 @@ final class Workspace: Identifiable, ObservableObject {
             orientation: orientation,
             insertFirst: insertFirst,
             filePath: filePath
+        )
+    }
+
+    @discardableResult
+    private func splitPaneWithFileSurface(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        entry: FilePreviewDragEntry
+    ) -> (any Panel)? {
+        if entry.remoteSource == nil, MarkdownPanelFileLinkResolver.isMarkdownPathLike(entry.filePath) {
+            return splitPaneWithMarkdown(
+                targetPane: paneId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                filePath: entry.filePath
+            )
+        }
+        return splitPaneWithFilePreview(
+            targetPane: paneId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            filePath: entry.filePath,
+            displayPath: entry.displayPath,
+            remoteSource: entry.remoteSource
         )
     }
 

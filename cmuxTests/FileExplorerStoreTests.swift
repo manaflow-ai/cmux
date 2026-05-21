@@ -187,6 +187,7 @@ final class FileExplorerStoreTests: XCTestCase {
                 workspaceId: UUID(),
                 connection: connection,
                 displayTarget: "dev@ubuntu-host:2222",
+                preferredRootPath: nil,
                 isAvailable: true,
                 unavailableDetail: nil
             ),
@@ -203,6 +204,40 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:2222:/home/dev")
         XCTAssertEqual(transport.resolvedHomeConnections, [connection])
         XCTAssertEqual(transport.listedPaths, ["/home/dev"])
+    }
+
+    func testRemoteWorkspaceRootUsesReportedTerminalDirectoryWhenAvailable() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/home/dev/project"] = .success([
+            FileExplorerEntry(name: "README.md", path: "/home/dev/project/README.md", isDirectory: false),
+        ])
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@ubuntu-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: []
+        )
+
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: connection,
+                displayTarget: "dev@ubuntu-host",
+                preferredRootPath: "/home/dev/project",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("reported remote cwd loaded") {
+            store.rootPath == "/home/dev/project" &&
+                store.rootNodes.map(\.name) == ["README.md"]
+        }
+
+        XCTAssertEqual(store.rootPath, "/home/dev/project")
+        XCTAssertEqual(transport.listedPaths, ["/home/dev/project"])
     }
 
     func testSwitchingFromLocalToRemoteRepointsTreeToRemoteHome() async throws {
@@ -233,6 +268,7 @@ final class FileExplorerStoreTests: XCTestCase {
                     sshOptions: []
                 ),
                 displayTarget: "dev@ubuntu-host",
+                preferredRootPath: nil,
                 isAvailable: true,
                 unavailableDetail: nil
             ),
@@ -268,6 +304,7 @@ final class FileExplorerStoreTests: XCTestCase {
                     sshOptions: []
                 ),
                 displayTarget: "dev@ubuntu-host",
+                preferredRootPath: nil,
                 isAvailable: false,
                 unavailableDetail: nil
             ),

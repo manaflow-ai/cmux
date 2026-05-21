@@ -86,14 +86,14 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         }
     }
 
-    func openFilePreview(_ filePath: String) {
+    func openFilePreview(_ entry: FilePreviewDragEntry) {
         guard let workspace,
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
         _ = workspace.openFileSurfaces(
             inPane: paneId,
-            filePaths: [filePath],
+            entries: [entry],
             focus: true,
             reuseExisting: true
         )
@@ -151,6 +151,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationCancellable = Publishers.MergeMany(
             workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
+            workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
@@ -174,6 +175,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                 return
             }
             let unavailableDetail = workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
+            let preferredRemoteRootPath = workspace.focusedPanelId
+                .flatMap { workspace.panelDirectories[$0] }
+                ?? workspace.panelDirectories.values.first
             store.applyWorkspaceRoot(
                 .remoteSSH(
                     workspaceId: workspace.id,
@@ -184,6 +188,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                         sshOptions: configuration.sshOptions
                     ),
                     displayTarget: configuration.displayTarget,
+                    preferredRootPath: preferredRemoteRootPath,
                     isAvailable: workspace.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )

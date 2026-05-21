@@ -2458,6 +2458,44 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         XCTAssertFalse(FilePreviewDragRegistry.shared.contains(id: dragID))
     }
 
+    func testRemoteRegistrationOmitsLocalFileURLAndPreservesRemoteTextPath() throws {
+        let source = RemoteFilePreviewSource(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@ubuntu-host",
+                port: 2222,
+                identityFile: "/Users/alice/.ssh/id_ed25519",
+                sshOptions: ["ControlPath /tmp/cmux-ssh-%C"]
+            ),
+            displayTarget: "dev@ubuntu-host:2222",
+            remotePath: "/home/dev/movie clip.mp4"
+        )
+        let localPreviewURL = RemoteFilePreviewMaterializer.cacheURL(for: source)
+        let writer = FilePreviewDragPasteboardWriter(
+            filePath: localPreviewURL.path,
+            displayTitle: "movie clip.mp4",
+            displayPath: source.displayPath,
+            remoteSource: source,
+            textInsertionPath: source.remotePath
+        )
+        let dragPasteboard = NSPasteboard(name: .drag)
+
+        let writableTypes = writer.writableTypes(for: dragPasteboard)
+        XCTAssertTrue(writableTypes.contains(DragOverlayRoutingPolicy.filePreviewTransferType))
+        XCTAssertTrue(writableTypes.contains(FilePreviewDragPasteboardWriter.bonsplitTransferType))
+        XCTAssertFalse(writableTypes.contains(.fileURL))
+        XCTAssertNil(writer.pasteboardPropertyList(forType: .fileURL))
+
+        let dragID = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
+        let entry = try XCTUnwrap(FilePreviewDragRegistry.shared.entry(id: dragID))
+        XCTAssertEqual(entry.filePath, localPreviewURL.path)
+        XCTAssertEqual(entry.displayPath, source.displayPath)
+        XCTAssertEqual(entry.remoteSource, source)
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.fileURLs(from: dragPasteboard).map(\.path),
+            [source.remotePath]
+        )
+    }
+
     func testRegistrySweepsExpiredDragEntries() {
         let start = Date(timeIntervalSince1970: 1_000)
         let oldID = FilePreviewDragRegistry.shared.register(

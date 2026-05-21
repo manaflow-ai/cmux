@@ -2171,8 +2171,8 @@ struct ContentView: View {
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             },
-            onOpenFilePreview: { filePath in
-                openFilePreviewFromSidebar(filePath: filePath)
+            onOpenFilePreview: { entry in
+                openFilePreviewFromSidebar(entry: entry)
             },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
@@ -2449,7 +2449,7 @@ struct ContentView: View {
         _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
     }
 
-    private func openFilePreviewFromSidebar(filePath: String) {
+    private func openFilePreviewFromSidebar(entry: FilePreviewDragEntry) {
         guard let workspace = tabManager.selectedWorkspace else { return }
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
@@ -2458,7 +2458,7 @@ struct ContentView: View {
         sidebarSelectionState.selection = .tabs
         _ = workspace.openFileSurfaces(
             inPane: paneId,
-            filePaths: [filePath],
+            entries: [entry],
             focus: true,
             reuseExisting: true
         )
@@ -2495,6 +2495,10 @@ struct ContentView: View {
             )
             #endif
 
+            let preferredRemoteRootPath = tab.focusedPanelId
+                .flatMap { tab.panelDirectories[$0] }
+                ?? tab.panelDirectories.values.first
+
             fileExplorerStore.applyWorkspaceRoot(
                 .remoteSSH(
                     workspaceId: tab.id,
@@ -2505,6 +2509,7 @@ struct ContentView: View {
                         sshOptions: config.sshOptions
                     ),
                     displayTarget: config.displayTarget,
+                    preferredRootPath: preferredRemoteRootPath,
                     isAvailable: tab.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )

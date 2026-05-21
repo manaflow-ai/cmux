@@ -14,9 +14,14 @@ struct PaneDragTransfer: Equatable {
     let tabId: UUID
     let sourcePaneId: UUID
     let sourceProcessId: Int32
+    let kind: String?
 
     var isFromCurrentProcess: Bool {
         sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
+    }
+
+    var isFilePreview: Bool {
+        kind == "filePreview"
     }
 
     static func decode(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
@@ -40,10 +45,12 @@ struct PaneDragTransfer: Equatable {
         }
 
         let sourceProcessId = (json["sourceProcessId"] as? NSNumber)?.int32Value ?? -1
+        let kind = tab["kind"] as? String
         return PaneDragTransfer(
             tabId: tabId,
             sourcePaneId: sourcePaneId,
-            sourceProcessId: sourceProcessId
+            sourceProcessId: sourceProcessId,
+            kind: kind
         )
     }
 }

@@ -224,7 +224,7 @@ enum DragOverlayRoutingPolicy {
               let entry = FilePreviewDragRegistry.shared.entry(id: dragId) else {
             return []
         }
-        return [URL(fileURLWithPath: entry.filePath).standardizedFileURL]
+        return [URL(fileURLWithPath: entry.pathForTextInsertion).standardizedFileURL]
     }
 
     static func textDropOperation(pasteboardTypes: [NSPasteboard.PasteboardType]?) -> NSDragOperation {

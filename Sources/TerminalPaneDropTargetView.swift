@@ -18,6 +18,7 @@ final class PaneDropTargetView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         registerForDraggedTypes(Array(Set([
+            DragOverlayRoutingPolicy.filePreviewTransferType,
             DragOverlayRoutingPolicy.bonsplitTabTransferType,
         ]).union(PasteboardFileURLReader.fileURLPasteboardTypes)))
         setupDropZoneOverlayView()
@@ -140,6 +141,31 @@ final class PaneDropTargetView: NSView {
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess {
             let zone = resolvedZone(for: sender, transfer: transfer, context: dropContext, workspace: workspace)
+            if transfer.isFilePreview {
+                guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId) else {
+#if DEBUG
+                    cmuxDebugLog(
+                        "terminal.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                        "reason=missingFilePreviewEntry tab=\(transfer.tabId.uuidString.prefix(5))"
+                    )
+#endif
+                    return false
+                }
+                let handled = workspace.handleFilePreviewDrop(
+                    entry: entry,
+                    destination: PaneDropRouting.filePreviewDestination(
+                        targetPane: dropContext.paneId,
+                        zone: zone
+                    )
+                )
+#if DEBUG
+                cmuxDebugLog(
+                    "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                    "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone) filePreview=1 handled=\(handled ? 1 : 0)"
+                )
+#endif
+                return handled
+            }
             let handled = workspace.performPortalPaneDrop(
                 tabId: transfer.tabId,
                 sourcePaneId: transfer.sourcePaneId,
@@ -215,6 +241,10 @@ final class PaneDropTargetView: NSView {
 
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess {
+            guard !transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId) else {
+                clearDragState(phase: "\(phase).reject")
+                return []
+            }
             let zone = resolvedZone(
                 for: sender,
                 transfer: transfer,
