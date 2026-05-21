@@ -117,6 +117,52 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         )
     }
 
+    func testBrowserStackDropCanInsertAtStartOfNextSection() throws {
+        let openA = UUID()
+        let openB = UUID()
+        let readingA = UUID()
+        let rows = [
+            ExtensionSidebarBrowserStackDropRow(workspaceId: openA, sectionId: "open"),
+            ExtensionSidebarBrowserStackDropRow(workspaceId: openB, sectionId: "open"),
+            ExtensionSidebarBrowserStackDropRow(workspaceId: readingA, sectionId: "reading")
+        ]
+
+        let move = try XCTUnwrap(ExtensionSidebarBrowserStackDropPlanner.move(
+            draggedWorkspaceId: openB,
+            insertionPosition: 2,
+            orderedRows: rows,
+            preferredTargetSectionId: "reading"
+        ))
+
+        XCTAssertEqual(move.workspaceId, openB)
+        XCTAssertEqual(move.sourceSectionId, "open")
+        XCTAssertEqual(move.targetSectionId, "reading")
+        XCTAssertEqual(move.targetIndex, 0)
+    }
+
+    func testBrowserStackDropBoundaryBottomStaysInPreviousSection() throws {
+        let openA = UUID()
+        let readingA = UUID()
+        let readingB = UUID()
+        let rows = [
+            ExtensionSidebarBrowserStackDropRow(workspaceId: openA, sectionId: "open"),
+            ExtensionSidebarBrowserStackDropRow(workspaceId: readingA, sectionId: "reading"),
+            ExtensionSidebarBrowserStackDropRow(workspaceId: readingB, sectionId: "reading")
+        ]
+
+        let move = try XCTUnwrap(ExtensionSidebarBrowserStackDropPlanner.move(
+            draggedWorkspaceId: readingB,
+            insertionPosition: 1,
+            orderedRows: rows,
+            preferredTargetSectionId: "open"
+        ))
+
+        XCTAssertEqual(move.workspaceId, readingB)
+        XCTAssertEqual(move.sourceSectionId, "reading")
+        XCTAssertEqual(move.targetSectionId, "open")
+        XCTAssertEqual(move.targetIndex, 1)
+    }
+
     private func workspaceDropTargets(
         _ ids: [UUID],
         pinnedIds: Set<UUID> = []

@@ -268,6 +268,42 @@ public struct CmuxClient: Sendable {
     }
 }
 
+public struct CmuxExtensionGitBranchSnapshot: Codable, Equatable, Sendable {
+    public var branch: String
+    public var isDirty: Bool
+
+    public init(branch: String, isDirty: Bool) {
+        self.branch = branch
+        self.isDirty = isDirty
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case branch
+        case isDirty
+    }
+
+    private enum SocketCodingKeys: String, CodingKey {
+        case branch
+        case isDirty = "dirty"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let socketContainer = try decoder.container(keyedBy: SocketCodingKeys.self)
+        branch = try container.decodeIfPresent(String.self, forKey: .branch)
+            ?? socketContainer.decode(String.self, forKey: .branch)
+        isDirty = try container.decodeIfPresent(Bool.self, forKey: .isDirty)
+            ?? socketContainer.decodeIfPresent(Bool.self, forKey: .isDirty)
+            ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(branch, forKey: .branch)
+        try container.encode(isDirty, forKey: .isDirty)
+    }
+}
+
 public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var title: String
@@ -284,6 +320,8 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
     public var latestSubmittedAt: Date?
     public var listeningPorts: [Int]
     public var pullRequestURLs: [String]
+    public var panelDirectories: [String]
+    public var gitBranches: [CmuxExtensionGitBranchSnapshot]
 
     public init(
         id: UUID,
@@ -300,7 +338,9 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
         latestSubmittedMessage: String? = nil,
         latestSubmittedAt: Date? = nil,
         listeningPorts: [Int],
-        pullRequestURLs: [String] = []
+        pullRequestURLs: [String] = [],
+        panelDirectories: [String] = [],
+        gitBranches: [CmuxExtensionGitBranchSnapshot] = []
     ) {
         self.id = id
         self.title = title
@@ -317,6 +357,8 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
         self.latestSubmittedAt = latestSubmittedAt
         self.listeningPorts = listeningPorts
         self.pullRequestURLs = pullRequestURLs
+        self.panelDirectories = panelDirectories
+        self.gitBranches = gitBranches
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -335,6 +377,8 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
         case latestSubmittedAt
         case listeningPorts
         case pullRequestURLs
+        case panelDirectories
+        case gitBranches
     }
 
     private enum SocketCodingKeys: String, CodingKey {
@@ -353,6 +397,8 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
         case latestSubmittedAt = "latest_submitted_at"
         case listeningPorts = "listening_ports"
         case pullRequestURLs = "pull_request_urls"
+        case panelDirectories = "panel_directories"
+        case gitBranches = "git_branches"
     }
 
     public init(from decoder: Decoder) throws {
@@ -397,6 +443,12 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
         pullRequestURLs = try container.decodeIfPresent([String].self, forKey: .pullRequestURLs)
             ?? socketContainer.decodeIfPresent([String].self, forKey: .pullRequestURLs)
             ?? []
+        panelDirectories = try container.decodeIfPresent([String].self, forKey: .panelDirectories)
+            ?? socketContainer.decodeIfPresent([String].self, forKey: .panelDirectories)
+            ?? []
+        gitBranches = try container.decodeIfPresent([CmuxExtensionGitBranchSnapshot].self, forKey: .gitBranches)
+            ?? socketContainer.decodeIfPresent([CmuxExtensionGitBranchSnapshot].self, forKey: .gitBranches)
+            ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -416,6 +468,8 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
         try container.encodeIfPresent(latestSubmittedAt, forKey: .latestSubmittedAt)
         try container.encode(listeningPorts, forKey: .listeningPorts)
         try container.encode(pullRequestURLs, forKey: .pullRequestURLs)
+        try container.encode(panelDirectories, forKey: .panelDirectories)
+        try container.encode(gitBranches, forKey: .gitBranches)
     }
 
     private static func decodeDate(
@@ -549,21 +603,13 @@ public struct CmuxExtensionSidebarReducer {
         case "workspace.renamed":
             guard let workspaceId = resolvedWorkspaceId(frame),
                   let index = next.workspaces.firstIndex(where: { $0.id == workspaceId }),
-                  let title = frame.payload["title"]?.stringValue
-                    ?? frame.payload["custom_title"]?.stringValue
-                    ?? frame.payload["result"]?.objectValue?["title"]?.stringValue
-                    ?? frame.payload["result"]?.objectValue?["custom_title"]?.stringValue
-                    ?? frame.payload["params"]?.objectValue?["title"]?.stringValue
-                    ?? frame.payload["params"]?.objectValue?["custom_title"]?.stringValue else {
+                  let title = renamedWorkspaceTitle(from: frame.payload) else {
                 return next
             }
             next.workspaces[index].title = title
 
         case "workspace.reordered":
-            let order = frame.payload["workspace_ids"]?.uuidArrayValue
-                ?? frame.payload["order"]?.uuidArrayValue
-                ?? frame.payload["ids"]?.uuidArrayValue
-            if let order {
+            if let order = reorderedWorkspaceIds(from: frame.payload) {
                 var orderedIds: [UUID] = []
                 var seenIds: Set<UUID> = []
                 for id in order where seenIds.insert(id).inserted {
@@ -574,6 +620,10 @@ public struct CmuxExtensionSidebarReducer {
                 var known = orderedIds.compactMap { workspacesById[$0] }
                 known.append(contentsOf: next.workspaces.filter { !orderedSet.contains($0.id) })
                 next.workspaces = known
+            } else if let workspaceId = resolvedWorkspaceId(frame),
+                      let index = reorderedWorkspaceIndex(from: frame.payload),
+                      let workspaces = movingWorkspace(next.workspaces, workspaceId: workspaceId, toIndex: index) {
+                next.workspaces = workspaces
             }
 
         case "workspace.prompt.submitted":
@@ -608,6 +658,74 @@ public struct CmuxExtensionSidebarReducer {
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return collapsed.isEmpty ? nil : collapsed
+    }
+
+    private static func reorderedWorkspaceIds(from payload: [String: CmuxExtensionJSONValue]) -> [UUID]? {
+        if let ids = payload["workspace_ids"]?.uuidArrayValue
+            ?? payload["order"]?.uuidArrayValue
+            ?? payload["ids"]?.uuidArrayValue {
+            return ids
+        }
+        if let result = payload["result"]?.objectValue,
+           let ids = reorderedWorkspaceIds(from: result) {
+            return ids
+        }
+        if let params = payload["params"]?.objectValue,
+           let ids = reorderedWorkspaceIds(from: params) {
+            return ids
+        }
+        return nil
+    }
+
+    private static func reorderedWorkspaceIndex(from payload: [String: CmuxExtensionJSONValue]) -> Int? {
+        if let index = payload["index"]?.intValue {
+            return index
+        }
+        if let result = payload["result"]?.objectValue,
+           let index = reorderedWorkspaceIndex(from: result) {
+            return index
+        }
+        if let params = payload["params"]?.objectValue,
+           let index = reorderedWorkspaceIndex(from: params) {
+            return index
+        }
+        return nil
+    }
+
+    private static func movingWorkspace(
+        _ workspaces: [CmuxExtensionWorkspaceSnapshot],
+        workspaceId: UUID,
+        toIndex index: Int
+    ) -> [CmuxExtensionWorkspaceSnapshot]? {
+        var next = workspaces
+        guard let sourceIndex = next.firstIndex(where: { $0.id == workspaceId }) else { return nil }
+        let workspace = next.remove(at: sourceIndex)
+        let insertionIndex = min(max(index, 0), next.count)
+        next.insert(workspace, at: insertionIndex)
+        return next
+    }
+
+    private static func renamedWorkspaceTitle(from payload: [String: CmuxExtensionJSONValue]) -> String? {
+        if let title = payload["title"]?.stringValue {
+            return title
+        }
+        if let title = payload["custom_title"]?.stringValue {
+            return title
+        }
+
+        let result = payload["result"]?.objectValue
+        if let title = result?["title"]?.stringValue {
+            return title
+        }
+        if let title = result?["custom_title"]?.stringValue {
+            return title
+        }
+
+        let params = payload["params"]?.objectValue
+        if let title = params?["title"]?.stringValue {
+            return title
+        }
+        return params?["custom_title"]?.stringValue
     }
 }
 

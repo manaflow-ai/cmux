@@ -16145,16 +16145,17 @@ private struct SidebarTabDropDelegate: DropDelegate {
     }
 }
 
-private struct ExtensionSidebarBrowserStackDropRow: Equatable {
+struct ExtensionSidebarBrowserStackDropRow: Equatable {
     let workspaceId: UUID
     let sectionId: String
 }
 
-private enum ExtensionSidebarBrowserStackDropPlanner {
+enum ExtensionSidebarBrowserStackDropPlanner {
     static func move(
         draggedWorkspaceId: UUID,
         insertionPosition: Int,
-        orderedRows: [ExtensionSidebarBrowserStackDropRow]
+        orderedRows: [ExtensionSidebarBrowserStackDropRow],
+        preferredTargetSectionId: String? = nil
     ) -> CmuxExtensionSidebarWorkspaceMove? {
         guard let sourceIndex = orderedRows.firstIndex(where: { $0.workspaceId == draggedWorkspaceId }) else {
             return nil
@@ -16169,14 +16170,12 @@ private enum ExtensionSidebarBrowserStackDropPlanner {
 
         let targetSectionId: String
         let targetIndex: Int
-        if clampedInsertionPosition < remainingRows.count {
+        if let preferredTargetSectionId {
+            targetSectionId = preferredTargetSectionId
+            targetIndex = remainingRows[..<clampedInsertionPosition].filter { $0.sectionId == targetSectionId }.count
+        } else if clampedInsertionPosition < remainingRows.count {
             let targetRow = remainingRows[clampedInsertionPosition]
-            if clampedInsertionPosition > 0,
-               remainingRows[clampedInsertionPosition - 1].sectionId != targetRow.sectionId {
-                targetSectionId = remainingRows[clampedInsertionPosition - 1].sectionId
-            } else {
-                targetSectionId = targetRow.sectionId
-            }
+            targetSectionId = targetRow.sectionId
             targetIndex = remainingRows[..<clampedInsertionPosition].filter { $0.sectionId == targetSectionId }.count
         } else if let targetRow = remainingRows.last {
             targetSectionId = targetRow.sectionId
@@ -16284,8 +16283,17 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
         ExtensionSidebarBrowserStackDropPlanner.move(
             draggedWorkspaceId: draggedWorkspaceId,
             insertionPosition: insertionPosition,
-            orderedRows: orderedRows
+            orderedRows: orderedRows,
+            preferredTargetSectionId: preferredTargetSectionId()
         )
+    }
+
+    private func preferredTargetSectionId() -> String? {
+        if let indicatorWorkspaceId = dropIndicator?.tabId,
+           let row = orderedRows.first(where: { $0.workspaceId == indicatorWorkspaceId }) {
+            return row.sectionId
+        }
+        return orderedRows.first(where: { $0.workspaceId == targetWorkspaceId })?.sectionId
     }
 }
 

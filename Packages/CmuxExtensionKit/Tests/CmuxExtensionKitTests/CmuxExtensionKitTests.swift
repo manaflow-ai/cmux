@@ -80,7 +80,12 @@ final class CmuxExtensionKitTests: XCTestCase {
               "latest_submitted_message": "ship",
               "latest_submitted_at": "2026-05-21T10:00:00.000Z",
               "listening_ports": [3000],
-              "pull_request_urls": ["https://github.com/manaflow-ai/cmux/pull/4309"]
+              "pull_request_urls": ["https://github.com/manaflow-ai/cmux/pull/4309"],
+              "panel_directories": ["/tmp/cmux/api", "/tmp/cmux/web"],
+              "git_branches": [
+                {"branch": "main", "dirty": true},
+                {"branch": "feature", "dirty": false}
+              ]
             }
           ]
         }
@@ -106,6 +111,11 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertNotNil(workspace.latestSubmittedAt)
         XCTAssertEqual(workspace.listeningPorts, [3000])
         XCTAssertEqual(workspace.pullRequestURLs, ["https://github.com/manaflow-ai/cmux/pull/4309"])
+        XCTAssertEqual(workspace.panelDirectories, ["/tmp/cmux/api", "/tmp/cmux/web"])
+        XCTAssertEqual(workspace.gitBranches, [
+            CmuxExtensionGitBranchSnapshot(branch: "main", isDirty: true),
+            CmuxExtensionGitBranchSnapshot(branch: "feature", isDirty: false)
+        ])
     }
 
     func testWorkspaceSnapshotDecodesSocketShapeDefaults() throws {
@@ -122,6 +132,8 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(workspace.unreadCount, 0)
         XCTAssertEqual(workspace.listeningPorts, [])
         XCTAssertEqual(workspace.pullRequestURLs, [])
+        XCTAssertEqual(workspace.panelDirectories, [])
+        XCTAssertEqual(workspace.gitBranches, [])
     }
 
     func testLegacyPullRequestTabDecodesAsBrowser() throws {
@@ -264,6 +276,41 @@ final class CmuxExtensionKitTests: XCTestCase {
 
         XCTAssertEqual(updated.sequence, 12)
         XCTAssertEqual(updated.workspaces.map(\.id), [second.id, first.id])
+    }
+
+    func testWorkspaceReorderedEventReadsSocketResultIndex() {
+        let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
+        let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
+        let third = workspace(title: "Third", rootPath: nil, projectRootPath: nil)
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 20,
+            selectedWorkspaceId: first.id,
+            workspaces: [first, second, third]
+        )
+        let event = CmuxExtensionEventFrame(
+            sequence: 21,
+            name: "workspace.reordered",
+            category: "workspace",
+            source: "socket.v2",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 6),
+            workspaceId: third.id,
+            payload: [
+                "method": .string("workspace.reorder"),
+                "params": .object([
+                    "workspace_id": .string(third.id.uuidString),
+                    "index": .number(0)
+                ]),
+                "result": .object([
+                    "workspace_id": .string(third.id.uuidString),
+                    "index": .number(0)
+                ])
+            ]
+        )
+
+        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
+
+        XCTAssertEqual(updated.sequence, 21)
+        XCTAssertEqual(updated.workspaces.map(\.id), [third.id, first.id, second.id])
     }
 
     func testWorkspaceCreatedEventAddsWorkspaceProjection() {
