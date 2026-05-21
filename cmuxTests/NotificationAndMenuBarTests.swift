@@ -1340,9 +1340,13 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 1)
         XCTAssertEqual(alertSpy.runModalCallCount, 0)
+        let encodedBundleIdentifier = Bundle.main.bundleIdentifier?
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
         XCTAssertEqual(
             openedURL?.absoluteString,
-            "x-apple.systempreferences:com.apple.preference.notifications"
+            encodedBundleIdentifier.map {
+                "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\($0)"
+            }
         )
     }
 
