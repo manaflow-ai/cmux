@@ -368,7 +368,7 @@ final class MarkdownPanelTests: XCTestCase {
         let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
-        window.orderFrontRegardless()
+        window.contentView?.layoutSubtreeIfNeeded()
         defer {
             webView.navigationDelegate = nil
             window.close()
@@ -455,7 +455,7 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.webView = webView
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
-        window.orderFrontRegardless()
+        window.contentView?.layoutSubtreeIfNeeded()
         defer {
             webView.navigationDelegate = nil
             coordinator.webView = nil
@@ -534,7 +534,7 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.webView = webView
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
-        window.orderFrontRegardless()
+        window.contentView?.layoutSubtreeIfNeeded()
         defer {
             webView.navigationDelegate = nil
             coordinator.webView = nil
@@ -568,7 +568,7 @@ final class MarkdownPanelTests: XCTestCase {
         let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
-        window.orderFrontRegardless()
+        window.contentView?.layoutSubtreeIfNeeded()
         defer {
             webView.navigationDelegate = nil
             window.close()
@@ -611,7 +611,7 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.webView = webView
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
-        window.orderFrontRegardless()
+        window.contentView?.layoutSubtreeIfNeeded()
         defer {
             webView.navigationDelegate = nil
             coordinator.webView = nil
@@ -1297,20 +1297,9 @@ final class MarkdownPanelTests: XCTestCase {
         return (red, green, blue, alpha)
     }
 
-    private static let onePixelPNG: Data = {
-        let image = NSImage(size: NSSize(width: 1, height: 1))
-        image.lockFocus()
-        NSColor.systemBlue.setFill()
-        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
-        image.unlockFocus()
-
-        guard let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else {
-            fatalError("Unable to generate one-pixel PNG fixture")
-        }
-        return png
-    }()
+    private static let onePixelPNG = Data(base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    )!
 
     private static let onePixelPNGDataURI = "data:image/png;base64,\(onePixelPNG.base64EncodedString())"
 }

@@ -2119,10 +2119,7 @@ class TabManager: ObservableObject {
         }
 
         for workspace in tabs {
-            for panelId in trackedWorkspaceGitMetadataPollCandidatePanelIds(
-                in: workspace,
-                activeProbeKeys: []
-            ) {
+            for panelId in workspace.panels.keys {
                 guard let directory = gitProbeDirectory(for: workspace, panelId: panelId) else {
                     continue
                 }

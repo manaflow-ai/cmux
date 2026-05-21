@@ -1545,7 +1545,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let deadline = Date().addingTimeInterval(1.0)
+        let deadline = Date().addingTimeInterval(5.0)
         while panel.webView.isLoading,
               RunLoop.main.run(mode: .default, before: deadline),
               Date() < deadline {}

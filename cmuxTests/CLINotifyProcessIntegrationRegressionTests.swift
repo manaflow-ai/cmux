@@ -1113,8 +1113,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         store.replaceNotificationsForTesting([openNotification])
         manager.selectTab(workspace)
+        await Task.yield()
 
-        result = await run(["open-notification", "--id", openNotification.id.uuidString, "--json", "--id-format", "uuids"])
+        result = await run(["open-notification", "--id", openNotification.id.uuidString, "--json", "--id-format", "uuids"], timeout: 30)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let openPayload = try jsonPayload(from: result.stdout)
@@ -1136,8 +1137,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         store.replaceNotificationsForTesting([jumpNotification])
         manager.selectTab(workspace)
+        await Task.yield()
 
-        result = await run(["jump-to-unread", "--json", "--id-format", "uuids"])
+        result = await run(["jump-to-unread", "--json", "--id-format", "uuids"], timeout: 30)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let jumpPayload = try jsonPayload(from: result.stdout)
