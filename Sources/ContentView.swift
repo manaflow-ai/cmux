@@ -8517,10 +8517,32 @@ struct ContentView: View {
     }
 
     private func handleCommandPalettePendingTextInput(_ text: String) {
-        guard case .commands = commandPaletteMode else { return }
-        let filteredText = text.filter { character in
+        switch commandPaletteMode {
+        case .commands:
+            handleCommandPalettePendingSearchTextInput(text)
+        case .renameInput(let target):
+            handleCommandPalettePendingRenameTextInput(text, target: target)
+        case .workspaceDescriptionInput:
+            handleCommandPalettePendingWorkspaceDescriptionTextInput(text)
+        case .renameConfirm:
+            return
+        }
+    }
+
+    private func commandPalettePendingSingleLineText(from text: String) -> String {
+        text.filter { character in
             !character.isNewline && !character.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
         }
+    }
+
+    private func commandPalettePendingMultilineText(from text: String) -> String {
+        text.filter { character in
+            character.isNewline || !character.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+        }
+    }
+
+    private func handleCommandPalettePendingSearchTextInput(_ text: String) {
+        let filteredText = commandPalettePendingSingleLineText(from: text)
         guard !filteredText.isEmpty else { return }
         let oldQuery = commandPaletteQuery
         commandPaletteQuery.append(contentsOf: filteredText)
@@ -8542,6 +8564,29 @@ struct ContentView: View {
         scheduleCommandPaletteResultsRefresh(query: commandPaletteQuery)
         updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
         resetCommandPaletteSearchFocus()
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func handleCommandPalettePendingRenameTextInput(_ text: String, target: CommandPaletteRenameTarget) {
+        let filteredText = commandPalettePendingSingleLineText(from: text)
+        guard !filteredText.isEmpty else { return }
+        if CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(),
+           commandPaletteRenameDraft == target.currentName {
+            commandPaletteRenameDraft = filteredText
+        } else {
+            commandPaletteRenameDraft.append(contentsOf: filteredText)
+        }
+        commandPalettePendingTextSelectionBehavior = .caretAtEnd
+        resetCommandPaletteRenameFocus()
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func handleCommandPalettePendingWorkspaceDescriptionTextInput(_ text: String) {
+        let filteredText = commandPalettePendingMultilineText(from: text)
+        guard !filteredText.isEmpty else { return }
+        commandPaletteWorkspaceDescriptionDraft.append(contentsOf: filteredText)
+        commandPalettePendingTextSelectionBehavior = .caretAtEnd
+        resetCommandPaletteWorkspaceDescriptionFocus()
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
@@ -8886,7 +8931,13 @@ struct ContentView: View {
 
     private func commandPaletteRenameInputFocusPolicy() -> CommandPaletteInputFocusPolicy {
         let selectAllOnFocus = CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled()
-        let selectionBehavior: CommandPaletteTextSelectionBehavior = selectAllOnFocus
+        let shouldSelectAllOnFocus: Bool
+        if case .renameInput(let target) = commandPaletteMode {
+            shouldSelectAllOnFocus = selectAllOnFocus && commandPaletteRenameDraft == target.currentName
+        } else {
+            shouldSelectAllOnFocus = selectAllOnFocus
+        }
+        let selectionBehavior: CommandPaletteTextSelectionBehavior = shouldSelectAllOnFocus
             ? .selectAll
             : .caretAtEnd
         return CommandPaletteInputFocusPolicy(
