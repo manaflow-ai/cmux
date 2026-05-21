@@ -14319,7 +14319,7 @@ struct CMUXCLI {
         }
 
         let currentPayload = try client.sendV2(method: "surface.current", params: ["workspace_id": canonicalWorkspaceId])
-        let resolvedPaneId: String? = try {
+        let resolvedPaneId: String? = {
             if let paneId {
                 return (try? tmuxCanonicalPaneId(paneId, workspaceId: canonicalWorkspaceId, client: client)) ?? paneId
             }
