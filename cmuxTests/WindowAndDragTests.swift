@@ -861,6 +861,55 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
+    func testMinimalModeSidebarTitlebarControlsAlignWithTrafficLightCenter() {
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer {
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.test")
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        defer { window.orderOut(nil) }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let closeButton = window.standardWindowButton(.closeButton),
+              let closeButtonSuperview = closeButton.superview else {
+            XCTFail("Expected close traffic-light button")
+            return
+        }
+
+        let controller = WindowDecorationsController()
+        controller.apply(to: window)
+
+        guard let target = contentView.subviews.compactMap({ $0 as? MinimalModeSidebarControlActionView }).first else {
+            XCTFail("Expected minimal sidebar titlebar click target")
+            return
+        }
+
+        let trafficLightFrame = closeButtonSuperview.convert(closeButton.frame, to: contentView)
+        XCTAssertEqual(
+            target.frame.midY,
+            trafficLightFrame.midY,
+            accuracy: 1.0,
+            "Minimal-mode sidebar controls should share the traffic-light vertical center"
+        )
+    }
+
     func testTitlebarChromeSettingsUseHardcodedDefaults() {
         let suiteName = "WindowDragHandleHitTests.titlebarChromeSettings.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
