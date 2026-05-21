@@ -16563,8 +16563,54 @@
         }
       }
     },
-    "command.browserHideOmnibar.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hide Browser Omnibar" } }, "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのオムニバーを非表示" } } } },
-    "command.browserShowOmnibar.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Show Browser Omnibar" } }, "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのオムニバーを表示" } } } },
+    "command.browserHideOmnibar.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hide Browser Omnibar" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのオムニバーを非表示" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "隐藏浏览器全能栏" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "隱藏瀏覽器網址列" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "브라우저 옴니바 숨기기" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Browser-Omnibar ausblenden" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Ocultar omnibar del navegador" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Masquer l’omnibar du navigateur" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Nascondi omnibar del browser" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Skjul browserens omnibar" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Sakrij omnibar preglednika" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "إخفاء شريط أومني للمتصفح" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Skjul nettleserens omnibar" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Ukryj omnibar przeglądarki" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ocultar omnibar do navegador" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Скрыть омнибар браузера" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ซ่อนแถบออมนิของเบราว์เซอร์" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Tarayıcı Omnibarını Gizle" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Приховати омнібар браузера" } }
+      }
+    },
+    "command.browserShowOmnibar.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Browser Omnibar" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのオムニバーを表示" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "显示浏览器全能栏" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "顯示瀏覽器網址列" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "브라우저 옴니바 보이기" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Browser-Omnibar anzeigen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Mostrar omnibar del navegador" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Afficher l’omnibar du navigateur" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Mostra omnibar del browser" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Vis browserens omnibar" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prikaži omnibar preglednika" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "إظهار شريط أومني للمتصفح" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Vis nettleserens omnibar" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pokaż omnibar przeglądarki" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Mostrar omnibar do navegador" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Показать омнибар браузера" } },
+        "th": { "stringUnit": { "state": "translated", "value": "แสดงแถบออมนิของเบราว์เซอร์" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Tarayıcı Omnibarını Göster" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Показати омнібар браузера" } }
+      }
+    },
     "command.browserForward.title": {
       "extractionState": "manual",
       "localizations": {

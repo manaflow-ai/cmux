@@ -100,8 +100,13 @@ enum CLIProcessRunner {
             timedOut = false
         }
 
-        _ = stdoutFinished.wait(timeout: .now() + 1)
-        _ = stderrFinished.wait(timeout: .now() + 1)
+        if timedOut {
+            _ = stdoutFinished.wait(timeout: .now() + 1)
+            _ = stderrFinished.wait(timeout: .now() + 1)
+        } else {
+            stdoutFinished.wait()
+            stderrFinished.wait()
+        }
 
         let stdout = String(data: stdoutBuffer.get(), encoding: .utf8) ?? ""
         var stderr = String(data: stderrBuffer.get(), encoding: .utf8) ?? ""

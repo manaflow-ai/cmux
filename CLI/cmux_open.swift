@@ -283,7 +283,7 @@ extension CMUXCLI {
         let workspaceRaw = parsedArgs.workspace ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
         let surfaceRaw = parsedArgs.surface ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle)
+        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
         let paneHandle = try normalizePaneHandle(parsedArgs.pane, client: client, workspaceHandle: workspaceHandle)
 
         var payloads: [[String: Any]] = []
@@ -408,7 +408,7 @@ extension CMUXCLI {
             let workspaceRaw = parsedArgs.workspace ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: activeClient, windowHandle: windowHandle)
             let surfaceRaw = parsedArgs.surface ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: activeClient, workspaceHandle: workspaceHandle)
+            surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: activeClient, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
             didResolveTarget = true
         }
 
@@ -524,19 +524,19 @@ extension CMUXCLI {
             if isParsingOptions {
                 switch arg {
                 case "--workspace":
-                    parsed.workspace = try diffOptionValue(commandArgs, index: index, name: arg)
+                    parsed.workspace = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
                 case "--window":
-                    parsed.window = try diffOptionValue(commandArgs, index: index, name: arg)
+                    parsed.window = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
                 case "--surface":
-                    parsed.surface = try diffOptionValue(commandArgs, index: index, name: arg)
+                    parsed.surface = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
                 case "--focus":
-                    parsed.focus = try diffOptionValue(commandArgs, index: index, name: arg)
+                    parsed.focus = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
                 case "--no-focus":
@@ -544,19 +544,19 @@ extension CMUXCLI {
                     index += 1
                     continue
                 case "--title":
-                    parsed.title = try diffOptionValue(commandArgs, index: index, name: arg)
+                    parsed.title = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
                 case "--layout":
-                    parsed.layout = try diffOptionValue(commandArgs, index: index, name: arg)
+                    parsed.layout = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
                 case "--font-size":
-                    parsed.fontSize = try diffOptionValue(commandArgs, index: index, name: arg)
+                    parsed.fontSize = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
                 case "--source":
-                    let rawSource = try diffOptionValue(commandArgs, index: index, name: arg)
+                    let rawSource = try openOptionValue(commandArgs, index: index, name: arg)
                     guard let source = DiffSource(rawValue: rawSource) else {
                         throw CLIError(message: "Unknown diff source '\(rawSource)'. Expected unstaged, staged, branch, or last-turn.")
                     }
@@ -601,13 +601,6 @@ extension CMUXCLI {
     }
 
     private func openOptionValue(_ args: [String], index: Int, name: String) throws -> String {
-        guard index + 1 < args.count else {
-            throw CLIError(message: "\(name) requires a value")
-        }
-        return args[index + 1]
-    }
-
-    private func diffOptionValue(_ args: [String], index: Int, name: String) throws -> String {
         guard index + 1 < args.count else {
             throw CLIError(message: "\(name) requires a value")
         }
@@ -895,10 +888,8 @@ extension CMUXCLI {
             throw CLIError(message: "git \(arguments.joined(separator: " ")) timed out")
         }
         guard result.status == 0 else {
-            let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-            let detail = stderr.isEmpty ? stdout : stderr
-            throw CLIError(message: detail.isEmpty ? "git \(arguments.joined(separator: " ")) failed" : detail)
+            let command = (["git"] + arguments).joined(separator: " ")
+            throw CLIError(message: "\(command) failed with status \(result.status)")
         }
         return result.stdout
     }
@@ -958,9 +949,14 @@ extension CMUXCLI {
         }
         if stashResult.status == 0,
            let stashCommit = normalizedDiffSourceValue(stashResult.stdout) {
+            _ = try gitStdout(["update-ref", agentTurnDiffBaselineRefName(for: stashCommit), stashCommit], in: repoRoot)
             return stashCommit
         }
         return try gitSingleLine(["rev-parse", "HEAD"], in: repoRoot)
+    }
+
+    private func agentTurnDiffBaselineRefName(for commit: String) -> String {
+        "refs/cmux/last-turn/\(commit)"
     }
 
     private func latestAgentTurnDiffBaseline(
@@ -996,6 +992,8 @@ extension CMUXCLI {
         update: (inout CMUXAgentTurnDiffBaselineStore) throws -> Void
     ) throws {
         let expandedPath = NSString(string: path).expandingTildeInPath
+        let url = URL(fileURLWithPath: expandedPath)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
         let lockPath = expandedPath + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
@@ -1011,8 +1009,6 @@ extension CMUXCLI {
         var store = (try? readAgentTurnDiffBaselineStore(path: expandedPath)) ?? CMUXAgentTurnDiffBaselineStore()
         try update(&store)
 
-        let url = URL(fileURLWithPath: expandedPath)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(store).write(to: url, options: .atomic)
@@ -3003,7 +2999,7 @@ extension CMUXCLI {
             return (url, values.contentModificationDate ?? values.creationDate ?? .distantPast)
         }.sorted { $0.date > $1.date }
 
-        for (index, entry) in sorted.enumerated() where index >= 50 || now.timeIntervalSince(entry.date) > 24 * 60 * 60 {
+        for (index, entry) in sorted.enumerated() where index >= 50 && now.timeIntervalSince(entry.date) > 24 * 60 * 60 {
             try? FileManager.default.removeItem(at: entry.url)
         }
     }

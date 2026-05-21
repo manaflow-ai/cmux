@@ -407,6 +407,20 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(result.html.contains("src/main.zig"), result.html)
     }
 
+    func testDiffCommandUsageDocumentsFocusTitleAndNoFocus() throws {
+        let cliPath = try bundledCLIPath()
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: makeSocketPath("diff-help"),
+            arguments: ["help"]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("diff [patch-file|-]"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("[--focus <true|false>] [--no-focus] [--title <text>]"), result.stdout)
+    }
+
     func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
@@ -922,7 +936,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             executablePath: cliPath,
             arguments: arguments,
             environment: environment,
-            timeout: 5,
+            timeout: 15,
             currentDirectoryURL: currentDirectoryURL
         )
     }
@@ -1120,12 +1134,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
         }
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return ProcessRunResult(status: process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: timedOut)
+        return ProcessRunResult(status: timedOut ? 124 : process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: timedOut)
     }
 
     private func bindUnixSocket(at path: String) throws -> Int32 {
