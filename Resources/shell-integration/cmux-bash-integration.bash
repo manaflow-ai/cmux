@@ -1069,6 +1069,22 @@ _cmux_stop_pr_poll_loop() {
     _cmux_pr_cache_clear
 }
 
+_cmux_disable_git_watch_state() {
+    _cmux_stop_pr_poll_loop
+    if [[ -n "$_CMUX_GIT_JOB_PID" ]] && kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
+        kill "$_CMUX_GIT_JOB_PID" >/dev/null 2>&1 || true
+    fi
+    _CMUX_GIT_JOB_PID=""
+    _CMUX_GIT_JOB_STARTED_AT=0
+    _CMUX_GIT_HEAD_LAST_PWD=""
+    _CMUX_GIT_HEAD_PATH=""
+    _CMUX_GIT_HEAD_SIGNATURE=""
+    _CMUX_GIT_LAST_PWD=""
+    _CMUX_PR_FORCE=0
+    _CMUX_LAST_PR_ACTION=""
+    _CMUX_LAST_PR_TARGET=""
+}
+
 _cmux_start_pr_poll_loop() {
     [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
@@ -1206,6 +1222,7 @@ _cmux_bash_preexec_hook() {
 _cmux_prompt_command() {
     local last_status=$?
     _cmux_tmux_sync_cmux_environment
+    [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && _cmux_disable_git_watch_state
 
     local cmux_has_unix_socket=0
     _cmux_socket_is_unix && cmux_has_unix_socket=1
@@ -1272,19 +1289,7 @@ _cmux_prompt_command() {
     # Track .git/HEAD content so we can restart stale probes immediately.
     local git_head_changed=0
     if [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]]; then
-        _cmux_stop_pr_poll_loop
-        if [[ -n "$_CMUX_GIT_JOB_PID" ]] && kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
-            kill "$_CMUX_GIT_JOB_PID" >/dev/null 2>&1 || true
-        fi
-        _CMUX_GIT_JOB_PID=""
-        _CMUX_GIT_JOB_STARTED_AT=0
-        _CMUX_GIT_HEAD_LAST_PWD=""
-        _CMUX_GIT_HEAD_PATH=""
-        _CMUX_GIT_HEAD_SIGNATURE=""
-        _CMUX_GIT_LAST_PWD=""
-        _CMUX_PR_FORCE=0
-        _CMUX_LAST_PR_ACTION=""
-        _CMUX_LAST_PR_TARGET=""
+        _cmux_disable_git_watch_state
     else
         if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
             _CMUX_GIT_HEAD_LAST_PWD="$pwd"

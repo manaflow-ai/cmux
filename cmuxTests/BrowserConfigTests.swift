@@ -1256,6 +1256,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            appDelegate.cmuxSetFocusedBrowserAddressBarPanelIdForTesting(nil)
             BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: panelId)
             AppDelegate.clearWindowFirstResponderGuardTesting()
             field.removeFromSuperview()
@@ -1271,6 +1272,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
 
         NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        appDelegate.cmuxSetFocusedBrowserAddressBarPanelIdForTesting(panelId)
         window.testFieldEditor.resetKeyDownKeyCodes()
         window.testFieldEditor.reportsMarkedText = true
 
@@ -2472,11 +2474,13 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         private let listener: NWListener
         private let queue = DispatchQueue(label: "cmux.browser.provisional-navigation-race-server")
         private let lock = NSLock()
+        private let holdBResponses: Bool
         private var heldBConnections: [NWConnection] = []
         private var receivedBRequest = false
         private(set) var port: UInt16 = 0
 
-        init() throws {
+        init(holdBResponses: Bool = true) throws {
+            self.holdBResponses = holdBResponses
             let parameters = NWParameters.tcp
             parameters.requiredLocalEndpoint = .hostPort(
                 host: NWEndpoint.Host("127.0.0.1"),
@@ -2568,7 +2572,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
                 let requestLine = requestText.split(separator: "\r\n", maxSplits: 1).first ?? ""
                 let path = requestLine.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
-                if path == "/b" {
+                if path == "/b", self.holdBResponses {
                     self.lock.lock()
                     self.receivedBRequest = true
                     self.heldBConnections.append(connection)
@@ -2576,8 +2580,13 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
                     return
                 }
 
-                self.sendPage("A", on: connection)
+                self.sendPage(Self.marker(for: path), on: connection)
             }
+        }
+
+        private static func marker(for path: String) -> String {
+            let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            return trimmed.isEmpty ? "A" : trimmed.uppercased()
         }
 
         private func sendPage(_ marker: String, on connection: NWConnection) {
@@ -2602,27 +2611,6 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
                 connection.cancel()
             })
-        }
-    }
-
-    private func writeBrowserFixturePage(
-        at url: URL,
-        title: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws {
-        let html = """
-        <html>
-        <head><title>\(title)</title></head>
-        <body>\(title)</body>
-        </html>
-        """
-
-        do {
-            try html.write(to: url, atomically: true, encoding: .utf8)
-        } catch {
-            XCTFail("Failed to write browser fixture page: \(error)", file: file, line: line)
-            throw error
         }
     }
 
@@ -2735,17 +2723,12 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
     }
 
     func testGoBackPrefersLiveWKWebViewHistoryBeforeRestoredFallback() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-browser-history-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let server = try ProvisionalNavigationRaceServer(holdBResponses: false)
+        defer { server.stop() }
 
-        let pageA = tempDir.appendingPathComponent("a.html")
-        let pageB = tempDir.appendingPathComponent("b.html")
-        let pageC = tempDir.appendingPathComponent("c.html")
-        try writeBrowserFixturePage(at: pageA, title: "A")
-        try writeBrowserFixturePage(at: pageB, title: "B")
-        try writeBrowserFixturePage(at: pageC, title: "C")
+        let pageA = server.url(path: "/a")
+        let pageB = server.url(path: "/b")
+        let pageC = server.url(path: "/c")
 
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -3154,7 +3137,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.closeCount, 0)
         waitForDeveloperToolsTransitions()
 
-        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+        XCTAssertTrue(panel.cmuxCloseDeveloperToolsFromDetachedInspectorWindowWillCloseForTesting(window))
 
         XCTAssertEqual(
             inspector.closeCount,
@@ -3215,7 +3198,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.closeCount, 0)
         waitForDeveloperToolsTransitions()
 
-        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: inspectorWindow)
+        XCTAssertTrue(panel.cmuxCloseDeveloperToolsFromDetachedInspectorWindowWillCloseForTesting(inspectorWindow))
 
         XCTAssertEqual(
             inspector.closeCount,

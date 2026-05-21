@@ -5683,6 +5683,13 @@ extension BrowserPanel {
         closeDeveloperToolsFromDetachedInspectorWindow(window, source: "willClose")
     }
 
+#if DEBUG
+    @discardableResult
+    func cmuxCloseDeveloperToolsFromDetachedInspectorWindowWillCloseForTesting(_ window: NSWindow) -> Bool {
+        closeDeveloperToolsFromDetachedInspectorWindow(window, source: "willClose.testing")
+    }
+#endif
+
     @discardableResult
     func closeDeveloperToolsFromDetachedInspectorWindowUserAction(
         _ window: NSWindow,

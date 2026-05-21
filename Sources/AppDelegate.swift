@@ -12729,6 +12729,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserAddressBarFocusedPanelId
     }
 
+#if DEBUG
+    func cmuxSetFocusedBrowserAddressBarPanelIdForTesting(_ panelId: UUID?) {
+        browserAddressBarFocusedPanelId = panelId
+    }
+#endif
+
     func focusedBrowserOmnibarField(for event: NSEvent, in window: NSWindow?) -> OmnibarNativeTextField? {
         let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event)
         return browserOmnibarField(panelId: panelId, in: window)

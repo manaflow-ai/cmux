@@ -7744,6 +7744,41 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("paste_from_clipboard")
     }
 
+    private enum TerminalPasteKeyEquivalent {
+        case standard
+        case plainText
+    }
+
+    private func terminalPasteKeyEquivalent(
+        for event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags
+    ) -> TerminalPasteKeyEquivalent? {
+        guard event.keyCode == 9 || event.charactersIgnoringModifiers?.lowercased() == "v" else {
+            return nil
+        }
+        if normalizedFlags == [.command] {
+            return .standard
+        }
+        if normalizedFlags == [.command, .shift] {
+            return .plainText
+        }
+        return nil
+    }
+
+    @discardableResult
+    private func performTerminalPasteKeyEquivalent(
+        _ keyEquivalent: TerminalPasteKeyEquivalent,
+        sender: Any?
+    ) -> Bool {
+        switch keyEquivalent {
+        case .standard:
+            paste(sender)
+        case .plainText:
+            pasteAsPlainText(sender)
+        }
+        return true
+    }
+
     private func applyConfiguredMenuShortcut(_ shortcut: StoredShortcut, to item: NSMenuItem) {
         guard let keyEquivalent = shortcut.menuItemKeyEquivalent else {
             item.keyEquivalent = ""
@@ -8121,21 +8156,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let bindingFlags {
             let isConsumed = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue) != 0
             let isAll = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_ALL.rawValue) != 0
+            let shouldResolveMenuStyleBinding = isConsumed && !isAll && keySequence.isEmpty && keyTables.isEmpty
 
             // If the binding is consumed and not meant for the menu, allow menu first.
             // Performable bindings (e.g. paste_from_clipboard) also need the menu
             // path so that Edit > Paste handles Cmd+V instead of keyDown double-
             // firing the clipboard request through both interpretKeyEvents and
             // ghostty_surface_key.
-            if shouldRetryMainMenu && isConsumed && !isAll && keySequence.isEmpty && keyTables.isEmpty {
+            if shouldRetryMainMenu && shouldResolveMenuStyleBinding {
                 if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
                     return true
                 }
             }
 
-            // For performable bindings where the menu didn't handle the event,
-            // fall through to keyDown so Ghostty can perform the action directly
-            // (e.g. paste when no menu item exists).
+            if shouldResolveMenuStyleBinding,
+               let pasteKeyEquivalent = terminalPasteKeyEquivalent(for: event, normalizedFlags: flags) {
+                return performTerminalPasteKeyEquivalent(pasteKeyEquivalent, sender: self)
+            }
+
+            // Other performable bindings still fall through to keyDown so Ghostty
+            // can perform the action directly.
             keyDown(with: event)
             return true
         }
