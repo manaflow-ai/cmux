@@ -10,6 +10,15 @@ private let allowedBundleIdentifiers: Set<String> = [
     "com.cmuxterm.app",
     "com.cmuxterm.app.debug",
     "com.cmuxterm.app.nightly",
+    "com.cmuxterm.app.staging",
+]
+private let allowedBundleIdentifierPrefixes = [
+    "com.cmuxterm.app.debug.",
+    "com.cmuxterm.app.nightly.",
+    "com.cmuxterm.app.staging.",
+]
+private let allowedTeamIdentifiers: Set<String> = [
+    "7WLXT3NR37",
 ]
 
 struct HelperError: LocalizedError {
@@ -36,7 +45,7 @@ enum CMUXSudoHelper {
         do {
             try runOnce()
         } catch {
-            writeLog("fatal \(error.localizedDescription)")
+            writeLog("fatal \(String(describing: error))")
             exit(1)
         }
     }
@@ -71,13 +80,14 @@ enum CMUXSudoHelper {
                 "message": error.message,
             ]
         } catch {
+            writeLog("unexpected \(String(describing: error))")
             response = [
                 "status": "helper_error",
                 "exit_code": NSNull(),
                 "stdout": "",
                 "stderr": "",
                 "error_code": "unexpected_error",
-                "message": error.localizedDescription,
+                "message": "The sudo helper failed before running the command",
             ]
         }
         try writeJSONLine(response, to: client)
@@ -163,9 +173,31 @@ enum CMUXSudoHelper {
         )
         guard infoStatus == errSecSuccess,
               let info = rawInfo as? [String: Any],
-              let identifier = info[kSecCodeInfoIdentifier as String] as? String,
-              allowedBundleIdentifiers.contains(identifier) else {
+              let identifier = info[kSecCodeInfoIdentifier as String] as? String else {
             throw HelperError(code: "peer_code_rejected", message: "Requesting process is not a cmux app")
+        }
+
+        let identifierAllowed = allowedBundleIdentifiers.contains(identifier)
+            || allowedBundleIdentifierPrefixes.contains { identifier.hasPrefix($0) }
+        guard identifierAllowed else {
+            throw HelperError(code: "peer_code_rejected", message: "Requesting process is not a cmux app")
+        }
+
+        guard let teamIdentifier = info[kSecCodeInfoTeamIdentifier as String] as? String,
+              allowedTeamIdentifiers.contains(teamIdentifier) else {
+            throw HelperError(code: "peer_code_rejected", message: "Requesting process is not signed by Manaflow")
+        }
+
+        let requirementText = #"identifier "\#(identifier)" and anchor apple generic and certificate leaf[subject.OU] = "\#(teamIdentifier)""# as CFString
+        var requirement: SecRequirement?
+        let requirementStatus = SecRequirementCreateWithString(requirementText, SecCSFlags(), &requirement)
+        guard requirementStatus == errSecSuccess, let requirement else {
+            throw HelperError(code: "peer_code_rejected", message: "Unable to build cmux code-signing requirement")
+        }
+
+        let checkStatus = SecStaticCodeCheckValidity(staticCode, SecCSFlags(), requirement)
+        guard checkStatus == errSecSuccess else {
+            throw HelperError(code: "peer_code_rejected", message: "Requesting process signature does not match cmux")
         }
     }
 
@@ -220,10 +252,8 @@ enum CMUXSudoHelper {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        let semaphore = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in semaphore.signal() }
         try process.run()
-        semaphore.wait()
+        process.waitUntilExit()
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         stdout.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())

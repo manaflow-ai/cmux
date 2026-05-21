@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import Foundation
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -7,6 +8,11 @@ import Darwin
 #endif
 
 final class CMUXSudoTests: XCTestCase {
+    private enum SudoTestError: Error {
+        case missingPendingRequestID
+        case resultTimeout
+    }
+
     private var tempDirectories: [URL] = []
 
     override func tearDown() {
@@ -142,11 +148,13 @@ final class CMUXSudoTests: XCTestCase {
             )
         }
 
-        let result = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
+        let requestResult = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
             TerminalController.shared.v2SudoRequestOnSocketWorker(
                 params: makeParams(workspaceID: workspaceID, surfaceID: surfaceID)
             )
         }
+        let requestID = try pendingRequestID(from: requestResult)
+        let result = try waitForSudoResult(requestID: requestID)
 
         guard case .err(let code, let message, _) = result else {
             return XCTFail("Expected denial error, got \(result)")
@@ -185,11 +193,13 @@ final class CMUXSudoTests: XCTestCase {
             )
         }
 
-        let result = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
+        let requestResult = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
             TerminalController.shared.v2SudoRequestOnSocketWorker(
                 params: makeParams(workspaceID: workspaceID, surfaceID: surfaceID)
             )
         }
+        let requestID = try pendingRequestID(from: requestResult)
+        let result = try waitForSudoResult(requestID: requestID)
 
         guard case .ok(let payload) = result,
               let object = payload as? [String: Any] else {
@@ -204,6 +214,66 @@ final class CMUXSudoTests: XCTestCase {
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries[0]["result"] as? String, "completed")
         XCTAssertEqual(entries[0]["exit_code"] as? Int, 0)
+#else
+        throw XCTSkip("Sudo request flow hooks are debug-only.")
+#endif
+    }
+
+    func testSudoResultRejectsMalformedAndUnknownRequests() throws {
+#if DEBUG
+        switch TerminalController.shared.v2SudoResultOnSocketWorker(params: [:]) {
+        case .err(let code, _, _):
+            XCTAssertEqual(code, "invalid_params")
+        case .ok(let payload):
+            XCTFail("Expected invalid params error, got \(payload)")
+        }
+
+        switch TerminalController.shared.v2SudoResultOnSocketWorker(params: ["request_id": UUID().uuidString]) {
+        case .err(let code, _, _):
+            XCTAssertEqual(code, "not_found")
+        case .ok(let payload):
+            XCTFail("Expected missing result error, got \(payload)")
+        }
+#else
+        throw XCTSkip("Sudo request flow hooks are debug-only.")
+#endif
+    }
+
+    func testSudoResultRejectsDifferentSocketPeer() throws {
+#if DEBUG
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let logURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
+        installValidSudoHooks(workspaceID: workspaceID, surfaceID: surfaceID, logURL: logURL)
+        CMUXSudoTestHooks.approvalOverride = { _ in
+            CMUXSudoApprovalResult(approved: true, reason: nil)
+        }
+        CMUXSudoTestHooks.helperOverride = { _ in
+            CMUXSudoHelperExecutionResult(
+                status: "completed",
+                exitCode: 0,
+                stdout: "ok\n",
+                stderr: "",
+                errorCode: nil,
+                message: nil
+            )
+        }
+
+        let requestResult = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
+            TerminalController.shared.v2SudoRequestOnSocketWorker(
+                params: makeParams(workspaceID: workspaceID, surfaceID: surfaceID)
+            )
+        }
+        let requestID = try pendingRequestID(from: requestResult)
+
+        let wrongPeerResult = TerminalController.withSocketPeerIdentityForTesting(pid: getpid() + 1, uid: getuid()) {
+            TerminalController.shared.v2SudoResultOnSocketWorker(params: ["request_id": requestID])
+        }
+        guard case .err(let code, _, _) = wrongPeerResult else {
+            return XCTFail("Expected access denied for wrong peer, got \(wrongPeerResult)")
+        }
+        XCTAssertEqual(code, "access_denied")
+        _ = try waitForSudoResult(requestID: requestID)
 #else
         throw XCTSkip("Sudo request flow hooks are debug-only.")
 #endif
@@ -238,6 +308,42 @@ final class CMUXSudoTests: XCTestCase {
                 "Expected \(error.message) to contain \(expected)"
             )
         }
+    }
+
+    private func pendingRequestID(
+        from result: TerminalController.V2CallResult,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> String {
+        guard case .ok(let payload) = result,
+              let object = payload as? [String: Any],
+              object["status"] as? String == "pending",
+              let requestID = object["request_id"] as? String else {
+            XCTFail("Expected pending sudo response, got \(result)", file: file, line: line)
+            throw SudoTestError.missingPendingRequestID
+        }
+        return requestID
+    }
+
+    private func waitForSudoResult(
+        requestID: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> TerminalController.V2CallResult {
+        for _ in 0..<200 {
+            let result = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
+                TerminalController.shared.v2SudoResultOnSocketWorker(params: ["request_id": requestID])
+            }
+            if case .ok(let payload) = result,
+               let object = payload as? [String: Any],
+               object["status"] as? String == "pending" {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+                continue
+            }
+            return result
+        }
+        XCTFail("Timed out waiting for sudo result", file: file, line: line)
+        throw SudoTestError.resultTimeout
     }
 
     private func parsedRequest(

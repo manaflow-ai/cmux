@@ -10179,8 +10179,9 @@ struct CMUXCLI {
             client: client
         )
 
+        let requestID = UUID().uuidString
         let request: [String: Any] = [
-            "request_id": UUID().uuidString,
+            "request_id": requestID,
             "argv": parsed.argv,
             "command_display": sudoDisplayCommand(parsed.argv),
             "workspace_id": workspaceId,
@@ -10190,11 +10191,13 @@ struct CMUXCLI {
             "cwd": FileManager.default.currentDirectoryPath,
         ]
 
-        let response = try client.sendV2(
+        let submitted = try client.sendV2(
             method: "sudo.request",
             params: request,
-            responseTimeout: 10 * 60
+            responseTimeout: 30
         )
+        let submittedRequestID = (submitted["request_id"] as? String) ?? requestID
+        let response = try waitForSudoResult(requestID: submittedRequestID, client: client)
         if jsonOutput {
             print(jsonString(response))
         } else {
@@ -10212,6 +10215,29 @@ struct CMUXCLI {
         let exitCode = intFromAny(response["exit_code"]) ?? 0
         if exitCode != 0 {
             throw CLIError(message: "exit \(exitCode)", exitCode: Int32(exitCode))
+        }
+    }
+
+    private func waitForSudoResult(requestID: String, client: SocketClient) throws -> [String: Any] {
+        let deadline = Date().addingTimeInterval(10 * 60)
+        while true {
+            let response = try client.sendV2(
+                method: "sudo.result",
+                params: ["request_id": requestID],
+                responseTimeout: 30
+            )
+            if (response["status"] as? String) != "pending" {
+                return response
+            }
+            guard Date() < deadline else {
+                throw CLIError(
+                    message: String(
+                        localized: "cli.sudo.error.timeout",
+                        defaultValue: "sudo request timed out"
+                    )
+                )
+            }
+            Thread.sleep(forTimeInterval: 0.25)
         }
     }
 
