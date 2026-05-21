@@ -528,6 +528,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
         XCTAssertTrue(initialScript.contains("--wait"), initialScript)
         XCTAssertTrue(initialScript.contains("ssh-session-end"), initialScript)
+        XCTAssertTrue(initialScript.contains("CMUX_WORKSPACE_ID"), initialScript)
+        XCTAssertTrue(initialScript.contains("CMUX_SURFACE_ID"), initialScript)
+        XCTAssertTrue(
+            initialScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
+            initialScript
+        )
         XCTAssertEqual(
             initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1,
             1,
@@ -535,6 +541,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertTrue(terminalStartupScript.contains("ssh-pty-attach"), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("ssh-session-end"), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("CMUX_WORKSPACE_ID"), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("CMUX_SURFACE_ID"), terminalStartupScript)
+        XCTAssertTrue(
+            terminalStartupScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
+            terminalStartupScript
+        )
         XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
         XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
         XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)

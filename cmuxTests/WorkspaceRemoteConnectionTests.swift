@@ -315,6 +315,19 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             skipDaemonBootstrap: true
         )
+        let persistentPTYSSH = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: ["ControlPath /tmp/cmux-ssh-%C"],
+            localProxyPort: nil,
+            relayPort: 64099,
+            relayID: "relay-a",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true
+        )
         let vmWebSocket = WorkspaceRemoteConfiguration(
             transport: .websocket,
             destination: "vm:abcd1234",
@@ -359,6 +372,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         XCTAssertNotEqual(standard.proxyBrokerTransportKey, vmSSH.proxyBrokerTransportKey)
+        XCTAssertNotEqual(standard.proxyBrokerTransportKey, persistentPTYSSH.proxyBrokerTransportKey)
         XCTAssertNotEqual(vmSSH.proxyBrokerTransportKey, vmWebSocket.proxyBrokerTransportKey)
         XCTAssertNotEqual(vmWebSocket.proxyBrokerTransportKey, vmWebSocketRefreshed.proxyBrokerTransportKey)
     }
@@ -733,6 +747,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+
+        workspace.teardownAllPanels()
+        XCTAssertTrue(workspace.panels.isEmpty)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
     }
 

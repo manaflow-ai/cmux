@@ -10596,6 +10596,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func clearRemoteConfigurationIfWorkspaceBecameLocal() {
         guard !isDetachingCloseTransaction, panels.isEmpty, remoteConfiguration != nil else { return }
+        if remoteConfiguration?.preserveAfterTerminalExit == true {
+            return
+        }
         disconnectRemoteConnection(clearConfiguration: true)
     }
 

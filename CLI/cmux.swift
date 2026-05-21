@@ -5544,7 +5544,7 @@ struct CMUXCLI {
             remoteBootstrapScript: remoteTerminalBootstrapScript,
             localCommandScript: combinedLocalCommandScript
         )
-        let persistentPTYSessionID = "ssh-\(UUID().uuidString.lowercased())"
+        let persistentPTYSessionFallbackID = UUID().uuidString.lowercased()
         var initialSSHStartupCommand: String
         var remoteTerminalSSHStartupCommand: String
         if let remoteTerminalBootstrapScript, !remoteTerminalBootstrapScript.isEmpty {
@@ -5581,13 +5581,13 @@ struct CMUXCLI {
         if usesPersistentSSHPTY,
            let remoteTerminalBootstrapScript {
             let ptyStartupCommand = buildReusableSSHPTYAttachStartupCommand(
-                sessionID: persistentPTYSessionID,
+                sessionIDFallback: persistentPTYSessionFallbackID,
                 remoteShellCommand: remoteTerminalBootstrapScript,
                 remoteRelayPort: sshOptions.remoteRelayPort
             )
             initialSSHStartupCommand = buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
                 options: sshOptions,
-                sessionID: persistentPTYSessionID,
+                sessionIDFallback: persistentPTYSessionFallbackID,
                 remoteShellCommand: remoteTerminalBootstrapScript,
                 localCommandScript: combinedLocalCommandScript,
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
@@ -5739,7 +5739,7 @@ struct CMUXCLI {
         ]
         payload["remote_relay_port"] = sshOptions.remoteRelayPort
         if usesPersistentSSHPTY {
-            payload["ssh_pty_session_id"] = persistentPTYSessionID
+            payload["ssh_pty_session_id"] = "ssh-${CMUX_WORKSPACE_ID}-${CMUX_SURFACE_ID}"
         }
         logSSHTiming("complete", extra: "workspace=\(String(workspaceId.prefix(8)))")
         if jsonOutput {
@@ -6511,16 +6511,16 @@ struct CMUXCLI {
     }
 
     private func buildReusableSSHPTYAttachStartupCommand(
-        sessionID: String,
+        sessionIDFallback: String,
         remoteShellCommand: String,
         remoteRelayPort: Int
     ) -> String {
-        let attachCommand = buildSSHPTYAttachCommand(
-            sessionID: sessionID,
+        let attachScript = buildSSHPTYAttachScriptBody(
+            sessionIDFallback: sessionIDFallback,
             remoteShellCommand: remoteShellCommand
         )
         return buildReusableSSHStartupCommand(
-            sshCommand: "exec \(attachCommand)",
+            sshCommand: attachScript,
             shellFeatures: "",
             remoteRelayPort: remoteRelayPort,
             isShellSnippet: true
@@ -6529,7 +6529,7 @@ struct CMUXCLI {
 
     private func buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
         options: SSHCommandOptions,
-        sessionID: String,
+        sessionIDFallback: String,
         remoteShellCommand: String,
         localCommandScript: String?,
         controlPathPreflightShellFunction: String?
@@ -6537,15 +6537,15 @@ struct CMUXCLI {
         var authArguments = baseSSHArguments(options, localCommandScript: localCommandScript)
         authArguments += ["-T", options.destination, "true"]
         let authCommand = authArguments.map(shellQuote).joined(separator: " ")
-        let attachCommand = buildSSHPTYAttachCommand(
-            sessionID: sessionID,
+        let attachScript = buildSSHPTYAttachScriptBody(
+            sessionIDFallback: sessionIDFallback,
             remoteShellCommand: remoteShellCommand
         )
         let scriptBody = [
             "command \(authCommand) <&0",
             "cmux_auth_status=$?",
             "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
-            "exec \(attachCommand)",
+            attachScript,
         ]
             .joined(separator: "\n")
         return buildReusableSSHStartupCommand(
@@ -6557,19 +6557,28 @@ struct CMUXCLI {
         )
     }
 
-    private func buildSSHPTYAttachCommand(
-        sessionID: String,
+    private func buildSSHPTYAttachScriptBody(
+        sessionIDFallback: String,
         remoteShellCommand: String
     ) -> String {
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let commandB64 = Data(remoteShellCommand.utf8).base64EncodedString()
-        return [
+        let fallbackLiteral = shellQuote(sessionIDFallback)
+        let attachCommand = [
             shellQuote(executablePath),
             "ssh-pty-attach",
             "--wait",
-            "--session-id", shellQuote(sessionID),
+            "--session-id", "\"$cmux_ssh_pty_session_id\"",
             "--command-b64", shellQuote(commandB64),
         ].joined(separator: " ")
+        return [
+            "cmux_ssh_pty_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
+            "cmux_ssh_pty_surface_id=\"${CMUX_SURFACE_ID:-}\"",
+            "if [ -z \"$cmux_ssh_pty_workspace_id\" ]; then cmux_ssh_pty_workspace_id=\(fallbackLiteral); fi",
+            "if [ -z \"$cmux_ssh_pty_surface_id\" ]; then cmux_ssh_pty_surface_id=\(fallbackLiteral); fi",
+            "cmux_ssh_pty_session_id=\"ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id\"",
+            "exec \(attachCommand)",
+        ].joined(separator: "\n")
     }
 
     private func buildSSHStartupScriptBody(

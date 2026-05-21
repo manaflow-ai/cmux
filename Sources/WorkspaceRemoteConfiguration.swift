@@ -147,6 +147,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
         let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
         let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+        let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         return [
             normalizedTransport,
             normalizedBootstrapMode,
@@ -156,6 +157,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
             normalizedOptions,
             normalizedLocalProxyPort,
             normalizedWebSocketDaemon,
+            normalizedRequiredCapabilities,
         ]
             .joined(separator: "\u{1e}")
     }
