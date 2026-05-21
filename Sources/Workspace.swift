@@ -572,8 +572,7 @@ extension Workspace {
             rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
             vncSnapshot = nil
         case .vnc:
-            guard let vncPanel = panel as? VNCPanel,
-                  vncPanel.credential.source == .keychain else { return nil }
+            guard let vncPanel = panel as? VNCPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1075,10 +1074,7 @@ extension Workspace {
             return toolPanel.id
         case .vnc:
             guard let session = snapshot.vnc?.session,
-                  let credential = VNCCredentialResolver.resolve(
-                    session: session,
-                    keychainPassword: VNCKeychainCredentialProvider.password(for: session)
-                  ),
+                  let credential = VNCSessionCredentialProvider.credential(for: session),
                   let vncPanel = newVNCSurface(
                     inPane: paneId,
                     session: session,

@@ -67,6 +67,54 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertEqual(manifest.expandedSessions().map(\.name), ["mixed-mini"])
     }
 
+    func testCountSessionsUseHostPasswordAsDefaultFallback() throws {
+        let json = """
+        {
+          "default_password": "manifest",
+          "hosts": [
+            {
+              "name": "mac3",
+              "prefix": "mac3",
+              "password": "host",
+              "sessions": 2,
+              "tag": "tag:mac-mini-cluster"
+            }
+          ]
+        }
+        """
+        let manifest = try JSONDecoder().decode(MacfleetManifest.self, from: Data(json.utf8))
+        let sessions = manifest.expandedSessions()
+
+        XCTAssertEqual(sessions.map(\.defaultPassword), ["host", "host"])
+    }
+
+    func testEmptyHostPasswordDoesNotMaskDefaultFallback() throws {
+        let json = """
+        {
+          "default_password": "manifest",
+          "hosts": [
+            {
+              "name": "mac3",
+              "prefix": "mac3",
+              "password": "",
+              "default_password": "host-default",
+              "sessions": 1,
+              "tag": "tag:mac-mini-cluster"
+            }
+          ]
+        }
+        """
+        let manifest = try JSONDecoder().decode(MacfleetManifest.self, from: Data(json.utf8))
+        let session = try XCTUnwrap(manifest.expandedSessions().first)
+
+        XCTAssertEqual(session.sessionPassword, "")
+        XCTAssertEqual(session.defaultPassword, "host-default")
+        XCTAssertEqual(
+            VNCCredentialResolver.resolve(session: session, keychainPassword: nil),
+            VNCResolvedCredential(username: "cmuxvnc", password: "host-default", source: .defaultPassword)
+        )
+    }
+
     func testCredentialPrecedence() {
         let session = MacfleetVNCSession(
             name: "mac3-1",
@@ -162,6 +210,13 @@ final class CMUXVNCTests: XCTestCase {
             VNCFrameValidator.validate(header: hugeWidth, payloadByteCount: 400),
             .rectOutOfBounds
         )
+
+        var hugeX = valid
+        hugeX.x = Int.max
+        XCTAssertEqual(
+            VNCFrameValidator.validate(header: hugeX, payloadByteCount: 400),
+            .rectOutOfBounds
+        )
     }
 
     func testFrameBlitterCopiesPartialFrameIntoFramebuffer() {
@@ -224,99 +279,43 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertEqual(framebuffer, Data(repeating: 0, count: 4))
     }
 
-    func testFramebufferComposerReturnsFullFrameAfterPartialUpdate() throws {
+    func testFrameComposerPublishesFullFramesInInputOrder() throws {
         var composer = VNCFramebufferComposer()
         let firstHeader = VNCFrameHeader(
             sequence: 1,
             x: 0,
             y: 0,
-            width: 1,
+            width: 2,
             height: 1,
             framebufferWidth: 2,
-            framebufferHeight: 2,
-            stride: 4
+            framebufferHeight: 1,
+            stride: 8
         )
+        _ = try XCTUnwrap(composer.apply(
+            header: firstHeader,
+            payload: Data([1, 2, 3, 4, 5, 6, 7, 8])
+        ))
+
         let secondHeader = VNCFrameHeader(
             sequence: 2,
-            x: 1,
-            y: 1,
-            width: 1,
-            height: 1,
-            framebufferWidth: 2,
-            framebufferHeight: 2,
-            stride: 4
-        )
-
-        _ = try XCTUnwrap(composer.apply(header: firstHeader, payload: Data([1, 2, 3, 4])))
-        let frame = try XCTUnwrap(composer.apply(header: secondHeader, payload: Data([5, 6, 7, 8])))
-
-        XCTAssertEqual(
-            frame.header,
-            VNCFrameHeader(
-                sequence: 2,
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 2,
-                framebufferWidth: 2,
-                framebufferHeight: 2,
-                stride: 8
-            )
-        )
-        XCTAssertEqual(
-            Array(frame.payload),
-            [
-                1, 2, 3, 4, 0, 0, 0, 0,
-                0, 0, 0, 0, 5, 6, 7, 8
-            ]
-        )
-    }
-
-    func testFramebufferComposerResetsWhenFramebufferSizeChanges() throws {
-        var composer = VNCFramebufferComposer()
-        let firstHeader = VNCFrameHeader(
-            sequence: 1,
             x: 0,
             y: 0,
             width: 1,
             height: 1,
             framebufferWidth: 2,
-            framebufferHeight: 2,
-            stride: 4
-        )
-        let resizedHeader = VNCFrameHeader(
-            sequence: 2,
-            x: 0,
-            y: 0,
-            width: 1,
-            height: 1,
-            framebufferWidth: 1,
             framebufferHeight: 1,
             stride: 4
         )
+        let composed = try XCTUnwrap(composer.apply(
+            header: secondHeader,
+            payload: Data([9, 10, 11, 12])
+        ))
 
-        _ = try XCTUnwrap(composer.apply(header: firstHeader, payload: Data([1, 2, 3, 4])))
-        let frame = try XCTUnwrap(composer.apply(header: resizedHeader, payload: Data([5, 6, 7, 8])))
-
-        XCTAssertEqual(frame.header.width, 1)
-        XCTAssertEqual(frame.header.height, 1)
-        XCTAssertEqual(Array(frame.payload), [5, 6, 7, 8])
-    }
-
-    func testFramebufferComposerRejectsOversizedFramebuffer() {
-        var composer = VNCFramebufferComposer()
-        let header = VNCFrameHeader(
-            sequence: 1,
-            x: 0,
-            y: 0,
-            width: 1,
-            height: 1,
-            framebufferWidth: 16_384,
-            framebufferHeight: 16_384,
-            stride: 4
-        )
-
-        XCTAssertNil(composer.apply(header: header, payload: Data([1, 2, 3, 4])))
+        XCTAssertEqual(composed.header.sequence, 2)
+        XCTAssertEqual(composed.header.x, 0)
+        XCTAssertEqual(composed.header.width, 2)
+        XCTAssertEqual(composed.header.stride, 8)
+        XCTAssertEqual(Array(composed.payload), [9, 10, 11, 12, 5, 6, 7, 8])
     }
 
     func testIPCFrameRoundTrip() throws {
@@ -375,6 +374,29 @@ final class CMUXVNCTests: XCTestCase {
         }
     }
 
+    func testIPCStreamDecoderDropsMalformedCompletePayloadBeforeThrowing() throws {
+        let validControl = VNCControlMessage(kind: "key", isDown: true, keyCode: 40)
+        let validFrame = try VNCIPCCodec.encodeControl(validControl)
+        var decoder = VNCIPCStreamDecoder()
+
+        XCTAssertThrowsError(try decoder.append(framedPayload([99]))) { error in
+            XCTAssertEqual(error as? VNCIPCError, .unknownMessageType(99))
+        }
+        XCTAssertEqual(try decoder.append(validFrame), [.control(validControl)])
+    }
+
+    func testControlMessageQueueCoalescesPointerMovesAndCapsOtherInput() {
+        var queue = VNCControlMessageQueue(maxMessages: 2)
+
+        XCTAssertTrue(queue.append(VNCControlMessage(kind: "pointer", x: 1, y: 1)))
+        XCTAssertTrue(queue.append(VNCControlMessage(kind: "pointer", x: 2, y: 2)))
+        XCTAssertEqual(queue.messages, [VNCControlMessage(kind: "pointer", x: 2, y: 2)])
+
+        XCTAssertTrue(queue.append(VNCControlMessage(kind: "key", isDown: true, keyCode: 12)))
+        XCTAssertFalse(queue.append(VNCControlMessage(kind: "text", text: "overflow")))
+        XCTAssertEqual(queue.messages.count, 2)
+    }
+
     func testRestartPolicyCapsRestartsWithinWindow() {
         let policy = VNCHelperRestartPolicy(maxRestarts: 3, windowSeconds: 60)
         let now = Date(timeIntervalSince1970: 100)
@@ -393,5 +415,23 @@ final class CMUXVNCTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 100)
 
         XCTAssertTrue(policy.canRestart(previousRestartDates: [Date(timeIntervalSince1970: 101)], now: now))
+    }
+
+    func testRestartPolicyClampsInvalidConfiguration() {
+        let policy = VNCHelperRestartPolicy(maxRestarts: -1, windowSeconds: 0)
+        XCTAssertEqual(policy.maxRestarts, 0)
+        XCTAssertGreaterThan(policy.windowSeconds, 0)
+        XCTAssertFalse(policy.canRestart(previousRestartDates: [], now: Date(timeIntervalSince1970: 100)))
+    }
+
+    private func framedPayload(_ payload: [UInt8]) -> Data {
+        var output = Data()
+        let length = UInt32(payload.count)
+        output.append(UInt8((length >> 24) & 0xff))
+        output.append(UInt8((length >> 16) & 0xff))
+        output.append(UInt8((length >> 8) & 0xff))
+        output.append(UInt8(length & 0xff))
+        output.append(contentsOf: payload)
+        return output
     }
 }

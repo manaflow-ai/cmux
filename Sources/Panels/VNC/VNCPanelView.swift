@@ -13,7 +13,7 @@ struct VNCPanelView: View {
             header
             VNCMetalCanvasRepresentable(panel: panel)
                 .overlay {
-                    if panel.latestFrame == nil {
+                    if !panel.hasFrame {
                         Text(VNCPanelText.noFrame)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.secondary)

@@ -76,19 +76,29 @@ private final class SocketChannel: @unchecked Sendable {
 }
 
 private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unchecked Sendable {
+    private static let maxPendingInputMessages = 512
+
     private let channel: SocketChannel
     private let request: VNCConnectRequest
-    private let termination = DispatchSemaphore(value: 0)
     private let connectionLock = NSLock()
     private let stateLock = NSLock()
     private let inputLock = NSLock()
     private let exitCodeLock = NSLock()
+    private let terminationLock = NSLock()
     private var connection: VNCConnection?
     private var sequence: UInt64 = 0
     private var isClosed = false
     private var isRemoteInputReady = false
-    private var pendingInputMessages: [VNCControlMessage] = []
+    private var pendingInputMessages = VNCControlMessageQueue(maxMessages: maxPendingInputMessages)
     private var requestedExitCode: Int32 = 0
+    private var isTerminated = false
+    private var terminationHandler: (() -> Void)?
+
+    private enum PendingInputDecision {
+        case process
+        case queued
+        case failed
+    }
 
     init(channel: SocketChannel, request: VNCConnectRequest) {
         self.channel = channel
@@ -114,8 +124,18 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         connection.connect()
     }
 
-    func waitUntilTerminated() {
-        termination.wait()
+    func setTerminationHandler(_ handler: @escaping () -> Void) {
+        let shouldCallNow = terminationLock.withLock { () -> Bool in
+            terminationHandler = handler
+            return isTerminated
+        }
+        if shouldCallNow {
+            handler()
+        }
+    }
+
+    var hasTerminated: Bool {
+        terminationLock.withLock { isTerminated }
     }
 
     var exitCode: Int32 {
@@ -136,15 +156,17 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     }
 
     private func processInputWhenReady(_ message: VNCControlMessage) {
-        let shouldProcess = inputLock.withLock { () -> Bool in
-            guard isRemoteInputReady else {
-                pendingInputMessages.append(message)
-                return false
-            }
-            return true
+        let decision = inputLock.withLock { () -> PendingInputDecision in
+            if isRemoteInputReady { return .process }
+            return pendingInputMessages.append(message) ? .queued : .failed
         }
-        if shouldProcess {
+        switch decision {
+        case .process:
             processInput(message)
+        case .queued:
+            break
+        case .failed:
+            failInputQueueFull()
         }
     }
 
@@ -212,7 +234,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             pendingInputMessages.removeAll(keepingCapacity: false)
         }
         withConnection { $0.disconnect() }
-        termination.signal()
+        signalTerminated()
     }
 
     func connection(_ connection: VNCConnection, stateDidChange connectionState: VNCConnection.ConnectionState) {
@@ -239,7 +261,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
                 isRemoteInputReady = false
                 pendingInputMessages.removeAll(keepingCapacity: false)
             }
-            termination.signal()
+            signalTerminated()
         }
     }
 
@@ -360,26 +382,36 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             kind: "state",
             sessionName: request.sessionName,
             state: "failed",
-            message: sanitizedFailureMessage(for: error)
+            errorCode: "connectionFailed"
         ))
-        termination.signal()
+        logConnectionFailure(error)
+        signalTerminated()
     }
 
-    private func sanitizedFailureMessage(for error: Error) -> String? {
-        let description: String
-        if let localizedError = error as? LocalizedError,
-           let errorDescription = localizedError.errorDescription {
-            description = errorDescription
-        } else {
-            description = String(describing: error)
+    private func failInputQueueFull() {
+        guard markClosed() else { return }
+        setExitCode(HelperExit.connection.rawValue)
+        inputLock.withLock {
+            isRemoteInputReady = false
+            pendingInputMessages.removeAll(keepingCapacity: false)
         }
-        var sanitized = description
+        sendControl(VNCControlMessage(
+            kind: "state",
+            sessionName: request.sessionName,
+            state: "failed",
+            errorCode: "inputQueueFull"
+        ))
+        signalTerminated()
+    }
+
+    private func logConnectionFailure(_ error: Error) {
+        var sanitized = String(describing: error)
         if !request.password.isEmpty {
             sanitized = sanitized.replacingOccurrences(of: request.password, with: "[redacted]")
         }
         let trimmed = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return String(trimmed.prefix(500))
+        guard !trimmed.isEmpty else { return }
+        fputs("cmux-vnc-helper connection failed: \(String(trimmed.prefix(500)))\n", stderr)
     }
 
     private func setExitCode(_ exitCode: Int32) {
@@ -393,9 +425,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     private func flushPendingInputMessages() {
         let messages = inputLock.withLock { () -> [VNCControlMessage] in
             isRemoteInputReady = true
-            let messages = pendingInputMessages
-            pendingInputMessages.removeAll(keepingCapacity: false)
-            return messages
+            return pendingInputMessages.drain()
         }
         for message in messages {
             processInput(message)
@@ -415,6 +445,15 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             isClosed = true
             return true
         }
+    }
+
+    private func signalTerminated() {
+        let handler = terminationLock.withLock { () -> (() -> Void)? in
+            if isTerminated { return nil }
+            isTerminated = true
+            return terminationHandler
+        }
+        handler?()
     }
 }
 
@@ -570,8 +609,26 @@ do {
         password: password
     )
     let controller = VNCSessionController(channel: channel, request: request)
+    guard let runLoop = CFRunLoopGetCurrent() else {
+        exit(HelperExit.protocolError.rawValue)
+    }
+    var terminationSourceContext = CFRunLoopSourceContext()
+    terminationSourceContext.info = Unmanaged.passUnretained(runLoop).toOpaque()
+    terminationSourceContext.perform = { info in
+        guard let info else { return }
+        let runLoop = Unmanaged<CFRunLoop>.fromOpaque(info).takeUnretainedValue()
+        CFRunLoopStop(runLoop)
+    }
+    guard let terminationSource = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &terminationSourceContext) else {
+        exit(HelperExit.protocolError.rawValue)
+    }
+    CFRunLoopAddSource(runLoop, terminationSource, .defaultMode)
+    controller.setTerminationHandler {
+        CFRunLoopSourceSignal(terminationSource)
+        CFRunLoopWakeUp(runLoop)
+    }
     controller.start()
-    DispatchQueue.global(qos: .userInitiated).async {
+    let readerThread = Thread {
         do {
             while let message = try channel.readMessage() {
                 if case .control(let control) = message {
@@ -584,7 +641,12 @@ do {
             controller.close()
         }
     }
-    controller.waitUntilTerminated()
+    readerThread.name = "cmux-vnc-helper-ipc-reader"
+    readerThread.start()
+    if !controller.hasTerminated {
+        CFRunLoopRun()
+    }
+    CFRunLoopRemoveSource(runLoop, terminationSource, .defaultMode)
     exit(controller.exitCode)
 } catch {
     fputs("cmux-vnc-helper socket error\n", stderr)
@@ -593,12 +655,4 @@ do {
 
 private extension UInt16 {
     var intValue: Int { Int(self) }
-}
-
-private extension NSLock {
-    func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        lock()
-        defer { unlock() }
-        return try body()
-    }
 }

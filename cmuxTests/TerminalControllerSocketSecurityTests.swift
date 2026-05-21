@@ -59,6 +59,23 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         return event
     }
 
+    private func makeVNCDisplayFrame(sequence: UInt64) -> VNCDisplayFrame {
+        VNCDisplayFrame(
+            header: VNCFrameHeader(
+                sequence: sequence,
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                framebufferWidth: 1,
+                framebufferHeight: 1,
+                stride: 4,
+                pixelFormat: .bgra8
+            ),
+            payload: Data([0, 0, 0, 255])
+        )
+    }
+
     override func setUp() {
         super.setUp()
         TerminalController.shared.stop()
@@ -823,6 +840,71 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         panel.focusViewWindowDidChange(view)
 
         XCTAssertTrue(window.requestedResponder === view)
+    }
+
+    func testVNCCanvasCoordinatorTransfersFocusOwnershipWhenViewIsReused() throws {
+        let firstPanel = VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: "docker-vnc-1",
+                hostName: "docker-vnc-1",
+                address: "127.0.0.1",
+                port: 5900,
+                username: "cmux",
+                index: 1
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+        let secondPanel = VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: "docker-vnc-2",
+                hostName: "docker-vnc-2",
+                address: "127.0.0.1",
+                port: 5901,
+                username: "cmux",
+                index: 2
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+        let view = VNCMetalCanvasView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        let coordinator = VNCMetalCanvasRepresentable.Coordinator()
+        defer {
+            coordinator.detach()
+            firstPanel.close()
+            secondPanel.close()
+        }
+
+        coordinator.attach(panel: firstPanel, view: view)
+        view.apply(makeVNCDisplayFrame(sequence: 100))
+        XCTAssertNotNil(firstPanel.ownedFocusIntent(for: view, in: window))
+        XCTAssertNil(secondPanel.ownedFocusIntent(for: view, in: window))
+        XCTAssertEqual(view.appliedFrameSequenceForTesting, 100)
+
+        coordinator.attach(panel: secondPanel, view: view)
+        XCTAssertNil(firstPanel.ownedFocusIntent(for: view, in: window))
+        XCTAssertNotNil(secondPanel.ownedFocusIntent(for: view, in: window))
+        XCTAssertNil(view.appliedFrameSequenceForTesting)
+
+        view.apply(makeVNCDisplayFrame(sequence: 1))
+        XCTAssertEqual(view.appliedFrameSequenceForTesting, 1)
+
+        coordinator.detach()
+        XCTAssertNil(secondPanel.ownedFocusIntent(for: view, in: window))
     }
 
     func testVNCWorkspaceIdentityMatchSurvivesRename() throws {

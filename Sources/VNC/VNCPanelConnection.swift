@@ -9,6 +9,7 @@ enum VNCPanelConnectionExit {
 
 final class VNCPanelConnection {
     private static let helperConnectionFailureExitStatus: Int32 = 67
+    private static let maxPendingControlMessages = 256
 
     typealias ControlHandler = @MainActor (VNCControlMessage) -> Void
     typealias FrameHandler = @MainActor (VNCFrameHeader, Data) -> Void
@@ -21,11 +22,12 @@ final class VNCPanelConnection {
     private let onExit: ExitHandler
     private let ioQueue: DispatchQueue
     private let writeQueue: DispatchQueue
+    private let closeQueue: DispatchQueue
     private let stateLock = NSLock()
 
     private var process: Process?
     private var clientFileDescriptor: Int32 = -1
-    private var pendingControlMessages: [Data] = []
+    private var pendingControlMessages = VNCControlMessageQueue(maxMessages: maxPendingControlMessages)
     private var framebufferComposer = VNCFramebufferComposer()
     private var helperReportedFailureReason: String?
     private var isClosed = false
@@ -51,6 +53,7 @@ final class VNCPanelConnection {
         self.onExit = onExit
         self.ioQueue = DispatchQueue(label: "dev.cmux.vnc.\(session.name)")
         self.writeQueue = DispatchQueue(label: "dev.cmux.vnc.\(session.name).write")
+        self.closeQueue = DispatchQueue(label: "dev.cmux.vnc.\(session.name).close")
     }
 
     func start() {
@@ -107,19 +110,16 @@ final class VNCPanelConnection {
 
     func sendControl(_ control: VNCControlMessage) {
         guard !isCurrentlyClosed() else { return }
-        do {
-            let message = try VNCIPCCodec.encodeControl(control)
-            writeQueue.async { [weak self] in
-                do {
-                    guard let fileDescriptor = try self?.clientFileDescriptorForWrite(orQueue: message) else { return }
-                    defer { Darwin.close(fileDescriptor) }
-                    try Self.write(message, to: fileDescriptor)
-                } catch {
-                    self?.notifyExit(.failure(reason: VNCPanelText.helperDisconnected, shouldRestart: true))
-                }
+        writeQueue.async { [weak self] in
+            do {
+                guard let fileDescriptor = try self?.clientFileDescriptorForWrite(orQueue: control) else { return }
+                defer { Darwin.close(fileDescriptor) }
+                try Self.write(try VNCIPCCodec.encodeControl(control), to: fileDescriptor)
+            } catch VNCPanelConnectionError.pendingControlQueueFull {
+                self?.notifyExit(.failure(reason: VNCPanelText.inputQueueFull, shouldRestart: false))
+            } catch {
+                self?.notifyExit(.failure(reason: VNCPanelText.helperDisconnected, shouldRestart: true))
             }
-        } catch {
-            notifyMainExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: false))
         }
     }
 
@@ -137,7 +137,7 @@ final class VNCPanelConnection {
             return state
         }
         guard let state else { return }
-        DispatchQueue.global(qos: .utility).async {
+        closeQueue.async {
             if state.client >= 0 {
                 _ = Darwin.shutdown(state.client, SHUT_RDWR)
                 Darwin.close(state.client)
@@ -189,32 +189,28 @@ final class VNCPanelConnection {
         return writeQueue.sync {
             var published = false
             do {
-                guard let initialPending = stateLock.withLock({ () -> [Data]? in
+                guard let initialPending = stateLock.withLock({ () -> [VNCControlMessage]? in
                     guard !isClosed else { return nil }
-                    let pending = pendingControlMessages
-                    pendingControlMessages.removeAll(keepingCapacity: false)
-                    return pending
+                    return pendingControlMessages.drain()
                 }) else {
                     return .closed
                 }
 
                 try Self.write(connectMessage, to: accepted)
-                for message in initialPending {
-                    try Self.write(message, to: accepted)
+                for control in initialPending {
+                    try Self.write(try VNCIPCCodec.encodeControl(control), to: accepted)
                 }
 
-                guard let pendingAfterPublish = stateLock.withLock({ () -> [Data]? in
+                guard let pendingAfterPublish = stateLock.withLock({ () -> [VNCControlMessage]? in
                     guard !isClosed else { return nil }
                     clientFileDescriptor = accepted
                     published = true
-                    let pending = pendingControlMessages
-                    pendingControlMessages.removeAll(keepingCapacity: false)
-                    return pending
+                    return pendingControlMessages.drain()
                 }) else {
                     return .closed
                 }
-                for message in pendingAfterPublish {
-                    try Self.write(message, to: accepted)
+                for control in pendingAfterPublish {
+                    try Self.write(try VNCIPCCodec.encodeControl(control), to: accepted)
                 }
                 return .active
             } catch {
@@ -256,7 +252,9 @@ final class VNCPanelConnection {
     private func publish(_ message: VNCIPCMessage) {
         switch message {
         case .control(let control):
-            let failedReason = control.state == "failed" ? (control.message ?? VNCPanelText.stateFailed) : nil
+            let failedReason = control.state == "failed"
+                ? VNCPanelText.helperErrorMessage(errorCode: control.errorCode)
+                : nil
             if let failedReason {
                 recordHelperReportedFailure(reason: failedReason)
             }
@@ -314,7 +312,7 @@ final class VNCPanelConnection {
         stateLock.withLock { isClosed }
     }
 
-    private func clientFileDescriptorForWrite(orQueue message: Data) throws -> Int32? {
+    private func clientFileDescriptorForWrite(orQueue message: VNCControlMessage) throws -> Int32? {
         try stateLock.withLock {
             guard !isClosed else { return nil }
             if clientFileDescriptor >= 0 {
@@ -325,7 +323,9 @@ final class VNCPanelConnection {
                 Self.disableSIGPIPE(on: duplicateFileDescriptor)
                 return duplicateFileDescriptor
             }
-            pendingControlMessages.append(message)
+            guard pendingControlMessages.append(message) else {
+                throw VNCPanelConnectionError.pendingControlQueueFull
+            }
             return nil
         }
     }
@@ -404,17 +404,10 @@ final class VNCPanelConnection {
     }
 }
 
-private extension NSLock {
-    func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        lock()
-        defer { unlock() }
-        return try body()
-    }
-}
-
 enum VNCPanelConnectionError: LocalizedError {
     case helperMissing
     case socketCreationFailed(Int32)
+    case pendingControlQueueFull
 
     var errorDescription: String? {
         switch self {
@@ -422,6 +415,8 @@ enum VNCPanelConnectionError: LocalizedError {
             return VNCPanelText.helperMissing
         case .socketCreationFailed(let error):
             return VNCPanelText.socketCreationFailed(error)
+        case .pendingControlQueueFull:
+            return VNCPanelText.inputQueueFull
         }
     }
 }

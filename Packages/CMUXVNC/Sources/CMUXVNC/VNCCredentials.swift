@@ -6,7 +6,7 @@ public enum VNCCredentialSource: String, Codable, Equatable, Sendable {
     case defaultPassword
 }
 
-public struct VNCResolvedCredential: Equatable, Codable, Sendable {
+public struct VNCResolvedCredential: Equatable, Sendable {
     public var username: String
     public var password: String
     public var source: VNCCredentialSource

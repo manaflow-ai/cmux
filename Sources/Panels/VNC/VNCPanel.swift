@@ -37,7 +37,7 @@ final class VNCPanel: Panel, ObservableObject {
 
     @Published private(set) var displayTitle: String
     @Published private(set) var connectionState: VNCConnectionState = .idle
-    @Published private(set) var latestFrame: VNCDisplayFrame?
+    @Published private(set) var hasFrame = false
     @Published private(set) var focusFlashToken: Int = 0
 
     private weak var focusView: NSView?
@@ -46,6 +46,11 @@ final class VNCPanel: Panel, ObservableObject {
     private var connectionID: UUID?
     private var restartDates: [Date] = []
     private let restartPolicy = VNCHelperRestartPolicy()
+    private var replayFramebuffer = Data()
+    private var replayFramebufferWidth = 0
+    private var replayFramebufferHeight = 0
+    private var replayFrameSequence: UInt64 = 0
+    private var frameHandlers: [UUID: (VNCDisplayFrame?) -> Void] = [:]
 
     init(
         workspaceId: UUID,
@@ -91,6 +96,7 @@ final class VNCPanel: Panel, ObservableObject {
                 guard let self, self.connectionID == nextConnectionID else { return }
                 self.connection = nil
                 self.connectionID = nil
+                self.publishFrame(nil)
                 switch exit {
                 case .disconnected:
                     self.connectionState = .disconnected
@@ -108,11 +114,12 @@ final class VNCPanel: Panel, ObservableObject {
     }
 
     func reconnect() {
-        connection?.close()
+        let closingConnection = connection
         connection = nil
         connectionID = nil
         restartDates.removeAll()
-        latestFrame = nil
+        publishFrame(nil)
+        closingConnection?.close()
         startIfNeeded()
     }
 
@@ -165,12 +172,25 @@ final class VNCPanel: Panel, ObservableObject {
     }
 
     func close() {
-        connection?.close()
+        let closingConnection = connection
         connection = nil
         connectionID = nil
         focusView = nil
         pendingFocus = false
-        latestFrame = nil
+        publishFrame(nil)
+        closingConnection?.close()
+    }
+
+    func addFrameHandler(_ handler: @escaping (VNCDisplayFrame?) -> Void) -> UUID {
+        let id = UUID()
+        frameHandlers[id] = handler
+        handler(currentReplayFrame())
+        return id
+    }
+
+    func removeFrameHandler(_ id: UUID?) {
+        guard let id else { return }
+        frameHandlers[id] = nil
     }
 
     func focus() {
@@ -196,6 +216,7 @@ final class VNCPanel: Panel, ObservableObject {
     }
 
     private func handleControl(_ control: VNCControlMessage) {
+        guard control.kind == "state" else { return }
         switch control.state {
         case "connecting":
             connectionState = .connecting
@@ -204,14 +225,108 @@ final class VNCPanel: Panel, ObservableObject {
         case "disconnected":
             connectionState = .disconnected
         case "failed":
-            connectionState = .failed(control.message ?? VNCPanelText.stateFailed)
+            connectionState = .failed(VNCPanelText.helperErrorMessage(errorCode: control.errorCode))
         default:
             break
         }
     }
 
     private func applyFrame(header: VNCFrameHeader, payload: Data) {
-        latestFrame = VNCDisplayFrame(header: header, payload: payload)
+        guard updateReplayFramebuffer(header: header, payload: payload) else { return }
+        let frame = VNCDisplayFrame(header: header, payload: payload)
+        let nextHasFrame = !replayFramebuffer.isEmpty
+        if hasFrame != nextHasFrame {
+            hasFrame = nextHasFrame
+        }
+        for handler in frameHandlers.values {
+            handler(frame)
+        }
+    }
+
+    private func publishFrame(_ frame: VNCDisplayFrame?) {
+        if frame == nil {
+            resetFrameReplay()
+        }
+        let nextHasFrame = frame != nil
+        if hasFrame != nextHasFrame {
+            hasFrame = nextHasFrame
+        }
+        for handler in frameHandlers.values {
+            handler(frame)
+        }
+    }
+
+    private func updateReplayFramebuffer(header: VNCFrameHeader, payload: Data) -> Bool {
+        if replayFrameSequence > 0, header.sequence <= replayFrameSequence {
+            return false
+        }
+        guard VNCFrameValidator.validate(header: header, payloadByteCount: payload.count) == nil,
+              resizeReplayFramebufferIfNeeded(width: header.framebufferWidth, height: header.framebufferHeight),
+              VNCFrameBlitter.copyBGRAFrame(
+                header: header,
+                payload: payload,
+                into: &replayFramebuffer,
+                framebufferWidth: replayFramebufferWidth,
+                framebufferHeight: replayFramebufferHeight
+              ) else {
+            return false
+        }
+        replayFrameSequence = header.sequence
+        return true
+    }
+
+    private func currentReplayFrame() -> VNCDisplayFrame? {
+        guard replayFramebufferWidth > 0,
+              replayFramebufferHeight > 0,
+              !replayFramebuffer.isEmpty else {
+            return nil
+        }
+        return VNCDisplayFrame(
+            header: VNCFrameHeader(
+                sequence: replayFrameSequence,
+                x: 0,
+                y: 0,
+                width: replayFramebufferWidth,
+                height: replayFramebufferHeight,
+                framebufferWidth: replayFramebufferWidth,
+                framebufferHeight: replayFramebufferHeight,
+                stride: replayFramebufferWidth * 4,
+                pixelFormat: .bgra8
+            ),
+            payload: replayFramebuffer
+        )
+    }
+
+    private func resetFrameReplay() {
+        replayFramebuffer.removeAll(keepingCapacity: false)
+        replayFramebufferWidth = 0
+        replayFramebufferHeight = 0
+        replayFrameSequence = 0
+    }
+
+    private func resizeReplayFramebufferIfNeeded(width: Int, height: Int) -> Bool {
+        guard let byteCount = Self.framebufferByteCount(width: width, height: height) else {
+            return false
+        }
+        if width == replayFramebufferWidth,
+           height == replayFramebufferHeight,
+           replayFramebuffer.count == byteCount {
+            return true
+        }
+        replayFramebufferWidth = width
+        replayFramebufferHeight = height
+        replayFramebuffer = Data(repeating: 0, count: byteCount)
+        return true
+    }
+
+    private static func framebufferByteCount(width: Int, height: Int) -> Int? {
+        guard width > 0, height > 0 else { return nil }
+        let maxPixels = 33_554_432
+        let (pixelCount, pixelOverflow) = width.multipliedReportingOverflow(by: height)
+        guard !pixelOverflow, pixelCount <= maxPixels else { return nil }
+        let (byteCount, byteOverflow) = pixelCount.multipliedReportingOverflow(by: 4)
+        guard !byteOverflow else { return nil }
+        return byteCount
     }
 
     private func applyPendingFocusIfPossible() {
@@ -235,7 +350,7 @@ final class VNCPanel: Panel, ObservableObject {
             return false
         }
         restartDates = restartPolicy.recordRestart(previousRestartDates: restartDates, now: now)
-        latestFrame = nil
+        publishFrame(nil)
         connectionState = .connecting
         startIfNeeded()
         return true

@@ -8,7 +8,7 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
     @ObservedObject var panel: VNCPanel
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(panel: panel)
+        Coordinator()
     }
 
     func makeNSView(context: Context) -> VNCMetalCanvasView {
@@ -26,7 +26,7 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
             guard let view else { return }
             panel?.focusViewWindowDidChange(view)
         }
-        panel.attachFocusView(view)
+        context.coordinator.attach(panel: panel, view: view)
         return view
     }
 
@@ -44,24 +44,45 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
             guard let view else { return }
             panel?.focusViewWindowDidChange(view)
         }
-        if let frame = panel.latestFrame {
-            view.apply(frame)
-        } else {
-            view.resetFrameSequence()
-        }
+        context.coordinator.attach(panel: panel, view: view)
     }
 
     static func dismantleNSView(_ view: VNCMetalCanvasView, coordinator: Coordinator) {
-        coordinator.panel?.attachFocusView(nil)
+        coordinator.detach()
         view.onWindowAttachmentChanged = nil
         view.close()
     }
 
+    @MainActor
     final class Coordinator {
         weak var panel: VNCPanel?
+        private weak var view: VNCMetalCanvasView?
+        private var frameHandlerID: UUID?
 
-        init(panel: VNCPanel) {
+        func attach(panel: VNCPanel, view: VNCMetalCanvasView) {
+            if self.panel === panel, self.view === view {
+                return
+            }
+            detach()
             self.panel = panel
+            self.view = view
+            view.resetFrameSequence()
+            panel.attachFocusView(view)
+            frameHandlerID = panel.addFrameHandler { [weak view] frame in
+                if let frame {
+                    view?.apply(frame)
+                } else {
+                    view?.resetFrameSequence()
+                }
+            }
+        }
+
+        func detach() {
+            panel?.attachFocusView(nil)
+            panel?.removeFrameHandler(frameHandlerID)
+            frameHandlerID = nil
+            panel = nil
+            view = nil
         }
     }
 }
@@ -86,6 +107,10 @@ final class VNCMetalCanvasView: NSView {
     private var lastSequence: UInt64?
     private var pointerTrackingArea: NSTrackingArea?
     private var pressedModifierKeyCodes = Set<UInt16>()
+
+    var appliedFrameSequenceForTesting: UInt64? {
+        lastSequence
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -149,8 +174,10 @@ final class VNCMetalCanvasView: NSView {
     }
 
     func apply(_ frame: VNCDisplayFrame) {
-        guard lastSequence != frame.header.sequence,
-              VNCFrameValidator.validate(header: frame.header, payloadByteCount: frame.payload.count) == nil,
+        if let lastSequence, frame.header.sequence <= lastSequence {
+            return
+        }
+        guard VNCFrameValidator.validate(header: frame.header, payloadByteCount: frame.payload.count) == nil,
               resizeFramebufferIfNeeded(width: frame.header.framebufferWidth, height: frame.header.framebufferHeight) else {
             return
         }
@@ -317,6 +344,7 @@ final class VNCMetalCanvasView: NSView {
         guard framebufferWidth > 0,
               framebufferHeight > 0,
               !framebuffer.isEmpty,
+              let commandBuffer = commandQueue?.makeCommandBuffer(),
               let drawable = metalLayer.nextDrawable() else {
             return
         }
@@ -330,9 +358,8 @@ final class VNCMetalCanvasView: NSView {
                 bytesPerRow: framebufferWidth * Self.bytesPerPixel
             )
         }
-        let commandBuffer = commandQueue?.makeCommandBuffer()
-        commandBuffer?.present(drawable)
-        commandBuffer?.commit()
+        commandBuffer.present(drawable)
+        commandBuffer.commit()
     }
 
     private func updateMetalLayerGeometry() {
@@ -397,7 +424,7 @@ final class VNCMetalCanvasView: NSView {
 
     private func isSpecialKeyCode(_ keyCode: UInt16) -> Bool {
         switch keyCode {
-        case 36, 48, 51, 53, 71, 76, 96...111, 114...126:
+        case 36, 48, 51, 53, 71, 76, 96...126:
             return true
         default:
             return false

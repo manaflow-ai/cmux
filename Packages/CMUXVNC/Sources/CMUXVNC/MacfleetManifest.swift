@@ -86,7 +86,8 @@ public struct MacfleetHost: Decodable, Equatable, Sendable {
         defaultPassword manifestDefaultPassword: String?,
         matchingTag requestedTag: String?
     ) -> [MacfleetVNCSession] {
-        let hostDefaultPassword = password ?? defaultPassword ?? manifestDefaultPassword
+        let hostDefaultPassword =
+            Self.nonEmpty(password) ?? Self.nonEmpty(defaultPassword) ?? Self.nonEmpty(manifestDefaultPassword)
         switch sessions {
         case .count(let count):
             if let requestedTag, tag != requestedTag {
@@ -101,7 +102,7 @@ public struct MacfleetHost: Decodable, Equatable, Sendable {
                     port: 5900,
                     username: Self.defaultUsername(for: index),
                     sessionPassword: password,
-                    defaultPassword: defaultPassword ?? manifestDefaultPassword,
+                    defaultPassword: hostDefaultPassword,
                     tag: tag,
                     index: index
                 )
@@ -121,7 +122,7 @@ public struct MacfleetHost: Decodable, Equatable, Sendable {
                     port: config.port ?? 5900,
                     username: config.username ?? Self.defaultUsername(for: index),
                     sessionPassword: config.password ?? password,
-                    defaultPassword: config.defaultPassword ?? hostDefaultPassword,
+                    defaultPassword: Self.nonEmpty(config.defaultPassword) ?? hostDefaultPassword,
                     tag: sessionTag,
                     index: index
                 )
@@ -131,6 +132,11 @@ public struct MacfleetHost: Decodable, Equatable, Sendable {
 
     public static func defaultUsername(for index: Int) -> String {
         index <= 1 ? "cmuxvnc" : "cmuxvnc\(index)"
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
     }
 }
 

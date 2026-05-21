@@ -39,6 +39,7 @@ public struct VNCControlMessage: Codable, Equatable, Sendable {
     public var keyCode: Int?
     public var width: Int?
     public var height: Int?
+    public var errorCode: String?
 
     public init(
         kind: String,
@@ -57,7 +58,8 @@ public struct VNCControlMessage: Codable, Equatable, Sendable {
         isDown: Bool? = nil,
         keyCode: Int? = nil,
         width: Int? = nil,
-        height: Int? = nil
+        height: Int? = nil,
+        errorCode: String? = nil
     ) {
         self.kind = kind
         self.sessionName = sessionName
@@ -76,6 +78,7 @@ public struct VNCControlMessage: Codable, Equatable, Sendable {
         self.keyCode = keyCode
         self.width = width
         self.height = height
+        self.errorCode = errorCode
     }
 
     public static func connect(_ request: VNCConnectRequest) -> VNCControlMessage {
@@ -209,8 +212,8 @@ public struct VNCIPCStreamDecoder: Sendable {
             }
             guard buffer.count >= 4 + length else { break }
             let payload = Data(buffer[4..<(4 + length)])
-            messages.append(try VNCIPCCodec.decodePayload(payload))
             buffer.removeSubrange(0..<(4 + length))
+            messages.append(try VNCIPCCodec.decodePayload(payload))
         }
         return messages
     }

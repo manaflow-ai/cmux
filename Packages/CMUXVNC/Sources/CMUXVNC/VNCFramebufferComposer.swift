@@ -33,11 +33,11 @@ public struct VNCFramebufferComposer: Sendable {
         guard VNCFrameValidator.validate(header: header, payloadByteCount: payload.count) == nil,
               resizeFramebufferIfNeeded(width: header.framebufferWidth, height: header.framebufferHeight),
               VNCFrameBlitter.copyBGRAFrame(
-                  header: header,
-                  payload: payload,
-                  into: &framebuffer,
-                  framebufferWidth: framebufferWidth,
-                  framebufferHeight: framebufferHeight
+                header: header,
+                payload: payload,
+                into: &framebuffer,
+                framebufferWidth: framebufferWidth,
+                framebufferHeight: framebufferHeight
               ) else {
             return nil
         }

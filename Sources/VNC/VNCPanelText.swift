@@ -71,11 +71,25 @@ enum VNCPanelText {
     }
 
     static func macfleetPartialCredentialsMessage(openedCount: Int, missingCount: Int) -> String {
-        let format = String(
-            localized: "vnc.macfleet.partialCredentials.message",
-            defaultValue: "Opened %d VNC workspaces. %d sessions were skipped because credentials were missing."
-        )
-        return String(format: format, openedCount, missingCount)
+        let openedFormat = openedCount == 1
+            ? String(
+                localized: "vnc.macfleet.partialCredentials.openedSingular",
+                defaultValue: "Opened %d VNC workspace."
+            )
+            : String(
+                localized: "vnc.macfleet.partialCredentials.openedPlural",
+                defaultValue: "Opened %d VNC workspaces."
+            )
+        let skippedFormat = missingCount == 1
+            ? String(
+                localized: "vnc.macfleet.partialCredentials.skippedSingular",
+                defaultValue: "%d session was skipped because credentials were missing."
+            )
+            : String(
+                localized: "vnc.macfleet.partialCredentials.skippedPlural",
+                defaultValue: "%d sessions were skipped because credentials were missing."
+            )
+        return String(format: openedFormat, openedCount) + " " + String(format: skippedFormat, missingCount)
     }
 
     static var macfleetManifestFailedMessage: String {
@@ -97,42 +111,43 @@ enum VNCPanelText {
         String(localized: "vnc.error.helperProtocolFailed", defaultValue: "The VNC helper sent invalid data.")
     }
 
+    static var connectionFailed: String {
+        String(localized: "vnc.error.connectionFailed", defaultValue: "VNC could not connect to the remote session.")
+    }
+
+    static var inputQueueFull: String {
+        String(
+            localized: "vnc.error.inputQueueFull",
+            defaultValue: "VNC input is temporarily full. Reconnect the session and try again."
+        )
+    }
+
+    static func helperErrorMessage(errorCode: String?) -> String {
+        switch errorCode {
+        case "inputQueueFull":
+            return inputQueueFull
+        case "connectionFailed":
+            return connectionFailed
+        default:
+            return stateFailed
+        }
+    }
+
     static func helperExited(_ status: Int) -> String {
         let format = String(localized: "vnc.error.helperExited", defaultValue: "The VNC helper exited with status %d.")
         return String(format: format, status)
     }
 
     static func socketCreationFailed(_ error: Int32) -> String {
-        let format = String(localized: "vnc.error.socketCreationFailed", defaultValue: "Could not create the local VNC helper socket. errno %d")
-        return String(format: format, error)
-    }
-
-    static var socketPathTooLong: String {
-        String(localized: "vnc.error.socketPathTooLong", defaultValue: "The local VNC helper socket path is too long.")
-    }
-
-    static func socketBindFailed(_ error: Int32) -> String {
-        let format = String(localized: "vnc.error.socketBindFailed", defaultValue: "Could not bind the local VNC helper socket. errno %d")
-        return String(format: format, error)
-    }
-
-    static func socketPermissionFailed(_ error: Int32) -> String {
-        let format = String(localized: "vnc.error.socketPermissionFailed", defaultValue: "Could not secure the local VNC helper socket. errno %d")
-        return String(format: format, error)
-    }
-
-    static func socketListenFailed(_ error: Int32) -> String {
-        let format = String(localized: "vnc.error.socketListenFailed", defaultValue: "Could not listen on the local VNC helper socket. errno %d")
-        return String(format: format, error)
-    }
-
-    static func socketAcceptFailed(_ error: Int32) -> String {
-        let format = String(localized: "vnc.error.socketAcceptFailed", defaultValue: "Could not accept the VNC helper connection. errno %d")
-        return String(format: format, error)
+        _ = error
+        return String(
+            localized: "vnc.error.socketCreationFailed",
+            defaultValue: "Could not create the local VNC helper socket."
+        )
     }
 
     static func socketReadFailed(_ error: Int32) -> String {
-        let format = String(localized: "vnc.error.socketReadFailed", defaultValue: "Could not read from the VNC helper. errno %d")
-        return String(format: format, error)
+        _ = error
+        return String(localized: "vnc.error.socketReadFailed", defaultValue: "Could not read from the VNC helper.")
     }
 }

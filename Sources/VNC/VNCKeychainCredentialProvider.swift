@@ -4,7 +4,7 @@ import Security
 
 enum VNCKeychainCredentialProvider {
     static func password(for session: MacfleetVNCSession) -> String? {
-        let servers = [session.address, session.name]
+        let servers = [session.address, session.name, "\(session.address):\(session.port)", "\(session.name):\(session.port)"]
         for server in servers {
             if let password = internetPassword(server: server, account: session.username, port: session.port) {
                 return password

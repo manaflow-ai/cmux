@@ -38,10 +38,7 @@ extension ContentView {
         var launchSessions: [MacfleetVNCLaunchSession] = []
         var skippedCredentialCount = 0
         for session in sessions {
-            guard let credential = VNCCredentialResolver.resolve(
-                session: session,
-                keychainPassword: VNCKeychainCredentialProvider.password(for: session)
-            ) else {
+            guard let credential = VNCSessionCredentialProvider.credential(for: session, manifest: manifest) else {
                 skippedCredentialCount += 1
                 continue
             }

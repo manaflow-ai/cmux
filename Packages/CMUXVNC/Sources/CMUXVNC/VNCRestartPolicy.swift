@@ -5,8 +5,8 @@ public struct VNCHelperRestartPolicy: Equatable, Sendable {
     public var windowSeconds: TimeInterval
 
     public init(maxRestarts: Int = 3, windowSeconds: TimeInterval = 60) {
-        self.maxRestarts = maxRestarts
-        self.windowSeconds = windowSeconds
+        self.maxRestarts = max(0, maxRestarts)
+        self.windowSeconds = max(.leastNonzeroMagnitude, windowSeconds)
     }
 
     public func canRestart(previousRestartDates: [Date], now: Date) -> Bool {
