@@ -615,6 +615,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(
         isVisible: Bool,
+        allowsImmediateFocus: Bool,
         makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
     ) {
         let wasVisible = isPaletteVisible
@@ -648,7 +649,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             if shouldPromote {
                 promoteOverlayAboveSiblingsIfNeeded()
             }
-            updateFocusLockForWindowState(allowImmediateFocus: shouldPromote)
+            updateFocusLockForWindowState(allowImmediateFocus: shouldPromote && allowsImmediateFocus)
         } else {
             stopFocusLockTimer()
             if let window, isPaletteResponder(window.firstResponder) {
@@ -3143,7 +3144,10 @@ struct ContentView: View {
             let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
             tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
             let overlayController = commandPaletteWindowOverlayController(for: window)
-            overlayController.update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
+            overlayController.update(
+                isVisible: isCommandPalettePresented,
+                allowsImmediateFocus: commandPaletteAllowsImmediateOverlayFocus
+            ) { AnyView(commandPaletteOverlay) }
         }))
 
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
@@ -3315,7 +3319,10 @@ struct ContentView: View {
                 let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
                 tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
                 commandPaletteWindowOverlayController(for: window)
-                    .update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
+                    .update(
+                        isVisible: isCommandPalettePresented,
+                        allowsImmediateFocus: commandPaletteAllowsImmediateOverlayFocus
+                    ) { AnyView(commandPaletteOverlay) }
                 TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
                 BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
             }
@@ -4958,6 +4965,13 @@ struct ContentView: View {
                 ? String(localized: "commandPalette.search.switcherEmptyAllSurfaces", defaultValue: "No workspaces or surfaces match your search.")
                 : String(localized: "commandPalette.search.switcherEmpty", defaultValue: "No workspaces match your search.")
         }
+    }
+
+    private var commandPaletteAllowsImmediateOverlayFocus: Bool {
+        if case .commands = commandPaletteMode {
+            return true
+        }
+        return false
     }
 
     private var commandPaletteQueryForMatching: String {
