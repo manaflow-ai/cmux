@@ -1009,8 +1009,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     func testVNCKeyEquivalentForwardsRemoteCommandShortcut() throws {
         let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
         var events: [String] = []
-        view.onKey = { keyCode, isDown in
-            events.append("\(keyCode):\(isDown ? "down" : "up")")
+        view.onKey = { keyCode, isDown, text in
+            events.append("\(keyCode):\(isDown ? "down" : "up"):\(text ?? "")")
         }
         defer {
             view.onKey = nil
@@ -1025,14 +1025,14 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
 
         XCTAssertTrue(view.performKeyEquivalent(with: event))
-        XCTAssertEqual(events, ["55:down", "8:down", "8:up", "55:up"])
+        XCTAssertEqual(events, ["55:down:", "8:down:c", "8:up:c", "55:up:"])
     }
 
     func testVNCKeyEquivalentDoesNotDuplicateAlreadyPressedModifier() throws {
         let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
         var events: [String] = []
-        view.onKey = { keyCode, isDown in
-            events.append("\(keyCode):\(isDown ? "down" : "up")")
+        view.onKey = { keyCode, isDown, text in
+            events.append("\(keyCode):\(isDown ? "down" : "up"):\(text ?? "")")
         }
         defer {
             view.onKey = nil
@@ -1049,7 +1049,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
 
         XCTAssertTrue(view.performKeyEquivalent(with: event))
-        XCTAssertEqual(events, ["8:down", "8:up"])
+        XCTAssertEqual(events, ["8:down:c", "8:up:c"])
     }
 
     func testWorkspaceCloseRejectsPinnedWorkspace() async throws {

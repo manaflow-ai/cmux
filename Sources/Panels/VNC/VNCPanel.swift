@@ -136,9 +136,9 @@ final class VNCPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func sendKey(keyCode: UInt16, isDown: Bool) -> VNCInputResult {
+    func sendKey(keyCode: UInt16, isDown: Bool, text: String? = nil) -> VNCInputResult {
         guard prepareForUserInput() else { return .unavailable }
-        connection?.sendControl(VNCControlMessage(kind: "key", isDown: isDown, keyCode: Int(keyCode)))
+        connection?.sendControl(VNCControlMessage(kind: "key", text: text, isDown: isDown, keyCode: Int(keyCode)))
         return .sent
     }
 

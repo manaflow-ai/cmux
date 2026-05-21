@@ -196,15 +196,18 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         case "key":
             guard let keyCodeValue = message.keyCode,
                   let isDown = message.isDown,
-                  let keyCode = UInt16(exactly: keyCodeValue),
-                  let remoteKey = VNCKeyCode.from(cgKeyCode: CGKeyCode(keyCode)) else {
+                  let keyCode = UInt16(exactly: keyCodeValue) else {
                 return
             }
+            let remoteKeys = Self.remoteKeys(forMacKeyCode: keyCode, text: message.text)
+            guard !remoteKeys.isEmpty else { return }
             withConnection { connection in
-                if isDown {
-                    connection.keyDown(remoteKey)
-                } else {
-                    connection.keyUp(remoteKey)
+                for remoteKey in remoteKeys {
+                    if isDown {
+                        connection.keyDown(remoteKey)
+                    } else {
+                        connection.keyUp(remoteKey)
+                    }
                 }
             }
         case "pointer":
@@ -225,6 +228,22 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         default:
             break
         }
+    }
+
+    private static func remoteKeys(forMacKeyCode keyCode: UInt16, text: String?) -> [VNCKeyCode] {
+        if let directKey = VNCKeyCode.from(cgKeyCode: CGKeyCode(keyCode)) {
+            return [directKey]
+        }
+        if let text, !text.isEmpty {
+            let keys = VNCKeyCode.keyCodesFrom(characters: text)
+            if !keys.isEmpty {
+                return keys
+            }
+        }
+        if let fallbackText = VNCMacKeyCodeTranslator.printableCharacters(forKeyCode: Int(keyCode)) {
+            return VNCKeyCode.keyCodesFrom(characters: fallbackText)
+        }
+        return []
     }
 
     func close() {

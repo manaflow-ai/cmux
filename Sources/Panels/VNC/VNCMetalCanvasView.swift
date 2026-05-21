@@ -17,8 +17,8 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
         view.onText = { [weak panel] text in
             panel?.sendText(text)
         }
-        view.onKey = { [weak panel] keyCode, isDown in
-            panel?.sendKey(keyCode: keyCode, isDown: isDown)
+        view.onKey = { [weak panel] keyCode, isDown, text in
+            panel?.sendKey(keyCode: keyCode, isDown: isDown, text: text)
         }
         view.onPointer = { [weak panel] x, y, button, isDown in
             panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
@@ -36,8 +36,8 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
         view.onText = { [weak panel] text in
             panel?.sendText(text)
         }
-        view.onKey = { [weak panel] keyCode, isDown in
-            panel?.sendKey(keyCode: keyCode, isDown: isDown)
+        view.onKey = { [weak panel] keyCode, isDown, text in
+            panel?.sendKey(keyCode: keyCode, isDown: isDown, text: text)
         }
         view.onPointer = { [weak panel] x, y, button, isDown in
             panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
@@ -93,7 +93,7 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
 
 final class VNCMetalCanvasView: NSView {
     var onText: ((String) -> Void)?
-    var onKey: ((UInt16, Bool) -> Void)?
+    var onKey: ((UInt16, Bool, String?) -> Void)?
     var onPointer: ((Int, Int, Int?, Bool?) -> Void)?
     var onRequestFocus: (() -> Void)?
     var onWindowAttachmentChanged: (() -> Void)?
@@ -204,7 +204,7 @@ final class VNCMetalCanvasView: NSView {
 
     override func keyDown(with event: NSEvent) {
         if isDirectKeyEvent(event) {
-            onKey?(event.keyCode, true)
+            onKey?(event.keyCode, true, event.charactersIgnoringModifiers)
             return
         }
         if let text = remoteText(for: event) {
@@ -216,7 +216,7 @@ final class VNCMetalCanvasView: NSView {
 
     override func keyUp(with event: NSEvent) {
         if isDirectKeyEvent(event) {
-            onKey?(event.keyCode, false)
+            onKey?(event.keyCode, false, event.charactersIgnoringModifiers)
             return
         }
         super.keyUp(with: event)
@@ -252,8 +252,8 @@ final class VNCMetalCanvasView: NSView {
         case #selector(deleteBackward(_:)):
             onText?("\u{7f}")
         case #selector(cancelOperation(_:)):
-            onKey?(53, true)
-            onKey?(53, false)
+            onKey?(53, true, nil)
+            onKey?(53, false, nil)
         default:
             super.doCommand(by: selector)
         }
@@ -264,7 +264,7 @@ final class VNCMetalCanvasView: NSView {
             super.flagsChanged(with: event)
             return
         }
-        onKey?(event.keyCode, updateModifierState(for: event))
+        onKey?(event.keyCode, updateModifierState(for: event), nil)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -412,11 +412,11 @@ final class VNCMetalCanvasView: NSView {
 
     private func forwardRemoteKeyEquivalent(_ event: NSEvent) {
         let syntheticModifierKeyCodes = ensurePressedModifierFamilies(for: event.modifierFlags)
-        onKey?(event.keyCode, true)
-        onKey?(event.keyCode, false)
+        onKey?(event.keyCode, true, event.charactersIgnoringModifiers)
+        onKey?(event.keyCode, false, event.charactersIgnoringModifiers)
         for keyCode in syntheticModifierKeyCodes.reversed() {
             pressedModifierKeyCodes.remove(keyCode)
-            onKey?(keyCode, false)
+            onKey?(keyCode, false, nil)
         }
     }
 
@@ -476,7 +476,7 @@ final class VNCMetalCanvasView: NSView {
     private func ensurePressedModifierFamily(keyCodes: [UInt16], preferredKeyCode: UInt16) -> UInt16? {
         guard keyCodes.allSatisfy({ !pressedModifierKeyCodes.contains($0) }) else { return nil }
         pressedModifierKeyCodes.insert(preferredKeyCode)
-        onKey?(preferredKeyCode, true)
+        onKey?(preferredKeyCode, true, nil)
         return preferredKeyCode
     }
 
@@ -511,7 +511,7 @@ final class VNCMetalCanvasView: NSView {
     private func releasePressedModifiers() {
         guard !pressedModifierKeyCodes.isEmpty else { return }
         for keyCode in pressedModifierKeyCodes {
-            onKey?(keyCode, false)
+            onKey?(keyCode, false, nil)
         }
         pressedModifierKeyCodes.removeAll()
     }

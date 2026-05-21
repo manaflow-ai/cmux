@@ -336,11 +336,18 @@ final class CMUXVNCTests: XCTestCase {
     }
 
     func testIPCControlKeyRoundTrip() throws {
-        let control = VNCControlMessage(kind: "key", isDown: true, keyCode: 123)
+        let control = VNCControlMessage(kind: "key", text: "c", isDown: true, keyCode: 8)
         let encoded = try VNCIPCCodec.encodeControl(control)
         var decoder = VNCIPCStreamDecoder()
 
         XCTAssertEqual(try decoder.append(encoded), [.control(control)])
+    }
+
+    func testMacKeyCodeTranslatorMapsPrintableANSIKeys() {
+        XCTAssertEqual(VNCMacKeyCodeTranslator.printableCharacters(forKeyCode: 8), "c")
+        XCTAssertEqual(VNCMacKeyCodeTranslator.printableCharacters(forKeyCode: 18), "1")
+        XCTAssertEqual(VNCMacKeyCodeTranslator.printableCharacters(forKeyCode: 47), ".")
+        XCTAssertNil(VNCMacKeyCodeTranslator.printableCharacters(forKeyCode: 999))
     }
 
     func testIPCPointerMoveRoundTripWithoutButtonState() throws {
