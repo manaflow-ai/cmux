@@ -3731,7 +3731,7 @@ final class BrowserPanel: Panel, ObservableObject {
         contentView.addSubview(webView)
         window.contentView = contentView
         backgroundPreloadWindow = window
-        window.orderFrontRegardless()
+        window.orderFront(nil)
 
 #if DEBUG
         cmuxDebugLog(
