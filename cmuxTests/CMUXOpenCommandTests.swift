@@ -248,10 +248,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         index 8ab686e..d95f3ad 100644
         --- a/hello.txt
         +++ b/hello.txt
-        @@ -1,3 +1,3 @@
+        @@ -1,3 +1,4 @@
          one
         -two
         +three
+        +literal </script> marker
          four
         """.write(to: patchURL, atomically: true, encoding: .utf8)
         let state = MockSocketServerState()
@@ -309,6 +310,7 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
         let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
+        XCTAssertEqual(params["show_omnibar"] as? Bool, false)
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
         defer { try? FileManager.default.removeItem(at: viewerURL) }
@@ -319,9 +321,21 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("parsePatchFiles"), html)
         XCTAssertTrue(html.contains("preloadHighlighter"), html)
         XCTAssertTrue(html.contains("registerCustomTheme"), html)
+        XCTAssertTrue(html.contains("queueMicrotask"), html)
+        XCTAssertTrue(html.contains("await import(DIFFS_MODULE_URL)"), html)
         XCTAssertTrue(html.contains("renderUntilCodeViewReady"), html)
         XCTAssertTrue(html.contains("forceRenderReadyCodeViewItems"), html)
         XCTAssertTrue(html.contains("stabilizeCodeViewStickyPositioning"), html)
+        XCTAssertTrue(html.contains("id=\"files-sidebar\""), html)
+        XCTAssertTrue(html.contains("id=\"jump-select\""), html)
+        XCTAssertTrue(html.contains("id=\"layout-toggle\""), html)
+        XCTAssertTrue(html.contains("id=\"options-menu\""), html)
+        XCTAssertTrue(html.contains("setupFileExplorer"), html)
+        XCTAssertTrue(html.contains("setupJumpSelector"), html)
+        XCTAssertTrue(html.contains("codeViewOptions"), html)
+        XCTAssertTrue(html.contains("lineDiffType"), html)
+        XCTAssertTrue(html.contains("Open source URL"), html)
+        XCTAssertTrue(html.contains("Copy git apply command"), html)
         XCTAssertTrue(html.contains("stickyHeaders: true"), html)
         XCTAssertTrue(html.contains("--diffs-font-size"), html)
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
@@ -334,7 +348,51 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("#101820"), html)
         XCTAssertTrue(html.contains("#f8f8f2"), html)
         XCTAssertTrue(html.contains("hello.txt"), html)
+        XCTAssertTrue(html.contains("<\\/script> marker"), html)
         XCTAssertTrue(html.contains("\"layout\":\"unified\""), html)
+    }
+
+    func testDiffCommandLinksOriginalDiffshubPRURL() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let binURL = rootURL.appendingPathComponent("bin", isDirectory: true)
+        let curlURL = binURL.appendingPathComponent("curl")
+        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        case "$*" in
+          *"https://github.com/oven-sh/bun/pull/30412.diff"*) ;;
+          *) echo "unexpected curl args: $*" >&2; exit 22 ;;
+        esac
+        cat <<'PATCH'
+        diff --git a/src/main.zig b/src/main.zig
+        index 1111111..2222222 100644
+        --- a/src/main.zig
+        +++ b/src/main.zig
+        @@ -1,2 +1,2 @@
+         const std = @import("std");
+        -old();
+        +new();
+        PATCH
+        """.write(to: curlURL, atomically: true, encoding: .utf8)
+        chmod(curlURL.path, 0o755)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let originalURL = "https://diffshub.com/oven-sh/bun/pull/30412"
+        let result = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", originalURL, "--title", "Bun PR"],
+            environmentOverrides: [
+                "PATH": "\(binURL.path):/usr/bin:/bin:/usr/sbin:/sbin"
+            ]
+        )
+
+        XCTAssertEqual(result.params["show_omnibar"] as? Bool, false)
+        XCTAssertTrue(result.html.contains("\"externalURL\":\"\(originalURL)\""), result.html)
+        XCTAssertTrue(result.html.contains("\"sourceLabel\":\"\(originalURL)\""), result.html)
+        XCTAssertTrue(result.html.contains("id=\"external-link\""), result.html)
+        XCTAssertTrue(result.html.contains("src/main.zig"), result.html)
     }
 
     func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
@@ -372,6 +430,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(branch.html.contains("+two"), branch.html)
         XCTAssertTrue(branch.html.contains("+three"), branch.html)
         XCTAssertTrue(branch.html.contains("\"sourceLabel\":\"git branch main\""), branch.html)
+        XCTAssertTrue(branch.html.contains("id=\"source-select\""), branch.html)
+        XCTAssertTrue(branch.html.contains("\"sourceOptions\""), branch.html)
+        XCTAssertTrue(branch.html.contains("\"label\":\"Unstaged\""), branch.html)
+        XCTAssertTrue(branch.html.contains("\"label\":\"Staged\""), branch.html)
+        XCTAssertTrue(branch.html.contains("\"label\":\"Branch\""), branch.html)
+        XCTAssertTrue(branch.html.contains("\"label\":\"Last turn\""), branch.html)
 
         let unstaged = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
@@ -413,6 +477,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
         XCTAssertEqual(lastTurn.params["workspace_id"] as? String, workspaceId)
         XCTAssertEqual(lastTurn.params["surface_id"] as? String, surfaceId)
+        XCTAssertEqual(lastTurn.params["show_omnibar"] as? Bool, false)
         XCTAssertTrue(lastTurn.html.contains("Last turn diff"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+two"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+three"), lastTurn.html)

@@ -1928,6 +1928,26 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
     }
 
+    func testToggleOmnibarFocusedBrowserIsSurfaceSpecific() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        XCTAssertTrue(browserPanel.isOmnibarVisible)
+        XCTAssertTrue(manager.toggleOmnibarFocusedBrowser())
+        XCTAssertFalse(browserPanel.isOmnibarVisible)
+
+        let otherBrowser = workspace.newBrowserSurface(
+            inPane: workspace.paneId(forPanelId: browserPanelId) ?? workspace.bonsplitController.allPaneIds[0],
+            focus: true
+        )
+        XCTAssertTrue(otherBrowser?.isOmnibarVisible ?? false)
+    }
+
     func testOpenBrowserInWorkspaceSplitRightSelectsTargetWorkspaceAndCreatesSplit() {
         let manager = TabManager()
         guard let initialWorkspace = manager.selectedWorkspace else {

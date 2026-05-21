@@ -372,6 +372,25 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertFalse(panel.shouldSuppressOmnibarAutofocus())
     }
 
+    func testOmnibarVisibilityIsPanelScopedAndFocusRequestShowsIt() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertTrue(panel.isOmnibarVisible)
+        _ = panel.requestAddressBarFocus()
+        XCTAssertNotNil(panel.pendingAddressBarFocusRequestId)
+
+        XCTAssertTrue(panel.setOmnibarVisible(false))
+        XCTAssertFalse(panel.isOmnibarVisible)
+        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertEqual(panel.preferredFocusIntent, .webView)
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+
+        let requestId = panel.requestAddressBarFocus()
+        XCTAssertTrue(panel.isOmnibarVisible)
+        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
+        XCTAssertEqual(panel.preferredFocusIntent, .addressBar)
+    }
+
     func testCopySuccessPostsPastebackNotificationAndClearsPendingTarget() throws {
         let workspaceId = UUID()
         let terminalId = UUID()

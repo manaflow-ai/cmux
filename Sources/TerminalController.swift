@@ -10217,6 +10217,7 @@ class TerminalController {
 
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+            let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
 
             var createdSplit = true
             var placementStrategy = "split_right"
@@ -10226,7 +10227,8 @@ class TerminalController {
                     inPane: targetPane,
                     url: url,
                     focus: focus,
-                    creationPolicy: .automationPreload
+                    creationPolicy: .automationPreload,
+                    omnibarVisible: omnibarVisible
                 )
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
@@ -10236,7 +10238,8 @@ class TerminalController {
                     orientation: .horizontal,
                     url: url,
                     focus: focus,
-                    creationPolicy: .automationPreload
+                    creationPolicy: .automationPreload,
+                    omnibarVisible: omnibarVisible
                 )
             }
 
@@ -10263,7 +10266,8 @@ class TerminalController {
                 "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "created_split": createdSplit,
-                "placement_strategy": placementStrategy
+                "placement_strategy": placementStrategy,
+                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible
             ])
         }
         return result

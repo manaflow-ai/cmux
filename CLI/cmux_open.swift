@@ -71,6 +71,7 @@ extension CMUXCLI {
         var sourceLabel: String
         var defaultTitle: String
         var emptyMessage: String?
+        var externalURL: String?
     }
 
     private struct DiffSourceContext {
@@ -78,7 +79,36 @@ extension CMUXCLI {
         var surfaceId: String?
     }
 
-    private enum DiffSource: Equatable {
+    private struct DiffViewerWriteResult {
+        var url: URL
+        var title: String
+        var input: DiffInput
+    }
+
+    private struct DiffViewerSourceOption {
+        var value: String
+        var label: String
+        var selected: Bool
+        var url: String?
+        var disabled: Bool
+        var message: String?
+        var sourceLabel: String?
+
+        var jsonObject: [String: Any] {
+            var object: [String: Any] = [
+                "value": value,
+                "label": label,
+                "selected": selected,
+                "disabled": disabled
+            ]
+            if let url { object["url"] = url }
+            if let message { object["message"] = message }
+            if let sourceLabel { object["sourceLabel"] = sourceLabel }
+            return object
+        }
+    }
+
+    private enum DiffSource: CaseIterable, Equatable {
         case unstaged
         case staged
         case branch
@@ -110,6 +140,24 @@ extension CMUXCLI {
             case .staged: return "--staged"
             case .branch: return "--branch"
             case .lastTurn: return "--last-turn"
+            }
+        }
+
+        var slug: String {
+            switch self {
+            case .unstaged: return "unstaged"
+            case .staged: return "staged"
+            case .branch: return "branch"
+            case .lastTurn: return "last-turn"
+            }
+        }
+
+        var menuLabel: String {
+            switch self {
+            case .unstaged: return "Unstaged"
+            case .staged: return "Staged"
+            case .branch: return "Branch"
+            case .lastTurn: return "Last turn"
             }
         }
 
@@ -364,35 +412,27 @@ extension CMUXCLI {
             didResolveTarget = true
         }
 
-        if parsedArgs.source == .lastTurn {
+        if parsedArgs.source != nil {
             try resolveTargetIfNeeded()
         }
 
-        let input = try readDiffInput(
-            parsedArgs.inputs.first,
+        let appearance = diffViewerAppearance(fontSizeOverride: fontSizeOverride)
+        let viewer = try writeDiffViewer(
+            rawInput: parsedArgs.inputs.first,
             source: parsedArgs.source,
-            context: DiffSourceContext(workspaceId: workspaceHandle, surfaceId: surfaceHandle)
-        )
-        let trimmedPatch = input.patch.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPatch.isEmpty else {
-            throw CLIError(message: input.emptyMessage ?? "diff input is empty")
-        }
-
-        let title = parsedArgs.title ?? input.defaultTitle
-        let viewerURL = try writeDiffViewerHTML(
-            patch: input.patch,
-            title: title,
-            sourceLabel: input.sourceLabel,
+            titleOverride: parsedArgs.title,
             layout: layout,
-            appearance: diffViewerAppearance(fontSizeOverride: fontSizeOverride)
+            appearance: appearance,
+            context: DiffSourceContext(workspaceId: workspaceHandle, surfaceId: surfaceHandle)
         )
 
         try resolveTargetIfNeeded()
         let activeClient = try connectedClient()
 
         var params: [String: Any] = [
-            "url": viewerURL.absoluteString,
-            "focus": focus
+            "url": viewer.url.absoluteString,
+            "focus": focus,
+            "show_omnibar": false
         ]
         if let windowHandle { params["window_id"] = windowHandle }
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
@@ -402,17 +442,17 @@ extension CMUXCLI {
 
         if jsonOutput {
             var response = payload
-            response["path"] = viewerURL.path
-            response["url"] = viewerURL.absoluteString
-            response["title"] = title
-            response["source"] = input.sourceLabel
+            response["path"] = viewer.url.path
+            response["url"] = viewer.url.absoluteString
+            response["title"] = viewer.title
+            response["source"] = viewer.input.sourceLabel
             print(jsonString(formatIDs(response, mode: idFormat)))
             return
         }
 
         let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
         let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
-        print("OK surface=\(surfaceText) pane=\(paneText) path=\(viewerURL.path)")
+        print("OK surface=\(surfaceText) pane=\(paneText) path=\(viewer.url.path)")
     }
 
     private func parseOpenArguments(_ commandArgs: [String]) throws -> OpenArguments {
@@ -620,8 +660,26 @@ extension CMUXCLI {
                 patch: try decodeDiffData(data, sourceDescription: "stdin"),
                 sourceLabel: "stdin",
                 defaultTitle: "cmux diff",
-                emptyMessage: nil
+                emptyMessage: nil,
+                externalURL: nil
             )
+        }
+
+        if let url = diffInputPatchURL(rawInput) {
+            let sourceURL = URL(string: rawInput) ?? url
+            do {
+                return DiffInput(
+                    patch: try fetchDiffURL(url),
+                    sourceLabel: sourceURL.absoluteString,
+                    defaultTitle: diffInputURLTitle(sourceURL),
+                    emptyMessage: nil,
+                    externalURL: diffInputExternalURL(sourceURL).absoluteString
+                )
+            } catch let error as CLIError {
+                throw error
+            } catch {
+                throw CLIError(message: "Failed to fetch diff URL: \(url.absoluteString) (\(error.localizedDescription))")
+            }
         }
 
         let resolved = resolvePath(rawInput)
@@ -642,7 +700,8 @@ extension CMUXCLI {
             patch: try decodeDiffData(data, sourceDescription: resolved),
             sourceLabel: resolved,
             defaultTitle: filename.isEmpty ? "cmux diff" : filename,
-            emptyMessage: nil
+            emptyMessage: nil,
+            externalURL: nil
         )
     }
 
@@ -681,8 +740,93 @@ extension CMUXCLI {
             patch: patch,
             sourceLabel: sourceLabel,
             defaultTitle: source.title,
-            emptyMessage: source.emptyMessage
+            emptyMessage: source.emptyMessage,
+            externalURL: nil
         )
+    }
+
+    private func diffInputPatchURL(_ rawInput: String) -> URL? {
+        guard let url = URL(string: rawInput),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              let host = url.host?.lowercased() else {
+            return nil
+        }
+
+        if host == "diffshub.com" || host == "www.diffshub.com" {
+            let components = url.pathComponents
+            if components.count >= 5,
+               components[3] == "pull",
+               Int(components[4]) != nil {
+                return URL(string: "https://github.com/\(components[1])/\(components[2])/pull/\(components[4]).diff")
+            }
+        }
+
+        if host == "github.com" || host == "www.github.com" {
+            let components = url.pathComponents
+            if components.count >= 5,
+               components[3] == "pull",
+               Int(components[4].replacingOccurrences(of: ".patch", with: "").replacingOccurrences(of: ".diff", with: "")) != nil {
+                let pullComponent = components[4]
+                if pullComponent.hasSuffix(".patch") || pullComponent.hasSuffix(".diff") {
+                    return url
+                }
+                return URL(string: "https://github.com/\(components[1])/\(components[2])/pull/\(pullComponent).diff")
+            }
+        }
+
+        return url
+    }
+
+    private func diffInputExternalURL(_ url: URL) -> URL {
+        guard let host = url.host?.lowercased(),
+              host == "github.com" || host == "www.github.com" else {
+            return url
+        }
+        var components = url.pathComponents
+        guard components.count >= 5,
+              components[3] == "pull" else {
+            return url
+        }
+        components[4] = components[4]
+            .replacingOccurrences(of: ".patch", with: "")
+            .replacingOccurrences(of: ".diff", with: "")
+        var normalized = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        normalized?.path = components.joined(separator: "/").replacingOccurrences(of: "//", with: "/")
+        normalized?.query = nil
+        normalized?.fragment = nil
+        return normalized?.url ?? url
+    }
+
+    private func fetchDiffURL(_ url: URL) throws -> String {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "curl",
+                "-fL",
+                "--silent",
+                "--show-error",
+                "--max-time", "120",
+                url.absoluteString
+            ],
+            timeout: 130
+        )
+        if result.timedOut {
+            throw CLIError(message: "Timed out fetching diff URL: \(url.absoluteString)")
+        }
+        guard result.status == 0 else {
+            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw CLIError(message: "Failed to fetch diff URL: \(url.absoluteString)\(detail.isEmpty ? "" : " (\(detail))")")
+        }
+        return result.stdout
+    }
+
+    private func diffInputURLTitle(_ url: URL) -> String {
+        let last = url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !last.isEmpty {
+            return last
+        }
+        return url.host ?? "cmux diff"
     }
 
     private func decodeDiffData(_ data: Data, sourceDescription: String) throws -> String {
@@ -1295,29 +1439,177 @@ extension CMUXCLI {
         }
     }
 
-    private func writeDiffViewerHTML(
-        patch: String,
-        title: String,
-        sourceLabel: String,
+    private func writeDiffViewer(
+        rawInput: String?,
+        source: DiffSource?,
+        titleOverride: String?,
         layout: String,
-        appearance: DiffViewerAppearance
-    ) throws -> URL {
+        appearance: DiffViewerAppearance,
+        context: DiffSourceContext
+    ) throws -> DiffViewerWriteResult {
+        if let source {
+            return try writeGitDiffViewerHTMLSet(
+                selectedSource: source,
+                titleOverride: titleOverride,
+                layout: layout,
+                appearance: appearance,
+                context: context
+            )
+        }
+
+        let input = try readDiffInput(rawInput, source: nil, context: context)
+        let trimmedPatch = input.patch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPatch.isEmpty else {
+            throw CLIError(message: input.emptyMessage ?? "diff input is empty")
+        }
+
+        let title = titleOverride ?? input.defaultTitle
+        let viewerURL = try writeDiffViewerHTML(
+            patch: input.patch,
+            title: title,
+            sourceLabel: input.sourceLabel,
+            externalURL: input.externalURL,
+            layout: layout,
+            appearance: appearance,
+            sourceOptions: []
+        )
+        return DiffViewerWriteResult(url: viewerURL, title: title, input: input)
+    }
+
+    private func writeGitDiffViewerHTMLSet(
+        selectedSource: DiffSource,
+        titleOverride: String?,
+        layout: String,
+        appearance: DiffViewerAppearance,
+        context: DiffSourceContext
+    ) throws -> DiffViewerWriteResult {
+        let directory = try diffViewerDirectory()
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let groupID = "\(timestamp)-\(UUID().uuidString.prefix(8))"
+        var inputs: [DiffSource: DiffInput] = [:]
+        var messages: [DiffSource: String] = [:]
+
+        for source in DiffSource.allCases {
+            do {
+                let input = try readGitDiffInput(source: source, context: context)
+                let trimmedPatch = input.patch.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedPatch.isEmpty {
+                    messages[source] = input.emptyMessage ?? "No changes to diff."
+                } else {
+                    inputs[source] = input
+                }
+            } catch {
+                messages[source] = String(describing: error)
+            }
+        }
+
+        guard let selectedInput = inputs[selectedSource] else {
+            throw CLIError(message: messages[selectedSource] ?? selectedSource.emptyMessage)
+        }
+
+        let urls = Dictionary(uniqueKeysWithValues: inputs.keys.map { source in
+            (
+                source,
+                directory.appendingPathComponent(
+                    "diff-\(groupID)-\(source.slug).html",
+                    isDirectory: false
+                )
+            )
+        })
+
+        for source in inputs.keys {
+            guard let input = inputs[source], let url = urls[source] else { continue }
+            let sourceOptions = DiffSource.allCases.map { option in
+                DiffViewerSourceOption(
+                    value: option.slug,
+                    label: option.menuLabel,
+                    selected: option == source,
+                    url: urls[option]?.absoluteString,
+                    disabled: inputs[option] == nil,
+                    message: messages[option],
+                    sourceLabel: inputs[option]?.sourceLabel
+                )
+            }
+            let title = source == selectedSource ? (titleOverride ?? input.defaultTitle) : input.defaultTitle
+            try writeDiffViewerHTML(
+                to: url,
+                patch: input.patch,
+                title: title,
+                sourceLabel: input.sourceLabel,
+                externalURL: input.externalURL,
+                layout: layout,
+                appearance: appearance,
+                sourceOptions: sourceOptions
+            )
+        }
+
+        guard let selectedURL = urls[selectedSource] else {
+            throw CLIError(message: "Failed to write diff viewer")
+        }
+        return DiffViewerWriteResult(
+            url: selectedURL,
+            title: titleOverride ?? selectedInput.defaultTitle,
+            input: selectedInput
+        )
+    }
+
+    private func diffViewerDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-diff-viewer", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         pruneDiffViewerFiles(in: directory)
+        return directory
+    }
+
+    private func writeDiffViewerHTML(
+        patch: String,
+        title: String,
+        sourceLabel: String,
+        externalURL: String?,
+        layout: String,
+        appearance: DiffViewerAppearance,
+        sourceOptions: [DiffViewerSourceOption]
+    ) throws -> URL {
+        let directory = try diffViewerDirectory()
 
         let timestamp = Int(Date().timeIntervalSince1970)
         let filename = "diff-\(timestamp)-\(UUID().uuidString.prefix(8)).html"
         let viewerURL = directory.appendingPathComponent(filename, isDirectory: false)
-        let payload: [String: Any] = [
+        try writeDiffViewerHTML(
+            to: viewerURL,
+            patch: patch,
+            title: title,
+            sourceLabel: sourceLabel,
+            externalURL: externalURL,
+            layout: layout,
+            appearance: appearance,
+            sourceOptions: sourceOptions
+        )
+        return viewerURL
+    }
+
+    private func writeDiffViewerHTML(
+        to viewerURL: URL,
+        patch: String,
+        title: String,
+        sourceLabel: String,
+        externalURL: String?,
+        layout: String,
+        appearance: DiffViewerAppearance,
+        sourceOptions: [DiffViewerSourceOption]
+    ) throws {
+        var payload: [String: Any] = [
             "patch": patch,
             "title": title,
             "sourceLabel": sourceLabel,
             "layout": layout,
             "appearance": appearance.jsonObject,
+            "sourceOptions": sourceOptions.map(\.jsonObject),
             "generatedAt": ISO8601DateFormatter().string(from: Date())
         ]
+        if let externalURL {
+            payload["externalURL"] = externalURL
+        }
         let payloadLiteral = try jsonScriptLiteral(payload)
         let escapedTitle = htmlEscaped(title)
         let html = """
@@ -1364,6 +1656,264 @@ extension CMUXCLI {
               min-height: 0;
               background: var(--cmux-diff-bg);
               color: var(--cmux-diff-fg);
+              display: flex;
+              flex-direction: column;
+              overflow: hidden;
+              font-family: var(--cmux-diff-font-family);
+              font-size: var(--cmux-diff-font-size);
+              line-height: var(--cmux-diff-line-height);
+            }
+            #app {
+              height: 100vh;
+              min-height: 0;
+              display: flex;
+              flex-direction: column;
+              background: inherit;
+              color: inherit;
+            }
+            #toolbar {
+              position: relative;
+              flex: 0 0 auto;
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              min-height: 38px;
+              padding: 5px 10px;
+              border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
+              background: color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg));
+              color: color-mix(in lab, var(--cmux-diff-fg) 82%, var(--cmux-diff-bg));
+              z-index: 50;
+            }
+            .toolbar-left,
+            .toolbar-middle,
+            .toolbar-actions {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              min-width: 0;
+            }
+            .toolbar-left {
+              flex: 0 1 34%;
+            }
+            .toolbar-middle {
+              flex: 1 1 auto;
+              justify-content: center;
+            }
+            .toolbar-actions {
+              flex: 0 0 auto;
+            }
+            #source-select,
+            #jump-select {
+              appearance: none;
+              height: 28px;
+              min-width: 118px;
+              max-width: min(36vw, 360px);
+              padding: 0 26px 0 10px;
+              border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 18%, transparent);
+              border-radius: 6px;
+              background:
+                linear-gradient(45deg, transparent 50%, currentColor 50%) right 12px center / 5px 5px no-repeat,
+                linear-gradient(135deg, currentColor 50%, transparent 50%) right 7px center / 5px 5px no-repeat,
+                color-mix(in lab, var(--cmux-diff-bg) 94%, var(--cmux-diff-fg));
+              color: inherit;
+              font: inherit;
+            }
+            #source-select[hidden],
+            #jump-select[hidden] {
+              display: none;
+            }
+            #jump-select {
+              min-width: min(280px, 36vw);
+            }
+            #source-select:focus,
+            #jump-select:focus,
+            .toolbar-icon:focus-visible,
+            .menu-item:focus-visible,
+            .file-entry:focus-visible {
+              outline: 2px solid color-mix(in lab, var(--cmux-diff-fg) 36%, transparent);
+              outline-offset: 1px;
+            }
+            #source-detail {
+              min-width: 0;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+              color: color-mix(in lab, var(--cmux-diff-fg) 58%, var(--cmux-diff-bg));
+            }
+            .toolbar-icon {
+              width: 30px;
+              height: 28px;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              border: 1px solid transparent;
+              border-radius: 6px;
+              background: transparent;
+              color: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
+              padding: 0;
+              cursor: pointer;
+            }
+            .toolbar-icon:hover,
+            .toolbar-icon[aria-pressed="true"],
+            .toolbar-icon[aria-expanded="true"] {
+              border-color: color-mix(in lab, var(--cmux-diff-fg) 17%, transparent);
+              background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+              color: var(--cmux-diff-fg);
+            }
+            .toolbar-icon[hidden] {
+              display: none;
+            }
+            .toolbar-icon svg,
+            .menu-item svg {
+              width: 17px;
+              height: 17px;
+              display: block;
+              fill: none;
+              stroke: currentColor;
+              stroke-width: 1.75;
+              stroke-linecap: round;
+              stroke-linejoin: round;
+            }
+            #layout-toggle svg [data-accent] {
+              stroke: light-dark(#0a84ff, #7ab7ff);
+            }
+            #options-menu {
+              position: absolute;
+              top: calc(100% + 7px);
+              right: 10px;
+              min-width: 246px;
+              padding: 8px;
+              border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+              border-radius: 10px;
+              background: color-mix(in lab, var(--cmux-diff-bg) 91%, var(--cmux-diff-fg));
+              box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
+              z-index: 100;
+            }
+            #options-menu[hidden] {
+              display: none;
+            }
+            .menu-separator {
+              height: 1px;
+              margin: 7px 6px;
+              background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+            }
+            .menu-item {
+              width: 100%;
+              min-height: 34px;
+              display: grid;
+              grid-template-columns: 22px minmax(0, 1fr) 18px;
+              align-items: center;
+              gap: 10px;
+              border: 0;
+              border-radius: 7px;
+              background: transparent;
+              color: color-mix(in lab, var(--cmux-diff-fg) 86%, var(--cmux-diff-bg));
+              font: inherit;
+              text-align: left;
+              padding: 0 8px;
+            }
+            .menu-item:hover:not(:disabled) {
+              background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+              color: var(--cmux-diff-fg);
+            }
+            .menu-item:disabled {
+              color: color-mix(in lab, var(--cmux-diff-fg) 36%, var(--cmux-diff-bg));
+            }
+            .menu-label {
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+            }
+            .menu-check {
+              justify-self: end;
+            }
+            #content {
+              --cmux-diff-files-width: clamp(190px, 22vw, 252px);
+              position: relative;
+              flex: 1 1 auto;
+              min-height: 0;
+              min-width: 0;
+              display: block;
+              overflow: hidden;
+              background: inherit;
+            }
+            #files-sidebar {
+              position: absolute;
+              top: 0;
+              bottom: 0;
+              left: 0;
+              width: var(--cmux-diff-files-width);
+              min-height: 0;
+              min-width: 190px;
+              overflow: auto;
+              border-right: 1px solid color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+              background: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
+            }
+            body[data-files-hidden="true"] #files-sidebar {
+              display: none;
+            }
+            #files-header {
+              position: sticky;
+              top: 0;
+              z-index: 2;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              min-height: 32px;
+              padding: 0 10px;
+              border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+              background: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
+              color: color-mix(in lab, var(--cmux-diff-fg) 56%, var(--cmux-diff-bg));
+            }
+            #file-list {
+              padding: 6px;
+            }
+            .file-entry {
+              width: 100%;
+              min-height: 34px;
+              display: grid;
+              grid-template-columns: 18px minmax(0, 1fr) auto;
+              align-items: center;
+              gap: 8px;
+              border: 0;
+              border-radius: 7px;
+              background: transparent;
+              color: inherit;
+              font: inherit;
+              text-align: left;
+              padding: 4px 7px;
+            }
+            .file-entry:hover,
+            .file-entry[aria-current="true"] {
+              background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+            }
+            .file-status {
+              width: 17px;
+              height: 17px;
+              border: 1px solid currentColor;
+              border-radius: 5px;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 9px;
+              line-height: 1;
+              color: color-mix(in lab, var(--cmux-diff-fg) 62%, var(--cmux-diff-bg));
+            }
+            .file-name {
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+            }
+            .file-stats {
+              display: inline-flex;
+              gap: 5px;
+              color: color-mix(in lab, var(--cmux-diff-fg) 50%, var(--cmux-diff-bg));
+            }
+            .stat-add {
+              color: light-dark(#257a3e, #8fd88f);
+            }
+            .stat-del {
+              color: light-dark(#b42318, #ff8a80);
             }
             #viewer {
               --diffs-font-family: var(--cmux-diff-font-family);
@@ -1371,10 +1921,26 @@ extension CMUXCLI {
               --diffs-font-size: var(--cmux-diff-font-size);
               --diffs-line-height: var(--cmux-diff-line-height);
               --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
-              height: 100vh;
+              width: calc(100% - var(--cmux-diff-files-width));
+              height: 100%;
+              margin-left: var(--cmux-diff-files-width);
               min-height: 0;
+              min-width: 0;
               overflow: auto;
               background: inherit;
+            }
+            body[data-files-hidden="true"] #viewer {
+              width: 100%;
+              margin-left: 0;
+            }
+            @media (max-width: 520px) {
+              #files-sidebar {
+                display: none;
+              }
+              #viewer {
+                width: 100%;
+                margin-left: 0;
+              }
             }
             #viewer diffs-container {
               --diffs-font-family: var(--cmux-diff-font-family);
@@ -1395,57 +1961,121 @@ extension CMUXCLI {
             }
           </style>
         </head>
-        <body>
-          <main id="viewer" aria-label="Diff viewer">
-            <div id="status">Loading diff...</div>
-          </main>
+        <body data-files-hidden="false">
+          <div id="app">
+            <header id="toolbar">
+              <div class="toolbar-left">
+                <select id="source-select" aria-label="Diff target" hidden></select>
+                <span id="source-detail"></span>
+              </div>
+              <div class="toolbar-middle">
+                <select id="jump-select" aria-label="Jump to file" hidden></select>
+              </div>
+              <div class="toolbar-actions">
+                <a id="external-link" class="toolbar-icon" target="_blank" rel="noreferrer" title="Open source URL" aria-label="Open source URL" hidden></a>
+                <button id="files-toggle" class="toolbar-icon" type="button" title="Hide files" aria-label="Hide files" aria-pressed="true"></button>
+                <button id="layout-toggle" class="toolbar-icon" type="button" title="Switch to unified diff" aria-label="Switch to unified diff"></button>
+                <button id="options-button" class="toolbar-icon" type="button" title="Options" aria-label="Options" aria-expanded="false" aria-haspopup="menu"></button>
+              </div>
+              <div id="options-menu" role="menu" hidden></div>
+            </header>
+            <section id="content">
+              <aside id="files-sidebar" aria-label="Changed files">
+                <div id="files-header">
+                  <span>Files</span>
+                  <span id="files-count"></span>
+                </div>
+                <div id="file-list"></div>
+              </aside>
+              <main id="viewer" aria-label="Diff viewer">
+                <div id="status">Loading diff...</div>
+              </main>
+            </section>
+          </div>
           <script type="module">
-            import { CodeView, getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, registerCustomTheme } from "https://esm.run/@pierre/diffs@1.2.1";
-
+            const DIFFS_MODULE_URL = "https://esm.run/@pierre/diffs@1.2.1";
             const payload = \(payloadLiteral);
             const viewerElement = document.getElementById("viewer");
             const status = document.getElementById("status");
+            const toolbar = document.getElementById("toolbar");
+            const sourceSelect = document.getElementById("source-select");
+            const sourceDetail = document.getElementById("source-detail");
+            const jumpSelect = document.getElementById("jump-select");
+            const externalLink = document.getElementById("external-link");
+            const filesToggle = document.getElementById("files-toggle");
+            const layoutToggle = document.getElementById("layout-toggle");
+            const optionsButton = document.getElementById("options-button");
+            const optionsMenu = document.getElementById("options-menu");
+            const fileList = document.getElementById("file-list");
+            const filesCount = document.getElementById("files-count");
+            const appState = {
+              layout: payload.layout === "unified" ? "unified" : "split",
+              filesVisible: true,
+              wordWrap: false,
+              collapsed: false,
+              loadFullFiles: false,
+              richPreview: false,
+              wordDiffs: false,
+              hideWhitespace: false,
+            };
+            let codeView;
+            let diffItems = [];
+            let activeFileId = "";
             document.title = payload.title;
             applyViewerAppearance(payload.appearance);
-            registerGhosttyTheme(payload.appearance.themes.light);
-            registerGhosttyTheme(payload.appearance.themes.dark);
-            stabilizeCodeViewStickyPositioning();
+            setupToolbar();
+            setupSourceSelector(payload.sourceOptions ?? []);
+            const scheduleRender = globalThis.queueMicrotask ?? ((callback) => setTimeout(callback, 0));
+            scheduleRender(() => {
+              renderDiff().catch((error) => {
+                status.dataset.error = "true";
+                status.textContent = error instanceof Error ? error.message : String(error);
+              });
+            });
 
-            try {
+            async function renderDiff() {
+              status.textContent = "Loading renderer...";
+              const {
+                CodeView,
+                getFiletypeFromFileName,
+                parsePatchFiles,
+                preloadHighlighter,
+                registerCustomTheme,
+              } = await import(DIFFS_MODULE_URL);
+
+              registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.light);
+              registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.dark);
+              stabilizeCodeViewStickyPositioning(CodeView);
+              status.textContent = "Parsing diff...";
               const patches = parsePatchFiles(payload.patch, "cmux-diff");
-              const items = patches.flatMap((patch, patchIndex) =>
+              diffItems = patches.flatMap((patch, patchIndex) =>
                 patch.files.map((fileDiff, fileIndex) => ({
                   id: `patch-${patchIndex}-file-${fileIndex}`,
                   type: "diff",
                   fileDiff,
+                  version: 1,
                 }))
               );
 
-              if (items.length === 0) {
+              if (diffItems.length === 0) {
                 throw new Error("No file diffs found in patch input.");
               }
 
-              status.textContent = "Loading theme...";
-              await preloadDiffHighlighter(payload.appearance, items);
+              status.textContent = "Rendering diff...";
+              setupFileExplorer(diffItems);
+              setupJumpSelector(diffItems);
+              updateToolbarState();
+              preloadDiffHighlighter(payload.appearance, diffItems, getFiletypeFromFileName, preloadHighlighter)
+                .catch((error) => console.warn("cmux diff highlighter preload failed", error));
               status.remove();
-              const codeView = new CodeView({
-                diffStyle: payload.layout,
-                itemMetrics: {
-                  lineHeight: payload.appearance.lineHeight,
-                  diffHeaderHeight: payload.appearance.diffHeaderHeight,
-                  spacing: 8,
-                },
-                stickyHeaders: true,
-                theme: payload.appearance.theme,
-                themeType: "system",
-              });
+              codeView = new CodeView(codeViewOptions());
               codeView.setup(viewerElement);
-              codeView.setItems(items);
+              codeView.setItems(diffItems);
               codeView.render(true);
+              codeView.subscribeToScroll(updateActiveFileFromScroll);
               renderUntilCodeViewReady(codeView, viewerElement, performance.now());
-            } catch (error) {
-              status.dataset.error = "true";
-              status.textContent = error instanceof Error ? error.message : String(error);
+              updateActiveFile(diffItems[0]?.id ?? "");
+              window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState };
             }
 
             function applyViewerAppearance(appearance) {
@@ -1466,11 +2096,329 @@ extension CMUXCLI {
               return `${JSON.stringify(family)}, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
             }
 
-            function registerGhosttyTheme(theme) {
+            function setupToolbar() {
+              filesToggle.innerHTML = icon("files");
+              layoutToggle.innerHTML = icon(appState.layout);
+              optionsButton.innerHTML = icon("dots");
+              if (typeof payload.externalURL === "string" && payload.externalURL.length > 0) {
+                externalLink.href = payload.externalURL;
+                externalLink.innerHTML = icon("external");
+                externalLink.hidden = false;
+              }
+              filesToggle.addEventListener("click", () => setFilesVisible(!appState.filesVisible));
+              layoutToggle.addEventListener("click", () => setLayout(appState.layout === "split" ? "unified" : "split"));
+              optionsButton.addEventListener("click", () => setOptionsMenuOpen(optionsMenu.hidden));
+              document.addEventListener("click", (event) => {
+                if (optionsMenu.hidden || toolbar.contains(event.target)) {
+                  return;
+                }
+                setOptionsMenuOpen(false);
+              });
+              document.addEventListener("keydown", (event) => {
+                if (event.key === "Escape") {
+                  setOptionsMenuOpen(false);
+                }
+              });
+              updateToolbarState();
+            }
+
+            function codeViewOptions() {
+              return {
+                diffStyle: appState.layout,
+                overflow: appState.wordWrap ? "wrap" : "scroll",
+                expandUnchanged: appState.loadFullFiles,
+                lineDiffType: appState.wordDiffs ? "word" : "none",
+                itemMetrics: {
+                  lineHeight: payload.appearance.lineHeight,
+                  diffHeaderHeight: payload.appearance.diffHeaderHeight,
+                  spacing: 8,
+                },
+                stickyHeaders: true,
+                theme: payload.appearance.theme,
+                themeType: "system",
+              };
+            }
+
+            function applyCodeViewOptions() {
+              if (!codeView) {
+                return;
+              }
+              codeView.setOptions(codeViewOptions());
+              codeView.render(true);
+              renderUntilCodeViewReady(codeView, viewerElement, performance.now());
+            }
+
+            function setLayout(layout) {
+              appState.layout = layout === "unified" ? "unified" : "split";
+              updateToolbarState();
+              applyCodeViewOptions();
+            }
+
+            function setFilesVisible(visible) {
+              appState.filesVisible = visible;
+              document.body.dataset.filesHidden = visible ? "false" : "true";
+              updateToolbarState();
+            }
+
+            function setCollapsed(collapsed) {
+              appState.collapsed = collapsed;
+              diffItems = diffItems.map((item) => ({
+                ...item,
+                collapsed,
+                version: (item.version ?? 0) + 1,
+              }));
+              if (codeView) {
+                codeView.setItems(diffItems);
+                codeView.render(true);
+                renderUntilCodeViewReady(codeView, viewerElement, performance.now());
+              }
+              updateToolbarState();
+            }
+
+            function updateToolbarState() {
+              filesToggle.setAttribute("aria-pressed", String(appState.filesVisible));
+              filesToggle.title = appState.filesVisible ? "Hide files" : "Show files";
+              filesToggle.setAttribute("aria-label", filesToggle.title);
+              layoutToggle.innerHTML = icon(appState.layout);
+              layoutToggle.title = appState.layout === "split" ? "Switch to unified diff" : "Switch to split diff";
+              layoutToggle.setAttribute("aria-label", layoutToggle.title);
+              optionsButton.setAttribute("aria-expanded", String(!optionsMenu.hidden));
+              document.documentElement.dataset.layout = appState.layout;
+              document.documentElement.dataset.wordWrap = String(appState.wordWrap);
+              document.documentElement.dataset.hideWhitespace = String(appState.hideWhitespace);
+            }
+
+            function setOptionsMenuOpen(open) {
+              if (open) {
+                renderOptionsMenu();
+              }
+              optionsMenu.hidden = !open;
+              updateToolbarState();
+            }
+
+            function renderOptionsMenu() {
+              optionsMenu.textContent = "";
+              const items = [
+                { label: "Refresh", icon: "refresh", action: () => window.location.reload() },
+                { label: appState.wordWrap ? "Disable word wrap" : "Enable word wrap", icon: "wrap", checked: appState.wordWrap, action: () => {
+                  appState.wordWrap = !appState.wordWrap;
+                  applyCodeViewOptions();
+                } },
+                { label: appState.collapsed ? "Expand all diffs" : "Collapse all diffs", icon: "collapse", checked: appState.collapsed, action: () => setCollapsed(!appState.collapsed) },
+                "separator",
+                { label: appState.loadFullFiles ? "Don't load full files" : "Load full files", icon: "document", checked: appState.loadFullFiles, action: () => {
+                  appState.loadFullFiles = !appState.loadFullFiles;
+                  applyCodeViewOptions();
+                } },
+                { label: appState.richPreview ? "Disable rich preview" : "Enable rich preview", icon: "image", checked: appState.richPreview, disabled: true },
+                { label: appState.wordDiffs ? "Disable word diffs" : "Enable word diffs", icon: "word", checked: appState.wordDiffs, action: () => {
+                  appState.wordDiffs = !appState.wordDiffs;
+                  applyCodeViewOptions();
+                } },
+                { label: appState.hideWhitespace ? "Show white space" : "Hide white space", icon: "eye", checked: appState.hideWhitespace, disabled: true },
+                { label: "Copy git apply command", icon: "clipboard", disabled: true },
+              ];
+              for (const item of items) {
+                if (item === "separator") {
+                  const separator = document.createElement("div");
+                  separator.className = "menu-separator";
+                  optionsMenu.append(separator);
+                  continue;
+                }
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "menu-item";
+                button.setAttribute("role", item.checked == null ? "menuitem" : "menuitemcheckbox");
+                if (item.checked != null) {
+                  button.setAttribute("aria-checked", String(Boolean(item.checked)));
+                }
+                button.disabled = Boolean(item.disabled);
+                button.innerHTML = `${icon(item.icon)}<span class="menu-label"></span><span class="menu-check">${item.checked ? icon("check") : ""}</span>`;
+                button.querySelector(".menu-label").textContent = item.label;
+                button.addEventListener("click", () => {
+                  if (button.disabled) {
+                    return;
+                  }
+                  item.action?.();
+                  renderOptionsMenu();
+                  updateToolbarState();
+                });
+                optionsMenu.append(button);
+              }
+            }
+
+            function setupSourceSelector(options) {
+              sourceDetail.textContent = payload.sourceLabel ?? "";
+              if (!Array.isArray(options) || options.length < 2) {
+                return;
+              }
+              sourceSelect.textContent = "";
+              const selected = options.find((option) => option.selected) ?? options.find((option) => !option.disabled);
+              for (const option of options) {
+                const item = document.createElement("option");
+                item.value = option.value;
+                item.textContent = option.label;
+                item.disabled = option.disabled || !option.url;
+                item.selected = option.value === selected?.value;
+                if (option.message) {
+                  item.title = option.message;
+                }
+                sourceSelect.append(item);
+              }
+              sourceDetail.textContent = selected?.sourceLabel ?? payload.sourceLabel ?? "";
+              sourceSelect.hidden = false;
+              sourceSelect.addEventListener("change", () => {
+                const next = options.find((option) => option.value === sourceSelect.value);
+                if (!next?.url) {
+                  sourceSelect.value = selected?.value ?? "";
+                  return;
+                }
+                status.dataset.error = "false";
+                status.textContent = `Loading ${next.label}...`;
+                window.location.href = next.url;
+              });
+            }
+
+            function setupFileExplorer(items) {
+              fileList.textContent = "";
+              filesCount.textContent = `${items.length}`;
+              for (const item of items) {
+                const fileDiff = item.fileDiff ?? {};
+                const stats = fileStats(fileDiff);
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "file-entry";
+                button.dataset.itemId = item.id;
+                button.title = fileName(fileDiff);
+                button.innerHTML = `
+                  <span class="file-status">${fileStatus(fileDiff)}</span>
+                  <span class="file-name"></span>
+                  <span class="file-stats">
+                    <span class="stat-add">+${stats.added}</span>
+                    <span class="stat-del">-${stats.deleted}</span>
+                  </span>
+                `;
+                button.querySelector(".file-name").textContent = fileName(fileDiff);
+                button.addEventListener("click", () => scrollToItem(item.id));
+                fileList.append(button);
+              }
+            }
+
+            function setupJumpSelector(items) {
+              jumpSelect.textContent = "";
+              const placeholder = document.createElement("option");
+              placeholder.value = "";
+              placeholder.textContent = "Jump to file";
+              jumpSelect.append(placeholder);
+              for (const item of items) {
+                const option = document.createElement("option");
+                option.value = item.id;
+                option.textContent = fileName(item.fileDiff ?? {});
+                jumpSelect.append(option);
+              }
+              jumpSelect.hidden = items.length === 0;
+              jumpSelect.addEventListener("change", () => {
+                if (jumpSelect.value) {
+                  scrollToItem(jumpSelect.value);
+                }
+              });
+            }
+
+            function scrollToItem(itemId) {
+              if (!codeView) {
+                return;
+              }
+              codeView.scrollTo({ type: "item", id: itemId, align: "start", behavior: "smooth-auto" });
+              codeView.render(true);
+              renderUntilCodeViewReady(codeView, viewerElement, performance.now());
+              updateActiveFile(itemId);
+            }
+
+            function updateActiveFileFromScroll() {
+              if (!codeView || diffItems.length === 0) {
+                return;
+              }
+              const scrollTop = viewerElement.scrollTop + 8;
+              let current = diffItems[0].id;
+              for (const item of diffItems) {
+                const top = codeView.getTopForItem(item.id);
+                if (typeof top !== "number") {
+                  continue;
+                }
+                if (top <= scrollTop) {
+                  current = item.id;
+                } else {
+                  break;
+                }
+              }
+              updateActiveFile(current);
+            }
+
+            function updateActiveFile(itemId) {
+              if (!itemId || activeFileId === itemId) {
+                return;
+              }
+              activeFileId = itemId;
+              for (const entry of fileList.querySelectorAll(".file-entry")) {
+                entry.setAttribute("aria-current", entry.dataset.itemId === itemId ? "true" : "false");
+              }
+              if (jumpSelect.value !== itemId) {
+                jumpSelect.value = itemId;
+              }
+            }
+
+            function fileName(fileDiff) {
+              return fileDiff.name ?? fileDiff.newName ?? fileDiff.oldName ?? fileDiff.prevName ?? "Untitled";
+            }
+
+            function fileStatus(fileDiff) {
+              switch (fileDiff.type) {
+              case "new":
+                return "A";
+              case "deleted":
+                return "D";
+              case "rename-pure":
+              case "rename-changed":
+                return "R";
+              default:
+                return "M";
+              }
+            }
+
+            function fileStats(fileDiff) {
+              const stats = { added: 0, deleted: 0 };
+              for (const hunk of fileDiff.hunks ?? []) {
+                stats.added += hunk.additionLines ?? 0;
+                stats.deleted += hunk.deletionLines ?? 0;
+              }
+              return stats;
+            }
+
+            function icon(name) {
+              const paths = {
+                check: '<path d="M4 10.5 8 14l8-9"/>',
+                collapse: '<path d="M7 3v4H3"/><path d="M3 7l5-5"/><path d="M13 17v-4h4"/><path d="M17 13l-5 5"/>',
+                document: '<path d="M6 3h6l4 4v10H6z"/><path d="M12 3v5h5"/>',
+                dots: '<path d="M5 10h.01"/><path d="M10 10h.01"/><path d="M15 10h.01"/>',
+                external: '<path d="M7 5H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-2"/><path d="M11 3h6v6"/><path d="m10 10 7-7"/>',
+                eye: '<path d="M2.5 10s2.75-5 7.5-5 7.5 5 7.5 5-2.75 5-7.5 5-7.5-5-7.5-5z"/><circle cx="10" cy="10" r="2.4"/>',
+                files: '<path d="M3 5h5l1.5 2H17v9.5H3z"/><path d="M3 7h14"/>',
+                image: '<rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="8" cy="8" r="1.3"/><path d="m4 15 4.5-4 3 2.8 2-1.8L17 15"/>',
+                refresh: '<path d="M16 8a6 6 0 0 0-10.3-3.7L4 6"/><path d="M4 3v3h3"/><path d="M4 12a6 6 0 0 0 10.3 3.7L16 14"/><path d="M16 17v-3h-3"/>',
+                split: '<rect x="3" y="4" width="14" height="12" rx="2"/><path d="M10 4v12" data-accent="true"/><path d="M6 8h2"/><path d="M6 12h2"/><path d="M12 8h2"/><path d="M12 12h2"/>',
+                unified: '<rect x="4" y="3.5" width="12" height="13" rx="2"/><path d="M7 7h6"/><path d="M7 10h6" data-accent="true"/><path d="M7 13h6"/>',
+                word: '<path d="M3 6h14"/><path d="M3 10h8"/><path d="M3 14h11"/><path d="M14 10h3"/>',
+                wrap: '<path d="M3 6h10a4 4 0 0 1 0 8H8"/><path d="m10 11-3 3 3 3"/>',
+                clipboard: '<rect x="5" y="4" width="10" height="13" rx="2"/><path d="M8 4a2 2 0 0 1 4 0"/><path d="M8 7h4"/>',
+              };
+              return `<svg viewBox="0 0 20 20" aria-hidden="true">${paths[name] ?? ""}</svg>`;
+            }
+
+            function registerGhosttyTheme(registerCustomTheme, theme) {
               registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme)));
             }
 
-            function stabilizeCodeViewStickyPositioning() {
+            function stabilizeCodeViewStickyPositioning(CodeView) {
               const prototype = CodeView.prototype;
               if (prototype.__cmuxStableStickyPositioning === true || typeof prototype.applyStickyPositioning !== "function") {
                 return;
@@ -1491,14 +2439,14 @@ extension CMUXCLI {
               };
             }
 
-            function preloadDiffHighlighter(appearance, items) {
+            function preloadDiffHighlighter(appearance, items, getFiletypeFromFileName, preloadHighlighter) {
               const themes = Array.from(new Set([
                 appearance.theme?.light,
                 appearance.theme?.dark,
               ].filter(Boolean)));
               const langs = Array.from(new Set(items.map((item) => {
                 const fileDiff = item.fileDiff ?? {};
-                const name = fileDiff.name ?? fileDiff.newName ?? fileDiff.oldName ?? "";
+                const name = fileDiff.name ?? fileDiff.newName ?? fileDiff.oldName ?? fileDiff.prevName ?? "";
                 return fileDiff.lang ?? getFiletypeFromFileName(name) ?? "text";
               }).filter(Boolean)));
               return preloadHighlighter({
@@ -1592,7 +2540,6 @@ extension CMUXCLI {
         </html>
         """
         try html.write(to: viewerURL, atomically: true, encoding: .utf8)
-        return viewerURL
     }
 
     private func jsonScriptLiteral(_ object: [String: Any]) throws -> String {

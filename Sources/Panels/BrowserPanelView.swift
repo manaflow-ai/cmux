@@ -548,7 +548,7 @@ struct BrowserPanelView: View {
     }
 
     private var hasVisibleOmnibarSuggestions: Bool {
-        addressBarFocused && hasActionableOmnibarSuggestions && omnibarPillFrame.width > 0
+        panel.isOmnibarVisible && addressBarFocused && hasActionableOmnibarSuggestions && omnibarPillFrame.width > 0
     }
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
@@ -680,8 +680,10 @@ struct BrowserPanelView: View {
         // Layering contract: browser find UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
-            addressBar
-                .fixedSize(horizontal: false, vertical: true)
+            if panel.isOmnibarVisible {
+                addressBar
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             webView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -844,6 +846,16 @@ struct BrowserPanelView: View {
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
+        }
+        .onChange(of: panel.isOmnibarVisible) { isVisible in
+            if !isVisible {
+                hideSuggestions()
+                setAddressBarFocused(false, reason: "omnibarVisibility.hidden")
+                addressBarHeight = 0
+            } else {
+                applyPendingAddressBarFocusRequestIfNeeded()
+            }
+            syncWebViewResponderPolicyWithViewState(reason: "omnibarVisibilityChanged")
         }
         .onReceive(NotificationCenter.default.publisher(for: .commandPaletteVisibilityDidChange)) { notification in
             guard commandPaletteVisibilityNotificationMatchesPanelWindow(notification) else { return }
@@ -1421,7 +1433,7 @@ struct BrowserPanelView: View {
                         )
                     },
                     omnibarSuggestions: portalOmnibarSuggestions,
-                    paneTopChromeHeight: addressBarHeight
+                    paneTopChromeHeight: panel.isOmnibarVisible ? addressBarHeight : 0
                 )
                 .accessibilityIdentifier("BrowserWebViewSurface")
                 // Keep the host stable for normal pane churn, but force a remount when
@@ -1907,6 +1919,12 @@ struct BrowserPanelView: View {
     }
 
     private func autoFocusOmnibarIfBlank() {
+        guard panel.isOmnibarVisible else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=omnibar_hidden")
+#endif
+            return
+        }
         guard isFocused else {
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=panel_not_focused")

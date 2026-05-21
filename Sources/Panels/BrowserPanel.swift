@@ -2785,6 +2785,10 @@ final class BrowserPanel: Panel, ObservableObject {
     /// cleared only after BrowserPanelView acknowledges handling it.
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
 
+    /// Per-surface browser chrome visibility. Diff and artifact viewers can hide
+    /// the omnibar without changing the global browser default.
+    @Published private(set) var isOmnibarVisible: Bool
+
     /// Semantic in-panel focus target used by split switching and transient overlays.
     private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
 
@@ -3523,6 +3527,7 @@ final class BrowserPanel: Panel, ObservableObject {
         renderInitialNavigation: Bool = true,
         preloadInitialNavigationInBackground: Bool = false,
         bypassInsecureHTTPHostOnce: String? = nil,
+        omnibarVisible: Bool = true,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil
@@ -3540,6 +3545,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
+        self.isOmnibarVisible = omnibarVisible
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
@@ -4165,6 +4171,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
+        setOmnibarVisible(snapshot.omnibarVisible ?? true)
 
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
@@ -6430,6 +6437,7 @@ extension BrowserPanel {
 
     @discardableResult
     func requestAddressBarFocus() -> UUID {
+        setOmnibarVisible(true)
         preferredFocusIntent = .addressBar
         invalidateSearchFocusRequests(reason: "requestAddressBarFocus")
         beginSuppressWebViewFocusForAddressBar()
@@ -6451,6 +6459,28 @@ extension BrowserPanel {
         )
 #endif
         return requestId
+    }
+
+    @discardableResult
+    func setOmnibarVisible(_ visible: Bool) -> Bool {
+        guard isOmnibarVisible != visible else { return false }
+        isOmnibarVisible = visible
+        if !visible {
+            pendingAddressBarFocusRequestId = nil
+            if preferredFocusIntent == .addressBar {
+                preferredFocusIntent = .webView
+            }
+            endSuppressWebViewFocusForAddressBar()
+            invalidateAddressBarPageFocusRestoreAttempts()
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
+        }
+        return true
+    }
+
+    @discardableResult
+    func toggleOmnibarVisibility() -> Bool {
+        setOmnibarVisible(!isOmnibarVisible)
+        return isOmnibarVisible
     }
 
     func noteWebViewFocused() {

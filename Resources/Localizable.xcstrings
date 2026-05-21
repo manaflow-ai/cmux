@@ -16438,6 +16438,8 @@
         }
       }
     },
+    "command.browserHideOmnibar.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hide Browser Omnibar" } }, "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのオムニバーを非表示" } } } },
+    "command.browserShowOmnibar.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Show Browser Omnibar" } }, "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのオムニバーを表示" } } } },
     "command.browserForward.title": {
       "extractionState": "manual",
       "localizations": {
