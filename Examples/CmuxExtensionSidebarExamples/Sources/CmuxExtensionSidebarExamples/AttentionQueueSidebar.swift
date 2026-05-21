@@ -63,18 +63,26 @@ public struct AttentionQueueSidebar: CmuxExtensionSidebarProvider {
     private func needsAttention(_ workspace: CmuxExtensionWorkspaceSnapshot) -> Bool {
         workspace.unreadCount > 0
             || trimmed(workspace.latestNotificationText) != nil
-            || workspace.remoteConnectionState == "connecting"
-            || workspace.remoteConnectionState == "reconnecting"
-            || workspace.remoteConnectionState == "disconnected"
+            || (hasRemoteTarget(workspace) && (
+                workspace.remoteConnectionState == "connecting"
+                    || workspace.remoteConnectionState == "reconnecting"
+                    || workspace.remoteConnectionState == "disconnected"
+            ))
     }
 
     private func rowSubtitle(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? {
         if let notification = trimmed(workspace.latestNotificationText) {
             return .plain(notification)
         }
-        if let remoteState = trimmed(workspace.remoteConnectionState), remoteState != "connected" {
+        if hasRemoteTarget(workspace),
+           let remoteState = trimmed(workspace.remoteConnectionState),
+           remoteState != "connected" {
             return .plain(remoteState)
         }
         return trimmed(workspace.customDescription).map(CmuxExtensionSidebarRenderText.plain)
+    }
+
+    private func hasRemoteTarget(_ workspace: CmuxExtensionWorkspaceSnapshot) -> Bool {
+        trimmed(workspace.remoteDisplayTarget) != nil
     }
 }
