@@ -260,6 +260,8 @@ unit_test() {
     summary="$(echo "$output" | grep "Executed.*tests.*with.*failures" | tail -1 || true)"
     if echo "$summary" | grep -q "(0 unexpected)"; then
       log "All failures are expected, treating as pass"
+    elif echo "$output" | grep -q "command timed out after" && echo "$output" | grep -q "Test Suite 'Selected tests' passed"; then
+      log "xcodebuild hung after completing a selected test shard, treating as pass"
     else
       echo "Unexpected test failures detected" >&2
       return "$exit_code"

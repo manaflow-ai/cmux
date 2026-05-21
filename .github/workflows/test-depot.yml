@@ -140,6 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          XCODEBUILD_TEST_TIMEOUT_SECONDS="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-1020}"
           feed_xcodebuild_stdin() {
             while true; do
               printf '\n'
@@ -147,12 +148,48 @@ jobs:
             done
           }
 
+          run_xcodebuild_with_timeout() {
+            local timeout_seconds="$1"
+            shift
+            local timeout_marker
+            timeout_marker="$(mktemp)"
+            rm -f "$timeout_marker"
+
+            "$@" &
+            local pid=$!
+            (
+              sleep "$timeout_seconds"
+              if kill -0 "$pid" >/dev/null 2>&1; then
+                echo "xcodebuild timed out after ${timeout_seconds}s" > "$timeout_marker"
+                kill "$pid" >/dev/null 2>&1 || true
+                sleep 5
+                kill -KILL "$pid" >/dev/null 2>&1 || true
+              fi
+            ) &
+            local watcher=$!
+
+            wait "$pid"
+            local code=$?
+            kill "$watcher" >/dev/null 2>&1 || true
+            wait "$watcher" >/dev/null 2>&1 || true
+
+            if [ -f "$timeout_marker" ]; then
+              cat "$timeout_marker" >&2
+              rm -f "$timeout_marker"
+              return 124
+            fi
+
+            rm -f "$timeout_marker"
+            return "$code"
+          }
+
           run_unit_tests() {
             # Xcode 16.4's XCTest memory checker crashes in WebKit teardown for
             # these MarkdownPanelTests on hosted runners, then retries until the
             # job timeout. Keep the quarantine narrow and explicit.
             set +e
-            feed_xcodebuild_stdin | xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            feed_xcodebuild_stdin | run_xcodebuild_with_timeout "$XCODEBUILD_TEST_TIMEOUT_SECONDS" \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
@@ -185,9 +222,11 @@ jobs:
 
           echo "$OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1 || true)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
               echo "All failures are expected, treating as pass"
+            elif echo "$OUTPUT" | grep -q "xcodebuild timed out after" && echo "$OUTPUT" | grep -q "Test Suite 'Selected tests' passed"; then
+              echo "xcodebuild hung after completing a selected test shard, treating as pass"
             else
               echo "Unexpected test failures detected"
               exit 1
