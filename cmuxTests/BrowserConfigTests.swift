@@ -2987,7 +2987,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         @objc func attach() {
             attachCount += 1
             attached = true
-            show()
         }
 
         @objc func show() {
