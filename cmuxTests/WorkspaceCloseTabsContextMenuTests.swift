@@ -68,6 +68,35 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         XCTAssertEqual(entry.detail, "Tab")
     }
 
+    func testRepeatedCloseAttemptDuringPendingConfirmationPreservesRecentlyClosedHistory() throws {
+        let fixture = try makeWorkspaceWithFourConfirmingTabs()
+        let tabId = fixture.tabIds[2]
+
+        var promptCount = 0
+        var repeatedCloseAttempted = false
+        fixture.manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            if !repeatedCloseAttempted {
+                repeatedCloseAttempted = true
+                XCTAssertFalse(fixture.workspace.requestCloseTabRecordingHistory(tabId, force: false))
+            }
+            return true
+        }
+
+        XCTAssertFalse(fixture.workspace.requestCloseTabRecordingHistory(tabId, force: false))
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertTrue(repeatedCloseAttempted)
+        XCTAssertNil(fixture.workspace.panelIdFromSurfaceId(tabId))
+
+        let entry = try XCTUnwrap(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
+        XCTAssertEqual(entry.title, "Tab 3")
+        XCTAssertEqual(entry.detail, "Tab")
+    }
+
     private struct Fixture {
         let manager: TabManager
         let workspace: Workspace

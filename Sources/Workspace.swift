@@ -14500,6 +14500,9 @@ extension Workspace: BonsplitDelegate {
             ?? AppDelegate.shared?.tabManager
         if let closeConfirmationManager, closeConfirmationManager.isCloseConfirmationInFlight {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            if pendingCloseConfirmTabIds.contains(tab.id) {
+                return false
+            }
             clearCloseHistoryEligibility(tabId: tab.id)
             return false
         }
