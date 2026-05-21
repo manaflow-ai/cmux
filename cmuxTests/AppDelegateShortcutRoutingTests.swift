@@ -954,12 +954,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
 
-        let tabManager = TabManager()
-        _ = tabManager.addWorkspace(
-            title: "Welcome Shortcut Test",
-            select: true,
-            autoWelcomeIfNeeded: false
-        )
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let sidebarState = SidebarState(isVisible: true)
         let sidebarSelectionState = SidebarSelectionState()
         let fileExplorerState = FileExplorerState()

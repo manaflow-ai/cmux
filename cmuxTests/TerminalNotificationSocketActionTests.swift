@@ -278,7 +278,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let store = TerminalNotificationStore.shared
         let previousShared = AppDelegate.shared
         let appDelegate = previousShared ?? AppDelegate()
-        let manager = TabManager()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
