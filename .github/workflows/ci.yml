@@ -248,20 +248,83 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
-              test 2>&1
+            SOURCE_PACKAGES_DIR="$SOURCE_PACKAGES_DIR" python3 <<'PY'
+          import os
+          import select
+          import subprocess
+          import sys
+          import time
+
+          output_path = "/tmp/test-output.txt"
+          quiet_timeout = int(os.environ.get("CMUX_XCTEST_CRASH_QUIET_TIMEOUT_SECONDS", "120"))
+          source_packages_dir = os.environ["SOURCE_PACKAGES_DIR"]
+          command = [
+              "xcodebuild",
+              "-project", "cmux.xcodeproj",
+              "-scheme", "cmux-unit",
+              "-configuration", "Debug",
+              "-clonedSourcePackagesDirPath", source_packages_dir,
+              "-disableAutomaticPackageResolution",
+              "-destination", "platform=macOS",
+              "CMUX_SKIP_ZIG_BUILD=1",
+              "-skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace",
+              "test",
+          ]
+
+          process = subprocess.Popen(
+              command,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.STDOUT,
+              text=True,
+              bufsize=1,
+          )
+          saw_app_host_crash = False
+          last_output_at = time.monotonic()
+
+          with open(output_path, "w", encoding="utf-8", errors="replace") as output:
+              while True:
+                  ready, _, _ = select.select([process.stdout], [], [], 1.0)
+                  if ready:
+                      line = process.stdout.readline()
+                      if line:
+                          sys.stdout.write(line)
+                          sys.stdout.flush()
+                          output.write(line)
+                          output.flush()
+                          last_output_at = time.monotonic()
+                          if "Program crashed:" in line:
+                              saw_app_host_crash = True
+                          continue
+
+                  if process.poll() is not None:
+                      break
+
+                  if saw_app_host_crash and time.monotonic() - last_output_at > quiet_timeout:
+                      message = (
+                          f"xcodebuild produced no output for {quiet_timeout}s after an "
+                          "app-host crash; terminating so expected-failure parsing can continue.\n"
+                      )
+                      sys.stdout.write(message)
+                      sys.stdout.flush()
+                      output.write(message)
+                      output.flush()
+                      process.terminate()
+                      try:
+                          process.wait(timeout=10)
+                      except subprocess.TimeoutExpired:
+                          process.kill()
+                          process.wait()
+                      break
+
+          sys.exit(process.returncode if process.returncode is not None else 1)
+          PY
           }
 
-          # Stream output via tee so CI logs are visible in real time, while still
-          # capturing for post-run analysis of expected vs unexpected failures.
+          # Stream output in real time, while still capturing for post-run analysis
+          # of expected vs unexpected failures.
           set +e
-          run_unit_tests | tee /tmp/test-output.txt
-          EXIT_CODE=${PIPESTATUS[0]}
+          run_unit_tests
+          EXIT_CODE=$?
           OUTPUT=$(cat /tmp/test-output.txt)
           set -e
 
@@ -274,8 +337,8 @@ jobs:
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
             set +e
-            run_unit_tests | tee /tmp/test-output.txt
-            EXIT_CODE=${PIPESTATUS[0]}
+            run_unit_tests
+            EXIT_CODE=$?
             OUTPUT=$(cat /tmp/test-output.txt)
             set -e
           fi
