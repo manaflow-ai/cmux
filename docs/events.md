@@ -236,14 +236,15 @@ Workspace:
 | `workspace.action` | Workspace action command completed. |
 | `workspace.prompt.submitted` | A prompt was submitted in a workspace. Used by extension sidebars to keep derived state fresh without polling. |
 
-`workspace.prompt.submitted` payloads include `workspace_id`, `message`,
-`message_preview`, `message_length`, and `redacted_fields`. This is local
-sensitive data, so consumers should only forward it with explicit user opt-in.
+`workspace.prompt.submitted` payloads include `workspace_id`, a redacted
+`message`, `message_preview`, `message_length`, and `redacted_fields`. This is
+local sensitive data, so consumers should only forward it with explicit user
+opt-in.
 
 Extension sidebars should bootstrap from the v2 socket method
 `extension.sidebar.snapshot`, then subscribe to `cmux events --category
 workspace --category notification --category sidebar --reconnect` and reduce
-events from the returned `sequence`. The snapshot returns `selected_workspace_id`
+events from the returned `seq`. The snapshot returns `selected_workspace_id`
 and an ordered `workspaces` array containing workspace ids/refs, title,
 description, pinned state, root/project paths, branch summary, remote status,
 latest submitted prompt preview/time, listening ports, pull request URLs,

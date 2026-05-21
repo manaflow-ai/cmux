@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxExtensionKit
+import CmuxExtensionSidebarExamples
 import ImageIO
 import Observation
 import SwiftUI
@@ -6488,15 +6489,11 @@ struct ContentView: View {
         )
         for descriptor in CmuxExtensionSidebarSelection.descriptors {
             let title = CmuxExtensionSidebarSelection.localizedTitle(for: descriptor)
+            let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
-                    title: constant(
-                        String(
-                            localized: "command.switchExtensionSidebar.title",
-                            defaultValue: "Sidebar: \(title)"
-                        )
-                    ),
+                    title: constant(String.localizedStringWithFormat(titleFormat, title)),
                     subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Sidebar")),
                     keywords: ["sidebar", "switch", "extension", title.lowercased()]
                 )
@@ -9374,12 +9371,20 @@ enum CmuxExtensionSidebarSelection {
     static let defaultsKey = "cmuxExtensionSidebar.providerId"
     static let defaultProviderId = CmuxExtensionSidebarProviderID.defaultWorkspaces
 
+    static var providers: [any CmuxExtensionSidebarProvider] {
+        SidebarExamples.providers
+    }
+
     static var descriptors: [CmuxExtensionSidebarProviderDescriptor] {
-        [.defaultWorkspaces]
+        [.defaultWorkspaces] + providers.map { $0.descriptor }
     }
 
     static func descriptor(for providerId: String) -> CmuxExtensionSidebarProviderDescriptor {
         descriptors.first { $0.id == providerId } ?? .defaultWorkspaces
+    }
+
+    static func provider(for providerId: String) -> (any CmuxExtensionSidebarProvider)? {
+        providers.first { $0.descriptor.id == providerId }
     }
 
     static func localizedTitle(for descriptor: CmuxExtensionSidebarProviderDescriptor) -> String {
@@ -9403,6 +9408,9 @@ enum CmuxExtensionSidebarSelection {
     @MainActor
     static func showMenu(anchorView: NSView, event: NSEvent?) {
         let menu = NSMenu()
+        let selectedProviderId = descriptor(
+            for: UserDefaults.standard.string(forKey: defaultsKey) ?? defaultProviderId
+        ).id
         for descriptor in descriptors {
             let item = NSMenuItem(
                 title: localizedTitle(for: descriptor),
@@ -9411,7 +9419,7 @@ enum CmuxExtensionSidebarSelection {
             )
             item.representedObject = descriptor.id
             item.target = CmuxExtensionSidebarMenuTarget.shared
-            item.state = UserDefaults.standard.string(forKey: defaultsKey) == descriptor.id ? .on : .off
+            item.state = selectedProviderId == descriptor.id ? .on : .off
             menu.addItem(item)
         }
         menu.popUp(
@@ -9998,6 +10006,13 @@ struct VerticalTabsSidebar: View {
         let _ = extensionSidebarUpdateToken
         let descriptor = CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId)
         let snapshot = extensionSidebarSnapshot(renderContext: renderContext)
+        if let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) {
+            let context = CmuxExtensionSidebarRenderContext(now: now)
+            if let contextualProvider = provider as? any CmuxExtensionSidebarContextualProvider {
+                return contextualProvider.render(snapshot: snapshot, context: context)
+            }
+            return provider.render(snapshot: snapshot)
+        }
         return CmuxExtensionSidebarRenderModel(
             providerId: descriptor.id,
             snapshotSequence: snapshot.sequence,
@@ -10032,7 +10047,7 @@ struct VerticalTabsSidebar: View {
                 let text = $0.body.isEmpty ? $0.title : $0.body
                 return text.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             },
-            latestSubmittedMessage: workspace.latestConversationMessage,
+            latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAt: workspace.latestSubmittedAt,
             listeningPorts: workspace.listeningPorts,
             pullRequestURLs: workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString }
@@ -10053,7 +10068,7 @@ struct VerticalTabsSidebar: View {
             }
             url.deleteLastPathComponent()
         }
-        return rootPath
+        return nil
     }
 
     private func extensionBrowserStackSidebar(
@@ -10133,7 +10148,7 @@ struct VerticalTabsSidebar: View {
                 Image(systemName: "folder.fill")
                     .font(.system(size: 14, weight: .regular))
                     .foregroundColor(.secondary)
-                Text(section.treeSection.title)
+                Text(extensionSidebarTreeSectionTitle(section.treeSection))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.primary.opacity(0.86))
                     .lineLimit(1)
@@ -10141,14 +10156,6 @@ struct VerticalTabsSidebar: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
                 Spacer(minLength: 0)
-                Button {} label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .frame(width: 22, height: 22)
-                }
-                .buttonStyle(.plain)
-                .safeHelp(String(localized: "sidebar.browserStack.closeGroup", defaultValue: "Close group"))
             }
             .padding(.horizontal, 10)
             .padding(.top, 9)
@@ -10407,6 +10414,12 @@ struct VerticalTabsSidebar: View {
     ) -> some View {
         let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
         let canCreateWorktree = section.treeSection.projectRootPath != nil
+        let selectedWorkspaceId = tabManager.selectedTabId
+        let workspaceSnapshotsById = Dictionary(
+            uniqueKeysWithValues: section.rows.compactMap { row in
+                extensionWorkspaceSnapshot(for: row.workspaceId).map { (row.workspaceId, $0) }
+            }
+        )
 
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 7) {
@@ -10426,7 +10439,7 @@ struct VerticalTabsSidebar: View {
                 .buttonStyle(.plain)
                 .safeHelp(String(localized: "sidebar.extension.toggleSection", defaultValue: "Toggle section"))
 
-                Text(section.treeSection.title)
+                Text(extensionSidebarTreeSectionTitle(section.treeSection))
                     .font(.system(size: 12, weight: .regular))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -10457,10 +10470,10 @@ struct VerticalTabsSidebar: View {
                     ForEach(section.rows) { row in
                         CmuxExtensionSidebarWorkspaceRowView(
                             row: row,
-                            workspace: extensionWorkspaceSnapshot(for: row.workspaceId),
+                            workspace: workspaceSnapshotsById[row.workspaceId],
                             providerId: providerId,
                             relativeNow: now,
-                            isSelected: row.workspaceId == tabManager.selectedTabId,
+                            isSelected: row.workspaceId == selectedWorkspaceId,
                             onSelect: selectExtensionSidebarWorkspace,
                             onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
                         )
@@ -10477,6 +10490,13 @@ struct VerticalTabsSidebar: View {
 
     private func extensionWorkspaceSnapshot(for workspaceId: UUID) -> CmuxExtensionWorkspaceSnapshot? {
         tabManager.tabs.first { $0.id == workspaceId }.map(extensionWorkspaceSnapshot(for:))
+    }
+
+    private func extensionSidebarTreeSectionTitle(_ section: CmuxExtensionWorkspaceTreeSection) -> String {
+        if let titleText = section.titleText {
+            return CmuxExtensionSidebarSelection.localizedText(titleText)
+        }
+        return section.title
     }
 
     private func selectExtensionSidebarWorkspace(_ workspaceId: UUID) {
@@ -10813,13 +10833,24 @@ private enum CmuxExtensionRelativeTimeFormatter {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
         if seconds < 60 { return String(localized: "relativeTime.now", defaultValue: "now") }
         let minutes = seconds / 60
-        if minutes < 60 { return String(localized: "relativeTime.minutes", defaultValue: "\(minutes)m") }
+        if minutes < 60 { return localizedCount("relativeTime.minutes", defaultValue: "%lldm", count: minutes) }
         let hours = minutes / 60
-        if hours < 24 { return String(localized: "relativeTime.hours", defaultValue: "\(hours)h") }
+        if hours < 24 { return localizedCount("relativeTime.hours", defaultValue: "%lldh", count: hours) }
         let days = hours / 24
-        if days < 7 { return String(localized: "relativeTime.days", defaultValue: "\(days)d") }
+        if days < 7 { return localizedCount("relativeTime.days", defaultValue: "%lldd", count: days) }
         let weeks = days / 7
-        return String(localized: "relativeTime.weeks", defaultValue: "\(weeks)w")
+        return localizedCount("relativeTime.weeks", defaultValue: "%lldw", count: weeks)
+    }
+
+    private static func localizedCount(_ key: String, defaultValue: String, count: Int) -> String {
+        let format = NSLocalizedString(
+            key,
+            tableName: "Localizable",
+            bundle: .main,
+            value: defaultValue,
+            comment: ""
+        )
+        return String.localizedStringWithFormat(format, Int64(count))
     }
 }
 
@@ -10829,6 +10860,7 @@ private struct CmuxExtensionWorkspaceInspectorView: View {
     @State private var selectedTab = CmuxExtensionWorkspacePopoverTab.notes
     @State private var notes = ""
     @State private var address: String
+    @State private var committedAddress: String
 
     init(
         workspace: CmuxExtensionWorkspaceSnapshot,
@@ -10836,7 +10868,9 @@ private struct CmuxExtensionWorkspaceInspectorView: View {
     ) {
         self.workspace = workspace
         self.onOpenWindow = onOpenWindow
-        _address = State(initialValue: workspace.pullRequestURLs.first ?? "https://github.com/")
+        let initialAddress = workspace.pullRequestURLs.first ?? "https://github.com/"
+        _address = State(initialValue: initialAddress)
+        _committedAddress = State(initialValue: initialAddress)
     }
 
     var body: some View {
@@ -10877,7 +10911,9 @@ private struct CmuxExtensionWorkspaceInspectorView: View {
                         )
                         .textFieldStyle(.plain)
                         .onSubmit {
-                            address = CmuxExtensionWorkspaceInspectorBrowserView.normalizedAddress(address)
+                            let normalized = CmuxExtensionWorkspaceInspectorBrowserView.normalizedAddress(address)
+                            address = normalized
+                            committedAddress = normalized
                         }
                     }
                     .font(.system(size: 12))
@@ -10885,7 +10921,7 @@ private struct CmuxExtensionWorkspaceInspectorView: View {
                     .padding(.vertical, 7)
                     .background(Color(nsColor: .controlBackgroundColor))
 
-                    CmuxExtensionWorkspaceInspectorBrowserView(address: $address)
+                    CmuxExtensionWorkspaceInspectorBrowserView(address: committedAddress)
                 }
             }
         }
@@ -10893,7 +10929,7 @@ private struct CmuxExtensionWorkspaceInspectorView: View {
 }
 
 private struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
-    @Binding var address: String
+    let address: String
 
     static func normalizedAddress(_ rawValue: String) -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -10924,9 +10960,16 @@ private struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
 @MainActor
 private final class CmuxExtensionSidebarInspectorWindowController {
     private static var controllers: [UUID: NSWindowController] = [:]
+    private static var closeObservers: [UUID: NSObjectProtocol] = [:]
 
     static func show(workspace: CmuxExtensionWorkspaceSnapshot) {
         if let controller = controllers[workspace.id] {
+            controller.window?.title = workspace.title
+            let view = CmuxExtensionWorkspaceInspectorView(workspace: workspace) {
+                show(workspace: workspace)
+            }
+            controller.contentViewController = NSHostingController(rootView: view.frame(width: 620, height: 440))
+            controller.window?.setContentSize(NSSize(width: 620, height: 440))
             controller.showWindow(nil)
             controller.window?.makeKeyAndOrderFront(nil)
             return
@@ -10938,10 +10981,23 @@ private final class CmuxExtensionSidebarInspectorWindowController {
         let hostingController = NSHostingController(rootView: view.frame(width: 620, height: 440))
         let window = NSWindow(contentViewController: hostingController)
         window.title = workspace.title
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.extensionSidebarInspector")
         window.setContentSize(NSSize(width: 620, height: 440))
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         let controller = NSWindowController(window: window)
         controllers[workspace.id] = controller
+        closeObservers[workspace.id] = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                controllers.removeValue(forKey: workspace.id)
+                if let observer = closeObservers.removeValue(forKey: workspace.id) {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+            }
+        }
         controller.showWindow(nil)
         window.makeKeyAndOrderFront(nil)
     }
@@ -10983,18 +11039,11 @@ private enum CmuxExtensionWorktreePrototype {
         if (try? run("git", ["-C", projectRoot.path, "rev-parse", "--is-inside-work-tree"])) != nil {
             return
         }
-        try run("git", ["-C", projectRoot.path, "init"])
-        let markerDirectory = projectRoot.appendingPathComponent(".cmux", isDirectory: true)
-        try FileManager.default.createDirectory(at: markerDirectory, withIntermediateDirectories: true)
-        let marker = markerDirectory.appendingPathComponent("worktree-seed.txt")
-        try "cmux worktree seed\n".write(to: marker, atomically: true, encoding: .utf8)
-        try run("git", ["-C", projectRoot.path, "add", marker.path])
-        try run("git", [
-            "-C", projectRoot.path,
-            "-c", "user.name=cmux",
-            "-c", "user.email=cmux@example.invalid",
-            "commit", "-m", "Initialize cmux worktree seed"
-        ])
+        throw NSError(
+            domain: "CmuxExtensionWorktreePrototype",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Project root is not a git repository."]
+        )
     }
 
     private static func writeSampleDevServerFiles(in worktree: URL, projectName: String) throws {
@@ -11025,9 +11074,9 @@ private enum CmuxExtensionWorktreePrototype {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let message = String(data: data, encoding: .utf8) ?? "command failed"
             throw NSError(
                 domain: "CmuxExtensionWorktreePrototype",

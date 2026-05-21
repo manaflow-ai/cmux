@@ -20,6 +20,21 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(decoded, request)
     }
 
+    func testWorkspacePopoverTabRoundTripsActiveCases() throws {
+        for tab in [CmuxExtensionWorkspacePopoverTab.notes, .browser] {
+            let data = try JSONEncoder().encode(tab)
+            let decoded = try JSONDecoder().decode(CmuxExtensionWorkspacePopoverTab.self, from: data)
+
+            XCTAssertEqual(decoded, tab)
+        }
+    }
+
+    func testJSONValueIntValueReturnsNilForOutOfRangeNumber() {
+        XCTAssertEqual(CmuxExtensionJSONValue.number(42).intValue, 42)
+        XCTAssertNil(CmuxExtensionJSONValue.number(1.5).intValue)
+        XCTAssertNil(CmuxExtensionJSONValue.number(Double.greatestFiniteMagnitude).intValue)
+    }
+
     func testLegacyPullRequestTabDecodesAsBrowser() throws {
         let data = try JSONEncoder().encode("pullRequest")
         let decoded = try JSONDecoder().decode(CmuxExtensionWorkspacePopoverTab.self, from: data)
@@ -62,7 +77,11 @@ final class CmuxExtensionKitTests: XCTestCase {
             source: "workspace.prompt_submit",
             occurredAt: date,
             workspaceId: workspace.id,
-            payload: ["message": .string("  ship   the   events  ")]
+            payload: [
+                "message": .null,
+                "message_preview": .string("  ship   the   events  "),
+                "redacted_fields": .array([.string("message")])
+            ]
         )
         let snapshot = CmuxExtensionSidebarSnapshot(
             sequence: 10,
@@ -75,6 +94,26 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(updated.sequence, 11)
         XCTAssertEqual(updated.workspaces[0].latestSubmittedMessage, "ship the events")
         XCTAssertEqual(updated.workspaces[0].latestSubmittedAt, date)
+    }
+
+    func testWorkspacesReorderedHandlesDuplicatesAndPartialPayload() {
+        let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
+        let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
+        let third = workspace(title: "Third", rootPath: nil, projectRootPath: nil)
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 5,
+            selectedWorkspaceId: second.id,
+            workspaces: [first, second, third]
+        )
+
+        let updated = CmuxExtensionSidebarReducer.reduce(
+            snapshot,
+            event: .workspacesReordered([third.id, first.id, third.id])
+        )
+
+        XCTAssertEqual(updated.sequence, 6)
+        XCTAssertEqual(updated.selectedWorkspaceId, second.id)
+        XCTAssertEqual(updated.workspaces.map(\.id), [third.id, first.id, second.id])
     }
 
     func testSelectedAndClosedWorkspaceEventsUpdateProjection() {

@@ -4813,7 +4813,7 @@ class TerminalController {
             "current_directory": v2OrNull(workspace.currentDirectory),
             "custom_color": v2OrNull(workspace.customColor),
             "latest_conversation_message": v2OrNull(workspace.latestConversationMessage),
-            "latest_submitted_message": v2OrNull(workspace.latestConversationMessage),
+            "latest_submitted_message": v2OrNull(workspace.latestSubmittedMessage),
             "latest_submitted_at": v2OrNull(workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp))
         ]
         if let index {
@@ -4852,14 +4852,35 @@ class TerminalController {
         }
 
         var selectedWorkspaceId: UUID?
+        var workspaceInputs: [(id: UUID, workspace: Workspace, index: Int, selected: Bool, rootPath: String?)] = []
         var workspaces: [[String: Any]] = []
         v2MainSync {
             selectedWorkspaceId = tabManager.selectedTabId
-            workspaces = tabManager.tabs.enumerated().map { index, workspace in
-                v2ExtensionSidebarWorkspacePayload(
+            workspaceInputs = tabManager.tabs.enumerated().map { index, workspace in
+                (
+                    id: workspace.id,
                     workspace: workspace,
                     index: index,
-                    selected: workspace.id == tabManager.selectedTabId
+                    selected: workspace.id == tabManager.selectedTabId,
+                    rootPath: v2ExtensionSidebarRootPath(for: workspace)
+                )
+            }
+        }
+
+        let projectRootPathsByWorkspaceId = workspaceInputs.reduce(into: [UUID: String]()) { result, input in
+            if let projectRootPath = v2ExtensionSidebarProjectRootPath(for: input.rootPath) {
+                result[input.id] = projectRootPath
+            }
+        }
+
+        v2MainSync {
+            workspaces = workspaceInputs.map { input in
+                v2ExtensionSidebarWorkspacePayload(
+                    workspace: input.workspace,
+                    index: input.index,
+                    selected: input.selected,
+                    rootPath: input.rootPath,
+                    projectRootPath: projectRootPathsByWorkspaceId[input.id]
                 )
             }
         }
@@ -4878,9 +4899,10 @@ class TerminalController {
     private func v2ExtensionSidebarWorkspacePayload(
         workspace: Workspace,
         index: Int,
-        selected: Bool
+        selected: Bool,
+        rootPath: String?,
+        projectRootPath: String?
     ) -> [String: Any] {
-        let rootPath = v2ExtensionSidebarRootPath(for: workspace)
         return [
             "id": workspace.id.uuidString,
             "ref": v2Ref(kind: .workspace, uuid: workspace.id),
@@ -4890,7 +4912,7 @@ class TerminalController {
             "selected": selected,
             "pinned": workspace.isPinned,
             "root_path": v2OrNull(rootPath),
-            "project_root_path": v2OrNull(v2ExtensionSidebarProjectRootPath(for: rootPath)),
+            "project_root_path": v2OrNull(projectRootPath),
             "branch_summary": v2OrNull(workspace.gitBranch?.branch),
             "remote_display_target": v2OrNull(workspace.remoteDisplayTarget),
             "remote_connection_state": workspace.remoteConnectionState.rawValue,
@@ -4898,7 +4920,7 @@ class TerminalController {
             "current_directory": v2OrNull(workspace.currentDirectory),
             "custom_color": v2OrNull(workspace.customColor),
             "latest_conversation_message": v2OrNull(workspace.latestConversationMessage),
-            "latest_submitted_message": v2OrNull(workspace.latestConversationMessage),
+            "latest_submitted_message": v2OrNull(workspace.latestSubmittedMessage),
             "latest_submitted_at": v2OrNull(workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp)),
             "listening_ports": workspace.listeningPorts,
             "pull_request_urls": workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString },
@@ -4927,7 +4949,7 @@ class TerminalController {
             }
             url.deleteLastPathComponent()
         }
-        return rootPath
+        return nil
     }
 
     private func v2WorkspaceCreate(params: [String: Any]) -> V2CallResult {
@@ -5234,7 +5256,7 @@ class TerminalController {
                 message: message,
                 iMessageModeEnabled: iMessageModeEnabled
             )
-            preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestConversationMessage
+            preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestSubmittedMessage
         }
 
         guard let outcome else {

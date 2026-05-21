@@ -1,4 +1,5 @@
 import CmuxExtensionKit
+import Foundation
 
 public struct DevServerSidebar: CmuxExtensionSidebarProvider {
     public let descriptor = CmuxExtensionSidebarProviderDescriptor(
@@ -57,7 +58,18 @@ public struct DevServerSidebar: CmuxExtensionSidebarProvider {
         guard let description = trimmed(workspace.customDescription)?.lowercased() else {
             return false
         }
-        return description.contains("server") || description.contains(":")
+        if description.contains("server") ||
+            description.contains("http://") ||
+            description.contains("https://") {
+            return true
+        }
+        if description.range(of: #":\d{2,5}\b"#, options: .regularExpression) != nil {
+            return true
+        }
+        if description.range(of: #"\bport\s*\d{2,5}\b"#, options: .regularExpression) != nil {
+            return true
+        }
+        return false
     }
 
     private func serverSubtitle(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? {

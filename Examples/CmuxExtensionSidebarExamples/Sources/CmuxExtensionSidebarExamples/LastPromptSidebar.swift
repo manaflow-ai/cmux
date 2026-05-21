@@ -46,7 +46,7 @@ public struct LastPromptSidebar: CmuxExtensionSidebarProvider {
         if let message = trimmed(workspace.latestSubmittedMessage) {
             return .plain(message)
         }
-        return .plain("No prompts yet")
+        return .localized(localized("example.sidebar.noPromptsYet", "No prompts yet"))
     }
 
     private func promptTrailingText(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? {

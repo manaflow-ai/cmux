@@ -40,10 +40,13 @@ public struct ProjectWorktreeSidebar: CmuxExtensionSidebarProvider {
 
         for root in orderedProjectRoots {
             let title = root == "no-folder" ? "No Folder" : displayName(for: root)
+            let titleText = root == "no-folder"
+                ? localized("example.sidebar.group.noFolder", "No Folder")
+                : localized("example.sidebar.group.project", title)
             sections.append(
                 ExampleSidebarSection(
                     id: "project:\(root)",
-                    title: localized("example.sidebar.group.project.\(title)", title),
+                    title: titleText,
                     systemImageName: root == "no-folder" ? "tray" : "folder",
                     projectRootPath: root == "no-folder" ? nil : root,
                     workspaces: grouped[root] ?? []

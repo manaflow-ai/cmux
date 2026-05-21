@@ -88,6 +88,7 @@ public enum CmuxExtensionJSONValue: Codable, Equatable, Sendable {
         case .number(let value):
             let rounded = value.rounded()
             guard rounded == value else { return nil }
+            guard rounded >= Double(Int.min), rounded <= Double(Int.max) else { return nil }
             return Int(rounded)
         case .string(let value):
             return Int(value)
@@ -264,10 +265,15 @@ public struct CmuxExtensionSidebarReducer {
             )
 
         case .workspacesReordered(let ids):
-            let indexById = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($0.element, $0.offset) })
-            let known = snapshot.workspaces.sorted { lhs, rhs in
-                (indexById[lhs.id] ?? Int.max) < (indexById[rhs.id] ?? Int.max)
+            var orderedIds: [UUID] = []
+            var seenIds: Set<UUID> = []
+            for id in ids where seenIds.insert(id).inserted {
+                orderedIds.append(id)
             }
+            let workspacesById = Dictionary(uniqueKeysWithValues: snapshot.workspaces.map { ($0.id, $0) })
+            let orderedSet = Set(orderedIds)
+            var known = orderedIds.compactMap { workspacesById[$0] }
+            known.append(contentsOf: snapshot.workspaces.filter { !orderedSet.contains($0.id) })
             return CmuxExtensionSidebarSnapshot(
                 sequence: snapshot.sequence + 1,
                 selectedWorkspaceId: snapshot.selectedWorkspaceId,
@@ -323,9 +329,9 @@ public struct CmuxExtensionSidebarReducer {
                   let index = next.workspaces.firstIndex(where: { $0.id == workspaceId }) else {
                 return next
             }
-            let message = frame.payload["message"]?.stringValue
-                ?? frame.payload["message_preview"]?.stringValue
+            let message = frame.payload["message_preview"]?.stringValue
                 ?? frame.payload["prompt"]?.stringValue
+                ?? frame.payload["message"]?.stringValue
             next.workspaces[index].latestSubmittedMessage = normalizedPrompt(message)
             next.workspaces[index].latestSubmittedAt = frame.occurredAt
 
@@ -431,6 +437,7 @@ public struct CmuxExtensionWorkspaceTreeSection: Identifiable, Codable, Equatabl
 public enum CmuxExtensionWorkspacePopoverTab: String, Codable, CaseIterable, Equatable, Sendable {
     case notes
     case browser
+    @available(*, deprecated, message: "Use browser. pullRequest decodes as browser for legacy payloads.")
     case pullRequest
 
     public static let allCases: [CmuxExtensionWorkspacePopoverTab] = [.notes, .browser]
@@ -441,7 +448,7 @@ public enum CmuxExtensionWorkspacePopoverTab: String, Codable, CaseIterable, Equ
         switch value {
         case Self.notes.rawValue:
             self = .notes
-        case Self.browser.rawValue, Self.pullRequest.rawValue:
+        case Self.browser.rawValue, "pullRequest":
             self = .browser
         default:
             throw DecodingError.dataCorruptedError(
@@ -456,7 +463,9 @@ public enum CmuxExtensionWorkspacePopoverTab: String, Codable, CaseIterable, Equ
         switch self {
         case .notes:
             try container.encode(Self.notes.rawValue)
-        case .browser, .pullRequest:
+        case .browser:
+            try container.encode(Self.browser.rawValue)
+        default:
             try container.encode(Self.browser.rawValue)
         }
     }

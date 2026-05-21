@@ -92,10 +92,10 @@ extension CmuxEventBus {
             workspaceId: workspaceId.uuidString,
             payload: [
                 "workspace_id": workspaceId.uuidString,
-                "message": message ?? NSNull(),
+                "message": NSNull(),
                 "message_preview": preview ?? NSNull(),
                 "message_length": message?.count ?? 0,
-                "redacted_fields": []
+                "redacted_fields": ["message"]
             ]
         )
     }

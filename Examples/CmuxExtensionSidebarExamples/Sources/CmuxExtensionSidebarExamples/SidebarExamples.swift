@@ -80,12 +80,6 @@ func trimmed(_ value: String?) -> String? {
 
 func projectRoot(for workspace: CmuxExtensionWorkspaceSnapshot) -> String? {
     trimmed(workspace.projectRootPath)
-        ?? trimmed(workspace.rootPath).map {
-            URL(fileURLWithPath: $0, isDirectory: true)
-                .standardizedFileURL
-                .deletingLastPathComponent()
-                .path
-        }
 }
 
 func displayName(for path: String) -> String {
