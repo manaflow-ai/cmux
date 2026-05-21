@@ -487,6 +487,10 @@ struct BrowserPanelView: View {
         return searchSuggestionsEnabled
     }
 
+    private var hasActionableOmnibarSuggestions: Bool {
+        !omnibarHasMarkedText && !omnibarState.suggestions.isEmpty
+    }
+
     private var devToolsIconOption: BrowserDevToolsIconOption {
         BrowserDevToolsIconOption(rawValue: devToolsIconNameRaw) ?? BrowserDevToolsButtonDebugSettings.defaultIcon
     }
@@ -544,7 +548,7 @@ struct BrowserPanelView: View {
     }
 
     private var hasVisibleOmnibarSuggestions: Bool {
-        addressBarFocused && !omnibarState.suggestions.isEmpty && omnibarPillFrame.width > 0
+        addressBarFocused && hasActionableOmnibarSuggestions && omnibarPillFrame.width > 0
     }
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
@@ -949,7 +953,7 @@ struct BrowserPanelView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
-            guard canHandleOmnibarSelectionNavigation(), !omnibarState.suggestions.isEmpty else { return }
+            guard canHandleOmnibarSuggestionInteraction() else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.moveSelection", detail: "delta=\(delta)")
@@ -1315,7 +1319,7 @@ struct BrowserPanelView: View {
                     handleOmnibarTap()
                 },
                 onSubmit: {
-                    if addressBarFocused, !omnibarState.suggestions.isEmpty {
+                    if canHandleOmnibarSuggestionInteraction() {
                         commitSelectedSuggestion()
                     } else {
                         panel.navigateSmart(omnibarState.buffer)
@@ -1331,7 +1335,7 @@ struct BrowserPanelView: View {
                     setAddressBarFocused(false, reason: "omnibar.fieldLostFocus")
                 },
                 onMoveSelection: { delta in
-                    guard canHandleOmnibarSelectionNavigation(), !omnibarState.suggestions.isEmpty else { return }
+                    guard canHandleOmnibarSuggestionInteraction() else { return }
                     let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
                     applyOmnibarEffects(effects)
                     refreshInlineCompletion()
@@ -1529,6 +1533,10 @@ struct BrowserPanelView: View {
             return true
         }
         return false
+    }
+
+    private func canHandleOmnibarSuggestionInteraction() -> Bool {
+        canHandleOmnibarSelectionNavigation() && hasActionableOmnibarSuggestions
     }
 
     private func setAddressBarFocused(_ focused: Bool, reason: String) {
@@ -2047,9 +2055,16 @@ struct BrowserPanelView: View {
     }
 
     private func handleOmnibarSelectionChange(range: NSRange, hasMarkedText: Bool) {
+        let didBeginComposition = !omnibarHasMarkedText && hasMarkedText
         omnibarSelectionRange = range
         omnibarHasMarkedText = hasMarkedText
-        refreshInlineCompletion()
+        if didBeginComposition {
+            hideSuggestions()
+        } else {
+            // Do not refresh suggestions from selection-state publication. On
+            // composition end, the committed buffer change immediately follows.
+            refreshInlineCompletion()
+        }
     }
 
     private func acceptInlineCompletion() {
@@ -2189,11 +2204,13 @@ struct BrowserPanelView: View {
         suggestionTask = nil
         isLoadingRemoteSuggestions = false
 
-        guard addressBarFocused else {
+        guard addressBarFocused, !omnibarHasMarkedText else {
 #if DEBUG
             cmuxDebugLog(
-                "browser.omnibar.suggestions refresh=skip_unfocused " +
-                "panel=\(panel.id.uuidString.prefix(5)) bufferLen=\(omnibarState.buffer.utf8.count)"
+                "browser.omnibar.suggestions refresh=skip " +
+                "panel=\(panel.id.uuidString.prefix(5)) " +
+                "focused=\(addressBarFocused ? 1 : 0) marked=\(omnibarHasMarkedText ? 1 : 0) " +
+                "bufferLen=\(omnibarState.buffer.utf8.count)"
             )
 #endif
             let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated([]))
@@ -2277,7 +2294,8 @@ struct BrowserPanelView: View {
             if Task.isCancelled { return }
 
             await MainActor.run {
-                guard addressBarFocused else { return }
+                guard !Task.isCancelled else { return }
+                guard addressBarFocused, !omnibarHasMarkedText else { return }
                 let current = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard current == query else { return }
                 latestRemoteSuggestionQuery = query
@@ -3887,13 +3905,13 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
             let editor = field.currentEditor() as? NSTextView
+            publishSelectionState()
             parent.text = omnibarPublishedBufferTextForFieldChange(
                 fieldValue: field.stringValue,
                 inlineCompletion: parent.inlineCompletion,
                 selectionRange: editor?.selectedRange(),
                 hasMarkedText: editor?.hasMarkedText() ?? false
             )
-            publishSelectionState()
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -3909,6 +3927,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 )
             }
 #endif
+            guard !textView.hasMarkedText() else { return false }
             switch commandSelector {
             case #selector(NSResponder.moveDown(_:)):
                 parent.onMoveSelection(+1)
@@ -4093,6 +4112,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 )
             }
 #endif
+            guard editor?.hasMarkedText() != true else { return false }
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])
             // When a non-Latin input source is active (Korean, Chinese, Japanese),
@@ -7042,6 +7062,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         let hostOwnsPortal = useLocalInlineHosting
             ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
             : updateUsingWindowPortal(nsView, context: context, webView: webView)
+        if hostOwnsPortal {
+            panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "representable.update")
+        }
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,

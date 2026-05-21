@@ -28,12 +28,10 @@ struct NotificationsPage: View {
                                     // SwiftUI action closures are not guaranteed to run on the main actor.
                                     // Ensure window focus + tab selection happens on the main thread.
                                     DispatchQueue.main.async {
-                                        _ = AppDelegate.shared?.openNotification(
-                                            tabId: notification.tabId,
-                                            surfaceId: notification.surfaceId,
-                                            notificationId: notification.id
-                                        )
-                                        selection = .tabs
+                                        _ = AppDelegate.shared?.openTerminalNotification(notification)
+                                        if notification.clickAction == nil {
+                                            selection = .tabs
+                                        }
                                     }
                                 },
                                 onClear: {

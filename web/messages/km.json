@@ -300,7 +300,12 @@
       "browserHostsEmbed": "Host ដែលត្រូវបើកក្នុងកម្មវិធីរុករកដែលបង្កប់: អនុវត្តចំពោះតំណដែលចុចពីលទ្ធផលទែមីណល។ Host ក្នុងបញ្ជីនេះបើកក្នុង cmux; host ផ្សេងទៀតបើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នក។ គាំទ្រ host មួយ ឬ wildcard ក្នុងមួយជួរ (ឧទាហរណ៍: example.com, *.internal.example)។",
       "browserHostsHttp": "HTTP Host ដែលអនុញ្ញាតក្នុងកម្មវិធីរុករកដែលបង្កប់: អនុវត្តតែចំពោះ HTTP (មិនមែន HTTPS) URL។ Host ក្នុងបញ្ជីនេះអាចបើកក្នុង cmux ដោយមិនមានការព្រមានទេ។ លំនាំដើមរួមមាន localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, និង *.localtest.me។",
       "exampleConfig": "ឧទាហរណ៍កំណត់រចនាសម្ព័ន្ធ",
-      "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ"
+      "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ",
+      "schemaDescriptions": {
+        "automation": {
+          "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។"
+        }
+      }
     },
     "customCommands": {
       "title": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន",
@@ -701,6 +706,7 @@
       "gettingStarted": "ចាប់ផ្ដើម",
       "concepts": "គោលគំនិត",
       "configuration": "កំណត់រចនាសម្ព័ន្ធ",
+      "sessionRestore": "ស្ដារវគ្គ",
       "customCommands": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន",
       "keyboardShortcuts": "ផ្លូវកាត់ក្ដារចុច",
       "apiReference": "ឯកសារយោង API",
@@ -746,6 +752,49 @@
       "agentPromptIntro": "ប្រើ prompt នេះនៅពេលអ្នកចង់ឱ្យ coding agent បង្កើត Dock controls។ វាប្រាប់ agent ឱ្យរត់ `cmux docs dock`, ពិនិត្យ project និងសួរមុននឹងទស្សន៍ទាយ។",
       "agentPromptCodeTitle": "Agent prompt",
       "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+    },
+    "sessionRestore": {
+      "title": "ស្ដារវគ្គ",
+      "metaTitle": "ស្ដារវគ្គ",
+      "metaDescription": "របៀបដែល cmux ស្ដារ window, workspace, pane, working directory, scrollback, browser history និង agent session ដែលគាំទ្រ បន្ទាប់ពីបើកឡើងវិញ។",
+      "intro": "cmux រក្សាទម្រង់ការងាររបស់អ្នក ដើម្បីឲ្យការបើក app ឡើងវិញនាំ window, workspace, pane, terminal context និង browser state ដដែលត្រឡប់មកវិញ។",
+      "restoredTitle": "អ្វីដែល cmux ស្ដារ",
+      "restoredDesc": "បន្ទាប់ពីបើកឡើងវិញ cmux ស្ដារ layout និង metadata ដែល app គ្រប់គ្រង៖",
+      "restoredItemLayout": "layout របស់ window, workspace និង pane",
+      "restoredItemCwd": "working directory",
+      "restoredItemScrollback": "terminal scrollback តាម best effort",
+      "restoredItemBrowser": "Browser URL និង navigation history",
+      "liveProcessCallout": "cmux មិន checkpoint state របស់ live process ទូទៅទេ។ tmux, vim, shell និង terminal app ដែលមិនគាំទ្រ បើកឡើងវិញជាទម្រង់ terminal ធម្មតា លុះត្រាតែវាមាន cmux resume integration ផ្ទាល់ខ្លួន។",
+      "agentResumeTitle": "បន្ត agent session",
+      "agentResumeDesc": "AI coding agent ដែលគាំទ្រ អាច resume បានពេល cmux បានចាប់យក native session ID របស់ agent។ ដំឡើង hooks បន្ទាប់ពីដំឡើង agent CLI ដើម្បីឲ្យ binary ស្ថិតនៅលើ PATH៖",
+      "setupBehavior": "cmux hooks setup ដំឡើង integration ដែលគាំទ្រទាំងអស់ដែលរកឃើញ ហើយបង្ហាញសង្ខេប agent ដែលបានរំលង។ ប្រើឈ្មោះ agent បើចង់បាន integration តែមួយ។",
+      "surfaceBindingsTitle": "command surface resume ផ្ទាល់ខ្លួន",
+      "surfaceBindingsDesc": "អ្នកប្រើប្រាស់កម្រិតខ្ពស់ និង integration អាច bind terminal surface ណាមួយទៅ restart command។ cmux រក្សាទុក binding ដែលបង្កើតដោយ public CLI ឬ socket សម្រាប់ពិនិត្យ និង resume ដោយដៃ។",
+      "surfaceBindingsNote": "prefix ដែលបាន approve អាចពិនិត្យ ឬកែបាននៅ Settings > Terminal > Resume Commands។ cmux auto-run តែ resume binding ដែលវាសម្គាល់ថា trusted ប៉ុណ្ណោះ ដូចជា tmux binding ដែលរកឃើញពី live process ឬ prefix ដែល user បាន approve។ cmux នៅតែមិន checkpoint process memory ទូទៅទេ។ environment key ដែលមានភាពរសើប ដូចជា token, password, secret និង API key នឹងត្រូវបានដកចេញ មុនពេលរក្សាទុក resume binding។ Approval ក៏ភ្ជាប់ជាមួយ working directory និងតម្លៃ environment ពិតប្រាកដ ប្រសិនបើមាន។",
+      "supportedTitle": "agent ដែលគាំទ្រ",
+      "agentHeader": "Agent",
+      "binaryHeader": "Binary",
+      "resumeHeader": "Resume command",
+      "feedHeader": "Feed bridge",
+      "feedPermissionRequest": "PermissionRequest",
+      "feedPreToolUsePermissionRequest": "PreToolUse, PermissionRequest",
+      "feedBeforeShellExecution": "beforeShellExecution",
+      "feedPreToolUse": "PreToolUse",
+      "pluginEventBus": "plugin event bus",
+      "none": "គ្មាន",
+      "supportedNote": "Claude Code ត្រូវបានគ្រប់គ្រងដោយ cmux Claude wrapper នៅពេលបើក Claude integration ក្នុង Settings។ Rovo Dev ក៏ទទួល rovo ជា setup alias ផងដែរ។",
+      "manualTitle": "ស្ដារដោយដៃ",
+      "manualDesc": "cmux ស្ដារ snapshot ចុងក្រោយដែលបានរក្សាទុក ពេលបើកធម្មតា។ អ្នកក៏អាច apply snapshot មុនដោយដៃបាន៖",
+      "manualItemMenu": "File > Reopen Previous Session",
+      "disableTitle": "បិទ automatic agent resume",
+      "disableDesc": "ដើម្បីស្ដារ pane ដោយមិនបើក command resume របស់ agent ដែលបានរក្សាទុក សូមបិទ Settings > Terminal > Resume Agent Sessions on Reopen ឬកំណត់៖",
+      "disableNote": "វាបិទតែ command resume របស់ agent ប៉ុណ្ណោះ។ cmux នៅតែស្ដារ layout, working directory, scrollback និង browser history។",
+      "underHoodTitle": "របៀបដំណើរការ",
+      "underHoodItemSnapshot": "cmux សរសេរ JSON snapshot មាន version ទៅ ~/Library/Application Support/cmux/session-<bundle-id>.json និង previous-session cache សម្រាប់ reopen ដោយដៃ។",
+      "underHoodItemScrollback": "Terminal scrollback ត្រូវបានរក្សាទុកជាអត្ថបទមានដែនកំណត់ ហើយ replay តាម temporary file ពេលស្ដារ។ វាជា best effort ព្រោះ terminal app អាច redraw ឬ clear អេក្រង់បាន។",
+      "underHoodItemHooks": "Agent hooks សរសេរ ~/.cmuxterm/<agent>-hook-sessions.json ជាមួយ agent session ID, cmux workspace ID, surface ID, cwd, process ID បើមាន និង sanitized launch command។",
+      "underHoodItemResume": "ពេលស្ដារ cmux សាងសង់ window និង pane មុន។ បើ automatic agent resume បើក វាបើក one-shot shell command ដែលរត់ native resume command របស់ agent ជាមួយ session ID ដែលបានរក្សាទុក។",
+      "underHoodMore": "<configLink>ឯកសារ configuration</configLink> ធម្មតាគ្របដណ្តប់ cmux.json។ Session restore រក្សា app layout ផ្សេងពី Ghostty terminal rendering settings។"
     }
   },
   "legal": {
