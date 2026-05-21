@@ -395,9 +395,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             missingFullyIdleNotificationCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Antigravity idle notifications without fullyIdle must publish instead of staying suppressed, saw \(missingFullyIdleNotificationCommands)"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             missingFullyIdleNotificationCommands.contains { $0.contains("set_status antigravity Idle") },
-            "Antigravity idle notifications without fullyIdle should mark idle, saw \(missingFullyIdleNotificationCommands)"
+            "Antigravity idle notifications must not reset the shared status while another background session is running, saw \(missingFullyIdleNotificationCommands)"
         )
 
         let stopMessage = "Antigravity finished updating docs"
@@ -858,6 +858,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(preAssistantGenericSession["lastNotificationStatus"] as? String, "idle")
 
         let assistantMessage = "**42.** That's the answer, according to Deep Thought."
+        let nextTurnPrompt = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"next turn"}"#
+        )
+        XCTAssertFalse(nextTurnPrompt.timedOut, nextTurnPrompt.stderr)
+        XCTAssertEqual(nextTurnPrompt.status, 0, nextTurnPrompt.stderr)
+        XCTAssertEqual(nextTurnPrompt.stdout, "{}\n")
+
         try writeGrokAssistantTranscript(
             grokHome: grokHome,
             cwd: root.path,
@@ -1311,10 +1319,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 },
                 "Expected Grok Stop fallback to notify for thread \(thread.index), saw \(stopCommands)"
             )
-            XCTAssertTrue(
-                stopCommands.contains { $0.contains("set_status grok Idle") },
-                "Expected Grok Stop for thread \(thread.index) to leave Grok idle, saw \(stopCommands)"
-            )
+            if thread.index == 1 {
+                XCTAssertFalse(
+                    stopCommands.contains { $0.contains("set_status grok Idle") },
+                    "First Grok thread must not reset shared status while thread 2 is still running, saw \(stopCommands)"
+                )
+            } else {
+                XCTAssertTrue(
+                    stopCommands.contains { $0.contains("set_status grok Idle") },
+                    "Expected final Grok Stop to leave Grok idle, saw \(stopCommands)"
+                )
+            }
         }
 
         for thread in threads {
@@ -1419,6 +1434,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             stopCommands.contains { $0.contains("set_status grok Idle") },
             "Expected Grok Stop without cwd to leave Grok idle, saw \(stopCommands)"
+        )
+
+        let duplicateCompletionCommandStart = state.commands.count
+        let duplicateCompletion = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","hookEventName":"Notification","message":"Turn complete in 1.0s."}"#
+        )
+        XCTAssertFalse(duplicateCompletion.timedOut, duplicateCompletion.stderr)
+        XCTAssertEqual(duplicateCompletion.status, 0, duplicateCompletion.stderr)
+        XCTAssertEqual(duplicateCompletion.stdout, "{}\n")
+
+        let duplicateCompletionCommands = Array(state.commands.dropFirst(duplicateCompletionCommandStart))
+        XCTAssertFalse(
+            duplicateCompletionCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Generic Grok completion after Stop fallback must not double-notify, saw \(duplicateCompletionCommands)"
         )
     }
 
