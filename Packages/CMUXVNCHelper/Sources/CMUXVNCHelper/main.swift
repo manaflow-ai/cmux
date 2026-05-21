@@ -336,10 +336,8 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
 
     private func setVisible(_ visible: Bool) {
         guard let refreshSequence = stateLock.withLock({ frameGate.setVisible(visible) }) else { return }
-        withConnection { connection in
-            guard let framebuffer = connection.framebuffer else { return }
-            sendFullFrame(framebuffer: framebuffer, sequence: refreshSequence)
-        }
+        guard let framebuffer = currentFramebuffer() else { return }
+        sendFullFrame(framebuffer: framebuffer, sequence: refreshSequence)
     }
 
     private func sendFullFrame(framebuffer: VNCFramebuffer, sequence: UInt64) {
@@ -479,6 +477,10 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             guard let connection else { return }
             body(connection)
         }
+    }
+
+    private func currentFramebuffer() -> VNCFramebuffer? {
+        connectionLock.withLock { connection?.framebuffer }
     }
 
     private func markClosed() -> Bool {
