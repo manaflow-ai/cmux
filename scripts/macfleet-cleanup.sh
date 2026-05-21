@@ -3,6 +3,7 @@ set -euo pipefail
 
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 min_free_gib="${CMUX_MACFLEET_MIN_FREE_GIB:-12}"
+tart_min_free_gib="${CMUX_MACFLEET_TART_MIN_FREE_GIB:-24}"
 derived_max_age_minutes="${CMUX_MACFLEET_DERIVED_MAX_AGE_MINUTES:-360}"
 tmp_max_age_minutes="${CMUX_MACFLEET_TMP_MAX_AGE_MINUTES:-180}"
 postgres_max_age_minutes="${CMUX_MACFLEET_POSTGRES_MAX_AGE_MINUTES:-180}"
@@ -18,6 +19,30 @@ free_gib() {
 
 has_active_builds() {
   pgrep -f 'xcodebuild|swift-frontend|clang .*DerivedData|zig build' >/dev/null 2>&1
+}
+
+prune_stopped_orchard_tart_vms() {
+  [ "$(id -u)" -eq 0 ] || return 0
+  [ "$(free_gib)" -lt "$tart_min_free_gib" ] || return 0
+  [ -d /Users/admin/.tart ] || return 0
+
+  local tart_bin=""
+  for candidate in /opt/homebrew/bin/tart /usr/local/bin/tart; do
+    if [ -x "$candidate" ]; then
+      tart_bin="$candidate"
+      break
+    fi
+  done
+  [ -n "$tart_bin" ] || return 0
+
+  log "free space below ${tart_min_free_gib}GiB, pruning stopped orchard Tart VMs"
+  sudo -H -u admin "$tart_bin" list 2>/dev/null \
+    | awk '$1 == "local" && $2 ~ /^orchard-user-/ && $NF == "stopped" { print $2 }' \
+    | while IFS= read -r vm; do
+        [ -n "$vm" ] || continue
+        log "deleting Tart VM $vm"
+        sudo -H -u admin "$tart_bin" delete "$vm" >/dev/null 2>&1 || true
+      done
 }
 
 rm_old_children() {
@@ -74,6 +99,8 @@ if [ "$active" -eq 0 ] && [ "$(free_gib)" -lt "$min_free_gib" ]; then
     rm -rf "$home/cmux-ci/DerivedData"/* "$home/Library/Developer/Xcode/DerivedData"/* 2>/dev/null || true
   done
 fi
+
+prune_stopped_orchard_tart_vms
 
 find /tmp /private/tmp -maxdepth 1 \( -name 'cmux-*' -o -name 'macfleet-ci-*' -o -name 'sat15-*' -o -name 'smoke-*' \) -mmin +"$tmp_max_age_minutes" -print -exec rm -rf {} + 2>/dev/null || true
 truncate_large_logs '/var/log/cmux-actions-runner-*.log'
