@@ -8,7 +8,7 @@
   "rules": [
     {
       "id": "cmux-bugfix-regression-proof",
-      "rule": "Flag bugfix PRs that lack behavior-level regression proof. If the PR title, body, linked issue, or diff says it fixes a bug, regression, crash, flaky behavior, data loss, or broken product/runtime behavior, require a regression test for the exact broken path with visible red-first/green-after evidence: a test-only commit that fails before the fix followed by a fix commit that makes the same check pass, or an identified pre-existing failing check plus final green check. Pass for PRs that do not claim or implement a bugfix, including docs-only changes, metadata-only changes, refactors with no claimed broken behavior, review-bot rule changes, and tests that verify runtime behavior, built artifacts, or user-visible outcomes.",
+      "rule": "Flag bugfix PRs that lack behavior-level regression proof. If the PR title, body, linked issue, or diff says it fixes a bug, regression, crash, flaky behavior, data loss, or broken product/runtime behavior, require a regression test for the exact broken path that verifies runtime behavior, built artifacts, or user-visible outcomes, with visible red-first/green-after evidence: a test-only commit that fails before the fix followed by a fix commit that makes the same check pass, or an identified pre-existing failing check plus final green check. Do not accept source-shape checks as regression coverage. Pass for PRs that do not claim or implement a bugfix, including docs-only changes, metadata-only changes, refactors with no claimed broken behavior, and review-bot rule changes.",
       "scope": ["**/*"],
       "severity": "high"
     },

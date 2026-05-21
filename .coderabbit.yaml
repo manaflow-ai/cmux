@@ -13,9 +13,6 @@ reviews:
   profile: assertive
   request_changes_workflow: true
   path_instructions:
-    - path: "**/*"
-      instructions: |
-        Apply `.github/review-bot-rules/bugfix-regression-proof.md` at the PR level. For any PR that fixes a bug, regression, crash, flaky behavior, data loss, or broken product/runtime behavior, require a behavior-level regression test with visible red-first/green-after proof in the PR history or checks.
     - path: "**/*.swift"
       instructions: |
         Apply the cmux custom Swift lint rules in `.github/review-bot-rules/` during review. Treat those files as the source of truth. Focus on production Swift changes and ignore test-only scaffolding unless it makes production behavior worse.
@@ -52,7 +49,7 @@ reviews:
       - name: "cmux bugfix regression proof"
         mode: error
         instructions: |
-          For PRs that fix a bug, regression, crash, flaky behavior, data loss, or broken product/runtime behavior, fail when the diff violates `.github/review-bot-rules/bugfix-regression-proof.md`: require a behavior-level regression test that fails before the fix and passes after it, visible as a red test-only commit followed by a green fix commit, or an identified pre-existing failing check plus final green check. Pass for PRs that do not claim or implement a bugfix, including docs-only changes, metadata-only changes, refactors with no claimed broken behavior, review-bot rule changes, and tests that verify runtime behavior, built artifacts, or user-visible outcomes.
+          For PRs that fix a bug, regression, crash, flaky behavior, data loss, or broken product/runtime behavior, fail when the diff violates `.github/review-bot-rules/bugfix-regression-proof.md`: require a behavior-level regression test that verifies runtime behavior, built artifacts, or user-visible outcomes, visible as a red test-only commit followed by a green fix commit, or an identified pre-existing failing check plus final green check. Do not accept source-shape checks as regression coverage. Pass for PRs that do not claim or implement a bugfix, including docs-only changes, metadata-only changes, refactors with no claimed broken behavior, and review-bot rule changes.
       - name: "cmux Swift actor isolation"
         mode: error
         instructions: |

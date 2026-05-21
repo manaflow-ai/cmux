@@ -14,6 +14,7 @@ Apply this rule to PRs that fix a bug, regression, flaky behavior, crash, data l
 - PRs that do not claim or implement a bugfix, including pure features, docs-only changes, metadata-only changes, refactors with no claimed broken behavior, and review-bot rule changes.
 - A bugfix PR where the first relevant commit adds or adjusts only the failing behavior-level regression test, CI or a reviewer-run check goes red on that commit, and a later commit fixes the bug with the same check going green.
 - A bugfix PR where an already-checked-in test demonstrably failed before the fix and the PR identifies the failing pre-fix check plus the final green check.
+- Valid regression tests exercise runtime behavior, built artifacts, or user-visible outcomes instead of source shape.
 
 ## Report
 

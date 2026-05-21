@@ -25,7 +25,9 @@ For PRs that fix a bug, regression, crash, flaky behavior, data loss, or broken 
 
 Flag bugfix PRs that do not show red-first/green-after proof in PR history or checks. The expected shape is a test-only commit that fails before the fix, followed by a fix commit that makes the same check pass. If an existing test already failed before the fix, the PR must identify that pre-fix failing check and the final green check.
 
-Pass for PRs that do not claim or implement a bugfix, including docs-only changes, metadata-only changes, refactors with no claimed broken behavior, review-bot rule changes, and tests that verify runtime behavior, built artifacts, or user-visible outcomes. Do not accept source-shape tests as regression coverage.
+Pass for PRs that do not claim or implement a bugfix, including docs-only changes, metadata-only changes, refactors with no claimed broken behavior, and review-bot rule changes.
+
+For bugfix PRs, valid regression tests must exercise runtime behavior, built artifacts, or user-visible outcomes. Do not accept source-shape tests as regression coverage.
 
 ## Runtime No Hacky Sleeps
 
