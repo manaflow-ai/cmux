@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression test for CI unit-test SwiftPM dependency flake handling.
+# Regression test for CI unit-test SwiftPM dependency flake handling and socket isolation.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,6 +10,8 @@ REQUIRED_PATTERNS=(
   "Could not resolve package dependencies"
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
   "run_unit_tests | tee /tmp/test-output.txt"
+  'UNIT_CMUX_TAG="ci-tests-'
+  'CMUX_SOCKET_PATH="$UNIT_CMUX_SOCKET_PATH"'
 )
 
 for pattern in "${REQUIRED_PATTERNS[@]}"; do
