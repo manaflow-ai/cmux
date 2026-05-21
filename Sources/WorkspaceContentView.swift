@@ -278,7 +278,7 @@ struct WorkspaceContentView: View {
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
                 .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
+                    workspace.focusBonsplitPane(paneId, controller: workspace.bonsplitController)
                 }
             } else {
                 // Fallback for tabs without panels (shouldn't happen normally)
@@ -288,7 +288,7 @@ struct WorkspaceContentView: View {
             // Empty pane content
             EmptyPanelView(workspace: workspace, paneId: paneId)
                 .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
+                    workspace.focusBonsplitPane(paneId, controller: workspace.bonsplitController)
                 }
         }
         .internalOnlyTabDrag()
