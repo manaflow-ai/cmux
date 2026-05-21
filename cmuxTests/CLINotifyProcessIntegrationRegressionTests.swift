@@ -659,6 +659,66 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testNodeWrappedGenericAgentRootStopStillPublishesResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "opencode-node-wrapper-root")
+        defer { context.cleanup() }
+
+        let fixture = try startGenericAgentProcessUnderNodeLauncher(
+            agent: "opencode",
+            pathNeedleDirectory: ".opencode"
+        )
+        defer { fixture.cleanup() }
+
+        let sessionId = "opencode-node-wrapper-root-session"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("opencode-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": Int(fixture.childPID),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runGenericAgentHook(
+            context: context,
+            agent: "opencode",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"root done"}"#,
+            extraEnvironment: genericAgentLaunchEnvironment(
+                context: context,
+                agent: "opencode",
+                sessionId: sessionId
+            )
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Root OpenCode Stop should publish a resume binding even when npm/bun leaves a node launcher parent, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) OpenCode|") },
+            "Root OpenCode Stop should still notify, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("set_status opencode ") && $0.contains(" Idle ") },
+            "Root OpenCode Stop should still mark OpenCode idle, saw \(context.state.commands)"
+        )
+    }
+
     func testNodeWrappedGenericAgentSubagentStopDoesNotReplaceResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "opencode-node-wrapper")
         defer { context.cleanup() }
@@ -4438,6 +4498,51 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "-c",
             "\(shellSingleQuote(agentURL.path)) 60 & echo $! > \(shellSingleQuote(pidURL.path)); wait",
             "\(agent)-shell-wrapper",
+        ]
+        try launcher.run()
+
+        do {
+            return ShellWrappedAgentFixture(
+                launcher: launcher,
+                childPID: try waitForPIDFile(pidURL),
+                root: root
+            )
+        } catch {
+            if launcher.isRunning {
+                launcher.terminate()
+            }
+            launcher.waitUntilExit()
+            try? fileManager.removeItem(at: root)
+            throw error
+        }
+    }
+
+    private func startGenericAgentProcessUnderNodeLauncher(
+        agent: String,
+        pathNeedleDirectory: String
+    ) throws -> ShellWrappedAgentFixture {
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("gn\(UUID().uuidString.prefix(8))", isDirectory: true)
+        let agentDirectory = root
+            .appendingPathComponent(pathNeedleDirectory, isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: agentDirectory, withIntermediateDirectories: true)
+
+        let nodeURL = root.appendingPathComponent("node", isDirectory: false)
+        let agentURL = agentDirectory.appendingPathComponent(agent, isDirectory: false)
+        let scriptURL = agentDirectory.appendingPathComponent("\(agent).js", isDirectory: false)
+        try fileManager.createSymbolicLink(at: nodeURL, withDestinationURL: URL(fileURLWithPath: "/bin/sh"))
+        try fileManager.createSymbolicLink(at: agentURL, withDestinationURL: URL(fileURLWithPath: "/bin/sleep"))
+        try "module placeholder\n".write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        let pidURL = root.appendingPathComponent("\(agent)-node-launcher-child.pid", isDirectory: false)
+        let launcher = Process()
+        launcher.executableURL = nodeURL
+        launcher.arguments = [
+            "-c",
+            "\(shellSingleQuote(agentURL.path)) 60 & echo $! > \(shellSingleQuote(pidURL.path)); wait",
+            scriptURL.path,
         ]
         try launcher.run()
 

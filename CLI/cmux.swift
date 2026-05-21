@@ -1054,6 +1054,7 @@ private let agentHookWrapperProcessNames: Set<String> = [
 
 private struct HookAgentProcessKind {
     let identifier: String
+    let isLaunchWrapper: Bool
 }
 
 private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
@@ -14545,8 +14546,14 @@ struct CMUXCLI {
         isOMXHud: Bool,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String: String]? {
-        guard !isOMXHud,
-              let launchKind = Self.normalizedEnvValue(processEnvironment["CMUX_AGENT_LAUNCH_KIND"])?.lowercased(),
+        guard !isOMXHud else {
+            return nil
+        }
+        if let managed = Self.normalizedEnvValue(processEnvironment[managedSubagentEnvironmentKey]),
+           Self.parseHookBoolean(managed) == true {
+            return [managedSubagentEnvironmentKey: "1"]
+        }
+        guard let launchKind = Self.normalizedEnvValue(processEnvironment["CMUX_AGENT_LAUNCH_KIND"])?.lowercased(),
               Self.managedSubagentLauncherKinds.contains(launchKind) else {
             return nil
         }
@@ -21144,13 +21151,20 @@ struct CMUXCLI {
 
         var candidate = pid_t(currentAgentPID)
         var agentProcessCount = 0
+        var previousAgentKind: HookAgentProcessKind?
         var remainingAncestors = 32
         while candidate > 1, remainingAncestors > 0 {
-            if nativeAgentProcessKind(for: candidate) != nil {
-                agentProcessCount += 1
-                if agentProcessCount >= 2 {
-                    return true
+            if let kind = nativeAgentProcessKind(for: candidate) {
+                let isSameLaunchWrapper = kind.isLaunchWrapper
+                    && previousAgentKind?.identifier == kind.identifier
+                    && previousAgentKind?.isLaunchWrapper == false
+                if !isSameLaunchWrapper {
+                    agentProcessCount += 1
+                    if agentProcessCount >= 2 {
+                        return true
+                    }
                 }
+                previousAgentKind = kind
             }
             let next = parentPID(of: candidate)
             guard next > 1, next != candidate else {
@@ -21366,7 +21380,7 @@ struct CMUXCLI {
               nativeAgentExecutableBasenames.contains(basename) else {
             return nil
         }
-        return HookAgentProcessKind(identifier: basename)
+        return HookAgentProcessKind(identifier: basename, isLaunchWrapper: false)
     }
 
     private static func nativeAgentProcessKindFromExecutablePath(_ value: String?) -> HookAgentProcessKind? {
@@ -21380,7 +21394,7 @@ struct CMUXCLI {
         let lowered = value.lowercased()
         for wrappedKind in wrappedAgentArgumentNeedles
             where wrappedKind.needles.contains(where: { lowered.contains($0) }) {
-            return HookAgentProcessKind(identifier: wrappedKind.identifier)
+            return HookAgentProcessKind(identifier: wrappedKind.identifier, isLaunchWrapper: true)
         }
         return nil
     }

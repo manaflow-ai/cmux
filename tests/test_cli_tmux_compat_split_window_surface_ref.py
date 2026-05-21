@@ -337,6 +337,44 @@ def assert_managed_subagent_startup_environment_for_launcher_kinds(
             f"{startup_environment!r}"
         )
 
+    socket_path = tmp / "mm.sock"
+    state = FakeCmuxState()
+    server = FakeCmuxUnixServer(str(socket_path), state)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        proc = run_cli(
+            cli_path,
+            socket_path,
+            fake_home,
+            ["__tmux-compat", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+            extra_env={"CMUX_AGENT_MANAGED_SUBAGENT": "1"},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    if proc.returncode != 0:
+        raise AssertionError(
+            "managed marker propagation split-window returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+    split_params = state.last_split_params or {}
+    startup_environment = split_params.get("startup_environment")
+    if not isinstance(startup_environment, dict):
+        raise AssertionError(
+            "managed marker propagation did not include startup_environment: "
+            f"{split_params!r}"
+        )
+    marker = startup_environment.get("CMUX_AGENT_MANAGED_SUBAGENT")
+    if marker != "1":
+        raise AssertionError(
+            "managed marker propagation did not mark the child pane as managed: "
+            f"{startup_environment!r}"
+        )
+
 
 def main() -> int:
     try:
