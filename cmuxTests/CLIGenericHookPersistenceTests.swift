@@ -1584,6 +1584,110 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    func testGrokStaleTurnNotificationDoesNotForcePastCurrentTurn() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("grok-stale-turn")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-stale-turn-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "grok-session-stale-turn"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else {
+                    return "OK"
+                }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "grok", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        let start = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let prompt1 = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(sessionId)","turnId":"turn-1","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"prompt 1"}"#
+        )
+        XCTAssertFalse(prompt1.timedOut, prompt1.stderr)
+        XCTAssertEqual(prompt1.status, 0, prompt1.stderr)
+
+        let message = "Turn complete in 1.0s."
+        let notification1 = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","turnId":"turn-1","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(message)"}"#
+        )
+        XCTAssertFalse(notification1.timedOut, notification1.stderr)
+        XCTAssertEqual(notification1.status, 0, notification1.stderr)
+
+        let prompt2 = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(sessionId)","turnId":"turn-2","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"prompt 2"}"#
+        )
+        XCTAssertFalse(prompt2.timedOut, prompt2.stderr)
+        XCTAssertEqual(prompt2.status, 0, prompt2.stderr)
+
+        let duplicateCommandStart = state.commands.count
+        let lateDuplicate = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","turnId":"turn-1","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(message)"}"#
+        )
+        XCTAssertFalse(lateDuplicate.timedOut, lateDuplicate.stderr)
+        XCTAssertEqual(lateDuplicate.status, 0, lateDuplicate.stderr)
+        XCTAssertEqual(lateDuplicate.stdout, "{}\n")
+
+        let lateDuplicateCommands = Array(state.commands.dropFirst(duplicateCommandStart))
+        XCTAssertFalse(
+            lateDuplicateCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Task completed")
+            },
+            "Stale Grok turn-1 completion must not force past dedupe while turn-2 is active, saw \(lateDuplicateCommands)"
+        )
+    }
+
     func testGrokSessionEndDoesNotDropRoutingForLaterChatMessages() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-turns")

@@ -24703,6 +24703,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return
             }
 
+            let grokActivePromptDepthBeforeNotificationStop = max(0, mapped?.activePromptDepth ?? 0)
+            let grokNotificationTurnId = normalizedHookValue(input.turnId)
+            let grokActivePromptTurnId = normalizedHookValue(mapped?.activePromptTurnId)
+            let grokNotificationStopsInactiveTurn = isGrokHook
+                && summary.status == .idle
+                && grokNotificationTurnId != nil
+                && grokActivePromptTurnId != nil
+                && grokNotificationTurnId != grokActivePromptTurnId
+
             if !sessionId.isEmpty {
                 let pid = mapped?.pid ?? inferredPID
                 let launchCommand = agentLaunchCommandFromEnvironment(
@@ -24750,7 +24759,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let notificationFingerprint = notificationDedupeFingerprint(status: summary.status, body: summary.body)
             let shouldForceCurrentGrokPromptNotification = isGrokHook
                 && summary.status == .idle
-                && max(0, mapped?.activePromptDepth ?? 0) > 0
+                && grokActivePromptDepthBeforeNotificationStop > 0
+                && !grokNotificationStopsInactiveTurn
             if shouldSendNotification(
                 fingerprint: notificationFingerprint,
                 force: shouldForceCurrentGrokPromptNotification
