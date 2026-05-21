@@ -148,14 +148,19 @@ jobs:
           bun test tests/drizzle-effect.test.ts
           bun test tests/vm-db-read-model.test.ts
 
-  tests:
+  tests-unit-shards:
+    name: tests-unit-${{ matrix.shard }}/3
     runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 45
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
       # backtracer until the job timeout. Disable the crash catcher entirely.
-      SWIFT_BACKTRACE: "enable=no"
+      SWIFT_BACKTRACE: "interactive=no,color=no"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -244,15 +249,27 @@ jobs:
           done
 
       - name: Run unit tests
+        env:
+          CMUX_TEST_SHARD_INDEX: ${{ matrix.shard }}
+          CMUX_TEST_SHARD_TOTAL: 3
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          ONLY_TESTING_ARGS=()
+          while IFS= read -r arg; do
+            ONLY_TESTING_ARGS+=("$arg")
+          done < <(
+            python3 .github/scripts/xcode-test-shard-args.py \
+              --shard-index "$CMUX_TEST_SHARD_INDEX" \
+              --shard-total "$CMUX_TEST_SHARD_TOTAL"
+          )
           run_unit_tests() {
             xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
+              "${ONLY_TESTING_ARGS[@]}" \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
               test 2>&1
           }
@@ -281,6 +298,10 @@ jobs:
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
+            if echo "$OUTPUT" | grep -Eq "Program crashed|The operation was canceled|Test runner exited|Terminated due to signal|Signal [0-9]+"; then
+              echo "Crash or cancellation detected during unit tests"
+              exit 1
+            fi
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
               echo "All failures are expected, treating as pass"
@@ -291,15 +312,18 @@ jobs:
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
+        if: matrix.shard == 1
         run: |
           set -euo pipefail
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Setup Bun
+        if: matrix.shard == 1
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Run CLI no-socket regressions
+        if: matrix.shard == 1
         run: |
           set -euo pipefail
 
@@ -325,6 +349,21 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
+
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    needs: tests-unit-shards
+    if: always()
+    steps:
+      - name: Verify unit test shards
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.tests-unit-shards.result }}" != "success" ]; then
+            echo "One or more unit test shards failed"
+            exit 1
+          fi
+          echo "All unit test shards passed"
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on WarpBuild.
