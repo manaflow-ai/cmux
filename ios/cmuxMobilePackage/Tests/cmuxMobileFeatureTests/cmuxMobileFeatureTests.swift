@@ -35,6 +35,18 @@ import UIKit
     #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: nil, hasStoredTokens: false))
 }
 
+#if DEBUG
+@Test func mobileDevStackAuthTokenProviderUsesExplicitEnvironmentOnly() {
+    #expect(MobileShellDevStackAuthTokenProvider.token(environment: [:]) == nil)
+    #expect(MobileShellDevStackAuthTokenProvider.token(environment: [
+        MobileShellDevStackAuthTokenProvider.environmentKey: "   "
+    ]) == nil)
+    #expect(MobileShellDevStackAuthTokenProvider.token(environment: [
+        MobileShellDevStackAuthTokenProvider.environmentKey: " cmux-dev-token "
+    ]) == "cmux-dev-token")
+}
+#endif
+
 @Test func signInCodeInputPolicyNormalizesPastedCodesBeforeVerifying() {
     #expect(SignInCodeInputPolicy.action(for: "12345") == .none)
     #expect(SignInCodeInputPolicy.action(for: "123456") == .verify)

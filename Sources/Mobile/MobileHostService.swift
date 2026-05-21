@@ -40,6 +40,9 @@ final class MobileHostService {
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
+    #if DEBUG
+    private var debugAcceptedStackAuthToken: String?
+    #endif
 
     private init() {}
 
@@ -233,6 +236,15 @@ final class MobileHostService {
                 // still authorize broader operations such as creating workspaces.
             }
         }
+        #if DEBUG
+        if let stackAccessToken = request.auth?.stackAccessToken,
+           MobileHostDevStackAuthPolicy.authorize(
+                providedToken: stackAccessToken,
+                acceptedToken: debugAcceptedStackAuthToken
+           ) {
+            return nil
+        }
+        #endif
         do {
             try await MobileHostStackAuthVerifier.shared.verify(auth: request.auth)
             return nil
@@ -431,6 +443,14 @@ extension MobileHostService {
     func debugListenerUsesEphemeralFallbackForTesting() -> Bool {
         listenerUsesEphemeralFallback
     }
+
+    func debugConfigureAcceptedStackAuthTokenForTesting(_ token: String?) {
+        debugAcceptedStackAuthToken = MobileHostDevStackAuthPolicy.normalizedToken(token)
+    }
+
+    func debugAcceptedStackAuthTokenForTesting() -> String? {
+        debugAcceptedStackAuthToken
+    }
 }
 #endif
 
@@ -452,6 +472,22 @@ enum MobileHostAuthorizationPolicy {
         }
     }
 }
+
+#if DEBUG
+enum MobileHostDevStackAuthPolicy {
+    static func normalizedToken(_ token: String?) -> String? {
+        let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    static func authorize(providedToken: String, acceptedToken: String?) -> Bool {
+        guard let acceptedToken = normalizedToken(acceptedToken) else {
+            return false
+        }
+        return normalizedToken(providedToken) == acceptedToken
+    }
+}
+#endif
 
 private actor MobileHostStackAuthVerifier {
     static let shared = MobileHostStackAuthVerifier()

@@ -73,6 +73,46 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    #if DEBUG
+    func testDebugStackAuthTokenPolicyRequiresConfiguredToken() {
+        XCTAssertNil(MobileHostDevStackAuthPolicy.normalizedToken("   "))
+        XCTAssertFalse(MobileHostDevStackAuthPolicy.authorize(
+            providedToken: "cmux-dev-token",
+            acceptedToken: nil
+        ))
+        XCTAssertFalse(MobileHostDevStackAuthPolicy.authorize(
+            providedToken: "cmux-dev-token",
+            acceptedToken: "other-token"
+        ))
+        XCTAssertTrue(MobileHostDevStackAuthPolicy.authorize(
+            providedToken: " cmux-dev-token ",
+            acceptedToken: "cmux-dev-token"
+        ))
+    }
+
+    func testDebugConfiguredStackAuthTokenAuthorizesBroadWorkspaceList() async {
+        let service = MobileHostService.shared
+        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
+        defer {
+            service.debugConfigureAcceptedStackAuthTokenForTesting(nil)
+        }
+
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: nil,
+                stackAccessToken: "cmux-dev-token"
+            )
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        XCTAssertNil(result)
+    }
+    #endif
+
     func testMobileHostRPCRejectsInvalidParamsShape() {
         let data = Data(#"{"id":"bad-params","method":"workspace.list","params":[]}"#.utf8)
 

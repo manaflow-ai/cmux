@@ -226,7 +226,12 @@ public struct CMUXMobileRuntime: Sendable {
 
     private static var defaultStackAccessTokenProvider: @Sendable () async throws -> String {
         {
-            try await AuthManager.shared.getAccessToken()
+            #if DEBUG
+            if let token = MobileShellDevStackAuthTokenProvider.token() {
+                return token
+            }
+            #endif
+            return try await AuthManager.shared.getAccessToken()
         }
     }
 
@@ -261,6 +266,19 @@ public struct CMUXMobileRuntime: Sendable {
         self.now = now
     }
 }
+
+#if DEBUG
+enum MobileShellDevStackAuthTokenProvider {
+    static let environmentKey = "CMUX_MOBILE_DEV_STACK_AUTH_TOKEN"
+
+    static func token(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        let token = environment[environmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return token?.isEmpty == false ? token : nil
+    }
+}
+#endif
 
 enum MobileShellRouteAuthPolicy {
     static func manualRouteKind(for host: String) -> CmxAttachTransportKind {

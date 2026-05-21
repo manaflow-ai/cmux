@@ -2863,6 +2863,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugSessionSnapshotBenchmark(params: params))
         case "debug.session_snapshot_seed_scrollback":
             return v2Result(id: id, self.v2DebugSessionSnapshotSeedScrollback(params: params))
+        case "mobile.dev_stack_auth.configure":
+            return v2Result(id: id, self.v2MobileDevStackAuthConfigure(params: params))
 #endif
         case "auth.login":
             return v2Ok(
@@ -3530,6 +3532,7 @@ class TerminalController {
             "debug.session_snapshot_benchmark",
             "debug.session_snapshot_seed_scrollback",
             "debug.window.screenshot",
+            "mobile.dev_stack_auth.configure",
         ])
 #endif
 #if DEBUG
@@ -18973,6 +18976,31 @@ class TerminalController {
             "snapshot_fidelity": "plain_text"
         ])
     }
+
+    #if DEBUG
+    private func v2MobileDevStackAuthConfigure(params: [String: Any]) -> V2CallResult {
+        let enabled = v2Bool(params, "enabled")
+        let token = v2OptionalTrimmedRawString(params, "token")
+        if enabled == false {
+            MobileHostService.shared.debugConfigureAcceptedStackAuthTokenForTesting(nil)
+            return .ok(["enabled": false])
+        }
+
+        guard let token else {
+            return .err(
+                code: "invalid_params",
+                message: "mobile.dev_stack_auth.configure requires params.token",
+                data: nil
+            )
+        }
+
+        MobileHostService.shared.debugConfigureAcceptedStackAuthTokenForTesting(token)
+        return .ok([
+            "enabled": true,
+            "token_prefix": String(token.prefix(8))
+        ])
+    }
+    #endif
 
     @MainActor
     private func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
