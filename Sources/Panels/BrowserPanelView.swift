@@ -693,7 +693,7 @@ struct BrowserPanelView: View {
         screenshotPageCopiedTimer?.invalidate()
         screenshotPageCopied = true
         screenshotPageCopiedTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: false) { _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 screenshotPageCopiedTimer = nil
                 screenshotPageCopied = false
             }
