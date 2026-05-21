@@ -568,6 +568,35 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteFileExplorerPublishesMarkerWhenDirectoryStringAlreadyStored() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64039,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.panelDirectories[panelID] = "/home/demo/project"
+        let generationBeforeMarker = workspace.remoteTerminalDirectoryGeneration
+
+        XCTAssertNil(workspace.preferredRemoteFileExplorerRootPath())
+
+        workspace.updatePanelDirectory(panelId: panelID, directory: "/home/demo/project")
+
+        XCTAssertGreaterThan(workspace.remoteTerminalDirectoryGeneration, generationBeforeMarker)
+        XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
+    }
+
+    @MainActor
     func testRemoteFileExplorerPreferredRootUsesRemotePwdAfterConnectedDirectoryReport() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(

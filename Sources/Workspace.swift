@@ -7518,6 +7518,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
+    @Published private(set) var remoteTerminalDirectoryGeneration: UInt64 = 0
     var surfaceTTYNames: [UUID: String] = [:]
     private var remoteSessionController: WorkspaceRemoteSessionController?
     private var pendingRemoteForegroundAuthToken: String?
@@ -8986,7 +8987,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectories[panelId] = trimmed
         }
         if activeRemoteTerminalSurfaceIds.contains(panelId) {
-            remoteTerminalDirectorySurfaceIds.insert(panelId)
+            markRemoteTerminalDirectorySurface(panelId)
         }
         // Update current directory if this is the focused panel
         if panelId == focusedPanelId {
@@ -9355,9 +9356,9 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         activeRemoteTerminalSurfaceIds = activeRemoteTerminalSurfaceIds.filter { validSurfaceIds.contains($0) }
-        remoteTerminalDirectorySurfaceIds = remoteTerminalDirectorySurfaceIds.filter {
+        replaceRemoteTerminalDirectorySurfaceIds(remoteTerminalDirectorySurfaceIds.filter {
             validSurfaceIds.contains($0) && activeRemoteTerminalSurfaceIds.contains($0)
-        }
+        })
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
@@ -9596,6 +9597,24 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteTerminalSurfaceIds.contains(panelId)
     }
 
+    private func replaceRemoteTerminalDirectorySurfaceIds(_ nextSurfaceIds: Set<UUID>) {
+        guard nextSurfaceIds != remoteTerminalDirectorySurfaceIds else { return }
+        remoteTerminalDirectorySurfaceIds = nextSurfaceIds
+        remoteTerminalDirectoryGeneration &+= 1
+    }
+
+    private func markRemoteTerminalDirectorySurface(_ panelId: UUID) {
+        var nextSurfaceIds = remoteTerminalDirectorySurfaceIds
+        guard nextSurfaceIds.insert(panelId).inserted else { return }
+        replaceRemoteTerminalDirectorySurfaceIds(nextSurfaceIds)
+    }
+
+    private func unmarkRemoteTerminalDirectorySurface(_ panelId: UUID) {
+        var nextSurfaceIds = remoteTerminalDirectorySurfaceIds
+        guard nextSurfaceIds.remove(panelId) != nil else { return }
+        replaceRemoteTerminalDirectorySurfaceIds(nextSurfaceIds)
+    }
+
     @MainActor
     func preferredRemoteFileExplorerRootPath() -> String? {
         guard isRemoteWorkspace else { return nil }
@@ -9752,11 +9771,11 @@ final class Workspace: Identifiable, ObservableObject {
         } ?? false
         remoteConfiguration = configuration
         if shouldPreserveRemoteDirectoryMarkers {
-            remoteTerminalDirectorySurfaceIds = remoteTerminalDirectorySurfaceIds.filter {
+            replaceRemoteTerminalDirectorySurfaceIds(remoteTerminalDirectorySurfaceIds.filter {
                 panels[$0] != nil && activeRemoteTerminalSurfaceIds.contains($0)
-            }
+            })
         } else {
-            remoteTerminalDirectorySurfaceIds.removeAll()
+            replaceRemoteTerminalDirectorySurfaceIds([])
         }
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         clearRemoteDetectedSurfacePorts()
@@ -9856,7 +9875,7 @@ final class Workspace: Identifiable, ObservableObject {
         previousController?.stop()
         pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
-        remoteTerminalDirectorySurfaceIds.removeAll()
+        replaceRemoteTerminalDirectorySurfaceIds([])
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
@@ -9921,7 +9940,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
         guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
-        remoteTerminalDirectorySurfaceIds.remove(panelId)
+        unmarkRemoteTerminalDirectorySurface(panelId)
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()

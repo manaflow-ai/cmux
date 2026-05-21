@@ -2500,6 +2500,22 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         )
     }
 
+    func testRemotePreviewTemporaryDownloadURLStaysBoundedForLongBasename() throws {
+        let longName = String(repeating: "a", count: 255)
+        let destinationURL = URL(fileURLWithPath: "/tmp/cmux-remote-file-previews/hash/\(longName)")
+        let uuid = try XCTUnwrap(UUID(uuidString: "12345678-1234-1234-1234-1234567890AB"))
+
+        let temporaryURL = RemoteFilePreviewMaterializer.temporaryDownloadURL(
+            for: destinationURL,
+            uuid: uuid
+        )
+
+        XCTAssertEqual(temporaryURL.deletingLastPathComponent(), destinationURL.deletingLastPathComponent())
+        XCTAssertEqual(temporaryURL.lastPathComponent, ".download-12345678-1234-1234-1234-1234567890AB")
+        XCTAssertLessThanOrEqual(temporaryURL.lastPathComponent.utf8.count, 255)
+        XCTAssertFalse(temporaryURL.lastPathComponent.contains(longName))
+    }
+
     func testRegistrySweepsExpiredDragEntries() {
         let start = Date(timeIntervalSince1970: 1_000)
         let oldID = FilePreviewDragRegistry.shared.register(

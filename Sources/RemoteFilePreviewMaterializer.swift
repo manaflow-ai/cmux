@@ -60,6 +60,11 @@ enum RemoteFilePreviewMaterializer {
         }
     }
 
+    static func temporaryDownloadURL(for destinationURL: URL, uuid: UUID = UUID()) -> URL {
+        destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(".download-\(uuid.uuidString)", isDirectory: false)
+    }
+
     private static func cacheKey(for source: RemoteFilePreviewSource) -> String {
         [
             source.connection.destination,
@@ -106,7 +111,7 @@ private final class RemoteFilePreviewDownloadOperation: @unchecked Sendable {
 
         let fileManager = FileManager.default
         let directoryURL = destinationURL.deletingLastPathComponent()
-        let temporaryURL = directoryURL.appendingPathComponent(".\(destinationURL.lastPathComponent).download-\(UUID().uuidString)", isDirectory: false)
+        let temporaryURL = RemoteFilePreviewMaterializer.temporaryDownloadURL(for: destinationURL)
 
         do {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)

@@ -971,6 +971,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let workspaceId: UUID?
         let currentDirectory: String?
         let panelDirectories: [UUID: String]
+        let remoteTerminalDirectoryGeneration: UInt64
         let remoteConfiguration: WorkspaceRemoteConfiguration?
         let remoteConnectionState: WorkspaceRemoteConnectionState?
         let remoteConnectionDetail: String?
@@ -997,6 +998,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             workspaceId: nil,
                             currentDirectory: nil,
                             panelDirectories: [:],
+                            remoteTerminalDirectoryGeneration: 0,
                             remoteConfiguration: nil,
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
@@ -1008,24 +1010,26 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                 return workspace.$currentDirectory
                     .combineLatest(
                         workspace.$panelDirectories,
-                        workspace.$remoteConfiguration,
-                        workspace.$remoteConnectionState
+                        workspace.$remoteTerminalDirectoryGeneration,
+                        workspace.$remoteConfiguration
                     )
                     .combineLatest(
+                        workspace.$remoteConnectionState,
                         workspace.$remoteConnectionDetail,
                         workspace.$remoteDaemonStatus
                     )
-                    .map { values, remoteConnectionDetail, remoteDaemonStatus in
+                    .map { values, remoteConnectionState, remoteConnectionDetail, remoteDaemonStatus in
                         let (
                             currentDirectory,
                             panelDirectories,
-                            remoteConfiguration,
-                            remoteConnectionState
+                            remoteTerminalDirectoryGeneration,
+                            remoteConfiguration
                         ) = values
                         return Snapshot(
                             workspaceId: workspace.id,
                             currentDirectory: currentDirectory,
                             panelDirectories: panelDirectories,
+                            remoteTerminalDirectoryGeneration: remoteTerminalDirectoryGeneration,
                             remoteConfiguration: remoteConfiguration,
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
