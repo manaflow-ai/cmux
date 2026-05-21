@@ -10,6 +10,7 @@ BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
 LAUNCH=0
+UNIVERSAL=0
 CMUX_DEBUG_LOG=""
 CMUX_DEV_PORT=""
 CMUX_DEV_PORT_END=""
@@ -187,6 +188,7 @@ Options:
                          so macOS launches the freshly-built binary on cmd-click or --launch.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
+  --universal            Build both arm64 and x86_64 slices.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
@@ -364,6 +366,10 @@ while [[ $# -gt 0 ]]; do
       LAUNCH=1
       shift
       ;;
+    --universal)
+      UNIVERSAL=1
+      shift
+      ;;
     --derived-data)
       DERIVED_DATA="${2:-}"
       if [[ -z "$DERIVED_DATA" ]]; then
@@ -506,6 +512,12 @@ fi
 # Forward explicit CMUX_SKIP_ZIG_BUILD to xcodebuild run script phases.
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
+fi
+if [[ "$UNIVERSAL" -eq 1 ]]; then
+  XCODEBUILD_ARGS+=(
+    'ARCHS=arm64 x86_64'
+    ONLY_ACTIVE_ARCH=NO
+  )
 fi
 XCODEBUILD_ARGS+=(build)
 
