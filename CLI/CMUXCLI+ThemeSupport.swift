@@ -287,7 +287,7 @@ extension CMUXCLI {
         return configURL
     }
 
-    private func removeStaleReleaseManagedThemeOverrideIfNeeded() throws {
+    func removeStaleReleaseManagedThemeOverrideIfNeeded() throws {
         do {
             try removeStaleReleaseManagedThemeOverride()
         } catch let error as CLIError {

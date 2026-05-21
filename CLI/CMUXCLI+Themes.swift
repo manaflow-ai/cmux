@@ -44,6 +44,7 @@ extension CMUXCLI {
             throw CLIError(message: "Bundled Ghostty theme picker helper not found")
         }
 
+        try removeStaleReleaseManagedThemeOverrideIfNeeded()
         let selection = currentThemeSelection(targetBundleIdentifier: targetBundleIdentifier)
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_THEME_PICKER_CONFIG"] = try cmuxThemeOverrideConfigURL(
