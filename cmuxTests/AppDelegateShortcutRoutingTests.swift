@@ -7950,6 +7950,33 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(TextBoxPasteboardRestorationGuard.shouldRestore(pasteboard: pasteboard, token: token))
     }
 
+    func testTextBoxPasteboardRestorationAllowsSameTemporaryFileAfterChangeCountAdvance() throws {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.textbox.restore.\(UUID().uuidString)"))
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        let fileURL = try makeTemporaryPNGFile(named: "moon.png")
+
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([fileURL as NSURL]))
+        let token = TextBoxPasteboardRestorationGuard.token(
+            afterWritingTemporaryFileURL: fileURL,
+            to: pasteboard
+        )
+        let staleChangeCountToken = TextBoxPasteboardRestorationToken(
+            changeCount: token.changeCount - 1,
+            fileURL: token.fileURL
+        )
+
+        XCTAssertTrue(
+            TextBoxPasteboardRestorationGuard.shouldRestore(
+                pasteboard: pasteboard,
+                token: staleChangeCountToken
+            )
+        )
+    }
+
     func testTextBoxPasteboardRestorationRecognizesUserChangeBetweenTemporaryWrites() throws {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.textbox.restore.\(UUID().uuidString)"))
         defer {

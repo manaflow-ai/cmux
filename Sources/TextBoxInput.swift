@@ -508,13 +508,20 @@ enum TextBoxPasteboardRestorationGuard {
         pasteboard: NSPasteboard,
         token: TextBoxPasteboardRestorationToken?
     ) -> Bool {
-        guard let token,
-              pasteboard.changeCount == token.changeCount else {
+        guard let token else {
             return false
         }
-        return PasteboardFileURLReader.fileURLs(from: pasteboard).contains { url in
-            url.standardizedFileURL.path == token.fileURL.standardizedFileURL.path
+        let temporaryPath = token.fileURL.standardizedFileURL.path
+        let currentFileURLPaths = Set(
+            PasteboardFileURLReader.fileURLs(from: pasteboard).map { $0.standardizedFileURL.path }
+        )
+        guard currentFileURLPaths.contains(temporaryPath) else {
+            return false
         }
+        guard pasteboard.changeCount == token.changeCount else {
+            return currentFileURLPaths == [temporaryPath]
+        }
+        return true
     }
 
     static func isCurrentTemporaryWrite(
