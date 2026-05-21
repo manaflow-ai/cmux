@@ -156,7 +156,7 @@ enum CLISocketPathResolver {
             return path
         }
 
-        return requestedPath
+        return candidates.first ?? requestedPath
     }
 
     private static func candidatePaths(

@@ -137,6 +137,52 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(stableResponder.receivedRequests, [])
     }
 
+    func testBundledCLIInTaggedDebugAppDoesNotFallBackToStableEnvSocketWhenTaggedSocketIsMissing() throws {
+        let cliPath = try bundledCLIPath()
+        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
+        let stableSocketURL = fixedHomeURL
+            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+            .appendingPathComponent("cmux.sock", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: stableSocketURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let tagSlug = "cli-missing-\(UUID().uuidString.lowercased())"
+        let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+        try? FileManager.default.removeItem(atPath: taggedSocketPath)
+        defer { try? FileManager.default.removeItem(atPath: taggedSocketPath) }
+
+        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "OK STABLE")
+        defer { stableResponder.stop() }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
+        environment["CMUX_SOCKET_PATH"] = stableSocketURL.path
+        environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains(taggedSocketPath), result.stdout)
+        XCTAssertFalse(result.stdout.contains("OK STABLE"), result.stdout)
+        XCTAssertEqual(stableResponder.receivedRequests, [])
+    }
+
     func testBundledCLIInTaggedDebugAppTreatsUserScopedStableEnvSocketAsImplicitDefault() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmux-cli-home-\(UUID().uuidString)", isDirectory: true)
