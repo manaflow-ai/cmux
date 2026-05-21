@@ -73,7 +73,7 @@ private final class CommandPaletteOverlayContainerView: NSView {
     }
 
     override func tryToPerform(_ action: Selector, with object: Any?) -> Bool {
-        if action == Selector(("paste:")), bufferPendingPasteboardText() {
+        if action == #selector(NSText.paste(_:)), bufferPendingPasteboardText() {
             return true
         }
         return super.tryToPerform(action, with: object)
