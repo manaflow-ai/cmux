@@ -138,10 +138,13 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
+            # Swift's crash backtracer can prompt on stdin after an app-host
+            # XCTest crash. Feed "q" so expected-failure crashes exit instead
+            # of blocking the runner until the job timeout.
             xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
+              -destination "platform=macOS" test < <(yes q) 2>&1
           }
 
           set +e
