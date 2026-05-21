@@ -189,6 +189,29 @@ final class MainWindowFocusRedrawTests: XCTestCase {
 }
 
 @MainActor
+final class CmuxMainWindowDockTitlebarHitTests: XCTestCase {
+    func testDockTitlebarHitRegionUsesMeasuredControlFrame() {
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.orderOut(nil)
+        }
+
+        window.workspaceDockTitlebarControlFrameInWindow = NSRect(x: 700, y: 470, width: 58, height: 18)
+
+        XCTAssertEqual(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 705, y: 479)), .left)
+        XCTAssertEqual(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 729, y: 479)), .bottom)
+        XCTAssertEqual(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 750, y: 479)), .right)
+        XCTAssertNil(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 790, y: 479)))
+        XCTAssertNil(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 729, y: 455)))
+    }
+}
+
+@MainActor
 final class AppDelegateWindowContextRoutingTests: XCTestCase {
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(

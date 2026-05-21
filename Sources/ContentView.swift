@@ -2325,12 +2325,6 @@ struct ContentView: View {
             .padding(.top, 2)
             .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset))
             .padding(.trailing, 8)
-
-            if let selectedWorkspace = tabManager.selectedWorkspace {
-                WorkspaceDockTitlebarStateBinder(layout: selectedWorkspace.dockLayout)
-                    .frame(width: 0, height: 0)
-                    .allowsHitTesting(false)
-            }
         }
         .frame(height: WindowChromeMetrics.appTitlebarHeight)
         .frame(maxWidth: .infinity)

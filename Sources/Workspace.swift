@@ -85,6 +85,7 @@ enum SidebarMetadataFormat: String {
 
 private struct SessionPaneRestoreEntry {
     let paneId: PaneID
+    let controller: BonsplitController
     let snapshot: SessionPaneLayoutSnapshot
 }
 
@@ -164,8 +165,7 @@ extension Workspace {
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> SessionWorkspaceSnapshot {
-        let tree = bonsplitController.treeSnapshot()
-        let layout = sessionLayoutSnapshot(from: tree)
+        let layout = sessionLayoutSnapshot(for: bonsplitController)
 
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
@@ -231,6 +231,7 @@ extension Workspace {
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
+            docks: sessionDockSnapshots(),
             panels: panelSnapshots,
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
@@ -266,12 +267,14 @@ extension Workspace {
         }
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
-        let leafEntries = restoreSessionLayout(snapshot.layout)
+        var leafEntries = restoreSessionLayout(snapshot.layout, controller: bonsplitController)
+        leafEntries += restoreSessionDockLayouts(snapshot.docks ?? [])
         var oldToNewPanelIds: [UUID: UUID] = [:]
 
         for entry in leafEntries {
             restorePane(
                 entry.paneId,
+                controller: entry.controller,
                 snapshot: entry.snapshot,
                 panelSnapshotsById: panelSnapshotsById,
                 oldToNewPanelIds: &oldToNewPanelIds
@@ -279,7 +282,11 @@ extension Workspace {
         }
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
-        applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
+        applySessionDividerPositions(
+            snapshotNode: snapshot.layout,
+            liveNode: bonsplitController.treeSnapshot(),
+            controller: bonsplitController
+        )
 
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle)
@@ -324,6 +331,24 @@ extension Workspace {
             AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
         } else {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
+        }
+    }
+
+    private func sessionLayoutSnapshot(for controller: BonsplitController) -> SessionWorkspaceLayoutSnapshot {
+        sessionLayoutSnapshot(from: controller.treeSnapshot())
+    }
+
+    private func sessionDockSnapshots() -> [SessionWorkspaceDockSnapshot] {
+        WorkspaceDockEdge.allCases.flatMap { edge in
+            let isOpen = dockLayout.isEdgeOpen(edge)
+            return dockLayout.docksSnapshot(for: edge).map { dock in
+                SessionWorkspaceDockSnapshot(
+                    edge: edge,
+                    isOpen: isOpen,
+                    preferredSize: Double(dock.preferredSize),
+                    layout: sessionLayoutSnapshot(for: dock.controller)
+                )
+            }
         }
     }
 
@@ -669,32 +694,65 @@ extension Workspace {
     }
 #endif
 
-    private func restoreSessionLayout(_ layout: SessionWorkspaceLayoutSnapshot) -> [SessionPaneRestoreEntry] {
-        guard let rootPaneId = bonsplitController.allPaneIds.first else {
+    private func restoreSessionLayout(
+        _ layout: SessionWorkspaceLayoutSnapshot,
+        controller: BonsplitController
+    ) -> [SessionPaneRestoreEntry] {
+        guard let rootPaneId = controller.allPaneIds.first else {
             return []
         }
 
         var leaves: [SessionPaneRestoreEntry] = []
-        restoreSessionLayoutNode(layout, inPane: rootPaneId, leaves: &leaves)
+        restoreSessionLayoutNode(layout, inPane: rootPaneId, controller: controller, leaves: &leaves)
+        return leaves
+    }
+
+    private func restoreSessionDockLayouts(_ snapshots: [SessionWorkspaceDockSnapshot]) -> [SessionPaneRestoreEntry] {
+        guard !snapshots.isEmpty else { return [] }
+
+        var leaves: [SessionPaneRestoreEntry] = []
+        for edge in WorkspaceDockEdge.allCases {
+            let edgeSnapshots = snapshots.filter { $0.edge == edge }
+            guard !edgeSnapshots.isEmpty else { continue }
+
+            dockLayout.setDockCount(edge: edge, count: edgeSnapshots.count)
+            let docks = dockLayout.docksSnapshot(for: edge)
+            for (dockSnapshot, dock) in zip(edgeSnapshots, docks) {
+                dockLayout.setPreferredSize(CGFloat(dockSnapshot.preferredSize), for: dock)
+                leaves += restoreSessionLayout(dockSnapshot.layout, controller: dock.controller)
+                applySessionDividerPositions(
+                    snapshotNode: dockSnapshot.layout,
+                    liveNode: dock.controller.treeSnapshot(),
+                    controller: dock.controller
+                )
+            }
+
+            if edgeSnapshots.contains(where: \.isOpen) {
+                dockLayout.openEdge(edge)
+            } else {
+                dockLayout.closeEdge(edge)
+            }
+        }
         return leaves
     }
 
     private func restoreSessionLayoutNode(
         _ node: SessionWorkspaceLayoutSnapshot,
         inPane paneId: PaneID,
+        controller: BonsplitController,
         leaves: inout [SessionPaneRestoreEntry]
     ) {
         switch node {
         case .pane(let pane):
-            leaves.append(SessionPaneRestoreEntry(paneId: paneId, snapshot: pane))
+            leaves.append(SessionPaneRestoreEntry(paneId: paneId, controller: controller, snapshot: pane))
         case .split(let split):
-            var anchorPanelId = bonsplitController
+            var anchorPanelId = controller
                 .tabs(inPane: paneId)
                 .compactMap { panelIdFromSurfaceId($0.id) }
                 .first
 
             if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
+                anchorPanelId = newTerminalSurface(inPane: paneId, controller: controller, focus: false)?.id
             }
 
             guard let anchorPanelId,
@@ -708,24 +766,26 @@ extension Workspace {
                 leaves.append(
                     SessionPaneRestoreEntry(
                         paneId: paneId,
+                        controller: controller,
                         snapshot: SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
                     )
                 )
                 return
             }
 
-            restoreSessionLayoutNode(split.first, inPane: paneId, leaves: &leaves)
-            restoreSessionLayoutNode(split.second, inPane: secondPaneId, leaves: &leaves)
+            restoreSessionLayoutNode(split.first, inPane: paneId, controller: controller, leaves: &leaves)
+            restoreSessionLayoutNode(split.second, inPane: secondPaneId, controller: controller, leaves: &leaves)
         }
     }
 
     private func restorePane(
         _ paneId: PaneID,
+        controller: BonsplitController,
         snapshot: SessionPaneLayoutSnapshot,
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
         oldToNewPanelIds: inout [UUID: UUID]
     ) {
-        let existingPanelIds = bonsplitController
+        let existingPanelIds = controller
             .tabs(inPane: paneId)
             .compactMap { panelIdFromSurfaceId($0.id) }
         let desiredOldPanelIds = snapshot.panelIds.filter { panelSnapshotsById[$0] != nil }
@@ -733,7 +793,7 @@ extension Workspace {
         var createdPanelIds: [UUID] = []
         for oldPanelId in desiredOldPanelIds {
             guard let panelSnapshot = panelSnapshotsById[oldPanelId] else { continue }
-            guard let createdPanelId = createPanel(from: panelSnapshot, inPane: paneId) else { continue }
+            guard let createdPanelId = createPanel(from: panelSnapshot, inPane: paneId, controller: controller) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
         }
@@ -757,12 +817,16 @@ extension Workspace {
 
         if let selectedPanelId,
            let selectedTabId = surfaceIdFromPanelId(selectedPanelId) {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(selectedTabId)
+            controller.focusPane(paneId)
+            controller.selectTab(selectedTabId)
         }
     }
 
-    private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
+    private func createPanel(
+        from snapshot: SessionPanelSnapshot,
+        inPane paneId: PaneID,
+        controller: BonsplitController
+    ) -> UUID? {
         switch snapshot.type {
         case .terminal:
             let workingDirectory =
@@ -809,6 +873,7 @@ extension Workspace {
             )
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
+                controller: controller,
                 focus: false,
                 workingDirectory: localWorkingDirectory,
                 initialCommand: restoredTmuxStartupScript?.path,
@@ -843,6 +908,7 @@ extension Workspace {
         case .browser:
             guard let browserPanel = newBrowserSurface(
                 inPane: paneId,
+                controller: controller,
                 url: nil,
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
@@ -856,6 +922,7 @@ extension Workspace {
             guard let filePath = snapshot.markdown?.filePath,
                   let markdownPanel = newMarkdownSurface(
                     inPane: paneId,
+                    controller: controller,
                     filePath: filePath,
                     focus: false
                   ) else {
@@ -867,6 +934,7 @@ extension Workspace {
             guard let filePath = snapshot.filePreview?.filePath,
                   let filePreviewPanel = newFilePreviewSurface(
                     inPane: paneId,
+                    controller: controller,
                     filePath: filePath,
                     focus: false
                   ) else {
@@ -879,6 +947,7 @@ extension Workspace {
                   mode.canOpenAsPane,
                   let toolPanel = newRightSidebarToolSurface(
                     inPane: paneId,
+                    controller: controller,
                     mode: mode,
                     focus: false
                   ) else {
@@ -957,19 +1026,28 @@ extension Workspace {
 
     private func applySessionDividerPositions(
         snapshotNode: SessionWorkspaceLayoutSnapshot,
-        liveNode: ExternalTreeNode
+        liveNode: ExternalTreeNode,
+        controller: BonsplitController
     ) {
         switch (snapshotNode, liveNode) {
         case (.split(let snapshotSplit), .split(let liveSplit)):
             if let splitID = UUID(uuidString: liveSplit.id) {
-                _ = bonsplitController.setDividerPosition(
+                _ = controller.setDividerPosition(
                     CGFloat(snapshotSplit.dividerPosition),
                     forSplit: splitID,
                     fromExternal: true
                 )
             }
-            applySessionDividerPositions(snapshotNode: snapshotSplit.first, liveNode: liveSplit.first)
-            applySessionDividerPositions(snapshotNode: snapshotSplit.second, liveNode: liveSplit.second)
+            applySessionDividerPositions(
+                snapshotNode: snapshotSplit.first,
+                liveNode: liveSplit.first,
+                controller: controller
+            )
+            applySessionDividerPositions(
+                snapshotNode: snapshotSplit.second,
+                liveNode: liveSplit.second,
+                controller: controller
+            )
         default:
             return
         }
@@ -7231,7 +7309,7 @@ struct ClosedBrowserPanelRestoreSnapshot {
 
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
-enum WorkspaceDockEdge: String, CaseIterable, Identifiable, Hashable {
+enum WorkspaceDockEdge: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
     case left
     case right
     case bottom

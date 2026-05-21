@@ -30,10 +30,9 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
 @MainActor
 final class CmuxMainWindow: NSWindow {
     weak var workspaceDockTitlebarLayout: WorkspaceDockLayout?
+    var workspaceDockTitlebarControlFrameInWindow: NSRect?
 
     private var isSoftHiddenForVisibilityController = false
-    private let workspaceDockTitlebarControlSize = NSSize(width: 64, height: 40)
-    private let workspaceDockTitlebarTrailingInset: CGFloat = 6
 
     func setSoftHiddenForVisibilityController(_ isSoftHidden: Bool) {
         isSoftHiddenForVisibilityController = isSoftHidden
@@ -94,12 +93,11 @@ final class CmuxMainWindow: NSWindow {
     }
 
     private func workspaceDockTitlebarEdge(at point: NSPoint) -> WorkspaceDockEdge? {
-        let rect = NSRect(
-            x: frame.width - workspaceDockTitlebarControlSize.width - workspaceDockTitlebarTrailingInset,
-            y: frame.height - workspaceDockTitlebarControlSize.height,
-            width: workspaceDockTitlebarControlSize.width,
-            height: workspaceDockTitlebarControlSize.height
-        )
+        guard let rect = workspaceDockTitlebarControlFrameInWindow,
+              rect.width > 0,
+              rect.height > 0 else {
+            return nil
+        }
         guard rect.contains(point) else { return nil }
 
         let edges = WorkspaceDockEdge.controlOrder
@@ -225,6 +223,14 @@ final class CmuxMainWindow: NSWindow {
         case removeEmpty(WorkspaceDockEdge)
     }
 }
+
+#if DEBUG
+extension CmuxMainWindow {
+    func debugWorkspaceDockTitlebarEdge(at point: NSPoint) -> WorkspaceDockEdge? {
+        workspaceDockTitlebarEdge(at: point)
+    }
+}
+#endif
 
 extension CmuxMainWindow {
     private static let defaultContentSize = NSSize(width: 1_000, height: 700)

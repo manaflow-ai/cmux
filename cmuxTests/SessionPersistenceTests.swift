@@ -13,6 +13,65 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotRestoresDockLayoutPanelsAndSize() throws {
+        let workspace = Workspace()
+        workspace.dockLayout.setDockCount(edge: .right, count: 2)
+        let dock = try XCTUnwrap(workspace.dockLayout.docksSnapshot(for: .right).last)
+        workspace.dockLayout.setPreferredSize(315, for: dock)
+        workspace.dockLayout.openEdge(.right)
+
+        let paneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let primary = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: paneId,
+                controller: dock.controller,
+                focus: true,
+                workingDirectory: "/tmp"
+            )
+        )
+        let split = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: primary.id,
+                orientation: .vertical,
+                focus: false
+            )
+        )
+        workspace.setPanelCustomTitle(panelId: primary.id, title: "Dock primary")
+        workspace.setPanelCustomTitle(panelId: split.id, title: "Dock split")
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let rightDockSnapshots = try XCTUnwrap(snapshot.docks?.filter { $0.edge == .right })
+        XCTAssertEqual(rightDockSnapshots.count, 2)
+        XCTAssertTrue(rightDockSnapshots.contains(where: \.isOpen))
+        XCTAssertEqual(rightDockSnapshots.last?.preferredSize ?? 0, 315, accuracy: 0.5)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDocks = restored.dockLayout.docksSnapshot(for: .right)
+        XCTAssertEqual(restoredDocks.count, 2)
+        XCTAssertTrue(restored.dockLayout.isEdgeOpen(.right))
+
+        let restoredDock = try XCTUnwrap(restoredDocks.last)
+        XCTAssertEqual(restoredDock.preferredSize, 315, accuracy: 0.5)
+        XCTAssertEqual(restoredDock.controller.allPaneIds.count, 2)
+
+        let restoredPanelIds = restoredDock.controller.allTabIds.compactMap { restored.panelIdFromSurfaceId($0) }
+        XCTAssertEqual(restoredPanelIds.count, 2)
+        XCTAssertTrue(restoredPanelIds.allSatisfy { restored.terminalPanel(for: $0) != nil })
+        XCTAssertTrue(
+            restoredPanelIds.contains {
+                restored.panelTitle(panelId: $0) == "Dock primary"
+            }
+        )
+        XCTAssertTrue(
+            restoredPanelIds.contains {
+                restored.panelTitle(panelId: $0) == "Dock split"
+            }
+        )
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-markdown-\(UUID().uuidString)", isDirectory: true)

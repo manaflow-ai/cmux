@@ -1152,6 +1152,8 @@ struct WorkspaceDockToggleCluster: View {
         .background {
             Color.clear
             MinimalModeTitlebarControlHitRegionView()
+            WorkspaceDockTitlebarStateBinder(layout: layout)
+                .allowsHitTesting(false)
         }
     }
 }
@@ -1191,14 +1193,27 @@ struct WorkspaceDockTitlebarStateBinder: NSViewRepresentable {
             bindToWindow()
         }
 
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            bindToWindow()
+        }
+
+        override func setFrameOrigin(_ newOrigin: NSPoint) {
+            super.setFrameOrigin(newOrigin)
+            bindToWindow()
+        }
+
         func bindToWindow() {
             if boundWindow !== window as? CmuxMainWindow {
                 if boundWindow?.workspaceDockTitlebarLayout === layout {
                     boundWindow?.workspaceDockTitlebarLayout = nil
+                    boundWindow?.workspaceDockTitlebarControlFrameInWindow = nil
                 }
                 boundWindow = window as? CmuxMainWindow
             }
             boundWindow?.workspaceDockTitlebarLayout = layout
+            let controlFrame = convert(bounds, to: nil)
+            boundWindow?.workspaceDockTitlebarControlFrameInWindow = controlFrame.isEmpty ? nil : controlFrame
         }
     }
 }
