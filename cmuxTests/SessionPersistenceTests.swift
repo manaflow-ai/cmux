@@ -794,6 +794,58 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testManualReopenPreviousSessionActivatesFirstRestoredWindowWhenRequested() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        var restoredWindowIds: [UUID] = []
+        var restoredWindows: [NSWindow] = []
+        var restoredManager: TabManager?
+        defer {
+            for window in restoredWindows {
+                window.close()
+            }
+            for windowId in restoredWindowIds {
+                app.unregisterMainWindowContextForTesting(windowId: windowId)
+            }
+            app.debugLoadReopenSessionSnapshot = nil
+            app.debugCreateMainWindowForSessionRestore = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let previousSnapshot = try makeSingleWindowAppSessionSnapshotForTesting(
+            workspaceTitle: "Previous Workspace"
+        )
+        app.debugLoadReopenSessionSnapshot = { previousSnapshot }
+        app.debugCreateMainWindowForSessionRestore = { windowSnapshot, shouldActivate in
+            XCTAssertTrue(shouldActivate)
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            manager.restoreSessionSnapshot(windowSnapshot.tabManager)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            let windowId = app.registerMainWindowContextForTesting(
+                tabManager: manager,
+                window: window
+            )
+            restoredWindowIds.append(windowId)
+            restoredWindows.append(window)
+            restoredManager = manager
+            return windowId
+        }
+
+        XCTAssertTrue(app.reopenPreviousSession(shouldActivate: true))
+        let restoredWindow = try XCTUnwrap(restoredWindows.first)
+        XCTAssertTrue(restoredWindow.isVisible)
+        XCTAssertTrue(app.mainWindow(for: try XCTUnwrap(restoredWindowIds.first)) === restoredWindow)
+        XCTAssertTrue(app.tabManager === restoredManager)
+    }
+
     func testUnchangedAutosaveFingerprintSkipsWithinStalenessWindow() {
         let now = Date()
         XCTAssertTrue(
