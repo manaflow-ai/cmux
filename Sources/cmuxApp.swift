@@ -24,12 +24,21 @@ struct cmuxApp: App {
 
     init() {
         StartupBreadcrumbLog.append("app.init.begin")
+        let env = ProcessInfo.processInfo.environment
+        let isUITestLaunch = env.keys.contains { $0.hasPrefix("CMUX_UI_TEST_") }
+        let isUnitTestLaunch = cmuxProcessIsRunningUnderXCTest(env) && !isUITestLaunch
         UITestLaunchManifest.applyIfPresent()
         StartupBreadcrumbLog.append("app.init.uiTestManifest.applied")
 
         if SocketControlSettings.shouldBlockUntaggedDebugLaunch() {
             StartupBreadcrumbLog.append("app.init.blockUntaggedDebugLaunch")
             Self.terminateForMissingLaunchTag()
+        }
+
+        if isUnitTestLaunch {
+            StartupBreadcrumbLog.append("app.init.unitTestRuntime.skipped")
+            _tabManager = StateObject(wrappedValue: TabManager(autoWelcomeIfNeeded: false))
+            return
         }
 
         Self.configureGhosttyEnvironment()

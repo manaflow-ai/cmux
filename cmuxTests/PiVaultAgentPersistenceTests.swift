@@ -254,7 +254,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
 
         let entry = try XCTUnwrap(entries.first)
         XCTAssertEqual(entry.sessionId, "native-session-123")
-        XCTAssertEqual(entry.resumeCommand, "cd '/tmp/acme' && 'acme-agent' '--session' 'native-session-123'")
+        XCTAssertEqual(entry.resumeCommand, "cd /tmp/acme && 'acme-agent' '--session' 'native-session-123'")
     }
 
     func testBuiltInGrokRegistrationUsesNativeSessionDirectory() {
@@ -646,7 +646,10 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.title, "Implement Grok Vault")
         XCTAssertEqual(entry.cwd, cwd)
         XCTAssertEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
-        XCTAssertEqual(entry.fileURL, historyURL)
+        XCTAssertEqual(
+            entry.fileURL?.standardizedFileURL.resolvingSymlinksInPath(),
+            historyURL.standardizedFileURL.resolvingSymlinksInPath()
+        )
         XCTAssertEqual(
             entry.resumeCommand,
             "cd '/tmp/grok repo' && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
@@ -1066,7 +1069,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(loadedAgent.sessionId, sessionPath)
         XCTAssertEqual(
             loadedAgent.resumeCommand,
-            "cd '/tmp/pi repo' && '/opt/homebrew/bin/pi' '--session' '\(sessionPath)'"
+            "cd '/tmp/pi repo' && 'env' 'PI_CODING_AGENT_SESSION_DIR=\(tempDir.path)' '/opt/homebrew/bin/pi' '--session' '\(sessionPath)' '--session-dir' '\(tempDir.path)'"
         )
     }
 

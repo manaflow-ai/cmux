@@ -11,6 +11,7 @@ import ObjectiveC.runtime
 import Darwin
 
 func cmuxEnvironmentHasXCTestIndicators(_ env: [String: String]) -> Bool {
+    if env["CMUX_UNIT_TEST_MODE"] == "1" { return true }
     if env["XCTestConfigurationFilePath"] != nil { return true }
     if env["XCTestBundlePath"] != nil { return true }
     if env["XCTestSessionIdentifier"] != nil { return true }

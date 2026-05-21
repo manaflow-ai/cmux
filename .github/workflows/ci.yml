@@ -337,6 +337,7 @@ jobs:
               --termination-grace-seconds 15 \
               --output "$output_path" \
               -- \
+              env CMUX_UNIT_TEST_MODE=1 \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \

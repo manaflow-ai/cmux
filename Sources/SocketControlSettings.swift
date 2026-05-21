@@ -399,6 +399,9 @@ struct SocketControlSettings {
     }
 
     static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
+        if environment["CMUX_UNIT_TEST_MODE"] == "1" {
+            return true
+        }
         let indicators = [
             "XCTestConfigurationFilePath",
             "XCTestBundlePath",
