@@ -154,8 +154,8 @@ jobs:
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
-      # backtracer until the job timeout. Disable the crash catcher entirely.
-      SWIFT_BACKTRACE: "enable=no"
+      # backtracer until the job timeout. Keep backtraces noninteractive in CI.
+      SWIFT_BACKTRACE: "interactive=no,color=no"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
