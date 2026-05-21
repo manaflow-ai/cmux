@@ -5178,6 +5178,35 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testReserveStartupSocketPathDoesNotCreateLockWhileListenerRuns() {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let activePath = makeTempSocketPath()
+        let reservedPath = makeTempSocketPath()
+        defer {
+            unlink(activePath)
+            unlink(activePath + ".lock")
+            unlink(reservedPath)
+            unlink(reservedPath + ".lock")
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: activePath,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(activePath))
+
+        XCTAssertEqual(TerminalController.shared.reserveStartupSocketPath(reservedPath), reservedPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: reservedPath + ".lock"))
+        XCTAssertEqual(
+            TerminalController.shared.activeSocketPath(preferredPath: reservedPath),
+            activePath
+        )
+    }
+
     private func makeTempSocketPath() -> String {
         "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
     }

@@ -334,8 +334,23 @@ class TerminalController {
         }
     }
 
+    private nonisolated func canReserveStartupSocketPathLocked() -> Bool {
+        !isRunning &&
+            !acceptLoopAlive &&
+            !listenerStartInProgress &&
+            pendingAcceptLoopRearmGeneration == nil &&
+            socketPathLockFD < 0 &&
+            listenerReadSource == nil &&
+            socketPathMonitorSource == nil &&
+            serverSocket < 0
+    }
+
     @discardableResult
     nonisolated func reserveStartupSocketPath(_ path: String) -> String {
+        guard withListenerState({ canReserveStartupSocketPathLocked() }) else {
+            return path
+        }
+
         var reservationPath = path
         var reservationLockFD: Int32 = -1
         var reservationCanReplaceRefusedSocket = false
@@ -364,14 +379,7 @@ class TerminalController {
 
         var didReserve = false
         withListenerState {
-            guard !isRunning,
-                  !acceptLoopAlive,
-                  !listenerStartInProgress,
-                  pendingAcceptLoopRearmGeneration == nil,
-                  socketPathLockFD < 0,
-                  listenerReadSource == nil,
-                  socketPathMonitorSource == nil,
-                  serverSocket < 0 else {
+            guard canReserveStartupSocketPathLocked() else {
                 return
             }
             socketPath = reservationPath
