@@ -7,9 +7,13 @@ WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 
 REQUIRED_PATTERNS=(
   "run_unit_tests()"
+  "output_path = \"/tmp/test-output.txt\""
+  "CMUX_XCTEST_CRASH_QUIET_TIMEOUT_SECONDS"
+  "Program crashed:"
+  "process.terminate()"
   "Could not resolve package dependencies"
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
-  "run_unit_tests | tee /tmp/test-output.txt"
+  'OUTPUT=$(cat /tmp/test-output.txt)'
 )
 
 for pattern in "${REQUIRED_PATTERNS[@]}"; do
