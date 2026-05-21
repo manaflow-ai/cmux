@@ -254,6 +254,7 @@ jobs:
         env:
           CMUX_TEST_SHARD_INDEX: ${{ matrix.shard }}
           CMUX_TEST_SHARD_TOTAL: 3
+          CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS: 300
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -266,21 +267,27 @@ jobs:
               --shard-total "$CMUX_TEST_SHARD_TOTAL"
           )
           run_unit_tests() {
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            python3 .github/scripts/run-with-output-watchdog.py \
+              --idle-timeout-seconds "$CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS" \
+              --termination-grace-seconds 15 \
+              --output /tmp/test-output.txt \
+              -- \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              -maximum-test-execution-time-allowance 180 \
               CMUX_SKIP_ZIG_BUILD=1 \
               "${ONLY_TESTING_ARGS[@]}" \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
               test 2>&1
           }
 
-          # Stream output via tee so CI logs are visible in real time, while still
-          # capturing for post-run analysis of expected vs unexpected failures.
+          # Stream output in real time, while also failing quickly if xcodebuild
+          # stops producing logs and capturing output for failure classification.
           set +e
-          run_unit_tests | tee /tmp/test-output.txt
-          EXIT_CODE=${PIPESTATUS[0]}
+          run_unit_tests
+          EXIT_CODE=$?
           OUTPUT=$(cat /tmp/test-output.txt)
           set -e
 
@@ -293,8 +300,8 @@ jobs:
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
             set +e
-            run_unit_tests | tee /tmp/test-output.txt
-            EXIT_CODE=${PIPESTATUS[0]}
+            run_unit_tests
+            EXIT_CODE=$?
             OUTPUT=$(cat /tmp/test-output.txt)
             set -e
           fi
