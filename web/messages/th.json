@@ -300,7 +300,12 @@
       "browserHostsEmbed": "Hosts to Open in Embedded Browser: ใช้กับลิงก์ที่คลิกจากเอาต์พุตเทอร์มินัล Host ในรายการนี้เปิดใน cmux ส่วน host อื่นเปิดในเบราว์เซอร์เริ่มต้นของคุณ รองรับ host เดี่ยวหรือ wildcard ต่อบรรทัด (เช่น: example.com, *.internal.example)",
       "browserHostsHttp": "HTTP Hosts Allowed in Embedded Browser: ใช้เฉพาะกับ URL แบบ HTTP (ไม่ใช่ HTTPS) Host ในรายการนี้เปิดใน cmux ได้โดยไม่มีข้อความเตือน ค่าเริ่มต้นรวม localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 และ *.localtest.me",
       "exampleConfig": "ตัวอย่างคอนฟิก",
-      "metaTitle": "การตั้งค่า"
+      "metaTitle": "การตั้งค่า",
+      "schemaDescriptions": {
+        "automation": {
+          "suppressSubagentNotifications": "ซ่อนการแจ้งเตือนการทำงานเสร็จและการเปลี่ยนสถานะที่มองเห็นได้จากเอเจนต์ลูก Codex หรือ Claude แบบซ้อน โดยยังคงเก็บเหตุการณ์ไว้ในเทเลเมทรี Feed"
+        }
+      }
     },
     "customCommands": {
       "title": "คำสั่งที่กำหนดเอง",

@@ -757,6 +757,8 @@ struct TitlebarControlsView: View {
         )
         let foregroundColor = Color(nsColor: titlebarControlForegroundNSColor(opacity: 1.0))
         controlsGroup(config: config, foregroundColor: foregroundColor)
+            .padding(.top, -1)
+            .padding(.bottom, 1)
             .padding(.leading, 4)
             .padding(.trailing, titlebarHintTrailingInset)
             .frame(width: contentSize.width, height: contentSize.height, alignment: .leading)
@@ -2341,7 +2343,8 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self] in
+            Task { @MainActor [weak self, weak window] in
+                guard let window else { return }
                 self?.attachIfNeeded(to: window)
             }
         })
@@ -2352,7 +2355,8 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self] in
+            Task { @MainActor [weak self, weak window] in
+                guard let window else { return }
                 self?.attachIfNeeded(to: window)
             }
         })
@@ -2418,6 +2422,10 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func attachIfNeeded(to window: NSWindow) {
+        guard NSApp.windows.contains(where: { $0 === window }) else {
+            pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
+            return
+        }
         guard !isSettingsWindow(window) else { return }
 
         // Window identifiers are assigned by SwiftUI via WindowAccessor, which can run

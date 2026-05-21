@@ -4710,6 +4710,19 @@ enum ClaudeCodeIntegrationSettings {
     }
 }
 
+enum AgentSubagentNotificationSettings {
+    static let suppressNotificationsKey = "suppressSubagentNotifications"
+    static let defaultSuppressNotifications = true
+    static let environmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
+
+    static func suppressNotifications(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: suppressNotificationsKey) == nil {
+            return defaultSuppressNotifications
+        }
+        return defaults.bool(forKey: suppressNotificationsKey)
+    }
+}
+
 enum CursorIntegrationSettings {
     static let hooksEnabledKey = "cursorHooksEnabled"
     static let defaultHooksEnabled = true
@@ -5043,6 +5056,8 @@ struct SettingsView: View {
     private var customClaudePath = ""
     @AppStorage(RipgrepIntegrationSettings.customRipgrepPathKey)
     private var customRipgrepPath = ""
+    @AppStorage(AgentSubagentNotificationSettings.suppressNotificationsKey)
+    private var suppressSubagentNotifications = AgentSubagentNotificationSettings.defaultSuppressNotifications
     @AppStorage(CursorIntegrationSettings.hooksEnabledKey)
     private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
     @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
@@ -5117,6 +5132,7 @@ struct SettingsView: View {
     @AppStorage("sidebarNotificationBadgeColorHex") private var sidebarNotificationBadgeColorHex: String?
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = SidebarWorkspaceDetailDefaults.showBranchDirectory
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = SidebarWorkspaceDetailDefaults.showPullRequests
+    @AppStorage(SidebarWorkspaceDetailDefaults.watchGitStatusKey) private var sidebarWatchGitStatus = SidebarWorkspaceDetailDefaults.watchGitStatus
     @AppStorage(SidebarPullRequestClickabilitySettings.key) private var sidebarMakePullRequestClickable = SidebarPullRequestClickabilitySettings.defaultClickable
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
@@ -5143,7 +5159,11 @@ struct SettingsView: View {
     @State private var showOpenAccessConfirmation = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
+    @State private var didLoadBrowserHistoryForSettings = false
     @State private var detectedImportBrowsers: [InstalledBrowserCandidate] = []
+    @State private var didRequestBrowserImportDetection = false
+    @State private var isDetectingImportBrowsers = false
+    @State private var browserImportDetectionGeneration = 0
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
@@ -5500,6 +5520,13 @@ struct SettingsView: View {
     }
 
     private var browserHistorySubtitle: String {
+        guard didLoadBrowserHistoryForSettings else {
+            return String(
+                localized: "settings.browser.history.subtitleLoading",
+                defaultValue: "Checking browsing history..."
+            )
+        }
+
         switch browserHistoryEntryCount {
         case 0:
             return String(localized: "settings.browser.history.subtitleEmpty", defaultValue: "No saved pages yet.")
@@ -5511,7 +5538,13 @@ struct SettingsView: View {
     }
 
     private var browserImportSubtitle: String {
-        InstalledBrowserDetector.summaryText(for: detectedImportBrowsers)
+        if isDetectingImportBrowsers || !didRequestBrowserImportDetection {
+            return String(
+                localized: "settings.browser.import.detecting",
+                defaultValue: "Checking installed browsers..."
+            )
+        }
+        return InstalledBrowserDetector.summaryText(for: detectedImportBrowsers)
     }
 
     private var browserImportHintSettingsNote: String {
@@ -5686,6 +5719,7 @@ struct SettingsView: View {
         settingsNavigationGeneration += 1
         let navigationGeneration = settingsNavigationGeneration
         let sectionID = SettingsSearchIndex.sectionID(for: destination.target)
+        prepareSettingsDestinationIfNeeded(destination)
         if destination.shouldHighlight {
             highlightedSearchAnchorID = destination.anchorID
             searchHighlightStartedAt = Date()
@@ -5701,6 +5735,63 @@ struct SettingsView: View {
                 proxy.scrollTo(destination.anchorID, anchor: .center)
             }
         }
+    }
+
+    private func prepareSettingsDestinationIfNeeded(_ destination: SettingsNavigationDestination) {
+        if destination.anchorID == SettingsSearchIndex.settingID(for: .browser, idSuffix: "history") {
+            loadBrowserHistoryForSettingsIfNeeded()
+        }
+
+        let browserImportAnchorIDs: Set<String> = [
+            SettingsSearchIndex.sectionID(for: .browserImport),
+            SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-data"),
+            SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-hint")
+        ]
+        if destination.target == .browserImport || browserImportAnchorIDs.contains(destination.anchorID) {
+            refreshDetectedImportBrowsersIfNeeded()
+        }
+    }
+
+    private func handleSettingsLazyLoadFrames(
+        _ frames: [SettingsLazyLoadTrigger: CGRect],
+        viewportHeight: CGFloat
+    ) {
+        guard viewportHeight > 0 else { return }
+
+        for trigger in SettingsLazyLoadTrigger.allCases {
+            guard let frame = frames[trigger],
+                  Self.settingsLazyLoadFrameIsNearVisible(frame, viewportHeight: viewportHeight) else {
+                continue
+            }
+            switch trigger {
+            case .browserHistory:
+                loadBrowserHistoryForSettingsIfNeeded()
+            case .browserImport:
+                refreshDetectedImportBrowsersIfNeeded()
+            }
+        }
+    }
+
+    private static func settingsLazyLoadFrameIsNearVisible(
+        _ frame: CGRect,
+        viewportHeight: CGFloat
+    ) -> Bool {
+        let preloadPadding: CGFloat = 160
+        return frame.maxY >= -preloadPadding && frame.minY <= viewportHeight + preloadPadding
+    }
+
+    private func loadBrowserHistoryForSettingsIfNeeded() {
+        guard !didLoadBrowserHistoryForSettings else { return }
+        BrowserHistoryStore.shared.loadIfNeeded()
+        didLoadBrowserHistoryForSettings = BrowserHistoryStore.shared.isLoaded
+        guard didLoadBrowserHistoryForSettings else { return }
+        browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+    }
+
+    private func refreshDetectedImportBrowsersIfNeeded() {
+        guard !didRequestBrowserImportDetection else { return }
+        didRequestBrowserImportDetection = true
+        refreshDetectedImportBrowsers()
     }
 
     private func chooseNotificationSoundFile() {
@@ -5782,9 +5873,10 @@ struct SettingsView: View {
     var body: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let _ = Self.validateBypassedSettingsConfigurationReviews()
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+        GeometryReader { viewportProxy in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .account))
                     SettingsCard {
@@ -6431,6 +6523,17 @@ struct SettingsView: View {
                         }
                         .disabled(sidebarHideAllDetails)
                         SettingsCardDivider()
+                        SettingsCardRow(
+                            configurationReview: .json("sidebar.watchGitStatus"),
+                            String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar"),
+                            subtitle: String(localized: "settings.app.watchGitStatus.subtitle", defaultValue: "Update sidebar branch and PR metadata from repository file changes without polling git.")
+                        ) {
+                            Toggle("", isOn: $sidebarWatchGitStatus)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                        .disabled(sidebarHideAllDetails)
+                        SettingsCardDivider()
                         SettingsCardRow(configurationReview: .json("sidebar.makePullRequestsClickable"), String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), subtitle: String(localized: "settings.app.makeSidebarPullRequestClickable.subtitle", defaultValue: "Review items stay visible as plain text, and clicks in that area select the workspace row.")) { Toggle("", isOn: $sidebarMakePullRequestClickable).labelsHidden().controlSize(.small).accessibilityIdentifier("SettingsSidebarPullRequestClickableToggle") }
                         .disabled(sidebarHideAllDetails || !sidebarShowPullRequest)
                         SettingsCardDivider()
@@ -6637,6 +6740,25 @@ struct SettingsView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
                         }
+                    }
+
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("automation.suppressSubagentNotifications"),
+                            String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"),
+                            subtitle: suppressSubagentNotifications
+                                ? String(localized: "settings.automation.suppressSubagentNotifications.subtitleOn", defaultValue: "Child agent completions stay in Feed without notifications.")
+                                : String(localized: "settings.automation.suppressSubagentNotifications.subtitleOff", defaultValue: "Child agent completions notify like top-level agents.")
+                        ) {
+                            Toggle("", isOn: $suppressSubagentNotifications)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsSuppressSubagentNotificationsToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(String(localized: "settings.automation.suppressSubagentNotifications.note", defaultValue: "Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."))
                     }
 
                     SettingsCard {
@@ -6940,6 +7062,7 @@ struct SettingsView: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
+                                        .accessibilityIdentifier("SettingsBrowserImportSummary")
 
                                     Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
                                         .font(.system(size: 10.5))
@@ -6975,6 +7098,7 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .disabled(isDetectingImportBrowsers)
                             }
                             .accessibilityIdentifier("SettingsBrowserImportActions")
 
@@ -6996,6 +7120,7 @@ struct SettingsView: View {
                             SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-data")
                         ])
                         .accessibilityIdentifier("SettingsBrowserImportSection")
+                        .settingsLazyLoadTrigger(.browserImport)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
 
@@ -7026,8 +7151,9 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
-                            .disabled(browserHistoryEntryCount == 0)
+                            .disabled(!didLoadBrowserHistoryForSettings || browserHistoryEntryCount == 0)
                         }
+                        .settingsLazyLoadTrigger(.browserHistory)
                     }
 
                     GlobalHotkeySection()
@@ -7318,15 +7444,18 @@ struct SettingsView: View {
                     SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken, startedAt: searchHighlightStartedAt)
                 )
             }
+            .coordinateSpace(name: SettingsScrollCoordinateSpace.name)
+            .onPreferenceChange(SettingsLazyLoadFramePreferenceKey.self) { frames in
+                handleSettingsLazyLoadFrames(frames, viewportHeight: viewportProxy.size.height)
+            }
         .toggleStyle(.switch)
         .onAppear {
-            BrowserHistoryStore.shared.loadIfNeeded()
             notificationStore.refreshAuthorizationStatus()
             browserThemeMode = BrowserThemeSettings.mode(defaults: .standard).rawValue
             browserImportHintVariantRaw = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw).rawValue
-            browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+            didLoadBrowserHistoryForSettings = BrowserHistoryStore.shared.isLoaded
+            browserHistoryEntryCount = didLoadBrowserHistoryForSettings ? BrowserHistoryStore.shared.entries.count : 0
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
-            refreshDetectedImportBrowsers()
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
@@ -7354,6 +7483,8 @@ struct SettingsView: View {
             }
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
+            guard BrowserHistoryStore.shared.isLoaded else { return }
+            didLoadBrowserHistoryForSettings = true
             browserHistoryEntryCount = entries.count
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
@@ -7412,6 +7543,7 @@ struct SettingsView: View {
             Text(notificationCustomSoundErrorAlertMessage)
         }
         }
+        }
     }
 
     private static func validateBypassedSettingsConfigurationReviews() {
@@ -7450,6 +7582,7 @@ struct SettingsView: View {
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
         customRipgrepPath = ""
+        suppressSubagentNotifications = AgentSubagentNotificationSettings.defaultSuppressNotifications
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
@@ -7522,6 +7655,7 @@ struct SettingsView: View {
         sidebarNotificationBadgeColorHex = nil
         sidebarShowBranchDirectory = SidebarWorkspaceDetailDefaults.showBranchDirectory
         sidebarShowPullRequest = SidebarWorkspaceDetailDefaults.showPullRequests
+        sidebarWatchGitStatus = SidebarWorkspaceDetailDefaults.watchGitStatus
         sidebarMakePullRequestClickable = SidebarPullRequestClickabilitySettings.defaultClickable
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         openSidebarPortLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser
@@ -7596,7 +7730,23 @@ struct SettingsView: View {
     }
 
     private func refreshDetectedImportBrowsers() {
-        detectedImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
+        didRequestBrowserImportDetection = true
+        isDetectingImportBrowsers = true
+        browserImportDetectionGeneration += 1
+        let generation = browserImportDetectionGeneration
+        let homeDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+        let bundleLookupSnapshot = InstalledBrowserDetector.applicationBundleLookupSnapshot()
+        Task.detached(priority: .userInitiated) {
+            let detectedBrowsers = InstalledBrowserDetector.detectInstalledBrowsers(
+                homeDirectoryURL: homeDirectoryURL,
+                bundleLookup: { bundleLookupSnapshot[$0] }
+            )
+            await MainActor.run {
+                guard generation == browserImportDetectionGeneration else { return }
+                detectedImportBrowsers = detectedBrowsers
+                isDetectingImportBrowsers = false
+            }
+        }
     }
 }
 

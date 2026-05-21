@@ -21,6 +21,44 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
+private struct MultiWindowRouteCLIResult {
+    let status: String
+    let stdout: String
+    let stderr: String
+}
+
+private func runMultiWindowRouteCLI(
+    cliURL: URL,
+    socketPath: String,
+    processEnv: [String: String],
+    arguments: [String]
+) -> MultiWindowRouteCLIResult {
+    let process = Process()
+    process.executableURL = cliURL
+    process.arguments = ["--socket", socketPath] + arguments
+    process.environment = processEnv
+
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+
+    do {
+        try process.run()
+    } catch {
+        return MultiWindowRouteCLIResult(status: "-1", stdout: "", stderr: String(describing: error))
+    }
+    process.waitUntilExit()
+
+    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    return MultiWindowRouteCLIResult(
+        status: String(process.terminationStatus),
+        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+        stderr: String(data: stderrData, encoding: .utf8) ?? ""
+    )
+}
+
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
 /// cached; `.children` and `.visibleChildren` fall through to AppKit so the
@@ -687,7 +725,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
-    private var configuredShortcutChordActions: [KeyboardShortcutSettings.Action] = []
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -5619,6 +5656,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func mainWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
+        if let context = mainWindowContext(forShortcutEvent: event, debugSource: "shortcut.window"),
+           let window = resolvedWindow(for: context) {
+            return window
+        }
         if let window = resolvedShortcutEventWindow(event),
            isMainTerminalWindow(window) {
             return window
@@ -6266,8 +6307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .rightSidebarFileSearch:
             result = context.keyboardFocusCoordinator.focusFileSearch()
         case .mainPanelFind:
-            context.tabManager.startSearch()
-            result = context.tabManager.isFindVisible
+            result = context.tabManager.startSearch()
         case .none:
             result = false
         }
@@ -7443,8 +7483,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         if shouldTemporarilyDisallowFullScreenTiling {
-            DispatchQueue.main.async { [weak window] in
-                window?.collectionBehavior.remove(.fullScreenDisallowsTiling)
+            let clearFullScreenTilingOptOut: () -> Void = { [weak window] in
+                guard let window else { return }
+                window.collectionBehavior.remove(.fullScreenDisallowsTiling)
+                if window.collectionBehavior.contains(.fullScreenDisallowsTiling) {
+                    var behavior = window.collectionBehavior
+                    behavior.remove(.fullScreenDisallowsTiling)
+                    window.collectionBehavior = behavior
+                }
+            }
+            RunLoop.main.perform {
+                clearFullScreenTilingOptOut()
+            }
+            DispatchQueue.main.async {
+                clearFullScreenTilingOptOut()
             }
         }
         if let explicitInitialFrame {
@@ -10483,7 +10535,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         tabId: tabId1,
                         surfaceId: surfaceId1
                     )
-                    self.publishMultiWindowNotificationSocketStateIfNeeded(at: path)
+                    self.publishMultiWindowNotificationSocketStateIfNeeded(
+                        at: path,
+                        window1Id: window1.windowId,
+                        window2Id: window2.windowId
+                    )
                 }
                 }
             }
@@ -10624,7 +10680,110 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         attemptFocus()
     }
 
-    private func publishMultiWindowNotificationSocketStateIfNeeded(at path: String) {
+    private func runMultiWindowWindowRouteCLIIfNeeded(
+        at path: String,
+        window1Id: UUID,
+        window2Id: UUID,
+        socketPath: String
+    ) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_WINDOW_ROUTE_CLI"] == "1" else { return }
+        let currentStatus = loadMultiWindowNotificationTestData(at: path)["windowRouteStatus"] ?? ""
+        guard currentStatus.isEmpty else { return }
+
+        let title = env["CMUX_UI_TEST_WINDOW_ROUTE_CLI_TITLE"] ?? "window-route-\(UUID().uuidString.prefix(8))"
+        writeMultiWindowNotificationTestData([
+            "windowRouteTitle": title,
+            "windowRouteStatus": "pending",
+            "windowRouteFailure": "",
+        ], at: path)
+
+        guard let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            writeMultiWindowNotificationTestData([
+                "windowRouteStatus": "0",
+                "windowRouteFailure": "missing_cli",
+            ], at: path)
+            return
+        }
+
+        let processEnv = env.merging([
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": "6",
+        ]) { _, new in new }
+
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
+        guard health.socketPathExists else {
+            writeMultiWindowNotificationTestData([
+                "windowRouteStatus": "0",
+                "windowRouteFailure": "socket_not_ready",
+            ], at: path)
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let create = runMultiWindowRouteCLI(
+                cliURL: cliURL,
+                socketPath: socketPath,
+                processEnv: processEnv,
+                arguments: [
+                    "new-workspace",
+                    "--window",
+                    window2Id.uuidString,
+                    "--name",
+                    title,
+                    "--focus",
+                    "false",
+                ]
+            )
+            let window2List = runMultiWindowRouteCLI(
+                cliURL: cliURL,
+                socketPath: socketPath,
+                processEnv: processEnv,
+                arguments: [
+                    "--json",
+                    "--id-format",
+                    "uuids",
+                    "list-workspaces",
+                    "--window",
+                    window2Id.uuidString,
+                ]
+            )
+            let window1List = runMultiWindowRouteCLI(
+                cliURL: cliURL,
+                socketPath: socketPath,
+                processEnv: processEnv,
+                arguments: [
+                    "--json",
+                    "--id-format",
+                    "uuids",
+                    "list-workspaces",
+                    "--window",
+                    window1Id.uuidString,
+                ]
+            )
+
+            DispatchQueue.main.async {
+                self?.writeMultiWindowNotificationTestData([
+                    "windowRouteStatus": "1",
+                    "windowRouteCreateStatus": create.status,
+                    "windowRouteCreateStdout": create.stdout,
+                    "windowRouteCreateStderr": create.stderr,
+                    "windowRouteWindow2Status": window2List.status,
+                    "windowRouteWindow2Stdout": window2List.stdout,
+                    "windowRouteWindow2Stderr": window2List.stderr,
+                    "windowRouteWindow1Status": window1List.status,
+                    "windowRouteWindow1Stdout": window1List.stdout,
+                    "windowRouteWindow1Stderr": window1List.stderr,
+                ], at: path)
+            }
+        }
+    }
+
+    private func publishMultiWindowNotificationSocketStateIfNeeded(
+        at path: String,
+        window1Id: UUID? = nil,
+        window2Id: UUID? = nil
+    ) {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
 
@@ -10686,6 +10845,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "socketPathOwnedByListener": health.socketPathOwnedByListener ? "1" : "0",
                         "socketFailureSignals": failureSignals,
                     ], at: dataPath)
+                    if isReady, let window1Id, let window2Id {
+                        self.runMultiWindowWindowRouteCLIIfNeeded(
+                            at: dataPath,
+                            window1Id: window1Id,
+                            window2Id: window2Id,
+                            socketPath: socketPath
+                        )
+                    }
                     guard isReady || isTimedOut else { return }
                     timeoutWorkItem?.cancel()
                     if let observer {
@@ -11054,20 +11221,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installShortcutDefaultsObserver() {
         guard shortcutDefaultsObserver == nil else { return }
-        refreshConfiguredShortcutChordActions()
         shortcutDefaultsObserver = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
-            self?.refreshConfiguredShortcutChordActions()
-            self?.clearConfiguredShortcutChordState()
-            self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self?.handleShortcutDefaultsDidChange()
+                }
+            } else {
+                Task { @MainActor [weak self] in
+                    self?.handleShortcutDefaultsDidChange()
+                }
+            }
         }
     }
 
-    private func refreshConfiguredShortcutChordActions() {
-        configuredShortcutChordActions = KeyboardShortcutSettings.Action.allCases.filter { action in
+    private func handleShortcutDefaultsDidChange() {
+        clearConfiguredShortcutChordState()
+        scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+    }
+
+    private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
+        KeyboardShortcutSettings.Action.allCases.filter { action in
             // System-wide hotkeys are dispatched via Carbon RegisterEventHotKey
             // and never routed through AppKit's local key handler. If a managed
             // cmux.json entry somehow stores one as a chord, arming the prefix
@@ -11748,12 +11925,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
+            let focusContext = shortcutEventFocusContext(event)
+            let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
+                action.shortcutContext.isAlwaysAvailable || action.shortcutContext.isAvailable(focusContext)
+            }
+            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
+                return true
+            }
+        }
+
         let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
         let configuredCmuxShortcutActions = configuredCmuxShortcutActions(for: configuredCmuxShortcutContext)
 
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
            armConfiguredShortcutChordIfNeeded(
                event: event,
+               actions: [],
                shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
            ) {
             return true
@@ -11802,7 +11990,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Primary UI shortcuts
         if matchConfiguredShortcut(event: event, action: .toggleSidebar) {
-            _ = toggleSidebarInActiveMainWindow()
+            _ = toggleSidebarInActiveMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
             return true
         }
 
@@ -11842,7 +12030,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // deferring the toggle, NSAnimationContext implicitly animates the
             // layout change.
             let preferredWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            Task { @MainActor [weak self, weak preferredWindow] in
+            DispatchQueue.main.async { [weak self, weak preferredWindow] in
                 _ = self?.toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow)
             }
             return true
@@ -11912,7 +12100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Flash the currently focused panel so the user can visually confirm focus.
         if matchConfiguredShortcut(event: event, action: .triggerFlash) {
-            tabManager?.triggerFocusFlash()
+            let targetManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            targetManager?.triggerFocusFlash()
             return true
         }
 
@@ -12041,7 +12230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .closeWindow) {
-            guard let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+            guard let targetWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
                 NSSound.beep()
                 return true
             }
@@ -13238,6 +13427,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true)
     }
 
+    func debugMatchesConfiguredShortcut(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> Bool {
+        matchConfiguredShortcut(event: event, action: action)
+    }
+
+    func debugResetShortcutRoutingStateForTesting() {
+        clearConfiguredShortcutChordState()
+        shortcutEventFocusContextCache = nil
+    }
+
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {
         markCommandPaletteOpenRequested(for: window)
     }
@@ -13427,11 +13628,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func armConfiguredShortcutChordIfNeeded(
         event: NSEvent,
-        actions: [KeyboardShortcutSettings.Action]? = nil,
+        actions: [KeyboardShortcutSettings.Action],
         shortcuts: [StoredShortcut] = []
     ) -> Bool {
         var seen = Set<StoredShortcut>()
-        let configuredShortcuts = (actions ?? configuredShortcutChordActions).map {
+        let configuredShortcuts = actions.map {
             KeyboardShortcutSettings.shortcut(for: $0)
         } + shortcuts
         for shortcut in configuredShortcuts {

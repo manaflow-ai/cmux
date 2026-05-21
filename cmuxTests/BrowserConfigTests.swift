@@ -3896,7 +3896,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        defer { window.orderOut(nil) }
+        window.isReleasedWhenClosed = false
+        defer {
+            panel.closeDeveloperToolsForTeardown()
+            panel.webView.cmuxSetUnitTestInspector(nil)
+            panel.webView.removeFromSuperview()
+            window.close()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -3906,6 +3913,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         visibleHosting.frame = contentView.bounds
         visibleHosting.autoresizingMask = [.width, .height]
         contentView.addSubview(visibleHosting)
+        defer { visibleHosting.removeFromSuperview() }
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
@@ -3926,6 +3934,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         inspectorView.autoresizingMask = [.width]
         visibleSlot.addSubview(inspectorView)
+        defer { inspectorView.removeFromSuperview() }
         panel.webView.frame = NSRect(
             x: 0,
             y: inspectorView.frame.maxY,
@@ -3939,6 +3948,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         offWindowHosting.frame = detachedRoot.bounds
         offWindowHosting.autoresizingMask = [.width, .height]
         detachedRoot.addSubview(offWindowHosting)
+        defer { offWindowHosting.removeFromSuperview() }
         detachedRoot.layoutSubtreeIfNeeded()
         offWindowHosting.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
