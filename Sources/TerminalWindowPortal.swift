@@ -671,6 +671,7 @@ final class WindowTerminalPortal: NSObject {
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var pendingExternalGeometrySyncRequiresImmediate = false
+    private var pendingExternalGeometrySyncRequiresDeferred = false
     private var externalGeometrySyncGeneration: UInt64 = 0
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
@@ -776,6 +777,8 @@ final class WindowTerminalPortal: NSObject {
         guard !hasExternalGeometrySyncScheduled else {
             pendingExternalGeometrySyncRequiresImmediate =
                 pendingExternalGeometrySyncRequiresImmediate || forceImmediate
+            pendingExternalGeometrySyncRequiresDeferred =
+                pendingExternalGeometrySyncRequiresDeferred || !forceImmediate
             return
         }
         hasExternalGeometrySyncScheduled = true
@@ -801,13 +804,20 @@ final class WindowTerminalPortal: NSObject {
                 if self.externalGeometrySyncGeneration != generation, !shouldFlushLatestNow {
                     self.hasExternalGeometrySyncScheduled = false
                     let followUpRequiresImmediate = self.pendingExternalGeometrySyncRequiresImmediate
+                    let followUpRequiresDeferred = self.pendingExternalGeometrySyncRequiresDeferred
                     self.pendingExternalGeometrySyncRequiresImmediate = false
-                    self.scheduleExternalGeometrySynchronize(forceImmediate: followUpRequiresImmediate)
+                    self.pendingExternalGeometrySyncRequiresDeferred = false
+                    self.scheduleExternalGeometrySynchronize(forceImmediate: followUpRequiresImmediate && !followUpRequiresDeferred)
                     return
                 }
+                let hasCoalescedDeferredSync = self.pendingExternalGeometrySyncRequiresDeferred
                 self.hasExternalGeometrySyncScheduled = false
                 self.pendingExternalGeometrySyncRequiresImmediate = false
+                self.pendingExternalGeometrySyncRequiresDeferred = false
                 self.synchronizeAllEntriesFromExternalGeometryChange()
+                if shouldFlushLatestNow && hasCoalescedDeferredSync {
+                    self.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                }
             }
             var shouldPerformNow = forceImmediate
             if !shouldPerformNow {

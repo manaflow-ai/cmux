@@ -297,6 +297,10 @@ final class AppearanceSettingsUserDefaultsObserver {
         self.defaultsObserver = nil
     }
 
+    func recordSettingsFileManagedDefault(rawValue: String?) {
+        lastObservedRawValue = rawValue
+    }
+
     private func applyIfChanged() {
         let rawValue = environment.currentRawValue()
         guard rawValue != lastObservedRawValue else { return }

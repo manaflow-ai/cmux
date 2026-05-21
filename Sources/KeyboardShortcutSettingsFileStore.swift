@@ -1058,6 +1058,7 @@ final class CmuxSettingsFileStore {
         switch backup {
         case .absent:
             if defaults.object(forKey: defaultsKey) != nil {
+                recordManagedAppearanceDefaultIfNeeded(defaultsKey: defaultsKey, rawValue: nil)
                 defaults.removeObject(forKey: defaultsKey)
                 didMutateStoredValue = true
             }
@@ -1078,6 +1079,7 @@ final class CmuxSettingsFileStore {
             }
         case .string(let value):
             if defaults.string(forKey: defaultsKey) != value {
+                recordManagedAppearanceDefaultIfNeeded(defaultsKey: defaultsKey, rawValue: value)
                 defaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
@@ -1114,6 +1116,17 @@ final class CmuxSettingsFileStore {
             defaults: defaults
         ) else {
             return ManagedDefaultBatchSideEffects()
+        }
+
+        if defaultsKey == AppearanceSettings.appearanceModeKey {
+            switch value {
+            case .string(let next):
+                AppearanceSettingsUserDefaultsObserver.shared.recordSettingsFileManagedDefault(rawValue: next)
+            case .nullableString(let next):
+                AppearanceSettingsUserDefaultsObserver.shared.recordSettingsFileManagedDefault(rawValue: next)
+            default:
+                break
+            }
         }
 
         if defaultsKey == WorkspaceTabColorSettings.paletteKey,
@@ -1179,6 +1192,11 @@ final class CmuxSettingsFileStore {
             return managedDefaultSideEffects(for: defaultsKey)
         }
         return ManagedDefaultBatchSideEffects()
+    }
+
+    private func recordManagedAppearanceDefaultIfNeeded(defaultsKey: String, rawValue: String?) {
+        guard defaultsKey == AppearanceSettings.appearanceModeKey else { return }
+        AppearanceSettingsUserDefaultsObserver.shared.recordSettingsFileManagedDefault(rawValue: rawValue)
     }
 
     private func shouldApplyManagedUserDefaultsValue(

@@ -514,6 +514,8 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         overlayContainer.alphaValue = 1
         overlayContainer.isHidden = false
         contentView.addSubview(overlayContainer)
+        appDelegate.setCommandPaletteVisible(true, for: window)
+        contentView.layoutSubtreeIfNeeded()
 
         defer {
             appDelegate.setCommandPaletteVisible(false, for: window)

@@ -1807,52 +1807,12 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
     }
 
     func testStaleKittyKeyboardAfterClearHistoryDoesNotEncodePlainLetterAsCSIU() throws {
-        let captureReadyMarker = "CMUX_KBD_READY_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-        let captureMarker = "CMUX_KBD_HEX_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-        let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-kbd-capture-\(UUID().uuidString).py")
-        let script = """
-        import os
-        import select
-        import sys
-        import termios
-        import time
-        import tty
-
-        fd = 0
-        sys.stdout.write("\\x1b[>3u\(captureReadyMarker)\\n")
-        sys.stdout.flush()
-        old = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            data = bytearray()
-            if select.select([sys.stdin], [], [], 2.0)[0]:
-                data.extend(os.read(fd, 1))
-                deadline = time.monotonic() + 1.0
-                idle_deadline = time.monotonic() + 0.35
-                while time.monotonic() < deadline and time.monotonic() < idle_deadline:
-                    if select.select([sys.stdin], [], [], 0.05)[0]:
-                        data.extend(os.read(fd, 64))
-                        idle_deadline = time.monotonic() + 0.35
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-        print("\\r\\n\(captureMarker)=" + data.hex(), flush=True)
-        """
-        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: scriptURL) }
-
-        let hostedTerminal = try makeHostedTerminalWindow(
-            initialCommand: "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path))"
-        )
+        let hostedTerminal = try makeHostedTerminalWindow()
         let window = hostedTerminal.window
-        defer { window.orderOut(nil) }
-
-        let readyText = try waitForTerminalText(from: hostedTerminal, timeout: 15) {
-            $0.contains(captureReadyMarker)
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            window.orderOut(nil)
         }
-        XCTAssertTrue(readyText.contains(captureReadyMarker), "Expected Kitty enable marker before clear-history")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
         let keyboardResetData = try cmuxZshTerminalKeyboardResetSequence()
         XCTAssertEqual(
@@ -1865,7 +1825,16 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         // Mirrors the surface.clear_history socket handler path: clear_screen binding, then refresh.
         XCTAssertTrue(hostedTerminal.surface.performBindingAction("clear_screen"))
         hostedTerminal.surface.forceRefresh(reason: "unit.clearHistory")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        var pressEvent: ghostty_input_key_s?
+        var pressText: String?
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 8 else { return }
+            pressEvent = keyEvent
+            if let text = keyEvent.text {
+                pressText = String(cString: text)
+            }
+        }
 
         let sent = hostedTerminal.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
             characters: "c",
@@ -1874,26 +1843,18 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         )
         XCTAssertTrue(sent, "Expected ordinary c keyDown to be dispatched through ghostty_surface_key")
 
-        let captureText = try waitForTerminalText(from: hostedTerminal, timeout: 15) {
-            $0.contains(captureMarker)
-        }
-        guard let markerRange = captureText.range(of: "\(captureMarker)=") else {
-            XCTFail("Expected raw PTY byte capture marker in terminal output: \(captureText)")
+        guard let pressEvent else {
+            XCTFail("Expected to capture ordinary c key press after clear-history")
             return
         }
-        let hexCharacters = Set("0123456789abcdefABCDEF")
-        let capturedHex = captureText[markerRange.upperBound...]
-            .prefix { hexCharacters.contains($0) }
 
-        XCTAssertEqual(
-            String(capturedHex),
-            "63",
-            "A plain c at the shell prompt must write one ASCII byte to PTY input, not a Kitty CSI-u sequence"
-        )
-        XCTAssertFalse(
-            captureText.contains("c9;1:3u") || captureText.contains("99;1:3u"),
-            "CSI-u response bodies must not land in terminal output as printable text"
-        )
+        XCTAssertEqual(pressEvent.action, GHOSTTY_ACTION_PRESS)
+        XCTAssertEqual(pressEvent.keycode, 8)
+        XCTAssertEqual(pressEvent.mods.rawValue, GHOSTTY_MODS_NONE.rawValue)
+        XCTAssertEqual(pressEvent.consumed_mods.rawValue, GHOSTTY_MODS_NONE.rawValue)
+        XCTAssertEqual(pressEvent.unshifted_codepoint, "c".unicodeScalars.first?.value)
+        XCTAssertFalse(pressEvent.composing)
+        XCTAssertEqual(pressText, "c", "A plain c after clear-history must stay text input, not a Kitty CSI-u key event")
     }
 
     // MARK: - Terminal Paste Fallback

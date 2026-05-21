@@ -24076,9 +24076,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg()
             )
         }
-        func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
+        func notificationDedupeFingerprint(status: AgentHookNotificationStatus?, body: String?) -> String? {
             guard (isGrokHook || isAntigravityHook), !sessionId.isEmpty, status == .idle else {
                 return nil
+            }
+            if isGrokHook, let body = normalizedHookValue(body) {
+                let digest = SHA256.hash(data: Data(body.utf8))
+                let bodyHash = digest.map { String(format: "%02x", $0) }.joined()
+                return "idle-turn:\(bodyHash)"
             }
             return "idle-turn"
         }
@@ -24502,7 +24507,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
 
-            let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
+            let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus, body: body)
             let shouldPublishStopNotification = def.publishesStopNotification && (!antigravityHasActiveBackgroundWork || stopNotificationStatus == .error)
             let hasGrokTranscriptContext = isGrokHook && normalizedHookValue(cwd) != nil
             let shouldPublishGrokStopFallbackNotification = isGrokHook
@@ -24510,19 +24515,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 && (grokAssistantMessage != nil || !hasGrokTranscriptContext)
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
                 && !suppressCompletionNotification
-            let shouldForceGrokAssistantStopNotification = shouldPublishGrokStopFallbackNotification
-                && grokAssistantMessage != nil
-                && max(0, mapped?.activePromptDepth ?? 0) > 0
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.stop.nested-suppressed")
             } else if suppressCompletionNotification {
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
             if shouldPublishStopAlert,
-               shouldSendNotification(
-                   fingerprint: notificationFingerprint,
-                   force: shouldForceGrokAssistantStopNotification
-               ) {
+               shouldSendNotification(fingerprint: notificationFingerprint) {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
@@ -24716,7 +24715,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
             }
 
-            let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
+            let notificationFingerprint = notificationDedupeFingerprint(status: summary.status, body: summary.body)
             let shouldForceCurrentGrokPromptNotification = isGrokHook
                 && summary.status == .idle
                 && max(0, mapped?.activePromptDepth ?? 0) > 0
