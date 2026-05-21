@@ -750,11 +750,10 @@ final class BonsplitTabDragUITests: XCTestCase {
                 app.windows.firstMatch.exists
         }
         guard launched else { return false }
-        // Bonsplit setup is window-driven, and headless runners can report .unknown during this handoff.
-        return ensureAppForegroundForInteraction(app, timeout: 6.0)
+        return ensureAppReadyForBonsplitInteraction(app, timeout: 6.0)
     }
 
-    private func ensureAppForegroundForInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    private func ensureAppReadyForBonsplitInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         if app.state == .runningForeground {
             return true
         }
@@ -763,9 +762,15 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTExpectFailure("App foreground activation may fail on headless CI runners", options: options) {
             app.activate()
         }
-        return waitForCondition(timeout: timeout) {
+        let reachedForeground = waitForCondition(timeout: timeout) {
             app.state == .runningForeground
         }
+        if reachedForeground {
+            return true
+        }
+        // Bonsplit gestures target realized windows; headless runners can keep reporting
+        // .unknown after launch even when the window is queryable and ready for coordinates.
+        return app.windows.firstMatch.waitForExistence(timeout: timeout)
     }
 
     private func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {
