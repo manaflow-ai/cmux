@@ -24618,21 +24618,39 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                try? store.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: notificationCwd,
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                    pid: pid,
-                    launchCommand: launchCommand,
-                    lastSubtitle: summary.subtitle,
-                    lastBody: summary.body,
-                    lastNotificationStatus: summary.status,
-                    updateLastNotificationStatus: true,
-                    runtimeStatus: runtimeStatus(for: summary.status),
-                    updateRuntimeStatus: summary.status != nil
-                )
+                if def.name == "grok", summary.status == .idle {
+                    _ = try? store.recordPromptStop(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: notificationCwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body,
+                        lastNotificationStatus: summary.status,
+                        updateLastNotificationStatus: true,
+                        runtimeStatus: runtimeStatus(for: summary.status),
+                        updateRuntimeStatus: true
+                    )
+                } else {
+                    try? store.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: notificationCwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body,
+                        lastNotificationStatus: summary.status,
+                        updateLastNotificationStatus: true,
+                        runtimeStatus: runtimeStatus(for: summary.status),
+                        updateRuntimeStatus: summary.status != nil
+                    )
+                }
             }
 
             let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)

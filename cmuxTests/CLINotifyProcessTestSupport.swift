@@ -231,16 +231,50 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
         }
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stdout = String(data: drainPipe(stdoutPipe), encoding: .utf8) ?? ""
+        let stderr = String(data: drainPipe(stderrPipe), encoding: .utf8) ?? ""
         return ProcessRunResult(
-            status: process.terminationStatus,
+            status: process.isRunning ? -1 : process.terminationStatus,
             stdout: stdout,
             stderr: stderr,
             timedOut: timedOut
         )
+    }
+
+    private func drainPipe(_ pipe: Pipe) -> Data {
+        let handle = pipe.fileHandleForReading
+        let fd = handle.fileDescriptor
+        let flags = Darwin.fcntl(fd, F_GETFL)
+        if flags >= 0 {
+            _ = Darwin.fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+        }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count > 0 {
+                data.append(buffer, count: count)
+                continue
+            }
+            if count == 0 {
+                break
+            }
+            if errno == EINTR {
+                continue
+            }
+            if errno == EAGAIN || errno == EWOULDBLOCK {
+                break
+            }
+            break
+        }
+        try? handle.close()
+        return data
     }
 }
