@@ -1540,6 +1540,11 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
 
 @MainActor
 final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+    }
+
     private struct PasteboardItemSnapshot {
         let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
     }

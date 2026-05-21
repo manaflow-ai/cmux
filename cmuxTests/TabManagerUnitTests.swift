@@ -76,6 +76,38 @@ private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
     }
 }
 
+private func leafCount(in node: ExternalTreeNode) -> Int {
+    switch node {
+    case .pane:
+        return 1
+    case .split(let split):
+        return leafCount(in: split.first) + leafCount(in: split.second)
+    }
+}
+
+private func assertSplitDividersAreProportional(
+    in node: ExternalTreeNode,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    switch node {
+    case .pane:
+        return
+    case .split(let split):
+        let firstLeafCount = leafCount(in: split.first)
+        let totalLeafCount = firstLeafCount + leafCount(in: split.second)
+        XCTAssertEqual(
+            split.dividerPosition,
+            CGFloat(firstLeafCount) / CGFloat(totalLeafCount),
+            accuracy: 0.000_1,
+            file: file,
+            line: line
+        )
+        assertSplitDividersAreProportional(in: split.first, file: file, line: line)
+        assertSplitDividersAreProportional(in: split.second, file: file, line: line)
+    }
+}
+
 private func runProcess(
     executablePath: String,
     arguments: [String],
@@ -2072,11 +2104,10 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
 
         XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
 
-        let equalizedSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
+        let equalizedTree = workspace.bonsplitController.treeSnapshot()
+        let equalizedSplits = splitNodes(in: equalizedTree)
         XCTAssertEqual(equalizedSplits.count, initialSplits.count)
-        for split in equalizedSplits {
-            XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
-        }
+        assertSplitDividersAreProportional(in: equalizedTree)
     }
 }
 

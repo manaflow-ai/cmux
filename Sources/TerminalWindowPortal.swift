@@ -2184,6 +2184,21 @@ enum TerminalWindowPortalRegistry {
         portalsByWindowId.count
     }
 
+    static func resetForTesting() {
+        for portal in portalsByWindowId.values {
+            portal.tearDown()
+        }
+        portalsByWindowId.removeAll()
+        hostedToWindowId.removeAll()
+        hasPendingExternalGeometrySyncForAllWindows = false
+        externalGeometrySyncForAllWindowsGeneration &+= 1
+        interactiveGeometryResizeCount = 0
+        clearActiveSplitDividerDrag()
+        isPointerDragActiveForTesting = false
+        blockedBindCount = 0
+        blockedBindReasons.removeAll(keepingCapacity: false)
+    }
+
     static func debugPortalStats() -> [String: Any] {
         var portals: [[String: Any]] = []
         var totals: [String: Int] = [

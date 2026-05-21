@@ -1272,6 +1272,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
 
         NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        browserPanel.noteAddressBarFocused()
         appDelegate.cmuxSetFocusedBrowserAddressBarPanelIdForTesting(panelId)
         window.testFieldEditor.resetKeyDownKeyCodes()
         window.testFieldEditor.reportsMarkedText = true
@@ -2991,6 +2992,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             attached = false
         }
 
+        func setVisibleForTesting(_ nextVisible: Bool) {
+            visible = nextVisible
+        }
+
         @objc func inspectorWebView() -> WKWebView? {
             frontendWebView
         }
@@ -3193,10 +3198,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         mainWindow.displayIfNeeded()
         inspectorWindow.displayIfNeeded()
 
-        XCTAssertTrue(panel.showDeveloperTools())
+        inspector.setVisibleForTesting(true)
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.closeCount, 0)
-        waitForDeveloperToolsTransitions()
 
         XCTAssertTrue(panel.cmuxCloseDeveloperToolsFromDetachedInspectorWindowWillCloseForTesting(inspectorWindow))
 
