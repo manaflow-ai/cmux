@@ -402,6 +402,37 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testSkipBootstrapPersistentPTYDoesNotFailBakedCapabilityPreflight() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:test-persistent-no-daemon",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true,
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+        let deadline = Date().addingTimeInterval(0.5)
+        while workspace.remoteConnectionState == .connecting && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertNil(workspace.remoteProxyEndpoint)
+        let daemon = workspace.remoteStatusPayload()["daemon"] as? [String: Any]
+        XCTAssertFalse((daemon?["detail"] as? String)?.contains("pty.session") == true)
+    }
+
+    @MainActor
     func testWebSocketVMWithDaemonEndpointStartsProxyCapableConnection() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(

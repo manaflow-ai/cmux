@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -378,9 +379,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Durable Persistent SSH" })
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.preserveAfterTerminalExit, true)
         XCTAssertNotNil(restoredWorkspace.remoteConfiguration?.foregroundAuthToken)
-        XCTAssertTrue(
-            restoredWorkspace.remoteConfiguration?.sshOptions.contains("ControlPath=/tmp/cmux-ssh-%C") == true
-        )
+        let restoreControlPath = "ControlPath=/tmp/cmux-ssh-\(getuid())-%C"
+        XCTAssertTrue(restoredWorkspace.remoteConfiguration?.sshOptions.contains(restoreControlPath) == true)
         let terminalStartupCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("ssh-pty-attach"), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("--require-existing"), terminalStartupCommand)

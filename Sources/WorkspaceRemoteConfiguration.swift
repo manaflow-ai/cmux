@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 private enum WorkspaceRemoteSSHOptionFilter {
@@ -165,7 +166,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             merged.append("ControlPersist=600")
         }
         if !hasSSHOptionKey(merged, key: "ControlPath") {
-            merged.append("ControlPath=/tmp/cmux-ssh-%C")
+            merged.append("ControlPath=/tmp/cmux-ssh-\(getuid())-%C")
         }
         return merged
     }

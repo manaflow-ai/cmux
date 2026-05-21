@@ -5330,7 +5330,13 @@ final class WorkspaceRemoteSessionController {
             } else {
                 hello = try bootstrapDaemonLocked(requiredCapabilities: requiredCapabilities)
             }
-            let missingCapabilities = Self.missingRequiredCapabilities(requiredCapabilities, in: hello.capabilities)
+            let preflightRequiredCapabilities = configuration.skipDaemonBootstrap
+                ? bakedDaemonPreflightRequiredCapabilities
+                : requiredCapabilities
+            let missingCapabilities = Self.missingRequiredCapabilities(
+                preflightRequiredCapabilities,
+                in: hello.capabilities
+            )
             guard missingCapabilities.isEmpty else {
                 throw NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon missing required capability \(missingCapabilities.joined(separator: ","))",
@@ -5894,6 +5900,10 @@ final class WorkspaceRemoteSessionController {
 
     private var requiredDaemonCapabilities: [String] {
         WorkspaceRemoteDaemonRPCClient.requiredCapabilities(for: configuration)
+    }
+
+    private var bakedDaemonPreflightRequiredCapabilities: [String] {
+        requiredDaemonCapabilities.filter { $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability }
     }
 
     private static func missingRequiredCapabilities(_ required: [String], in capabilities: [String]) -> [String] {
