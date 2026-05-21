@@ -40,6 +40,7 @@ extension SessionAgent {
     }
 }
 
+@MainActor
 private final class AgentAssetIconCache {
     static let shared = AgentAssetIconCache()
     private static let maxCachedImages = 96
@@ -53,16 +54,17 @@ private final class AgentAssetIconCache {
     private var images: [Key: NSImage] = [:]
     private var insertionOrder: [Key] = []
 
-    @MainActor
+    func cacheIdentity(named assetName: String, pointSize: CGFloat, colorScheme: ColorScheme) -> String {
+        let key = Self.key(named: assetName, pointSize: pointSize, colorScheme: colorScheme)
+        return "\(key.assetName)|\(key.pixelSize)|\(key.appearanceName)"
+    }
+
+    func cachedImage(named assetName: String, pointSize: CGFloat, colorScheme: ColorScheme) -> NSImage? {
+        images[Self.key(named: assetName, pointSize: pointSize, colorScheme: colorScheme)]
+    }
+
     func image(named assetName: String, pointSize: CGFloat, colorScheme: ColorScheme) -> NSImage? {
-        let scale = NSScreen.main?.backingScaleFactor ?? 2
-        let pixelSize = max(1, Int((pointSize * scale).rounded(.up)))
-        let appearanceName: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
-        let key = Key(
-            assetName: assetName,
-            pixelSize: pixelSize,
-            appearanceName: appearanceName.rawValue
-        )
+        let key = Self.key(named: assetName, pointSize: pointSize, colorScheme: colorScheme)
         if let cached = images[key] {
             return cached
         }
@@ -72,13 +74,24 @@ private final class AgentAssetIconCache {
         let image = Self.rasterizedImage(
             from: source,
             pointSize: pointSize,
-            pixelSize: pixelSize,
-            appearanceName: appearanceName
+            pixelSize: key.pixelSize,
+            appearanceName: NSAppearance.Name(key.appearanceName)
         )
         images[key] = image
         insertionOrder.append(key)
         trimCache()
         return image
+    }
+
+    private static func key(named assetName: String, pointSize: CGFloat, colorScheme: ColorScheme) -> Key {
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let pixelSize = max(1, Int((pointSize * scale).rounded(.up)))
+        let appearanceName: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
+        return Key(
+            assetName: assetName,
+            pixelSize: pixelSize,
+            appearanceName: appearanceName.rawValue
+        )
     }
 
     private func trimCache() {
@@ -150,6 +163,11 @@ private final class AgentAssetIconCache {
 }
 
 struct AgentAssetIconImage: View, Equatable {
+    private struct RenderedImage {
+        let identity: String
+        let image: NSImage
+    }
+
     let assetName: String
     let size: CGFloat
     let fallbackSystemName: String
@@ -157,6 +175,7 @@ struct AgentAssetIconImage: View, Equatable {
     let fallbackColorID: String
 
     @Environment(\.colorScheme) private var colorScheme
+    @State private var renderedImage: RenderedImage?
 
     init(
         assetName: String,
@@ -180,12 +199,17 @@ struct AgentAssetIconImage: View, Equatable {
     }
 
     var body: some View {
-        Group {
-            if let image = AgentAssetIconCache.shared.image(
+        let identity = cacheIdentity
+        let image = renderedImage?.identity == identity
+            ? renderedImage?.image
+            : AgentAssetIconCache.shared.cachedImage(
                 named: assetName,
                 pointSize: size,
                 colorScheme: colorScheme
-            ) {
+            )
+
+        Group {
+            if let image {
                 Image(nsImage: image)
                     .renderingMode(.original)
                     .resizable()
@@ -201,5 +225,31 @@ struct AgentAssetIconImage: View, Equatable {
         .transaction { transaction in
             transaction.animation = nil
         }
+        .onAppear {
+            refreshImage(identity: identity)
+        }
+        .onChange(of: identity) { _, newIdentity in
+            refreshImage(identity: newIdentity)
+        }
+    }
+
+    private var cacheIdentity: String {
+        AgentAssetIconCache.shared.cacheIdentity(
+            named: assetName,
+            pointSize: size,
+            colorScheme: colorScheme
+        )
+    }
+
+    private func refreshImage(identity: String) {
+        guard let image = AgentAssetIconCache.shared.image(
+            named: assetName,
+            pointSize: size,
+            colorScheme: colorScheme
+        ) else {
+            renderedImage = nil
+            return
+        }
+        renderedImage = RenderedImage(identity: identity, image: image)
     }
 }
