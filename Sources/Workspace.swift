@@ -9354,6 +9354,11 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
+        activeRemoteTerminalSurfaceIds = activeRemoteTerminalSurfaceIds.filter { validSurfaceIds.contains($0) }
+        remoteTerminalDirectorySurfaceIds = remoteTerminalDirectorySurfaceIds.filter {
+            validSurfaceIds.contains($0) && activeRemoteTerminalSurfaceIds.contains($0)
+        }
+        activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         let staleAgentPIDPanelIds = agentPIDKeysByPanelId.keys.filter { !validSurfaceIds.contains($0) }
@@ -9741,8 +9746,18 @@ final class Workspace: Identifiable, ObservableObject {
 
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+        let previousFileSystemIdentity = remoteConfiguration?.remoteFileSystemIdentityKey
+        let shouldPreserveRemoteDirectoryMarkers = previousFileSystemIdentity.map {
+            $0 == configuration.remoteFileSystemIdentityKey
+        } ?? false
         remoteConfiguration = configuration
-        remoteTerminalDirectorySurfaceIds.removeAll()
+        if shouldPreserveRemoteDirectoryMarkers {
+            remoteTerminalDirectorySurfaceIds = remoteTerminalDirectorySurfaceIds.filter {
+                panels[$0] != nil && activeRemoteTerminalSurfaceIds.contains($0)
+            }
+        } else {
+            remoteTerminalDirectorySurfaceIds.removeAll()
+        }
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []

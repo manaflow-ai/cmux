@@ -157,6 +157,26 @@ struct WorkspaceRemoteConfiguration: Equatable {
             .joined(separator: "\u{1e}")
     }
 
+    var remoteFileSystemIdentityKey: String {
+        let normalizedTransport = transport.rawValue
+        let normalizedBootstrapMode = skipDaemonBootstrap ? "vm-baked" : "bootstrap"
+        let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPort = port.map(String.init) ?? ""
+        let normalizedIdentity = WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile) ?? ""
+        let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
+        let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+        return [
+            normalizedTransport,
+            normalizedBootstrapMode,
+            normalizedDestination,
+            normalizedPort,
+            normalizedIdentity,
+            normalizedOptions,
+            normalizedWebSocketDaemon,
+        ]
+            .joined(separator: "\u{1e}")
+    }
+
     private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
         WorkspaceRemoteSSHOptionFilter.durableOptions(options)
     }

@@ -810,7 +810,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(firstReportApplied)
 
         workspace.configureRemoteConnection(configuration, autoConnect: false)
-        XCTAssertNil(workspace.preferredRemoteFileExplorerRootPath())
+        XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
 
         let duplicateResponse = try await sendV2RequestAsync(
             method: "surface.report_pwd",
