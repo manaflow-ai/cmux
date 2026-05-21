@@ -560,7 +560,7 @@ func omoEnsurePlugin(searchPath string) error {
 	var config map[string]any
 	if data, err := os.ReadFile(userJsonPath); err == nil {
 		if err := json.Unmarshal(data, &config); err != nil {
-			return fmt.Errorf("failed to parse %s: fix the JSON syntax and retry", userJsonPath)
+			return fmt.Errorf("invalid opencode.json: fix the JSON syntax and retry")
 		}
 	} else {
 		config = map[string]any{}

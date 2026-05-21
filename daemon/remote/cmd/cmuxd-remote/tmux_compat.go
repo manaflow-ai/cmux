@@ -848,8 +848,17 @@ func tmuxCanonicalPaneId(rc *rpcContext, handle string, workspaceId string) (str
 				return id, nil
 			}
 		}
-		if !sigiled && tmuxIndexMatches(handle, intFromAnyGo(pane["index"])) && id != "" {
-			return id, nil
+	}
+	if !sigiled {
+		for _, p := range panes {
+			pane, _ := p.(map[string]any)
+			if pane == nil {
+				continue
+			}
+			id, _ := pane["id"].(string)
+			if tmuxIndexMatches(handle, intFromAnyGo(pane["index"])) && id != "" {
+				return id, nil
+			}
 		}
 	}
 	return "", fmt.Errorf("pane not found: %s", handle)
@@ -882,8 +891,17 @@ func tmuxCanonicalSurfaceId(rc *rpcContext, handle string, workspaceId string) (
 				return id, nil
 			}
 		}
-		if !sigiled && tmuxIndexMatches(handle, intFromAnyGo(surface["index"])) && id != "" {
-			return id, nil
+	}
+	if !sigiled {
+		for _, s := range surfaces {
+			surface, _ := s.(map[string]any)
+			if surface == nil {
+				continue
+			}
+			id, _ := surface["id"].(string)
+			if tmuxIndexMatches(handle, intFromAnyGo(surface["index"])) && id != "" {
+				return id, nil
+			}
 		}
 	}
 	return "", fmt.Errorf("surface not found: %s", handle)

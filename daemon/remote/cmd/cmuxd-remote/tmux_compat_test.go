@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -524,6 +527,83 @@ func TestTmuxSigiledSelectorsSkipRefsAndIndexes(t *testing.T) {
 	if got, err := tmuxCanonicalPaneId(rc, "%"+tmuxStableNumericId(paneId), workspaceId); err != nil || got != paneId {
 		t.Fatalf("sigiled pane numeric id resolved to %q, %v; want %s", got, err, paneId)
 	}
+}
+
+func TestTmuxCanonicalSelectorsPreferRefsBeforeIndexFallback(t *testing.T) {
+	sockPath := startMockTmuxSelectorPrioritySocket(t)
+	rc := &rpcContext{socketPath: sockPath}
+	workspaceId := "11111111-1111-4111-8111-111111111111"
+	refPaneId := "33333333-3333-4333-8333-333333333333"
+	refSurfaceId := "55555555-5555-4555-8555-555555555555"
+
+	if got, err := tmuxCanonicalPaneId(rc, "1", workspaceId); err != nil || got != refPaneId {
+		t.Fatalf("pane selector resolved to %q, %v; want ref match %s before index fallback", got, err, refPaneId)
+	}
+	if got, err := tmuxCanonicalSurfaceId(rc, "1", workspaceId); err != nil || got != refSurfaceId {
+		t.Fatalf("surface selector resolved to %q, %v; want ref match %s before index fallback", got, err, refSurfaceId)
+	}
+}
+
+func startMockTmuxSelectorPrioritySocket(t *testing.T) string {
+	t.Helper()
+	sockPath := makeShortUnixSocketPath(t)
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				reader := bufio.NewReader(conn)
+				line, err := reader.ReadBytes('\n')
+				if err != nil {
+					return
+				}
+
+				var req map[string]any
+				if err := json.Unmarshal(line, &req); err != nil {
+					_, _ = conn.Write([]byte(`{"ok":false,"error":{"code":"parse","message":"bad json"}}` + "\n"))
+					return
+				}
+
+				method, _ := req["method"].(string)
+				resp := map[string]any{
+					"id": req["id"],
+					"ok": true,
+				}
+				switch method {
+				case "pane.list":
+					resp["result"] = map[string]any{
+						"panes": []map[string]any{
+							{"id": "22222222-2222-4222-8222-222222222222", "ref": "pane:index", "index": 1},
+							{"id": "33333333-3333-4333-8333-333333333333", "ref": "1", "index": 2},
+						},
+					}
+				case "surface.list":
+					resp["result"] = map[string]any{
+						"surfaces": []map[string]any{
+							{"id": "44444444-4444-4444-8444-444444444444", "ref": "surface:index", "index": 1},
+							{"id": "55555555-5555-4555-8555-555555555555", "ref": "1", "index": 2},
+						},
+					}
+				default:
+					resp["result"] = map[string]any{}
+				}
+
+				data, _ := json.Marshal(resp)
+				_, _ = conn.Write(append(data, '\n'))
+			}(conn)
+		}
+	}()
+
+	return sockPath
 }
 
 func TestClaudeTeamsLaunchArgs(t *testing.T) {
