@@ -420,7 +420,12 @@ struct RightSidebarPanelView: View {
                     tabManager.navigateToFocusHistoryMenuItem(item)
                 },
                 onClearClosedItems: {
-                    ClosedItemHistoryStore.shared.removeAll()
+                    if let appDelegate = AppDelegate.shared {
+                        appDelegate.clearRecentlyClosedHistory(preferredTabManager: tabManager)
+                    } else {
+                        ClosedItemHistoryStore.shared.removeAll()
+                        tabManager.clearRecentlyClosedBrowserPanelHistory()
+                    }
                 }
             )
             .environmentObject(tabManager)

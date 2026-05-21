@@ -191,7 +191,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             return panelIdMap[panelId] ?? panelId
         }
         var didUpdate = false
-        records = records.map { record in
+        let remappedRecords = records.map { record in
             guard case .panel(let panelEntry) = record.entry,
                   panelEntry.workspaceId == oldWorkspaceId else {
                 return record
@@ -215,6 +215,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             )))
         }
         if didUpdate {
+            records = remappedRecords
             revision &+= 1
         }
     }
@@ -222,7 +223,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     func remapPanelAnchorIds(from oldPanelId: UUID, to newPanelId: UUID) {
         guard oldPanelId != newPanelId else { return }
         var didUpdate = false
-        records = records.map { record in
+        let remappedRecords = records.map { record in
             guard case .panel(let panelEntry) = record.entry else { return record }
             let paneAnchorPanelId = panelEntry.paneAnchorPanelId == oldPanelId
                 ? newPanelId
@@ -252,6 +253,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             )))
         }
         if didUpdate {
+            records = remappedRecords
             revision &+= 1
         }
     }

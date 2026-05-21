@@ -7909,6 +7909,10 @@ class TabManager: ObservableObject {
         return false
     }
 
+    func clearRecentlyClosedBrowserPanelHistory() {
+        recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
+    }
+
     @discardableResult
     func reopenMostRecentlyClosedItem() -> Bool {
         if let appDelegate = AppDelegate.shared {

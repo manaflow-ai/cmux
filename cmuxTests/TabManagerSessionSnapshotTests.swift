@@ -694,6 +694,36 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(workspace.paneId(forPanelId: restoredPanelId))
     }
 
+    func testClosingPaneRecordsTabsInRecentlyClosedHistory() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let splitTerminal = try XCTUnwrap(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: true
+        ))
+        workspace.setPanelCustomTitle(panelId: splitTerminal.id, title: "Pane Closed First")
+        let splitPane = try XCTUnwrap(workspace.paneId(forPanelId: splitTerminal.id))
+        let secondTerminal = try XCTUnwrap(workspace.newTerminalSurface(inPane: splitPane, focus: true))
+        workspace.setPanelCustomTitle(panelId: secondTerminal.id, title: "Pane Closed Second")
+
+        drainMainQueue()
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: splitPane).count, 2)
+        XCTAssertTrue(workspace.bonsplitController.closePane(splitPane))
+        drainMainQueue()
+
+        XCTAssertNil(workspace.panels[splitTerminal.id])
+        XCTAssertNil(workspace.panels[secondTerminal.id])
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount, 2)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        let restoredTitles = Set(workspace.panelCustomTitles.values)
+        XCTAssertTrue(restoredTitles.contains("Pane Closed First"))
+        XCTAssertTrue(restoredTitles.contains("Pane Closed Second"))
+    }
+
     func testReopenClosedBrowserSplitAfterWorkspaceRestoreRestoresCollapsedPane() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -1136,6 +1166,31 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoreManager.reopenMostRecentlyClosedItem())
         XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Remapped Skipped Tab"))
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+    }
+
+    func testNoOpClosedPanelRemapDoesNotAdvanceRevision() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        let store = ClosedItemHistoryStore(capacity: 10)
+        store.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            paneAnchorPanelId: UUID(),
+            tabIndex: 0,
+            snapshot: panelSnapshot,
+            fallbackSplitPlacement: ClosedPanelSplitPlacement(
+                orientation: .horizontal,
+                insertFirst: false,
+                anchorPanelId: UUID()
+            )
+        )))
+        let revision = store.revision
+
+        store.remapPanelWorkspaceIds(from: UUID(), to: UUID())
+        store.remapPanelAnchorIds(from: UUID(), to: UUID())
+
+        XCTAssertEqual(store.revision, revision)
     }
 
     func testFailedClosedWorkspaceRestoreRemovesCreatedWorkspaceAndKeepsHistoryRecord() throws {

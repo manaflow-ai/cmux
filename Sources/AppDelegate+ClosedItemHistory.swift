@@ -1,6 +1,26 @@
 import AppKit
 
 extension AppDelegate {
+    func clearRecentlyClosedHistory(preferredTabManager: TabManager? = nil) {
+        ClosedItemHistoryStore.shared.removeAll()
+
+        var clearedManagers: Set<ObjectIdentifier> = []
+        func clear(_ manager: TabManager?) {
+            guard let manager else { return }
+            guard clearedManagers.insert(ObjectIdentifier(manager)).inserted else { return }
+            manager.clearRecentlyClosedBrowserPanelHistory()
+        }
+
+        clear(preferredTabManager)
+        clear(tabManager)
+        for context in mainWindowContexts.values {
+            clear(context.tabManager)
+        }
+        for route in recoverableMainWindowRoutes() {
+            clear(route.tabManager)
+        }
+    }
+
     @discardableResult
     func reopenMostRecentlyClosedItem(
         preferredTabManager: TabManager? = nil,
