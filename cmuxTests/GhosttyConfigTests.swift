@@ -4220,6 +4220,8 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             : > "\(logPath.path)"
             _CMUX_TTY_REPORTED=1
             _CMUX_PORTS_LAST_RUN=-999
+            _CMUX_PWD_LAST_PWD=/previous
+            cd "\(root.path)"
             _cmux_precmd
             repeat 20; do
               [[ -s "\(logPath.path)" ]] && break
@@ -4238,6 +4240,10 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertTrue(
             output.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"refresh","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            output
+        )
+        XCTAssertTrue(
+            output.contains(#"rpc surface.report_pwd {"workspace_id":"11111111-1111-1111-1111-111111111111","directory":"\#(root.path)","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             output
         )
     }
@@ -4361,6 +4367,8 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             : > "\(logPath.path)"
             _CMUX_TTY_REPORTED=1
             _CMUX_PORTS_LAST_RUN=-999
+            _CMUX_PWD_LAST_PWD=/previous
+            cd "\(root.path)"
             _cmux_prompt_command
             for _cmux_i in $(seq 1 20); do
               [ -s "\(logPath.path)" ] && break
@@ -4380,6 +4388,10 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("_cmux_report_tmux_state"), result.stderr)
         XCTAssertTrue(
             result.stdout.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"refresh","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            result.stdout
+        )
+        XCTAssertTrue(
+            result.stdout.contains(#"rpc surface.report_pwd {"workspace_id":"11111111-1111-1111-1111-111111111111","directory":"\#(root.path)","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             result.stdout
         )
     }

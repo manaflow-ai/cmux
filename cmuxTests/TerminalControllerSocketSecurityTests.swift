@@ -609,6 +609,20 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(reportTTYResult["surface_id"] as? String, focusedPanelId.uuidString)
         XCTAssertEqual(workspace.surfaceTTYNames[focusedPanelId], "ttys999")
 
+        let reportPwdResponse = try await sendV2RequestAsync(
+            method: "surface.report_pwd",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "directory": "/home/demo/project"
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(reportPwdResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(reportPwdResponse)")
+        let reportPwdResult = try XCTUnwrap(reportPwdResponse["result"] as? [String: Any], "Unexpected JSON-RPC response: \(reportPwdResponse)")
+        XCTAssertEqual(reportPwdResult["surface_id"] as? String, focusedPanelId.uuidString)
+        XCTAssertEqual(workspace.panelDirectories[focusedPanelId], "/home/demo/project")
+
         let portsKickResponse = try await sendV2RequestAsync(
             method: "surface.ports_kick",
             params: ["workspace_id": workspace.id.uuidString],
@@ -656,6 +670,23 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let reportTTYData = try XCTUnwrap(reportTTYError["data"] as? [String: Any], "Expected error data payload")
         XCTAssertEqual(reportTTYData["surface_id"] as? String, unknownSurfaceId.uuidString)
         XCTAssertTrue(workspace.surfaceTTYNames.isEmpty)
+
+        let reportPwdResponse = try await sendV2RequestAsync(
+            method: "surface.report_pwd",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": unknownSurfaceId.uuidString,
+                "directory": "/home/demo/project"
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(reportPwdResponse["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(reportPwdResponse)")
+        let reportPwdError = try XCTUnwrap(reportPwdResponse["error"] as? [String: Any], "Unexpected JSON-RPC response: \(reportPwdResponse)")
+        XCTAssertEqual(reportPwdError["code"] as? String, "not_found")
+        let reportPwdData = try XCTUnwrap(reportPwdError["data"] as? [String: Any], "Expected error data payload")
+        XCTAssertEqual(reportPwdData["surface_id"] as? String, unknownSurfaceId.uuidString)
+        XCTAssertNil(workspace.panelDirectories[unknownSurfaceId])
 
         let portsKickResponse = try await sendV2RequestAsync(
             method: "surface.ports_kick",

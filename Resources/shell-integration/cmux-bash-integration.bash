@@ -133,6 +133,27 @@ _cmux_ports_kick_via_relay() {
     _cmux_relay_rpc_bg "surface.ports_kick" "$params"
 }
 
+_cmux_report_pwd_if_changed() {
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    local pwd="$PWD"
+    [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]] || return 0
+    _CMUX_PWD_LAST_PWD="$pwd"
+
+    if _cmux_socket_is_unix; then
+        local qpwd="${pwd//\"/\\\"}"
+        { _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"; } >/dev/null 2>&1 & disown
+        return 0
+    fi
+
+    _cmux_socket_uses_remote_relay || return 0
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 0
+    local pwd_json params
+    pwd_json="$(_cmux_json_escape "$pwd")"
+    params="{\"workspace_id\":\"$workspace_id\",\"directory\":\"$pwd_json\",\"surface_id\":\"$CMUX_PANEL_ID\"}"
+    _cmux_relay_rpc_bg "surface.report_pwd" "$params"
+}
+
 _cmux_restore_scrollback_once() {
     local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
     [[ -n "$path" ]] || return 0
@@ -1224,6 +1245,7 @@ _cmux_prompt_command() {
         _cmux_report_shell_activity_state prompt
     fi
     _cmux_report_tty_once
+    _cmux_report_pwd_if_changed
 
     local now
     now="$(_cmux_now)"
@@ -1258,15 +1280,6 @@ _cmux_prompt_command() {
     fi
 
     _cmux_report_tty_once
-
-    # CWD: keep the app in sync with the actual shell directory.
-    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
-        _CMUX_PWD_LAST_PWD="$pwd"
-        {
-            local qpwd="${pwd//\"/\\\"}"
-            _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        } >/dev/null 2>&1 & disown
-    fi
 
     # Branch can change via aliases/tools while an older probe is still in flight.
     # Track .git/HEAD content so we can restart stale probes immediately.
