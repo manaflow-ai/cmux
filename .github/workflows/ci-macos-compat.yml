@@ -3,6 +3,9 @@ name: macOS Compatibility
 on:
   workflow_dispatch:
 
+env:
+  SWIFT_BACKTRACE: enable=no,interactive=no,timeout=0s,color=no,symbolicate=off
+
 jobs:
   compat-tests:
     strategy:

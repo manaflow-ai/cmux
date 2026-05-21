@@ -26,6 +26,9 @@ on:
         required: false
         default: "120"
 
+env:
+  SWIFT_BACKTRACE: enable=no,interactive=no,timeout=0s,color=no,symbolicate=off
+
 jobs:
   tests:
     runs-on: warp-macos-15-arm64-6x

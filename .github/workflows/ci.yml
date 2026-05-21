@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  SWIFT_BACKTRACE: enable=no
+  SWIFT_BACKTRACE: enable=no,interactive=no,timeout=0s,color=no,symbolicate=off
 
 jobs:
   workflow-guard-tests:
