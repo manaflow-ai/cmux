@@ -72,6 +72,44 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotRestoresClosedDockWithoutReopeningFocusedContent() throws {
+        let workspace = Workspace()
+        workspace.dockLayout.setDockCount(edge: .right, count: 1)
+        let dock = try XCTUnwrap(workspace.dockLayout.docksSnapshot(for: .right).first)
+        workspace.dockLayout.openEdge(.right)
+
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+
+        workspace.dockLayout.closeEdge(.right)
+        XCTAssertFalse(workspace.dockLayout.isEdgeOpen(.right))
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let rightDockSnapshot = try XCTUnwrap(snapshot.docks?.first { $0.edge == .right })
+        XCTAssertFalse(rightDockSnapshot.isOpen)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertFalse(
+            restored.dockLayout.isEdgeOpen(.right),
+            "Restoring hidden dock content should not reopen the dock edge"
+        )
+        let restoredDock = try XCTUnwrap(restored.dockLayout.docksSnapshot(for: .right).first)
+        let restoredPanelIds = restoredDock.controller.allTabIds.compactMap { restored.panelIdFromSurfaceId($0) }
+        XCTAssertEqual(restoredPanelIds.count, 1)
+        XCTAssertTrue(restoredPanelIds.allSatisfy { restored.terminalPanel(for: $0) != nil })
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-markdown-\(UUID().uuidString)", isDirectory: true)

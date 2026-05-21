@@ -2186,7 +2186,9 @@ final class CmuxConfigStore: ObservableObject {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = globalConfigPath
             }
-            if configuredNewWorkspaceDefinition == nil,
+            if configuredNewWorkspaceActionID == nil,
+               configuredNewWorkspaceCommandName == nil,
+               configuredNewWorkspaceDefinition == nil,
                let newWorkspace = globalConfig.newWorkspace {
                 configuredNewWorkspaceDefinition = newWorkspace
                 configuredNewWorkspaceDefinitionSourcePath = globalConfigPath

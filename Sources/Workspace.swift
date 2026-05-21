@@ -280,6 +280,7 @@ extension Workspace {
                 oldToNewPanelIds: &oldToNewPanelIds
             )
         }
+        applySessionDockOpenStates(snapshot.docks ?? [])
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
         applySessionDividerPositions(
@@ -727,13 +728,21 @@ extension Workspace {
                 )
             }
 
+        }
+        return leaves
+    }
+
+    private func applySessionDockOpenStates(_ snapshots: [SessionWorkspaceDockSnapshot]) {
+        guard !snapshots.isEmpty else { return }
+        for edge in WorkspaceDockEdge.allCases {
+            let edgeSnapshots = snapshots.filter { $0.edge == edge }
+            guard !edgeSnapshots.isEmpty else { continue }
             if edgeSnapshots.contains(where: \.isOpen) {
                 dockLayout.openEdge(edge)
             } else {
                 dockLayout.closeEdge(edge)
             }
         }
-        return leaves
     }
 
     private func restoreSessionLayoutNode(
@@ -805,7 +814,7 @@ extension Workspace {
         }
 
         for (index, panelId) in createdPanelIds.enumerated() {
-            _ = reorderSurface(panelId: panelId, toIndex: index)
+            _ = reorderSurface(panelId: panelId, toIndex: index, focus: false)
         }
 
         let selectedPanelId: UUID? = {

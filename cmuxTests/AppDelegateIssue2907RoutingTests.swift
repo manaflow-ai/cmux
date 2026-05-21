@@ -217,6 +217,79 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNotNil(split["surface_id"] as? String)
     }
 
+    func testPaneSocketCommandsResolveDockPanes() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        workspace.dockLayout.openEdge(.left)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+
+        let paneList = try v2Result(method: "pane.list", params: ["workspace_id": workspace.id.uuidString])
+        let panes = try XCTUnwrap(paneList["panes"] as? [[String: Any]])
+        XCTAssertTrue(
+            panes.contains { ($0["id"] as? String) == dockPaneId.id.uuidString },
+            "pane.list should include panes owned by dock controllers"
+        )
+        let focusedPanes = panes.filter { ($0["focused"] as? Bool) == true }
+        XCTAssertEqual(focusedPanes.map { $0["id"] as? String }, [dockPaneId.id.uuidString])
+
+        let paneFocus = try v2Result(method: "pane.focus", params: ["pane_id": dockPaneId.id.uuidString])
+        XCTAssertEqual(paneFocus["pane_id"] as? String, dockPaneId.id.uuidString)
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+
+        let paneSurfaces = try v2Result(method: "pane.surfaces", params: ["pane_id": dockPaneId.id.uuidString])
+        XCTAssertEqual(paneSurfaces["pane_id"] as? String, dockPaneId.id.uuidString)
+        let surfaces = try XCTUnwrap(paneSurfaces["surfaces"] as? [[String: Any]])
+        XCTAssertTrue(surfaces.contains { ($0["id"] as? String) == dockPanel.id.uuidString })
+
+        let created = try v2Result(
+            method: "surface.create",
+            params: [
+                "pane_id": dockPaneId.id.uuidString,
+                "type": "terminal",
+                "focus": false
+            ]
+        )
+        let createdSurfaceIdString = try XCTUnwrap(created["surface_id"] as? String)
+        let createdSurfaceId = try XCTUnwrap(UUID(uuidString: createdSurfaceIdString))
+        XCTAssertEqual(created["pane_id"] as? String, dockPaneId.id.uuidString)
+        XCTAssertEqual(workspace.paneId(forPanelId: createdSurfaceId), dockPaneId)
+        XCTAssertTrue(dock.controller.allTabIds.contains { workspace.panelIdFromSurfaceId($0) == createdSurfaceId })
+    }
+
     func testIssue2907NoTargetCommandsPreferKeyRecoveredWindowOverRegisteredWindow() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
