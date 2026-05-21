@@ -2,7 +2,7 @@ import CMUXVNC
 import CoreGraphics
 import Darwin
 import Foundation
-import RoyalVNCKit
+@preconcurrency import RoyalVNCKit
 
 private enum HelperExit: Int32 {
     case usage = 64
@@ -80,6 +80,8 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
 
     private let channel: SocketChannel
     private let request: VNCConnectRequest
+    private let connectionQueue = DispatchQueue(label: "com.cmux.vnc-helper.connection")
+    private let connectionQueueKey = DispatchSpecificKey<Void>()
     private let connectionLock = NSLock()
     private let stateLock = NSLock()
     private let inputLock = NSLock()
@@ -103,9 +105,17 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     init(channel: SocketChannel, request: VNCConnectRequest) {
         self.channel = channel
         self.request = request
+        connectionQueue.setSpecific(key: connectionQueueKey, value: ())
     }
 
     func start() {
+        runOnConnectionQueue { [weak self] in
+            self?.startOnConnectionQueue()
+        }
+    }
+
+    private func startOnConnectionQueue() {
+        guard !isCurrentlyClosed() else { return }
         let settings = VNCConnection.Settings(
             isDebugLoggingEnabled: false,
             hostname: request.host,
@@ -143,6 +153,13 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     }
 
     func handle(_ message: VNCControlMessage) {
+        runOnConnectionQueue { [weak self] in
+            self?.handleOnConnectionQueue(message)
+        }
+    }
+
+    private func handleOnConnectionQueue(_ message: VNCControlMessage) {
+        guard !isCurrentlyClosed() else { return }
         switch message.kind {
         case "close":
             close()
@@ -253,11 +270,20 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             isRemoteInputReady = false
             pendingInputMessages.removeAll(keepingCapacity: false)
         }
-        withConnection { $0.disconnect() }
+        runOnConnectionQueue { [weak self] in
+            self?.withConnection { $0.disconnect() }
+        }
         signalTerminated()
     }
 
     func connection(_ connection: VNCConnection, stateDidChange connectionState: VNCConnection.ConnectionState) {
+        _ = connection
+        runOnConnectionQueue { [weak self] in
+            self?.connectionOnConnectionQueue(stateDidChange: connectionState)
+        }
+    }
+
+    private func connectionOnConnectionQueue(stateDidChange connectionState: VNCConnection.ConnectionState) {
         if connectionState.status == .disconnected,
            let error = connectionState.error {
             failConnection(error: error)
@@ -300,6 +326,13 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     }
 
     func connection(_ connection: VNCConnection, didCreateFramebuffer framebuffer: VNCFramebuffer) {
+        _ = connection
+        runOnConnectionQueue { [weak self] in
+            self?.connectionOnConnectionQueue(didCreateFramebuffer: framebuffer)
+        }
+    }
+
+    private func connectionOnConnectionQueue(didCreateFramebuffer framebuffer: VNCFramebuffer) {
         sendControl(VNCControlMessage(
             kind: "size",
             sessionName: request.sessionName,
@@ -310,6 +343,13 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     }
 
     func connection(_ connection: VNCConnection, didResizeFramebuffer framebuffer: VNCFramebuffer) {
+        _ = connection
+        runOnConnectionQueue { [weak self] in
+            self?.connectionOnConnectionQueue(didResizeFramebuffer: framebuffer)
+        }
+    }
+
+    private func connectionOnConnectionQueue(didResizeFramebuffer framebuffer: VNCFramebuffer) {
         sendControl(VNCControlMessage(
             kind: "size",
             sessionName: request.sessionName,
@@ -320,6 +360,25 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
 
     func connection(
         _ connection: VNCConnection,
+        didUpdateFramebuffer framebuffer: VNCFramebuffer,
+        x: UInt16,
+        y: UInt16,
+        width: UInt16,
+        height: UInt16
+    ) {
+        _ = connection
+        runOnConnectionQueue { [weak self] in
+            self?.connectionOnConnectionQueue(
+                didUpdateFramebuffer: framebuffer,
+                x: x,
+                y: y,
+                width: width,
+                height: height
+            )
+        }
+    }
+
+    private func connectionOnConnectionQueue(
         didUpdateFramebuffer framebuffer: VNCFramebuffer,
         x: UInt16,
         y: UInt16,
@@ -481,6 +540,18 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
 
     private func currentFramebuffer() -> VNCFramebuffer? {
         connectionLock.withLock { connection?.framebuffer }
+    }
+
+    private func runOnConnectionQueue(_ body: @Sendable @escaping () -> Void) {
+        if DispatchQueue.getSpecific(key: connectionQueueKey) != nil {
+            body()
+        } else {
+            connectionQueue.async(execute: body)
+        }
+    }
+
+    private func isCurrentlyClosed() -> Bool {
+        stateLock.withLock { isClosed }
     }
 
     private func markClosed() -> Bool {
