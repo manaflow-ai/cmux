@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
@@ -162,6 +163,219 @@ private struct BrowserScreenshotWebContentMetrics {
     let contentSize: NSSize
     let viewportSize: NSSize
     let scrollOffset: NSPoint
+}
+
+@MainActor
+private final class BrowserScreenshotSelectionOverlayView: NSView {
+    private let onFinish: (NSRect?) -> Void
+    private var dragStart: NSPoint?
+    private var dragCurrent: NSPoint?
+    private var dashPhase: CGFloat = 0
+    private var dashTimer: Timer?
+    private var didFinish = false
+
+    init(frame: NSRect, onFinish: @escaping (NSRect?) -> Void) {
+        self.onFinish = onFinish
+        super.init(frame: frame)
+        autoresizingMask = [.width, .height]
+        wantsLayer = true
+        layer?.zPosition = 10_000
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    deinit {
+        dashTimer?.invalidate()
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+    override var isOpaque: Bool { false }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            window?.makeFirstResponder(self)
+            startDashAnimation()
+        } else {
+            dashTimer?.invalidate()
+            dashTimer = nil
+        }
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .crosshair)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = clampedPoint(convert(event.locationInWindow, from: nil))
+        dragStart = point
+        dragCurrent = point
+        needsDisplay = true
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard dragStart != nil else { return }
+        dragCurrent = clampedPoint(convert(event.locationInWindow, from: nil))
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard dragStart != nil else {
+            cancel()
+            return
+        }
+        dragCurrent = clampedPoint(convert(event.locationInWindow, from: nil))
+        guard let selection = selectionRect, selection.width >= 2, selection.height >= 2 else {
+            cancel()
+            return
+        }
+        finish(selection)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        _ = event
+        cancel()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if Self.isCancelEvent(event) {
+            cancel()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if Self.isCancelEvent(event) {
+            cancel()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        _ = dirtyRect
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+
+        context.saveGState()
+        NSColor.black.withAlphaComponent(0.42).setFill()
+        if let selection = selectionRect, selection.width > 0, selection.height > 0 {
+            let dimPath = NSBezierPath(rect: bounds)
+            dimPath.append(NSBezierPath(rect: selection))
+            dimPath.windingRule = .evenOdd
+            dimPath.fill()
+            drawSelectionBorder(selection)
+            drawDimensionsTooltip(for: selection)
+        } else {
+            bounds.fill()
+        }
+        context.restoreGState()
+    }
+
+    private var selectionRect: NSRect? {
+        guard let dragStart, let dragCurrent else { return nil }
+        return NSRect(
+            x: min(dragStart.x, dragCurrent.x),
+            y: min(dragStart.y, dragCurrent.y),
+            width: abs(dragCurrent.x - dragStart.x),
+            height: abs(dragCurrent.y - dragStart.y)
+        )
+    }
+
+    private static func isCancelEvent(_ event: NSEvent) -> Bool {
+        if event.keyCode == 53 {
+            return true
+        }
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return modifiers.contains(.command) && event.charactersIgnoringModifiers == "."
+    }
+
+    private func clampedPoint(_ point: NSPoint) -> NSPoint {
+        NSPoint(
+            x: min(max(point.x, bounds.minX), bounds.maxX),
+            y: min(max(point.y, bounds.minY), bounds.maxY)
+        )
+    }
+
+    private func startDashAnimation() {
+        guard dashTimer == nil else { return }
+        dashTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                dashPhase = (dashPhase + 1).truncatingRemainder(dividingBy: 8)
+                needsDisplay = true
+            }
+        }
+    }
+
+    private func drawSelectionBorder(_ selection: NSRect) {
+        let border = NSBezierPath(rect: selection.insetBy(dx: 0.5, dy: 0.5))
+        border.lineWidth = 1
+
+        NSColor.white.setStroke()
+        var whitePattern: [CGFloat] = [4, 4]
+        border.setLineDash(&whitePattern, count: whitePattern.count, phase: dashPhase)
+        border.stroke()
+
+        NSColor.black.setStroke()
+        var blackPattern: [CGFloat] = [4, 4]
+        border.setLineDash(&blackPattern, count: blackPattern.count, phase: dashPhase + 4)
+        border.stroke()
+    }
+
+    private func drawDimensionsTooltip(for selection: NSRect) {
+        let text = "\(Int(selection.width)) x \(Int(selection.height))"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.white,
+        ]
+        let attributed = NSAttributedString(string: text, attributes: attributes)
+        let textSize = attributed.size()
+        let padding = NSSize(width: 8, height: 4)
+        let tooltipSize = NSSize(width: textSize.width + padding.width * 2, height: textSize.height + padding.height * 2)
+        let origin = tooltipOrigin(for: tooltipSize, near: selection)
+        let backgroundRect = NSRect(origin: origin, size: tooltipSize)
+
+        NSColor.black.withAlphaComponent(0.72).setFill()
+        NSBezierPath(roundedRect: backgroundRect, xRadius: 4, yRadius: 4).fill()
+        attributed.draw(
+            at: NSPoint(
+                x: backgroundRect.minX + padding.width,
+                y: backgroundRect.minY + padding.height
+            )
+        )
+    }
+
+    private func tooltipOrigin(for tooltipSize: NSSize, near selection: NSRect) -> NSPoint {
+        let preferred = NSPoint(
+            x: selection.minX,
+            y: selection.minY - tooltipSize.height - 8
+        )
+        if bounds.contains(NSRect(origin: preferred, size: tooltipSize)) {
+            return preferred
+        }
+
+        let fallbackY = min(bounds.maxY - tooltipSize.height - 8, selection.maxY + 8)
+        return NSPoint(
+            x: min(max(bounds.minX + 8, selection.minX), bounds.maxX - tooltipSize.width - 8),
+            y: max(bounds.minY + 8, fallbackY)
+        )
+    }
+
+    private func cancel() {
+        finish(nil)
+    }
+
+    private func finish(_ selection: NSRect?) {
+        guard !didFinish else { return }
+        didFinish = true
+        dashTimer?.invalidate()
+        dashTimer = nil
+        removeFromSuperview()
+        onFinish(selection)
+    }
 }
 
 @MainActor
@@ -404,25 +618,45 @@ enum BrowserScreenshotWebViewSnapshotter {
     }
 }
 
+private var cmuxWebViewScreenshotSelectionOverlayKey: UInt8 = 0
+
 extension CmuxWebView {
+    private var screenshotSelectionOverlay: BrowserScreenshotSelectionOverlayView? {
+        get {
+            objc_getAssociatedObject(self, &cmuxWebViewScreenshotSelectionOverlayKey) as? BrowserScreenshotSelectionOverlayView
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &cmuxWebViewScreenshotSelectionOverlayKey,
+                newValue,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
     func appendScreenshotContextMenuItems(to menu: NSMenu) {
         let pageTitle = String(localized: "browser.contextMenu.screenshotPage", defaultValue: "Screenshot page")
-        guard !menu.items.contains(where: {
-            $0.action == #selector(contextMenuScreenshotPage(_:)) || $0.title == pageTitle
-        }) else {
+        let sectionTitle = String(localized: "browser.contextMenu.screenshotSection", defaultValue: "Screenshot section")
+        let items: [(String, Selector)] = [
+            (pageTitle, #selector(contextMenuScreenshotPage(_:))),
+            (sectionTitle, #selector(contextMenuScreenshotSection(_:))),
+        ].filter { title, action in
+            !menu.items.contains { $0.action == action || $0.title == title }
+        }
+
+        guard !items.isEmpty else {
             return
         }
 
         if !menu.items.isEmpty {
             menu.addItem(.separator())
         }
-        let pageItem = NSMenuItem(
-            title: pageTitle,
-            action: #selector(contextMenuScreenshotPage(_:)),
-            keyEquivalent: ""
-        )
-        pageItem.target = self
-        menu.addItem(pageItem)
+        for (title, action) in items {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
     }
 
     @objc func contextMenuScreenshotPage(_ sender: Any?) {
@@ -442,5 +676,38 @@ extension CmuxWebView {
                 NSSound.beep()
             }
         }
+    }
+
+    @objc func contextMenuScreenshotSection(_ sender: Any?) {
+        _ = sender
+        beginScreenshotSectionSelection()
+    }
+
+    private func beginScreenshotSectionSelection() {
+        screenshotSelectionOverlay?.removeFromSuperview()
+
+        let overlay = BrowserScreenshotSelectionOverlayView(frame: bounds) { [weak self] selection in
+            guard let self else { return }
+            self.screenshotSelectionOverlay = nil
+            guard let selection else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    _ = try await BrowserScreenshotPipeline.captureAndWrite(
+                        mode: .section(selectionInView: selection, viewBounds: self.bounds),
+                        snapshot: { try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(from: self) },
+                        pasteboard: .general
+                    )
+                } catch {
+                    #if DEBUG
+                    cmuxDebugLog("browser.screenshot.section.failed error=\(error.localizedDescription)")
+                    #endif
+                    NSSound.beep()
+                }
+            }
+        }
+        screenshotSelectionOverlay = overlay
+        addSubview(overlay, positioned: .above, relativeTo: nil)
+        window?.makeFirstResponder(overlay)
     }
 }
