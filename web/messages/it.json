@@ -300,7 +300,12 @@
       "browserHostsEmbed": "Host da aprire nel browser integrato: si applica ai link cliccati dall'output del terminale. Gli host in questa lista si aprono in cmux; gli altri host si aprono nel browser predefinito. Supporta un host o wildcard per riga (ad esempio: example.com, *.internal.example).",
       "browserHostsHttp": "Host HTTP consentiti nel browser integrato: si applica solo agli URL HTTP (non-HTTPS). Gli host in questa lista possono aprirsi in cmux senza avviso. I valori predefiniti includono localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me.",
       "exampleConfig": "Esempio di configurazione",
-      "metaTitle": "Configurazione"
+      "metaTitle": "Configurazione",
+      "schemaDescriptions": {
+        "automation": {
+          "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+        }
+      }
     },
     "customCommands": {
       "title": "Comandi personalizzati",

@@ -60505,95 +60505,19 @@
     },
     "settings.automation.suppressSubagentNotifications": {
       "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suppress Subagent Notifications"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サブエージェント通知を抑制"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "하위 에이전트 알림 억제"
-          }
-        }
-      }
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"bs":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"da":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"de":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"en":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"es":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"fr":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"it":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"ja":{"stringUnit":{"state":"translated","value":"サブエージェント通知を抑制"}},"ko":{"stringUnit":{"state":"translated","value":"하위 에이전트 알림 억제"}},"nb":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"pl":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"ru":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"th":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"tr":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"uk":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}}}
     },
     "settings.automation.suppressSubagentNotifications.note": {
       "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フックプロセスの親子関係を使用します。ネストされたCodexまたはClaudeセッションでも完了通知を出したい場合は無効にしてください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "훅 프로세스의 상위 프로세스 관계를 사용합니다. 중첩된 Codex 또는 Claude 세션도 완료 알림을 보내야 한다면 비활성화하세요."
-          }
-        }
-      }
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"bs":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"da":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"de":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"en":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"es":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"fr":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"it":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"ja":{"stringUnit":{"state":"translated","value":"フックプロセスの親子関係を使用します。ネストされたCodexまたはClaudeセッションでも完了通知を出したい場合は無効にしてください。"}},"ko":{"stringUnit":{"state":"translated","value":"훅 프로세스의 상위 프로세스 관계를 사용합니다. 중첩된 Codex 또는 Claude 세션도 완료 알림을 보내야 한다면 비활성화하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"pl":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"ru":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"th":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"tr":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"uk":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}}}
     },
     "settings.automation.suppressSubagentNotifications.subtitleOff": {
       "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Child agent completions notify like top-level agents."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "子エージェントの完了もトップレベルのエージェントと同様に通知します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "하위 에이전트 완료도 최상위 에이전트처럼 알립니다."
-          }
-        }
-      }
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"bs":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"da":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"de":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"en":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"es":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"fr":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"it":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"ja":{"stringUnit":{"state":"translated","value":"子エージェントの完了もトップレベルのエージェントと同様に通知します。"}},"ko":{"stringUnit":{"state":"translated","value":"하위 에이전트 완료도 최상위 에이전트처럼 알립니다."}},"nb":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"pl":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"ru":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"th":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"tr":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"uk":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}}}
     },
     "settings.automation.suppressSubagentNotifications.subtitleOn": {
       "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Child agent completions stay in Feed without notifications."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "子エージェントの完了は通知せずFeedにのみ残ります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "하위 에이전트 완료는 알림 없이 Feed에만 남습니다."
-          }
-        }
-      }
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"bs":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"da":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"de":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"en":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"es":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"fr":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"it":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"ja":{"stringUnit":{"state":"translated","value":"子エージェントの完了は通知せずFeedにのみ残ります。"}},"ko":{"stringUnit":{"state":"translated","value":"하위 에이전트 완료는 알림 없이 Feed에만 남습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"pl":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"ru":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"th":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"tr":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"uk":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}}}
     },
     "settings.automation.cursor": {
       "extractionState": "manual",
@@ -78660,26 +78584,7 @@
     },
     "settings.search.alias.setting.automation.subagent-notifications": {
       "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "automation.suppressSubagentNotifications サブエージェント ネスト 子エージェント codex claude フック 通知"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "automation.suppressSubagentNotifications 하위 에이전트 중첩 자식 에이전트 codex claude 훅 알림"
-          }
-        }
-      }
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"bs":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"da":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"de":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"en":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"es":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"fr":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"it":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"ja":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications サブエージェント ネスト 子エージェント codex claude フック 通知"}},"ko":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications 하위 에이전트 중첩 자식 에이전트 codex claude 훅 알림"}},"nb":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"pl":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"pt-BR":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"ru":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"th":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"tr":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"uk":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}}}
     },
     "settings.search.alias.setting.automation.cursor": {
         "extractionState": "manual",

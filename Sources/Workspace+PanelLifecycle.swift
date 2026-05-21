@@ -133,6 +133,18 @@ extension Workspace {
         return false
     }
 
+    func agentPIDs(forPanelId panelId: UUID?) -> [String: pid_t] {
+        var agentPIDsForPanel = agentPIDs.filter { agentPIDPanelIdsByKey[$0.key] == nil }
+        guard let panelId else { return agentPIDsForPanel }
+        let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
+        for key in panelKeys {
+            if let pid = agentPIDs[key] {
+                agentPIDsForPanel[key] = pid
+            }
+        }
+        return agentPIDsForPanel
+    }
+
     func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
         let visibleStructuredStatusKeys = visibleStructuredAgentStatusKeysByPanel()
         return statusEntries.values.filter { entry in

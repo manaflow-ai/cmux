@@ -313,15 +313,46 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
         )
 
-        workspace.recordAgentPID(key: "grok.grok-session-123", pid: pid_t(12345), panelId: firstPanelId)
+        workspace.recordAgentPID(key: "codex.codex-session-123", pid: pid_t(12345), panelId: firstPanelId)
 
         XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: firstPanelId))
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: nil))
+        XCTAssertTrue(
+            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
+                agentPIDs: workspace.agentPIDs(forPanelId: firstPanelId),
+                claudeHooksEnabled: true,
+                suppressSubagentNotifications: true
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
+                agentPIDs: workspace.agentPIDs(forPanelId: secondPanel.id),
+                claudeHooksEnabled: true,
+                suppressSubagentNotifications: true
+            )
+        )
 
         workspace.recordAgentPID(key: "custom-tool.session", pid: pid_t(12346), panelId: secondPanel.id)
 
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
+
+        workspace.recordAgentPID(key: "codex.unbound-session", pid: pid_t(12347), panelId: nil)
+
+        XCTAssertTrue(
+            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
+                agentPIDs: workspace.agentPIDs(forPanelId: secondPanel.id),
+                claudeHooksEnabled: true,
+                suppressSubagentNotifications: true
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
+                agentPIDs: workspace.agentPIDs(forPanelId: nil),
+                claudeHooksEnabled: true,
+                suppressSubagentNotifications: true
+            )
+        )
     }
 
     func testSidebarStatusOnlyShowsStructuredAgentStatusBackedByLivePanelRuntime() throws {

@@ -1052,7 +1052,7 @@ private let agentHookWrapperProcessNames: Set<String> = [
     "env"
 ]
 
-private enum HookAgentProcessKind: String {
+private enum HookAgentProcessKind {
     case codex
     case claude
 }
@@ -19708,8 +19708,11 @@ struct CMUXCLI {
                     currentTurnRelevant = normalizedTurnId.map { $0 == payloadTurnId } ?? true
                 case "task_complete", "turn_complete":
                     let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                    if let payloadTurnId {
+                        currentTurnId = payloadTurnId
+                    }
                     if let normalizedTurnId {
-                        if payloadTurnId == normalizedTurnId {
+                        if payloadTurnId == normalizedTurnId || (payloadTurnId == nil && currentTurnRelevant) {
                             currentTurnRelevant = false
                         }
                     } else {
@@ -19721,7 +19724,7 @@ struct CMUXCLI {
                 continue
             }
 
-            guard currentTurnRelevant || normalizedTurnId == nil || currentTurnId == nil else {
+            guard currentTurnRelevant || currentTurnId == nil else {
                 continue
             }
             guard codexTranscriptLineHasSubagentNotification(object) else {
@@ -21077,7 +21080,7 @@ struct CMUXCLI {
         env: [String: String]
     ) -> Bool {
         if let override = normalizedHookValue(env["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"])?.lowercased(),
-           ["1", "true", "yes"].contains(override) {
+           Self.parseHookBoolean(override) == true {
             return true
         }
 
@@ -21170,7 +21173,7 @@ struct CMUXCLI {
         }
 
         let nameBase = Self.agentProcessBasename(name)
-        guard nameBase == "node" || nameBase == "bun" else {
+        if let nameBase, nameBase != "node", nameBase != "bun" {
             return nil
         }
 

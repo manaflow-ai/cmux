@@ -3975,7 +3975,9 @@ class GhosttyApp {
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
                     if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
                        (workspace.suppressesRawTerminalNotification(panelId: surfaceId)
-                        || Self.shouldSuppressAgentManagedDesktopNotification(agentPIDs: workspace.agentPIDs)) {
+                        || Self.shouldSuppressAgentManagedDesktopNotification(
+                            agentPIDs: workspace.agentPIDs(forPanelId: surfaceId)
+                        )) {
                         return true
                     }
                     let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
@@ -4248,7 +4250,9 @@ class GhosttyApp {
                 let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
                 if let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
                    (workspace.suppressesRawTerminalNotification(panelId: surfaceId)
-                    || Self.shouldSuppressAgentManagedDesktopNotification(agentPIDs: workspace.agentPIDs)) {
+                    || Self.shouldSuppressAgentManagedDesktopNotification(
+                        agentPIDs: workspace.agentPIDs(forPanelId: surfaceId)
+                    )) {
                     return
                 }
                 let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
