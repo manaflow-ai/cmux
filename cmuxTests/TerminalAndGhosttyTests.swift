@@ -4982,6 +4982,37 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testActiveSocketPathPreservesRunningFallbackPathForSettingsRestart() {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let fallbackPath = makeTempSocketPath()
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: fallbackPath,
+            accessMode: .cmuxOnly
+        )
+
+        let restartPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath
+        )
+        XCTAssertEqual(restartPath, fallbackPath)
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: restartPath,
+            accessMode: .allowAll
+        )
+
+        XCTAssertEqual(
+            TerminalController.shared.activeSocketPath(
+                preferredPath: SocketControlSettings.stableDefaultSocketPath
+            ),
+            fallbackPath
+        )
+    }
+
     private func makeTempSocketPath() -> String {
         "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
     }

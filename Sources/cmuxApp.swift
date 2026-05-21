@@ -851,9 +851,12 @@ struct cmuxApp: App {
     private func updateSocketController() {
         let mode = SocketControlSettings.effectiveMode(userMode: currentSocketMode)
         if mode != .off {
+            let socketPath = TerminalController.shared.activeSocketPath(
+                preferredPath: SocketControlSettings.socketPath()
+            )
             TerminalController.shared.start(
                 tabManager: activeTabManager,
-                socketPath: SocketControlSettings.socketPath(),
+                socketPath: socketPath,
                 accessMode: mode
             )
         } else {
