@@ -6005,6 +6005,11 @@ class TerminalController {
               !attachmentID.isEmpty else {
             return .err(code: "invalid_params", message: "Missing attachment_id", data: nil)
         }
+        guard let attachmentToken = v2RawString(params, "attachment_token")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachmentToken.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing attachment_token", data: nil)
+        }
         guard let cols = v2StrictInt(params, "cols"), cols > 0,
               let rows = v2StrictInt(params, "rows"), rows > 0 else {
             return .err(code: "invalid_params", message: "cols and rows must be positive integers", data: nil)
@@ -6031,12 +6036,14 @@ class TerminalController {
             try controller.resizePTY(
                 sessionID: sessionID,
                 attachmentID: attachmentID,
+                attachmentToken: attachmentToken,
                 cols: cols,
                 rows: rows
             )
             var payload = v2RemotePTYTargetPayload(target)
             payload["session_id"] = sessionID
             payload["attachment_id"] = attachmentID
+            payload["attachment_token"] = attachmentToken
             payload["cols"] = cols
             payload["rows"] = rows
             payload["resized"] = true

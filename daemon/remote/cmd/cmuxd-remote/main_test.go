@@ -720,16 +720,18 @@ func TestRPCServerCloseAllLeavesSharedPTYHubAlive(t *testing.T) {
 func TestRPCServerUntrackPTYAttachmentKeepsNewerReattach(t *testing.T) {
 	sessionKey := persistentPTYSessionKey("reattach")
 	oldAttachment := &wsPTYAttachment{
-		sessionKey: sessionKey,
-		id:         "same",
-		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
-		persistent: true,
+		sessionKey:  sessionKey,
+		id:          "same",
+		clientToken: "old-token",
+		send:        make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		persistent:  true,
 	}
 	newAttachment := &wsPTYAttachment{
-		sessionKey: sessionKey,
-		id:         "same",
-		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
-		persistent: true,
+		sessionKey:  sessionKey,
+		id:          "same",
+		clientToken: "new-token",
+		send:        make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		persistent:  true,
 	}
 	server := &rpcServer{}
 
@@ -762,10 +764,11 @@ func TestPTYRPCPumpEmitsExitWhenAttachmentContextCanceled(t *testing.T) {
 	}
 	sessionKey := persistentPTYSessionKey("replaced")
 	attachment := &wsPTYAttachment{
-		sessionKey: sessionKey,
-		id:         "same",
-		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
-		persistent: true,
+		sessionKey:  sessionKey,
+		id:          "same",
+		clientToken: "old-token",
+		send:        make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		persistent:  true,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	sessionDone := make(chan struct{})
@@ -779,12 +782,117 @@ func TestPTYRPCPumpEmitsExitWhenAttachmentContextCanceled(t *testing.T) {
 	waitForRPCEvent(t, eventOutput, 0, func(event map[string]any) bool {
 		return event["event"] == "pty.exit" &&
 			event["session_id"] == "replaced" &&
-			event["attachment_id"] == "same"
+			event["attachment_id"] == "same" &&
+			event["attachment_token"] == "old-token"
 	})
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("PTY attachment pump did not stop after context cancellation")
+	}
+}
+
+func TestPTYRPCTokenRejectsStaleAttachmentControl(t *testing.T) {
+	eventOutput := newNotifyingBuffer()
+	server := &rpcServer{
+		nextStreamID:  1,
+		nextSessionID: 1,
+		streams:       map[string]*streamState{},
+		sessions:      map[string]*sessionState{},
+		ptyHub: newWebSocketPTYHub(wsPTYServerConfig{
+			ScrollbackLimit: 4096,
+			SessionIdleTTL:  time.Hour,
+		}, io.Discard),
+		ownsPTYHub: true,
+		frameWriter: &stdioFrameWriter{
+			writer: bufio.NewWriter(eventOutput),
+		},
+	}
+	defer server.closeAll()
+
+	attachOld := server.handleRequest(rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "token-race",
+			"attachment_id":           "same",
+			"client_attachment_token": "old-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 60",
+		},
+	})
+	if !attachOld.OK {
+		t.Fatalf("old pty.attach failed: %+v", attachOld)
+	}
+	waitForRPCEvent(t, eventOutput, 0, func(event map[string]any) bool {
+		return event["event"] == "pty.ready" &&
+			event["attachment_id"] == "same" &&
+			event["attachment_token"] == "old-token"
+	})
+
+	attachNew := server.handleRequest(rpcRequest{
+		ID:     2,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "token-race",
+			"attachment_id":           "same",
+			"client_attachment_token": "new-token",
+			"cols":                    100,
+			"rows":                    30,
+			"require_existing":        true,
+		},
+	})
+	if !attachNew.OK {
+		t.Fatalf("new pty.attach failed: %+v", attachNew)
+	}
+	waitForRPCEvent(t, eventOutput, 0, func(event map[string]any) bool {
+		return event["event"] == "pty.exit" &&
+			event["attachment_id"] == "same" &&
+			event["attachment_token"] == "old-token"
+	})
+	waitForRPCEvent(t, eventOutput, 0, func(event map[string]any) bool {
+		return event["event"] == "pty.ready" &&
+			event["attachment_id"] == "same" &&
+			event["attachment_token"] == "new-token"
+	})
+
+	staleWrite := server.handleRequest(rpcRequest{
+		ID:     3,
+		Method: "pty.write",
+		Params: map[string]any{
+			"session_id":              "token-race",
+			"attachment_id":           "same",
+			"client_attachment_token": "old-token",
+			"data_base64":             base64.StdEncoding.EncodeToString([]byte("stale")),
+		},
+	})
+	if staleWrite.OK || staleWrite.Error == nil || staleWrite.Error.Code != "not_found" {
+		t.Fatalf("stale pty.write = %+v, want not_found", staleWrite)
+	}
+	staleDetach := server.handleRequest(rpcRequest{
+		ID:     4,
+		Method: "pty.detach",
+		Params: map[string]any{
+			"session_id":              "token-race",
+			"attachment_id":           "same",
+			"client_attachment_token": "old-token",
+		},
+	})
+	if staleDetach.OK || staleDetach.Error == nil || staleDetach.Error.Code != "not_found" {
+		t.Fatalf("stale pty.detach = %+v, want not_found", staleDetach)
+	}
+	freshDetach := server.handleRequest(rpcRequest{
+		ID:     5,
+		Method: "pty.detach",
+		Params: map[string]any{
+			"session_id":              "token-race",
+			"attachment_id":           "same",
+			"client_attachment_token": "new-token",
+		},
+	})
+	if !freshDetach.OK {
+		t.Fatalf("fresh pty.detach failed: %+v", freshDetach)
 	}
 }
 

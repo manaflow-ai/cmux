@@ -42,13 +42,14 @@ type rpcResponse struct {
 }
 
 type rpcEvent struct {
-	Event        string `json:"event"`
-	StreamID     string `json:"stream_id,omitempty"`
-	SessionID    string `json:"session_id,omitempty"`
-	AttachmentID string `json:"attachment_id,omitempty"`
-	DataBase64   string `json:"data_base64,omitempty"`
-	Message      string `json:"message,omitempty"`
-	Error        string `json:"error,omitempty"`
+	Event           string `json:"event"`
+	StreamID        string `json:"stream_id,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	AttachmentID    string `json:"attachment_id,omitempty"`
+	AttachmentToken string `json:"attachment_token,omitempty"`
+	DataBase64      string `json:"data_base64,omitempty"`
+	Message         string `json:"message,omitempty"`
+	Error           string `json:"error,omitempty"`
 }
 
 type rpcFrameWriter interface {
@@ -354,6 +355,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"proxy.stream",
 					"proxy.stream.push",
 					"pty.session",
+					"pty.session.token",
 				},
 			},
 		}
@@ -726,7 +728,7 @@ func (s *rpcServer) handleSessionClose(req rpcRequest) rpcResponse {
 }
 
 func (s *rpcServer) handleSessionAttach(req rpcRequest) rpcResponse {
-	sessionID, attachmentID, cols, rows, badResp := parseSessionAttachmentParams(req, "session.attach")
+	sessionID, attachmentID, _, cols, rows, badResp := parseSessionAttachmentParams(req, "session.attach")
 	if badResp != nil {
 		return *badResp
 	}
@@ -761,7 +763,7 @@ func (s *rpcServer) handleSessionAttach(req rpcRequest) rpcResponse {
 }
 
 func (s *rpcServer) handleSessionResize(req rpcRequest) rpcResponse {
-	sessionID, attachmentID, cols, rows, badResp := parseSessionAttachmentParams(req, "session.resize")
+	sessionID, attachmentID, _, cols, rows, badResp := parseSessionAttachmentParams(req, "session.resize")
 	if badResp != nil {
 		return *badResp
 	}
@@ -912,6 +914,7 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 		}
 	}
 	attachmentID, _ := getStringParam(req.Params, "attachment_id")
+	attachmentToken, _ := getStringParam(req.Params, "client_attachment_token")
 	cols, ok := getIntParam(req.Params, "cols")
 	if !ok || cols <= 0 {
 		return rpcResponse{
@@ -955,6 +958,7 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 		cols,
 		rows,
 		command,
+		attachmentToken,
 		requireExisting,
 	)
 	if err != nil {
@@ -974,9 +978,10 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 		ID: req.ID,
 		OK: true,
 		Result: map[string]any{
-			"session_id":    strings.TrimSpace(sessionID),
-			"attachment_id": attachment.id,
-			"attached":      true,
+			"session_id":       strings.TrimSpace(sessionID),
+			"attachment_id":    attachment.id,
+			"attachment_token": attachment.clientToken,
+			"attached":         true,
 		},
 	}
 }
@@ -989,7 +994,7 @@ func ptyAttachErrorCode(requireExisting bool) string {
 }
 
 func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
-	sessionID, attachmentID, badResp := parsePTYAttachmentIdentity(req, "pty.write")
+	sessionID, attachmentID, attachmentToken, badResp := parsePTYAttachmentIdentity(req, "pty.write")
 	if badResp != nil {
 		return *badResp
 	}
@@ -1015,7 +1020,7 @@ func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
 			},
 		}
 	}
-	if s.ptyHub == nil || !s.ptyHub.writeInputByID(sessionID, attachmentID, payload) {
+	if s.ptyHub == nil || !s.ptyHub.writeInputByID(sessionID, attachmentID, attachmentToken, payload) {
 		return rpcResponse{
 			ID: req.ID,
 			OK: false,
@@ -1035,11 +1040,11 @@ func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
 }
 
 func (s *rpcServer) handlePTYResize(req rpcRequest) rpcResponse {
-	sessionID, attachmentID, cols, rows, badResp := parseSessionAttachmentParams(req, "pty.resize")
+	sessionID, attachmentID, attachmentToken, cols, rows, badResp := parseSessionAttachmentParams(req, "pty.resize")
 	if badResp != nil {
 		return *badResp
 	}
-	if s.ptyHub == nil || !s.ptyHub.resizeByID(sessionID, attachmentID, cols, rows) {
+	if s.ptyHub == nil || !s.ptyHub.resizeByID(sessionID, attachmentID, attachmentToken, cols, rows) {
 		return rpcResponse{
 			ID: req.ID,
 			OK: false,
@@ -1059,11 +1064,11 @@ func (s *rpcServer) handlePTYResize(req rpcRequest) rpcResponse {
 }
 
 func (s *rpcServer) handlePTYDetach(req rpcRequest) rpcResponse {
-	sessionID, attachmentID, badResp := parsePTYAttachmentIdentity(req, "pty.detach")
+	sessionID, attachmentID, attachmentToken, badResp := parsePTYAttachmentIdentity(req, "pty.detach")
 	if badResp != nil {
 		return *badResp
 	}
-	if s.ptyHub == nil || !s.ptyHub.detachByID(sessionID, attachmentID) {
+	if s.ptyHub == nil || !s.ptyHub.detachByID(sessionID, attachmentID, attachmentToken) {
 		return rpcResponse{
 			ID: req.ID,
 			OK: false,
@@ -1138,11 +1143,7 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 	for {
 		select {
 		case <-ctx.Done():
-			_ = s.frameWriter.writeEvent(rpcEvent{
-				Event:        "pty.exit",
-				SessionID:    attachment.sessionKey.sessionID,
-				AttachmentID: attachment.id,
-			})
+			_ = s.frameWriter.writeEvent(rpcPTYExitEvent(attachment))
 			return
 		case <-sessionDone:
 			for {
@@ -1155,11 +1156,7 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 						return
 					}
 				default:
-					_ = s.frameWriter.writeEvent(rpcEvent{
-						Event:        "pty.exit",
-						SessionID:    attachment.sessionKey.sessionID,
-						AttachmentID: attachment.id,
-					})
+					_ = s.frameWriter.writeEvent(rpcPTYExitEvent(attachment))
 					return
 				}
 			}
@@ -1202,13 +1199,20 @@ func rpcPTYAttachmentKey(attachment *wsPTYAttachment) string {
 	if attachment == nil {
 		return ""
 	}
-	return fmt.Sprintf("%d:%s:%d:%s", attachment.sessionKey.kind, attachment.sessionKey.sessionID, attachment.sessionKey.anonymousID, attachment.id)
+	return fmt.Sprintf(
+		"%d:%s:%d:%s:%s",
+		attachment.sessionKey.kind,
+		attachment.sessionKey.sessionID,
+		attachment.sessionKey.anonymousID,
+		attachment.id,
+		attachment.clientToken,
+	)
 }
 
-func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID string, attachmentID string, cols int, rows int, badResp *rpcResponse) {
-	sessionID, attachmentID, identityResp := parsePTYAttachmentIdentity(req, method)
+func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID string, attachmentID string, attachmentToken string, cols int, rows int, badResp *rpcResponse) {
+	sessionID, attachmentID, attachmentToken, identityResp := parsePTYAttachmentIdentity(req, method)
 	if identityResp != nil {
-		return "", "", 0, 0, identityResp
+		return "", "", "", 0, 0, identityResp
 	}
 
 	cols, ok := getIntParam(req.Params, "cols")
@@ -1221,7 +1225,7 @@ func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID stri
 				Message: method + " requires cols > 0",
 			},
 		}
-		return "", "", 0, 0, &resp
+		return "", "", "", 0, 0, &resp
 	}
 	rows, ok = getIntParam(req.Params, "rows")
 	if !ok || rows <= 0 {
@@ -1233,13 +1237,13 @@ func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID stri
 				Message: method + " requires rows > 0",
 			},
 		}
-		return "", "", 0, 0, &resp
+		return "", "", "", 0, 0, &resp
 	}
 
-	return sessionID, attachmentID, cols, rows, nil
+	return sessionID, attachmentID, attachmentToken, cols, rows, nil
 }
 
-func parsePTYAttachmentIdentity(req rpcRequest, method string) (sessionID string, attachmentID string, badResp *rpcResponse) {
+func parsePTYAttachmentIdentity(req rpcRequest, method string) (sessionID string, attachmentID string, attachmentToken string, badResp *rpcResponse) {
 	sessionID, ok := getStringParam(req.Params, "session_id")
 	if !ok || strings.TrimSpace(sessionID) == "" {
 		resp := rpcResponse{
@@ -1250,7 +1254,7 @@ func parsePTYAttachmentIdentity(req rpcRequest, method string) (sessionID string
 				Message: method + " requires session_id",
 			},
 		}
-		return "", "", &resp
+		return "", "", "", &resp
 	}
 	attachmentID, ok = getStringParam(req.Params, "attachment_id")
 	if !ok || strings.TrimSpace(attachmentID) == "" {
@@ -1262,9 +1266,10 @@ func parsePTYAttachmentIdentity(req rpcRequest, method string) (sessionID string
 				Message: method + " requires attachment_id",
 			},
 		}
-		return "", "", &resp
+		return "", "", "", &resp
 	}
-	return strings.TrimSpace(sessionID), strings.TrimSpace(attachmentID), nil
+	attachmentToken, _ = getStringParam(req.Params, "client_attachment_token")
+	return strings.TrimSpace(sessionID), strings.TrimSpace(attachmentID), strings.TrimSpace(attachmentToken), nil
 }
 
 func recomputeSessionSize(session *sessionState) {

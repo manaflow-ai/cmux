@@ -181,6 +181,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             "workspace_id": UUID().uuidString,
             "session_id": "session",
             "attachment_id": "attachment",
+            "attachment_token": "token",
             "cols": 100,
             "rows": 30,
         ]

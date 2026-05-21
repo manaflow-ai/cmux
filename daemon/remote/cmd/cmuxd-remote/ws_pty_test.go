@@ -574,7 +574,7 @@ func TestWebSocketPTYInputBackpressureDoesNotBlockHub(t *testing.T) {
 	go func() {
 		defer close(writesDone)
 		for i := 0; i < defaultPTYInputQueueCap*4; i++ {
-			_ = hub.writeInputByID(session.id, attachment.id, payload)
+			_ = hub.writeInputByID(session.id, attachment.id, "", payload)
 		}
 	}()
 
@@ -644,7 +644,7 @@ func TestWebSocketPTYInputBackpressureRejectsWholePayload(t *testing.T) {
 		bytes.Repeat([]byte("x"), defaultPTYInputChunkBytes),
 		'y',
 	)
-	if hub.writeInputByID(session.id, attachment.id, payload) {
+	if hub.writeInputByID(session.id, attachment.id, "", payload) {
 		t.Fatal("writeInputByID unexpectedly accepted a two-chunk payload with one queue slot free")
 	}
 	if got := len(session.input); got != defaultPTYInputQueueCap-1 {

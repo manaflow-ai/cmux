@@ -8479,6 +8479,8 @@ struct CMUXCLI {
             throw error
         }
         var connectedFD: Int32?
+        var attachmentToken = ""
+        let controlSocketLock = NSLock()
         do {
             let host = (bridge["host"] as? String) ?? "127.0.0.1"
             guard let port = cliStrictInt(bridge["port"]), port > 0, port <= 65535 else {
@@ -8497,7 +8499,7 @@ struct CMUXCLI {
             ], options: [])
             handshakeData.append(0x0A)
             try writeAll(fd: fd, data: handshakeData)
-            try readSSHPTYBridgeReady(fd: fd)
+            attachmentToken = try readSSHPTYBridgeReady(fd: fd)
         } catch {
             notifySSHPTYAttachEndedIgnoringFailure(
                 client: client,
@@ -8513,7 +8515,6 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
-        let controlSocketLock = NSLock()
         let rawMode = TerminalRawMode()
         defer { rawMode?.restore() }
         let resizeSource = startSSHPTYResizeSource(
@@ -8521,6 +8522,7 @@ struct CMUXCLI {
             workspaceId: workspaceId,
             sessionID: sessionID,
             attachmentID: attachmentID,
+            attachmentToken: attachmentToken,
             socketLock: controlSocketLock
         )
         defer { resizeSource.cancel() }
@@ -8635,7 +8637,7 @@ struct CMUXCLI {
         ])
     }
 
-    private func readSSHPTYBridgeReady(fd: Int32) throws {
+    private func readSSHPTYBridgeReady(fd: Int32) throws -> String {
         let maxStatusBytes = 4096
         var line = Data()
         var byte = [UInt8](repeating: 0, count: 1)
@@ -8653,7 +8655,8 @@ struct CMUXCLI {
                     }
                     switch type {
                     case "ready":
-                        return
+                        return ((payload["attachment_token"] as? String)?
+                            .trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
                     case "error":
                         let message = ((payload["message"] as? String)?
                             .trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
@@ -8678,6 +8681,7 @@ struct CMUXCLI {
         workspaceId: String,
         sessionID: String,
         attachmentID: String,
+        attachmentToken: String,
         socketLock: NSLock
     ) -> DispatchSourceSignal {
         signal(SIGWINCH, SIG_IGN)
@@ -8693,6 +8697,7 @@ struct CMUXCLI {
                 "workspace_id": workspaceId,
                 "session_id": sessionID,
                 "attachment_id": attachmentID,
+                "attachment_token": attachmentToken,
                 "cols": size.cols,
                 "rows": size.rows,
             ])

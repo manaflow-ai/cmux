@@ -1593,6 +1593,11 @@ enum WorkspaceRemotePTYBridgeEvent {
     case error(String)
 }
 
+struct WorkspaceRemotePTYBridgeAttachment {
+    let attachmentID: String
+    let token: String
+}
+
 protocol WorkspaceRemotePTYBridgeRPCClient: AnyObject {
     func attachBridgePTY(
         sessionID: String,
@@ -1603,10 +1608,10 @@ protocol WorkspaceRemotePTYBridgeRPCClient: AnyObject {
         requireExisting: Bool,
         queue: DispatchQueue,
         onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-    ) throws -> String
+    ) throws -> WorkspaceRemotePTYBridgeAttachment
 
-    func writePTY(sessionID: String, attachmentID: String, data: Data) throws
-    func detachPTY(sessionID: String, attachmentID: String)
+    func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws
+    func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String)
 }
 
 private final class WorkspaceRemoteDaemonRPCClient {
@@ -1615,6 +1620,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
     private static let socketForwardStartupGracePeriod: TimeInterval = 0.75
     static let requiredProxyStreamCapability = "proxy.stream.push"
     static let requiredPTYSessionCapability = "pty.session"
+    static let requiredPTYSessionTokenCapability = "pty.session.token"
 
     enum StreamEvent {
         case data(Data)
@@ -1754,6 +1760,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
         var capabilities = [requiredProxyStreamCapability]
         if configuration.preserveAfterTerminalExit {
             capabilities.append(requiredPTYSessionCapability)
+            capabilities.append(requiredPTYSessionTokenCapability)
         }
         return capabilities
     }
@@ -2059,7 +2066,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
         requireExisting: Bool,
         queue: DispatchQueue,
         onEvent: @escaping (PTYEvent) -> Void
-    ) throws -> String {
+    ) throws -> WorkspaceRemotePTYBridgeAttachment {
         let trimmedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedAttachmentID = attachmentID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSessionID.isEmpty else {
@@ -2073,7 +2080,12 @@ private final class WorkspaceRemoteDaemonRPCClient {
             ])
         }
 
-        let key = Self.ptySubscriptionKey(sessionID: trimmedSessionID, attachmentID: trimmedAttachmentID)
+        let clientAttachmentToken = UUID().uuidString.lowercased()
+        let key = Self.ptySubscriptionKey(
+            sessionID: trimmedSessionID,
+            attachmentID: trimmedAttachmentID,
+            attachmentToken: clientAttachmentToken
+        )
         stateQueue.sync {
             ptySubscriptions[key] = PTYSubscription(queue: queue, handler: onEvent)
         }
@@ -2081,6 +2093,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
         var params: [String: Any] = [
             "session_id": trimmedSessionID,
             "attachment_id": trimmedAttachmentID,
+            "client_attachment_token": clientAttachmentToken,
             "cols": max(1, cols),
             "rows": max(1, rows),
         ]
@@ -2094,33 +2107,46 @@ private final class WorkspaceRemoteDaemonRPCClient {
 
         do {
             let result = try call(method: "pty.attach", params: params, timeout: 12.0)
-            return (result["attachment_id"] as? String)?
+            let returnedAttachmentID = (result["attachment_id"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 ?? trimmedAttachmentID
+            let returnedToken = (result["attachment_token"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? clientAttachmentToken
+            return WorkspaceRemotePTYBridgeAttachment(
+                attachmentID: returnedAttachmentID,
+                token: returnedToken
+            )
         } catch {
-            unregisterPTY(sessionID: trimmedSessionID, attachmentID: trimmedAttachmentID)
+            unregisterPTY(
+                sessionID: trimmedSessionID,
+                attachmentID: trimmedAttachmentID,
+                attachmentToken: clientAttachmentToken
+            )
             throw error
         }
     }
 
-    func writePTY(sessionID: String, attachmentID: String, data: Data) throws {
+    func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {
         _ = try call(
             method: "pty.write",
             params: [
                 "session_id": sessionID,
                 "attachment_id": attachmentID,
+                "client_attachment_token": attachmentToken,
                 "data_base64": data.base64EncodedString(),
             ],
             timeout: 8.0
         )
     }
 
-    func resizePTY(sessionID: String, attachmentID: String, cols: Int, rows: Int) throws {
+    func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
         _ = try call(
             method: "pty.resize",
             params: [
                 "session_id": sessionID,
                 "attachment_id": attachmentID,
+                "client_attachment_token": attachmentToken,
                 "cols": max(1, cols),
                 "rows": max(1, rows),
             ],
@@ -2128,13 +2154,14 @@ private final class WorkspaceRemoteDaemonRPCClient {
         )
     }
 
-    func detachPTY(sessionID: String, attachmentID: String) {
-        unregisterPTY(sessionID: sessionID, attachmentID: attachmentID)
+    func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
+        unregisterPTY(sessionID: sessionID, attachmentID: attachmentID, attachmentToken: attachmentToken)
         _ = try? call(
             method: "pty.detach",
             params: [
                 "session_id": sessionID,
                 "attachment_id": attachmentID,
+                "client_attachment_token": attachmentToken,
             ],
             timeout: 4.0
         )
@@ -2153,8 +2180,12 @@ private final class WorkspaceRemoteDaemonRPCClient {
         return result["sessions"] as? [[String: Any]] ?? []
     }
 
-    func unregisterPTY(sessionID: String, attachmentID: String) {
-        let key = Self.ptySubscriptionKey(sessionID: sessionID, attachmentID: attachmentID)
+    func unregisterPTY(sessionID: String, attachmentID: String, attachmentToken: String? = nil) {
+        let key = Self.ptySubscriptionKey(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            attachmentToken: attachmentToken
+        )
         _ = stateQueue.sync {
             ptySubscriptions.removeValue(forKey: key)
         }
@@ -2400,24 +2431,33 @@ private final class WorkspaceRemoteDaemonRPCClient {
             return false
         }
 
-        let key = Self.ptySubscriptionKey(sessionID: sessionID, attachmentID: attachmentID)
+        let attachmentToken = (payload["attachment_token"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = Self.ptySubscriptionKey(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            attachmentToken: attachmentToken
+        )
+        let legacyKey = Self.ptySubscriptionKey(sessionID: sessionID, attachmentID: attachmentID)
         let subscription: PTYSubscription?
         let event: PTYEvent?
         switch eventName {
         case "pty.ready":
-            subscription = ptySubscriptions[key]
+            subscription = ptySubscriptions[key] ?? ptySubscriptions[legacyKey]
             event = .ready
 
         case "pty.data":
-            subscription = ptySubscriptions[key]
+            subscription = ptySubscriptions[key] ?? ptySubscriptions[legacyKey]
             event = .data(Self.decodeBase64Data(payload["data_base64"]))
 
         case "pty.exit":
             subscription = ptySubscriptions.removeValue(forKey: key)
+                ?? ptySubscriptions.removeValue(forKey: legacyKey)
             event = .exit
 
         case "pty.error":
             subscription = ptySubscriptions.removeValue(forKey: key)
+                ?? ptySubscriptions.removeValue(forKey: legacyKey)
             let detail = ((payload["error"] as? String) ?? (payload["message"] as? String))?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             event = .error(detail?.isEmpty == false ? detail! : "PTY error")
@@ -2553,8 +2593,17 @@ private final class WorkspaceRemoteDaemonRPCClient {
         return Data(base64Encoded: encoded) ?? Data()
     }
 
-    private static func ptySubscriptionKey(sessionID: String, attachmentID: String) -> String {
-        "\(sessionID.trimmingCharacters(in: .whitespacesAndNewlines))\u{1f}\(attachmentID.trimmingCharacters(in: .whitespacesAndNewlines))"
+    private static func ptySubscriptionKey(
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String? = nil
+    ) -> String {
+        let token = attachmentToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return [
+            sessionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            attachmentID.trimmingCharacters(in: .whitespacesAndNewlines),
+            token,
+        ].joined(separator: "\u{1f}")
     }
 
     private static func encodeJSON(_ object: [String: Any]) throws -> Data {
@@ -2726,7 +2775,7 @@ extension WorkspaceRemoteDaemonRPCClient: WorkspaceRemotePTYBridgeRPCClient {
         requireExisting: Bool,
         queue: DispatchQueue,
         onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-    ) throws -> String {
+    ) throws -> WorkspaceRemotePTYBridgeAttachment {
         try attachPTY(
             sessionID: sessionID,
             attachmentID: attachmentID,
@@ -3577,14 +3626,20 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         }
     }
 
-    func resizePTY(sessionID: String, attachmentID: String, cols: Int, rows: Int) throws {
+    func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
         try queue.sync {
             guard let rpcClient, !isStopped else {
                 throw NSError(domain: "cmux.remote.pty", code: 32, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
                 ])
             }
-            try rpcClient.resizePTY(sessionID: sessionID, attachmentID: attachmentID, cols: cols, rows: rows)
+            try rpcClient.resizePTY(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken,
+                cols: cols,
+                rows: rows
+            )
         }
     }
 
@@ -3796,11 +3851,18 @@ private final class WorkspaceRemoteProxyBroker {
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,
         attachmentID: String,
+        attachmentToken: String,
         cols: Int,
         rows: Int
     ) throws {
         try withReadyTunnel(configuration: configuration) { tunnel in
-            try tunnel.resizePTY(sessionID: sessionID, attachmentID: attachmentID, cols: cols, rows: rows)
+            try tunnel.resizePTY(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken,
+                cols: cols,
+                rows: rows
+            )
         }
     }
 
@@ -4510,6 +4572,7 @@ final class WorkspaceRemotePTYBridgeServer {
         private var pendingOutputBytes = 0
         private var closeWhenOutputFlushes: Bool?
         private var handshakeTimeoutWorkItem: DispatchWorkItem?
+        private var remoteAttachment: WorkspaceRemotePTYBridgeAttachment?
 
         init(
             connection: NWConnection,
@@ -4607,7 +4670,7 @@ final class WorkspaceRemotePTYBridgeServer {
             do {
                 handshakeTimeoutWorkItem?.cancel()
                 handshakeTimeoutWorkItem = nil
-                _ = try rpcClient.attachBridgePTY(
+                let remoteAttachment = try rpcClient.attachBridgePTY(
                     sessionID: sessionID,
                     attachmentID: attachmentID,
                     cols: cols,
@@ -4618,7 +4681,11 @@ final class WorkspaceRemotePTYBridgeServer {
                 ) { [weak self] event in
                     self?.handlePTYEvent(event)
                 }
-                sendBridgeStatus(["type": "ready"])
+                self.remoteAttachment = remoteAttachment
+                sendBridgeStatus([
+                    "type": "ready",
+                    "attachment_token": remoteAttachment.token,
+                ])
                 isAttached = true
                 if !remaining.isEmpty {
                     forwardInput(remaining)
@@ -4639,8 +4706,17 @@ final class WorkspaceRemotePTYBridgeServer {
 
         private func forwardInput(_ data: Data) {
             guard !data.isEmpty else { return }
+            guard let remoteAttachment else {
+                close(detach: true)
+                return
+            }
             do {
-                try rpcClient.writePTY(sessionID: sessionID, attachmentID: attachmentID, data: data)
+                try rpcClient.writePTY(
+                    sessionID: sessionID,
+                    attachmentID: remoteAttachment.attachmentID,
+                    attachmentToken: remoteAttachment.token,
+                    data: data
+                )
             } catch {
                 close(detach: true)
             }
@@ -4734,8 +4810,12 @@ final class WorkspaceRemotePTYBridgeServer {
             isClosed = true
             handshakeTimeoutWorkItem?.cancel()
             handshakeTimeoutWorkItem = nil
-            if detach && isAttached {
-                rpcClient.detachPTY(sessionID: sessionID, attachmentID: attachmentID)
+            if detach && isAttached, let remoteAttachment {
+                rpcClient.detachPTY(
+                    sessionID: sessionID,
+                    attachmentID: remoteAttachment.attachmentID,
+                    attachmentToken: remoteAttachment.token
+                )
             }
             connection.cancel()
             onClose()
@@ -5146,6 +5226,7 @@ final class WorkspaceRemoteSessionController {
     func resizePTY(
         sessionID: String,
         attachmentID: String,
+        attachmentToken: String,
         cols: Int,
         rows: Int,
         timeout: TimeInterval = 8.0
@@ -5160,6 +5241,7 @@ final class WorkspaceRemoteSessionController {
                 configuration: self.configuration,
                 sessionID: sessionID,
                 attachmentID: attachmentID,
+                attachmentToken: attachmentToken,
                 cols: cols,
                 rows: rows
             )
@@ -5907,7 +5989,10 @@ final class WorkspaceRemoteSessionController {
     }
 
     private var bakedDaemonPreflightRequiredCapabilities: [String] {
-        requiredDaemonCapabilities.filter { $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability }
+        requiredDaemonCapabilities.filter {
+            $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability &&
+                $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability
+        }
     }
 
     private static func missingRequiredCapabilities(_ required: [String], in capabilities: [String]) -> [String] {
@@ -10645,13 +10730,19 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    func resizeRemotePTY(sessionID: String, attachmentID: String, cols: Int, rows: Int) throws {
+    func resizeRemotePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
         guard let controller = remoteSessionController else {
             throw NSError(domain: "cmux.remote.pty", code: 13, userInfo: [
                 NSLocalizedDescriptionKey: "remote connection is not active",
             ])
         }
-        try controller.resizePTY(sessionID: sessionID, attachmentID: attachmentID, cols: cols, rows: rows)
+        try controller.resizePTY(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            attachmentToken: attachmentToken,
+            cols: cols,
+            rows: rows
+        )
     }
 
     func remoteStatusPayload() -> [String: Any] {

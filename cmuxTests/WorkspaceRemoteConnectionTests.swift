@@ -1994,7 +1994,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             requireExisting: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> String {
+        ) throws -> WorkspaceRemotePTYBridgeAttachment {
             lock.lock()
             recordedAttachCalls.append(PTYAttachCall(
                 sessionID: sessionID,
@@ -2006,11 +2006,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             queue.async {
                 onEvent(.exit)
             }
-            return attachmentID
+            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-token")
         }
 
-        func writePTY(sessionID: String, attachmentID: String, data: Data) throws {}
-        func detachPTY(sessionID: String, attachmentID: String) {}
+        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {}
+        func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
     }
 
     private final class FloodPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
@@ -2025,19 +2025,19 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             requireExisting: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> String {
+        ) throws -> WorkspaceRemotePTYBridgeAttachment {
             queue.async {
                 let chunk = Data(repeating: 0x78, count: 64 * 1024)
                 for _ in 0..<512 {
                     onEvent(.data(chunk))
                 }
             }
-            return attachmentID
+            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "flood-token")
         }
 
-        func writePTY(sessionID: String, attachmentID: String, data: Data) throws {}
+        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {}
 
-        func detachPTY(sessionID: String, attachmentID: String) {
+        func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
             detachSemaphore.signal()
         }
     }
@@ -2059,15 +2059,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             requireExisting: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> String {
+        ) throws -> WorkspaceRemotePTYBridgeAttachment {
             lock.lock()
             self.queue = queue
             self.onEvent = onEvent
             lock.unlock()
-            return attachmentID
+            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "delayed-token")
         }
 
-        func writePTY(sessionID: String, attachmentID: String, data: Data) throws {
+        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {
             guard String(data: data, encoding: .utf8)?.contains("after-half-close-input") == true else {
                 return
             }
@@ -2091,7 +2091,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             }
         }
 
-        func detachPTY(sessionID: String, attachmentID: String) {
+        func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
             detachSemaphore.signal()
         }
     }

@@ -1143,8 +1143,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         "session_id": sessionId,
                         "attachment_id": surfaceId,
                     ]
-                )
+            )
             case "workspace.remote.pty_resize":
+                guard let params = payload["params"] as? [String: Any],
+                      params["attachment_token"] as? String == "attach-token" else {
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "missing_token", "message": "Missing attachment token"]
+                    )
+                }
                 resizeRequestReceived.signal()
                 _ = allowResizeResponse.wait(timeout: .now() + 5)
                 return self.v2Response(
@@ -1199,7 +1207,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 pending.append(buffer, count: count)
             }
 
-            let ready = #"{"type":"ready"}"# + "\n"
+            let ready = #"{"type":"ready","attachment_token":"attach-token"}"# + "\n"
             _ = ready.withCString { ptr in
                 Darwin.write(clientFD, ptr, strlen(ptr))
             }

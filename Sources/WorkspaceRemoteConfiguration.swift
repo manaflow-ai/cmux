@@ -298,21 +298,12 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
-        let preservePTYSession = preserveAfterTerminalExit == true && skipDaemonBootstrap == true
+        // A saved SSH snapshot does not currently carry a durable daemon RPC endpoint.
+        // Restoring `ssh-pty-attach` without that bridge fails later with "remote daemon is not ready",
+        // so snapshots fall back to a fresh SSH terminal until durable daemon metadata is persisted.
+        let preservePTYSession = false
         let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
-        let restoredSSHOptions = preservePTYSession
-            ? SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(normalizedOptions)
-            : normalizedOptions
-        let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
-        let foregroundAuth = foregroundAuthToken.map {
-            SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
-                destination: normalizedDestination,
-                port: normalizedPort,
-                identityFile: Self.normalizedIdentityPath(identityFile),
-                sshOptions: restoredSSHOptions,
-                token: $0
-            )
-        }
+        let restoredSSHOptions = normalizedOptions
         return WorkspaceRemoteConfiguration(
             transport: transport,
             destination: normalizedDestination,
@@ -324,14 +315,11 @@ extension SessionRemoteWorkspaceSnapshot {
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
-            terminalStartupCommand: preservePTYSession ? SSHPTYAttachStartupCommandBuilder.command(
-                foregroundAuth: foregroundAuth,
-                requireExisting: false
-            ) : sshReconnectCommand(
+            terminalStartupCommand: sshReconnectCommand(
                 destination: normalizedDestination,
                 port: normalizedPort
             ),
-            foregroundAuthToken: foregroundAuthToken,
+            foregroundAuthToken: nil,
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession,
             skipDaemonBootstrap: skipDaemonBootstrap == true

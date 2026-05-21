@@ -102,14 +102,15 @@ type wsPTYInputChunk struct {
 }
 
 type wsPTYAttachment struct {
-	sessionKey wsPTYSessionKey
-	id         string
-	cols       int
-	rows       int
-	send       chan wsPTYOutgoingFrame
-	cancel     context.CancelFunc
-	conn       *websocket.Conn
-	persistent bool
+	sessionKey  wsPTYSessionKey
+	id          string
+	clientToken string
+	cols        int
+	rows        int
+	send        chan wsPTYOutgoingFrame
+	cancel      context.CancelFunc
+	conn        *websocket.Conn
+	persistent  bool
 }
 
 type wsPTYSessionKey struct {
@@ -580,6 +581,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 		rows,
 		persistent,
 		"",
+		"",
 		false,
 	)
 	if err != nil {
@@ -596,6 +598,7 @@ func (h *wsPTYHub) attachRPC(
 	cols int,
 	rows int,
 	command string,
+	clientToken string,
 	requireExisting bool,
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	sessionID = strings.TrimSpace(sessionID)
@@ -604,7 +607,7 @@ func (h *wsPTYHub) attachRPC(
 	}
 	attachmentID = strings.TrimSpace(attachmentID)
 	cols, rows = normalizePTYSize(cols, rows)
-	return h.prepareAttachment(ctx, nil, sessionID, attachmentID, cols, rows, true, command, requireExisting)
+	return h.prepareAttachment(ctx, nil, sessionID, attachmentID, cols, rows, true, command, clientToken, requireExisting)
 }
 
 func (h *wsPTYHub) prepareAttachment(
@@ -616,6 +619,7 @@ func (h *wsPTYHub) prepareAttachment(
 	rows int,
 	persistent bool,
 	command string,
+	clientToken string,
 	requireExisting bool,
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	h.mu.Lock()
@@ -652,15 +656,17 @@ func (h *wsPTYHub) prepareAttachment(
 	}
 
 	attachmentCtx, cancel := context.WithCancel(ctx)
+	clientToken = strings.TrimSpace(clientToken)
 	attachment := &wsPTYAttachment{
-		sessionKey: sessionKey,
-		id:         attachmentID,
-		cols:       cols,
-		rows:       rows,
-		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
-		cancel:     cancel,
-		conn:       conn,
-		persistent: persistent,
+		sessionKey:  sessionKey,
+		id:          attachmentID,
+		clientToken: clientToken,
+		cols:        cols,
+		rows:        rows,
+		send:        make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:      cancel,
+		conn:        conn,
+		persistent:  persistent,
 	}
 	replay := append([]byte(nil), session.scrollback...)
 	if ok := attachment.enqueueReady(sessionID); !ok {
@@ -848,16 +854,16 @@ func (h *wsPTYHub) closeAll() {
 	}
 }
 
-func (h *wsPTYHub) writeInputByID(sessionID string, attachmentID string, payload []byte) bool {
-	attachment := h.attachmentByID(sessionID, attachmentID)
+func (h *wsPTYHub) writeInputByID(sessionID string, attachmentID string, attachmentToken string, payload []byte) bool {
+	attachment := h.attachmentByID(sessionID, attachmentID, attachmentToken)
 	if attachment == nil {
 		return false
 	}
 	return h.writeInput(attachment, payload)
 }
 
-func (h *wsPTYHub) resizeByID(sessionID string, attachmentID string, cols int, rows int) bool {
-	attachment := h.attachmentByID(sessionID, attachmentID)
+func (h *wsPTYHub) resizeByID(sessionID string, attachmentID string, attachmentToken string, cols int, rows int) bool {
+	attachment := h.attachmentByID(sessionID, attachmentID, attachmentToken)
 	if attachment == nil {
 		return false
 	}
@@ -865,8 +871,8 @@ func (h *wsPTYHub) resizeByID(sessionID string, attachmentID string, cols int, r
 	return true
 }
 
-func (h *wsPTYHub) detachByID(sessionID string, attachmentID string) bool {
-	attachment := h.attachmentByID(sessionID, attachmentID)
+func (h *wsPTYHub) detachByID(sessionID string, attachmentID string, attachmentToken string) bool {
+	attachment := h.attachmentByID(sessionID, attachmentID, attachmentToken)
 	if attachment == nil {
 		return false
 	}
@@ -921,9 +927,10 @@ func (h *wsPTYHub) sessionSnapshots() []map[string]any {
 	return snapshots
 }
 
-func (h *wsPTYHub) attachmentByID(sessionID string, attachmentID string) *wsPTYAttachment {
+func (h *wsPTYHub) attachmentByID(sessionID string, attachmentID string, attachmentToken string) *wsPTYAttachment {
 	sessionID = strings.TrimSpace(sessionID)
 	attachmentID = strings.TrimSpace(attachmentID)
+	attachmentToken = strings.TrimSpace(attachmentToken)
 	if sessionID == "" || attachmentID == "" {
 		return nil
 	}
@@ -934,7 +941,11 @@ func (h *wsPTYHub) attachmentByID(sessionID string, attachmentID string) *wsPTYA
 	if session == nil || session.closed {
 		return nil
 	}
-	return session.attachments[attachmentID]
+	attachment := session.attachments[attachmentID]
+	if attachment == nil || attachment.clientToken != attachmentToken {
+		return nil
+	}
+	return attachment
 }
 
 func (h *wsPTYHub) sessionSnapshotLocked(session *wsPTYSession) map[string]any {
@@ -1446,9 +1457,10 @@ func (a *wsPTYAttachment) writeFrame(ctx context.Context, conn *websocket.Conn, 
 
 func rpcPTYEventForFrame(attachment *wsPTYAttachment, frame wsPTYOutgoingFrame) rpcEvent {
 	event := rpcEvent{
-		Event:        "pty.data",
-		SessionID:    attachment.sessionKey.sessionID,
-		AttachmentID: attachment.id,
+		Event:           "pty.data",
+		SessionID:       attachment.sessionKey.sessionID,
+		AttachmentID:    attachment.id,
+		AttachmentToken: attachment.clientToken,
 	}
 	if frame.messageType == websocket.MessageText {
 		var wsEvent wsPTYEventFrame
@@ -1461,6 +1473,7 @@ func rpcPTYEventForFrame(attachment *wsPTYAttachment, frame wsPTYOutgoingFrame) 
 			if strings.TrimSpace(wsEvent.AttachmentID) != "" {
 				event.AttachmentID = strings.TrimSpace(wsEvent.AttachmentID)
 			}
+			event.AttachmentToken = attachment.clientToken
 			return event
 		}
 		event.Event = "pty.message"
@@ -1469,6 +1482,15 @@ func rpcPTYEventForFrame(attachment *wsPTYAttachment, frame wsPTYOutgoingFrame) 
 	}
 	event.DataBase64 = base64.StdEncoding.EncodeToString(frame.payload)
 	return event
+}
+
+func rpcPTYExitEvent(attachment *wsPTYAttachment) rpcEvent {
+	return rpcEvent{
+		Event:           "pty.exit",
+		SessionID:       attachment.sessionKey.sessionID,
+		AttachmentID:    attachment.id,
+		AttachmentToken: attachment.clientToken,
+	}
 }
 
 func (a *wsPTYAttachment) closeNow() {
