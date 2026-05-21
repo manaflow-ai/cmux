@@ -9972,6 +9972,12 @@ struct VerticalTabsSidebar: View {
                 ) { _ in
                 refreshExtensionSidebarSnapshot()
             }
+            .onReceive(
+                NotificationCenter.default.publisher(for: BrowserStackSidebar.stateDidLoadNotification)
+                    .receive(on: RunLoop.main)
+            ) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
         }
     }
 

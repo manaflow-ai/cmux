@@ -127,6 +127,59 @@ final class BrowserStackSidebarTests: XCTestCase {
         XCTAssertEqual(model.sections.map(\.id), ["tiles", "loose"])
     }
 
+    func testAsyncStateLoadNotifiesHostAndUpdatesRenderModel() throws {
+        let stateURL = temporaryStateURL()
+        defer { try? FileManager.default.removeItem(at: stateURL.deletingLastPathComponent()) }
+
+        let workspaces = [
+            workspace(title: "First"),
+            workspace(title: "Second"),
+            workspace(title: "Third"),
+            workspace(title: "Fourth"),
+        ]
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 1,
+            selectedWorkspaceId: nil,
+            workspaces: workspaces
+        )
+        let store = BrowserStackSidebarStore(stateURL: stateURL)
+        try store.save(BrowserStackSidebarState(sections: [
+            BrowserStackSidebarSectionState(
+                id: "tiles",
+                title: "Pinned",
+                kind: .tiles,
+                workspaceIds: [workspaces[1].id]
+            ),
+            BrowserStackSidebarSectionState(
+                id: "loose",
+                title: "Open",
+                kind: .loose,
+                workspaceIds: [workspaces[0].id, workspaces[2].id]
+            ),
+            BrowserStackSidebarSectionState(
+                id: "group:reading-list",
+                title: "Reading List",
+                kind: .group,
+                workspaceIds: [workspaces[3].id]
+            ),
+        ]))
+        let loaded = expectation(description: "async state loaded")
+        let probe = AsyncStateLoadProbe(loaded)
+        let provider = BrowserStackSidebar(store: store, onAsyncStateLoaded: {
+            probe.fulfill()
+        })
+
+        _ = provider.render(snapshot: snapshot)
+        wait(for: [loaded], timeout: 2)
+        let model = provider.render(snapshot: snapshot)
+
+        XCTAssertEqual(model.sections.first { $0.id == "tiles" }?.rows.map(\.workspaceId), [workspaces[1].id])
+        XCTAssertEqual(
+            model.sections.first { $0.id == "group:reading-list" }?.rows.map(\.workspaceId),
+            [workspaces[3].id]
+        )
+    }
+
     func testBrowserIconOnlyMatchesYcAsToken() throws {
         let stateURL = temporaryStateURL()
         defer { try? FileManager.default.removeItem(at: stateURL.deletingLastPathComponent()) }
@@ -169,5 +222,17 @@ final class BrowserStackSidebarTests: XCTestCase {
             latestNotificationText: nil,
             listeningPorts: []
         )
+    }
+}
+
+private final class AsyncStateLoadProbe: @unchecked Sendable {
+    private let expectation: XCTestExpectation
+
+    init(_ expectation: XCTestExpectation) {
+        self.expectation = expectation
+    }
+
+    func fulfill() {
+        expectation.fulfill()
     }
 }

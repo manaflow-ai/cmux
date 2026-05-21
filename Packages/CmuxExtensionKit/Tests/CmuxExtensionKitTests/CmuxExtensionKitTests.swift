@@ -502,9 +502,19 @@ final class CmuxExtensionKitTests: XCTestCase {
             workspaceId: workspaceId,
             payload: ["message_preview": .string("ship")]
         )
+        let workspaceAction = CmuxExtensionEventFrame(
+            sequence: 43,
+            name: "workspace.action",
+            category: "workspace",
+            source: "socket.v2",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 12),
+            workspaceId: workspaceId,
+            payload: ["method": .string("workspace.pin")]
+        )
 
         XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: redactedNotification))
         XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: sidebarMetadata))
+        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: workspaceAction))
         XCTAssertFalse(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: promptSubmitted))
     }
 

@@ -526,6 +526,9 @@ public struct CmuxExtensionSidebarReducer {
         case "notification.read", "notification.cleared", "notification.removed":
             return true
 
+        case "workspace.action":
+            return true
+
         default:
             return frame.name.hasPrefix("sidebar.")
         }

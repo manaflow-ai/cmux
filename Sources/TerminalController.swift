@@ -4851,14 +4851,11 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
-        let sequence = max(0, CmuxEventBus.shared.latestSequence)
-        var selectedWorkspaceId: UUID?
-        var workspaceInputs: [(workspace: Workspace, index: Int, selected: Bool, rootPath: String?, projectRootPath: String?)] = []
-        var workspaces: [[String: Any]] = []
-        v2MainSync {
-            selectedWorkspaceId = tabManager.selectedTabId
-            workspaceInputs = tabManager.tabs.enumerated().map { index, workspace in
-                (
+        let snapshot = v2MainSync {
+            let sequence = max(0, CmuxEventBus.shared.latestSequence)
+            let selectedWorkspaceId = tabManager.selectedTabId
+            let workspaces = tabManager.tabs.enumerated().map { index, workspace in
+                v2ExtensionSidebarWorkspacePayload(
                     workspace: workspace,
                     index: index,
                     selected: workspace.id == tabManager.selectedTabId,
@@ -4866,29 +4863,22 @@ class TerminalController {
                     projectRootPath: workspace.extensionSidebarProjectRootPath
                 )
             }
+            return (
+                sequence: sequence,
+                windowId: AppDelegate.shared?.windowId(for: tabManager),
+                selectedWorkspaceId: selectedWorkspaceId,
+                workspaces: workspaces
+            )
         }
 
-        v2MainSync {
-            workspaces = workspaceInputs.map { input in
-                v2ExtensionSidebarWorkspacePayload(
-                    workspace: input.workspace,
-                    index: input.index,
-                    selected: input.selected,
-                    rootPath: input.rootPath,
-                    projectRootPath: input.projectRootPath
-                )
-            }
-        }
-
-        let windowId = v2ResolveWindowId(tabManager: tabManager)
         return .ok([
-            "seq": sequence,
-            "sequence": sequence,
-            "window_id": v2OrNull(windowId?.uuidString),
-            "window_ref": v2Ref(kind: .window, uuid: windowId),
-            "selected_workspace_id": v2OrNull(selectedWorkspaceId?.uuidString),
-            "selected_workspace_ref": v2Ref(kind: .workspace, uuid: selectedWorkspaceId),
-            "workspaces": workspaces
+            "seq": snapshot.sequence,
+            "sequence": snapshot.sequence,
+            "window_id": v2OrNull(snapshot.windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: snapshot.windowId),
+            "selected_workspace_id": v2OrNull(snapshot.selectedWorkspaceId?.uuidString),
+            "selected_workspace_ref": v2Ref(kind: .workspace, uuid: snapshot.selectedWorkspaceId),
+            "workspaces": snapshot.workspaces
         ])
     }
 

@@ -2,6 +2,8 @@ import CmuxExtensionKit
 import Foundation
 
 public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
+    public static let stateDidLoadNotification = Notification.Name("CmuxBrowserStackSidebarStateDidLoad")
+
     public let descriptor = CmuxExtensionSidebarProviderDescriptor(
         id: "com.example.cmux.sidebar.browser-stack",
         title: localized("example.sidebar.browserStack.title", "Browser Stack"),
@@ -14,10 +16,19 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
 
     public init(
         store: BrowserStackSidebarStore = BrowserStackSidebarStore(),
-        initialState: BrowserStackSidebarState? = nil
+        initialState: BrowserStackSidebarState? = nil,
+        onAsyncStateLoaded: (@Sendable () -> Void)? = nil
     ) {
         self.store = store
-        self.stateCache = BrowserStackSidebarStateCache(store: store, initialState: initialState)
+        self.stateCache = BrowserStackSidebarStateCache(
+            store: store,
+            initialState: initialState,
+            onAsyncStateLoaded: onAsyncStateLoaded
+        )
+    }
+
+    public static func postStateDidLoadNotification() {
+        NotificationCenter.default.post(name: stateDidLoadNotification, object: nil)
     }
 
     public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
@@ -111,13 +122,19 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
 
 private final class BrowserStackSidebarStateCache: @unchecked Sendable {
     private let store: BrowserStackSidebarStore
+    private let onAsyncStateLoaded: (@Sendable () -> Void)?
     private let lock = NSLock()
     private var state: BrowserStackSidebarState?
     private var didStartLoad = false
     private var mutationGeneration: UInt64 = 0
 
-    init(store: BrowserStackSidebarStore, initialState: BrowserStackSidebarState?) {
+    init(
+        store: BrowserStackSidebarStore,
+        initialState: BrowserStackSidebarState?,
+        onAsyncStateLoaded: (@Sendable () -> Void)?
+    ) {
         self.store = store
+        self.onAsyncStateLoaded = onAsyncStateLoaded
         self.state = initialState
         self.didStartLoad = initialState != nil
     }
@@ -158,11 +175,18 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
     }
 
     private func applyLoadedState(_ loaded: BrowserStackSidebarState, generation: UInt64) {
+        let shouldNotify: Bool
         lock.lock()
         if mutationGeneration == generation {
             state = loaded
+            shouldNotify = true
+        } else {
+            shouldNotify = false
         }
         lock.unlock()
+        if shouldNotify {
+            onAsyncStateLoaded?()
+        }
     }
 }
 

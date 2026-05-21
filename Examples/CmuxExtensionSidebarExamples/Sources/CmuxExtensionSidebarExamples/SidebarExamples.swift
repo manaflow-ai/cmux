@@ -8,7 +8,9 @@ public enum SidebarExamples {
         DevServerSidebar(),
         LastPromptSidebar(),
         SuperCompactSidebar(),
-        BrowserStackSidebar(),
+        BrowserStackSidebar(onAsyncStateLoaded: {
+            BrowserStackSidebar.postStateDidLoadNotification()
+        }),
     ]
 }
 
