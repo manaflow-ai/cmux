@@ -26,6 +26,9 @@ check_warp_runner() {
 }
 
 # ci.yml jobs
+check_warp_runner "$CI_FILE" "tests-build"
+check_warp_runner "$CI_FILE" "tests-shards"
+check_warp_runner "$CI_FILE" "tests-cli-regressions"
 check_warp_runner "$CI_FILE" "tests"
 check_warp_runner "$CI_FILE" "tests-build-and-lag"
 check_warp_runner "$CI_FILE" "release-build"

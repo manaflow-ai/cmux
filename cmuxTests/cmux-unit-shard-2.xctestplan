@@ -1,0 +1,125 @@
+{
+  "configurations": [
+    {
+      "id": "2892FA0F-F690-5EDD-A6AA-4D33BC5AED16",
+      "name": "Debug",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "environmentVariableEntries": [
+      {
+        "key": "SWIFT_BACKTRACE",
+        "value": "enable=no"
+      }
+    ],
+    "targetForVariableExpansion": {
+      "containerPath": "container:cmux.xcodeproj",
+      "identifier": "A5001050",
+      "name": "cmux"
+    }
+  },
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "skippedTests": [
+        "AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace()",
+        "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()"
+      ],
+      "target": {
+        "containerPath": "container:cmux.xcodeproj",
+        "identifier": "F1000004A1B2C3D4E5F60718",
+        "name": "cmuxTests"
+      },
+      "selectedTests": [
+        "AppDelegateIssue2907RoutingTests",
+        "AppDelegateMoveTabToNewWorkspaceTests",
+        "AppIconSettingsTests",
+        "AppearanceSettingsTests",
+        "ApplicationAccessibilityHierarchyCacheTests",
+        "BonsplitTabDragPayloadTests",
+        "BrowserDeveloperToolsConfigurationTests",
+        "BrowserFindJavaScriptTests",
+        "BrowserHostWhitelistTests",
+        "BrowserJavaScriptDialogDelegateTests",
+        "BrowserOmnibarFieldEditorResolutionTests",
+        "BrowserOmnibarFocusPolicyTests",
+        "BrowserOmnibarNativeFieldRegistryTests",
+        "BrowserPanelPopupContextTests",
+        "BrowserPanelWebViewLifecycleTests",
+        "BrowserPopupContentRectTests",
+        "BrowserSessionHistoryRestoreTests",
+        "BrowserZoomShortcutRoutingPolicyTests",
+        "BundledCLILinkageTests",
+        "CJKIMEMarkedTextTests",
+        "CJKIMEPerformKeyEquivalentTests",
+        "CmuxCommandIdentityTests",
+        "CmuxConfigNamedColorTests",
+        "CmuxLayoutEncodingTests",
+        "CmuxTopProcessCPUTests",
+        "CmuxWebViewKeyEquivalentTests",
+        "CommandPaletteRestoreFocusStateMachineTests",
+        "CommandPaletteSelectionScrollBehaviorTests",
+        "CommandPaletteShortcutCustomizationTests",
+        "ExternalCommittedTextSanitizationTests",
+        "FilePreviewFocusCoordinatorTests",
+        "FilePreviewPDFChromeTests",
+        "FilePreviewReviewFeedbackTests",
+        "FileSearchControllerTests",
+        "GhosttyBackgroundThemeTests",
+        "GhosttyDefaultBackgroundNotificationDispatcherTests",
+        "GhosttyMouseFocusTests",
+        "GhosttyOptionDeleteRegressionTests",
+        "GhosttyPasteboardHelperTests",
+        "GhosttyResponderResolutionTests",
+        "GhosttySurfaceOverlayTests",
+        "GhosttyTerminalStartupEnvironmentTests",
+        "GhosttyTerminalViewVisibilityPolicyTests",
+        "KeyboardShortcutSettingsFileStoreTests",
+        "KoreanIMEMarkedTextLeakRegressionTests",
+        "MenuBarIconRendererTests",
+        "NotificationBurstCoalescerTests",
+        "OpenCodeHookRegressionTests",
+        "ReactGrabPastebackTargetTests",
+        "RestorableAgentNonInteractiveTests",
+        "RovoDevHookConfigTests",
+        "SearchIndexTests",
+        "ServeWebOutputCollectorTests",
+        "SessionIndexViewTests",
+        "SessionPersistenceTests",
+        "SettingsSearchIndexTests",
+        "ShortcutHintDebugSettingsTests",
+        "ShortcutRecorderEventRoutingTests",
+        "SidebarDragFailsafePolicyTests",
+        "SidebarSelectedWorkspaceColorTests",
+        "SidebarWorkspaceDetailSettingsTests",
+        "SidebarWorkspaceSelectionColorTests",
+        "SidebarWorkspaceSnapshotRefreshPolicyTests",
+        "SocketControlPasswordStoreTests",
+        "SocketControlSettingsTests",
+        "TabManagerCloseWorkspacesWithConfirmationTests",
+        "TabManagerWorkspaceOwnershipTests",
+        "TerminalKeyboardCopyModeActionTests",
+        "TerminalNotificationDirectInteractionTests",
+        "TerminalNotificationStaleFocusDismissalTests",
+        "TerminalWindowPortalLifecycleTests",
+        "TitlebarControlsSizingPolicyTests",
+        "TmuxWorkspacePaneOverlayTests",
+        "UpdateViewModelPresentationTests",
+        "VSCodeServeWebControllerTests",
+        "WindowGlassEffectTests",
+        "WorkspaceActionDispatcherTests",
+        "WorkspaceCreationWorkingDirectoryInheritanceTests",
+        "WorkspaceCustomDescriptionTests",
+        "WorkspaceMountPolicyTests",
+        "WorkspacePromptSubmitTests",
+        "WorkspaceRemoteConfigurationTransportKeyTests",
+        "WorkspaceRemoteConnectionTests",
+        "WorkspaceShortcutMapperTests",
+        "WorkspaceSplitStartupCommandTests",
+        "WorkspaceSplitWorkingDirectoryTests"
+      ]
+    }
+  ],
+  "version": 1
+}

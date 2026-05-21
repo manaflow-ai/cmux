@@ -11,6 +11,13 @@
     </BuildActionEntries>
   </BuildAction>
   <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES">
+    <TestPlans>
+      <TestPlanReference reference="container:cmuxTests/cmux-unit.xctestplan" default="YES"/>
+      <TestPlanReference reference="container:cmuxTests/cmux-unit-shard-1.xctestplan"/>
+      <TestPlanReference reference="container:cmuxTests/cmux-unit-shard-2.xctestplan"/>
+      <TestPlanReference reference="container:cmuxTests/cmux-unit-shard-3.xctestplan"/>
+      <TestPlanReference reference="container:cmuxTests/cmux-unit-shard-4.xctestplan"/>
+    </TestPlans>
     <Testables>
       <TestableReference skipped="NO">
         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="F1000004A1B2C3D4E5F60718" BuildableName="cmuxTests.xctest" BlueprintName="cmuxTests" ReferencedContainer="container:cmux.xcodeproj"/>

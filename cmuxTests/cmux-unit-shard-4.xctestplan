@@ -1,0 +1,126 @@
+{
+  "configurations": [
+    {
+      "id": "7570A4F6-0E58-59CC-9BE3-58EE949CCFFD",
+      "name": "Debug",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "environmentVariableEntries": [
+      {
+        "key": "SWIFT_BACKTRACE",
+        "value": "enable=no"
+      }
+    ],
+    "targetForVariableExpansion": {
+      "containerPath": "container:cmux.xcodeproj",
+      "identifier": "A5001050",
+      "name": "cmux"
+    }
+  },
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "skippedTests": [
+        "AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace()",
+        "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()"
+      ],
+      "target": {
+        "containerPath": "container:cmux.xcodeproj",
+        "identifier": "F1000004A1B2C3D4E5F60718",
+        "name": "cmuxTests"
+      },
+      "selectedTests": [
+        "AgentSessionAutoResumeSettingsTests",
+        "AppDelegateRenameShortcutContextTests",
+        "BrowserArrowKeyForwardingTests",
+        "BrowserDeveloperToolsShortcutDefaultsTests",
+        "BrowserExternalNavigationSchemeTests",
+        "BrowserIMEKeyDownRoutingTests",
+        "BrowserImportMappingTests",
+        "BrowserInsecureHTTPSettingsTests",
+        "BrowserInstallDetectorTests",
+        "BrowserNavigableURLResolutionTests",
+        "BrowserPaneDropRoutingTests",
+        "BrowserPanelAddressBarFocusRequestTests",
+        "BrowserPanelChromeBackgroundColorTests",
+        "BrowserPanelHostContainerViewTests",
+        "BrowserPanelProfileIsolationTests",
+        "BrowserPanelReactGrabBridgeTests",
+        "BrowserThemeSettingsTests",
+        "CJKIMEKeyTextAccumulatorTests",
+        "CJKIMEMarkedSelectionTests",
+        "CJKIMEShiftSpaceFallbackTests",
+        "CmuxConfigContextMenuTests",
+        "CmuxConfigDecodingTests",
+        "CmuxSplitDefinitionTests",
+        "CmuxWebViewContextMenuTests",
+        "CommandEquivalentTransientFocusRepairTests",
+        "CommandPaletteFuzzyMatcherTests",
+        "CommandPaletteOverlayPromotionPolicyTests",
+        "CommandPaletteSearchEngineTests",
+        "CommandPaletteSettingsToggleTests",
+        "FeedCoordinatorTests",
+        "FeedbackComposerMessageEditorViewTests",
+        "FileDropOverlayViewTests",
+        "FilePreviewPanelTextSavingTests",
+        "FileSearchRipgrepParserTests",
+        "FocusFlashPatternTests",
+        "GhosttyBackquoteRegressionTests",
+        "GhosttyCrashBreadcrumbTests",
+        "GhosttyModifierFlagsChangedActionTests",
+        "InternalTabDragBundleDeclarationTests",
+        "KeyboardShortcutSettingsEqualizeSplitsTests",
+        "MainWindowFocusRedrawTests",
+        "MarkdownPanelTests",
+        "MenuBarBuildHintFormatterTests",
+        "MenuBarNotificationLineFormatterTests",
+        "OmnibarStateMachineTests",
+        "PanelAppearanceBackgroundTests",
+        "PiVaultAgentPersistenceTests",
+        "ProcessTerminationGateTests",
+        "QuitWarningSettingsTests",
+        "RightSidebarModeShortcutHintTests",
+        "RovoDevSessionIndexTests",
+        "ShortcutHintHorizontalPlannerTests",
+        "ShortcutUnbindingRoutingTests",
+        "SidebarActiveTabIndicatorSettingsTests",
+        "SidebarDropPlannerTests",
+        "SidebarMarkdownRendererTests",
+        "SidebarPathFormatterTests",
+        "SidebarRemoteErrorCopySupportTests",
+        "SidebarWidthPolicyTests",
+        "StoredShortcutMatchingTests",
+        "TabManagerChildExitCloseTests",
+        "TabManagerCloseCurrentPanelTests",
+        "TabManagerCloseCurrentTabSpamTests",
+        "TabManagerNotificationFocusTests",
+        "TabManagerPullRequestProbeTests",
+        "TabManagerResizeSplitsTests",
+        "TerminalCmdClickPathPunctuationTrimmingTests",
+        "TerminalControllerSidebarDedupeTests",
+        "TerminalKeyboardCopyModeViewportRowTests",
+        "TerminalNotificationCallerTests",
+        "TerminalNotificationPolicyEngineTests",
+        "TraditionalChineseIMENumpadRegressionTests",
+        "VSCodeCLILaunchConfigurationBuilderTests",
+        "WindowBrowserHostViewTests",
+        "WindowBrowserSlotViewTests",
+        "WindowMoveSuppressionHitPathTests",
+        "WindowTransparencyDecisionTests",
+        "WorkspaceAppearanceConfigResolutionTests",
+        "WorkspaceBrowserProfileSelectionTests",
+        "WorkspaceChromeColorTests",
+        "WorkspaceCreationConfigSanitizationTests",
+        "WorkspaceManualUnreadTests",
+        "WorkspaceRemoteDaemonPendingCallRegistryTests",
+        "WorkspaceRenameShortcutDefaultsTests",
+        "WorkspaceStressProfileTests",
+        "WorkspaceTerminalFocusRecoveryTests",
+        "WorkspaceWorkingDirectoryInheritanceSettingsTests"
+      ]
+    }
+  ],
+  "version": 1
+}

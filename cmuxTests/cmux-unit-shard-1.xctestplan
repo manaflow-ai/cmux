@@ -1,0 +1,125 @@
+{
+  "configurations": [
+    {
+      "id": "4C70014F-C2BE-5401-BBB2-CC4F9D412B3D",
+      "name": "Debug",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "environmentVariableEntries": [
+      {
+        "key": "SWIFT_BACKTRACE",
+        "value": "enable=no"
+      }
+    ],
+    "targetForVariableExpansion": {
+      "containerPath": "container:cmux.xcodeproj",
+      "identifier": "A5001050",
+      "name": "cmux"
+    }
+  },
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "skippedTests": [
+        "AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace()",
+        "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()"
+      ],
+      "target": {
+        "containerPath": "container:cmux.xcodeproj",
+        "identifier": "F1000004A1B2C3D4E5F60718",
+        "name": "cmuxTests"
+      },
+      "selectedTests": [
+        "AccessibilityInsertTextRegressionTests",
+        "AppDelegateBareSpaceShortcutRoutingTests",
+        "AppDelegateLaunchServicesRegistrationTests",
+        "AppDelegateShortcutRoutingTests",
+        "AppDelegateWindowContextRoutingTests",
+        "BrowserDeveloperToolsVisibilityPersistenceTests",
+        "BrowserInsecureHTTPAlertPresentationTests",
+        "BrowserNavigationNewTabDecisionTests",
+        "BrowserNewTabNavigationSeedTests",
+        "BrowserNilTargetFallbackDecisionTests",
+        "BrowserPanelFileSystemAccessBridgeTests",
+        "BrowserPanelOmnibarPillBackgroundColorTests",
+        "BrowserPanelRemoteStoreTests",
+        "BrowserPopupDecisionTests",
+        "BrowserPortalOmnibarSuggestionsTests",
+        "BrowserReadAccessURLTests",
+        "BrowserReturnKeyDownRoutingTests",
+        "BrowserSimpleUserGesturePopupRetargetingTests",
+        "BrowserWindowPortalLifecycleTests",
+        "BrowserZoomShortcutActionTests",
+        "CJKIMECompositionSequenceTests",
+        "CJKIMEShortcutBypassTests",
+        "ClaudeConfigDirectoryPathTests",
+        "CmuxCLIPathInstallerTests",
+        "CmuxSSHURLRequestTests",
+        "CommandPaletteNucleoFFITests",
+        "CommandPaletteOpenShortcutConsumptionTests",
+        "CommandPaletteRenameSelectionSettingsTests",
+        "CommandPaletteRequestRoutingTests",
+        "FileExplorerRootResolverTests",
+        "FileExplorerStateModePersistenceTests",
+        "FilePreviewDragPasteboardWriterTests",
+        "FilePreviewPDFThumbnailSidebarTests",
+        "FinderFileDropRegressionTests",
+        "FocusedNotificationIndicatorTests",
+        "GhosttyCommandShiftForwardingTests",
+        "GhosttyConfigTests",
+        "GhosttyKeyEquivalentRegressionTests",
+        "GhosttyPasteboardFidelityTests",
+        "InternalTabDragConfigurationTests",
+        "KeyboardShortcutContextTests",
+        "KeyboardShortcutSpaceKeyTests",
+        "MainWindowVisibilityControllerTests",
+        "MenuBarBadgeLabelFormatterTests",
+        "MenuBarIconDebugSettingsTests",
+        "NotificationDockBadgeTests",
+        "OmnibarRemoteSuggestionMergeTests",
+        "OmnibarSuggestionRankingTests",
+        "PortalTabDragRoutingTests",
+        "PostHogAnalyticsPropertiesTests",
+        "RecentlyClosedBrowserStackTests",
+        "RightSidebarCommandPaletteTests",
+        "RovoDevTranscriptPreviewTests",
+        "SettingsWindowPresenterTests",
+        "ShortcutHintLanePlannerTests",
+        "SidebarBranchLayoutSettingsTests",
+        "SidebarTabItemPresentationResolutionPolicyTests",
+        "SidebarWorkspaceAuxiliaryDetailVisibilityTests",
+        "SidebarWorkspaceDropPlannerTests",
+        "SidebarWorkspaceRowInteractionStateTests",
+        "SplitShortcutTransientFocusGuardTests",
+        "TabManagerEqualizeSplitsTests",
+        "TabManagerPendingUnfocusPolicyTests",
+        "TabManagerSessionSnapshotTests",
+        "TabManagerWorkspaceConfigInheritanceSourceTests",
+        "TaskManagerResourcesTests",
+        "TerminalControllerSocketListenerHealthTests",
+        "TerminalControllerSocketSecurityTests",
+        "TerminalKeyboardCopyModeResolveTests",
+        "TerminalOffscreenStartupTests",
+        "TitlebarDoubleClickPreferenceTests",
+        "TitlebarLeadingInsetPassthroughViewTests",
+        "UpdateSettingsTests",
+        "VSCodeServeWebURLBuilderTests",
+        "WindowAppearanceSnapshotTests",
+        "WindowChromeSeparatorColorTests",
+        "WindowDragHandleHitTests",
+        "WindowTerminalHostViewTests",
+        "WorkspaceAttentionFlashTests",
+        "WorkspaceChromeThemeTests",
+        "WorkspaceCloseTabsContextMenuTests",
+        "WorkspaceContentViewVisibilityTests",
+        "WorkspaceCreationPlacementTests",
+        "WorkspaceNotificationReorderTests",
+        "WorkspacePlacementSettingsTests",
+        "WorkspaceRemoteSSHCleanupTests"
+      ]
+    }
+  ],
+  "version": 1
+}

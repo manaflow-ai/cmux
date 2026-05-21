@@ -1,0 +1,125 @@
+{
+  "configurations": [
+    {
+      "id": "DA2678DC-CDE6-5FF7-80C8-CE77058D9E88",
+      "name": "Debug",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "environmentVariableEntries": [
+      {
+        "key": "SWIFT_BACKTRACE",
+        "value": "enable=no"
+      }
+    ],
+    "targetForVariableExpansion": {
+      "containerPath": "container:cmux.xcodeproj",
+      "identifier": "A5001050",
+      "name": "cmux"
+    }
+  },
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "skippedTests": [
+        "AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace()",
+        "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()"
+      ],
+      "target": {
+        "containerPath": "container:cmux.xcodeproj",
+        "identifier": "F1000004A1B2C3D4E5F60718",
+        "name": "cmuxTests"
+      },
+      "selectedTests": [
+        "AppDelegateEqualizeSplitsShortcutTests",
+        "AppIconAppearanceObserverTests",
+        "AuthManagerSignOutTests",
+        "BrowserAddressBarTrackingPolicyTests",
+        "BrowserDevToolsButtonDebugSettingsTests",
+        "BrowserHistoryStoreTests",
+        "BrowserImportScopeTests",
+        "BrowserLinkOpenSettingsTests",
+        "BrowserOmnibarKeyboardNavigationTests",
+        "BrowserOmnibarNativeFieldRegistryWindowSelectionTests",
+        "BrowserOmnibarPerformanceSupportTests",
+        "BrowserPanelInitialNavigationTests",
+        "BrowserSearchEngineTests",
+        "BrowserSearchSettingsTests",
+        "CJKIMEFirstRectTests",
+        "CLINotifyProcessIntegrationRegressionTests",
+        "CLINotifyProcessIntegrationTests",
+        "CMUXCLIErrorOutputRegressionTests",
+        "CMUXOpenCommandTests",
+        "CmuxConfigCwdResolutionTests",
+        "CmuxConfigWorkspaceCommandExecutionTests",
+        "CmuxEventBusTests",
+        "CmuxTopSnapshotScopeTests",
+        "CmuxWebViewDragRoutingTests",
+        "CommandPaletteBackNavigationTests",
+        "CommandPaletteFocusStealerClassificationTests",
+        "CommandPaletteSwitcherSearchIndexerTests",
+        "DeadKeyCompositionRegressionTests",
+        "DevBuildBannerDebugSettingsTests",
+        "DraggableFolderHitTests",
+        "FileExplorerStoreTests",
+        "FileSearchOutputPipelineTests",
+        "FinderServicePathResolverTests",
+        "FolderWindowMoveSuppressionTests",
+        "FullScreenShortcutTests",
+        "GhosttyConfigPathResolverTests",
+        "GhosttyEnsureFocusWindowActivationTests",
+        "GhosttySpaceReleaseRegressionTests",
+        "GlobalSearchShortcutSettingsTests",
+        "InactivePaneFirstClickFocusTests",
+        "KeyboardShortcutSettingsFileStoreMigrationTests",
+        "KeyboardShortcutSettingsFileStoreStartupTests",
+        "KoreanIMEReturnCommitRegressionTests",
+        "LastSurfaceCloseShortcutSettingsTests",
+        "MainWindowFocusControllerRightSidebarHideTests",
+        "NotificationMenuSnapshotBuilderTests",
+        "PanelOwnedNativeViewSessionTests",
+        "PortScannerProcessCaptureTests",
+        "ReactGrabShortcutRouteTests",
+        "RemoteLoopbackHTTPRequestRewriterTests",
+        "RestorableAgentSessionIndexTests",
+        "ShortcutHintModifierPolicyTests",
+        "ShortcutUnbindingParsingTests",
+        "SidebarActiveForegroundColorTests",
+        "SidebarBackgroundConfigTests",
+        "SidebarBranchOrderingTests",
+        "SidebarDragAutoScrollPlannerTests",
+        "SidebarIdentifierFormattingTests",
+        "SidebarSelectedWorkspaceScrollPolicyTests",
+        "SidebarWorkspaceShortcutHintMetricsTests",
+        "SocketListenerAcceptPolicyTests",
+        "TabManagerFocusedNotificationIndicatorTests",
+        "TabManagerReopenClosedBrowserFocusTests",
+        "TabManagerSurfaceCreationTests",
+        "TerminalControllerSocketWriteTests",
+        "TerminalDirectoryOpenTargetAvailabilityTests",
+        "TerminalNotificationClearAllTests",
+        "TerminalNotificationQueueTests",
+        "TerminalNotificationSocketActionTests",
+        "TerminalOpenURLTargetResolutionTests",
+        "TitlebarControlsHoverPolicyTests",
+        "UITestLaunchManifestTests",
+        "UpdateChannelSettingsTests",
+        "WindowAccessorTests",
+        "WindowBackgroundSelectionGateTests",
+        "WorkspaceAdjacentPaneMoveTests",
+        "WorkspaceAutoReorderSettingsTests",
+        "WorkspacePanelGitBranchTests",
+        "WorkspacePullRequestSidebarTests",
+        "WorkspaceRemoteDaemonManifestTests",
+        "WorkspaceReorderTests",
+        "WorkspaceSSHFishShellTests",
+        "WorkspaceTabColorSettingsTests",
+        "WorkspaceTeardownTests",
+        "WorkspaceTerminalConfigInheritanceSelectionTests",
+        "ZshShellIntegrationHandoffTests"
+      ]
+    }
+  ],
+  "version": 1
+}
