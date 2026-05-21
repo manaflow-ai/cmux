@@ -1716,10 +1716,12 @@ struct ContentView: View {
         let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
         let sanitizedLeadingSidebarWidth = leadingSidebarWidth.isFinite ? max(0, leadingSidebarWidth) : 0
         let visibleAvailableWidth = max(0, sanitizedAvailableWidth - sanitizedLeadingSidebarWidth)
-        let availableWidthCap = visibleAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
+        let dividerGap = sanitizedLeadingSidebarWidth > 0 ? SidebarResizeInteraction.totalHitWidth : 0
+        let maximumVisibleWidth = max(0, visibleAvailableWidth - dividerGap)
+        let availableWidthCap = maximumVisibleWidth - Self.minimumTerminalWidthWithRightSidebar
         let maximumWidth = min(
             Self.maximumRightSidebarWidth,
-            visibleAvailableWidth,
+            maximumVisibleWidth,
             max(minimumWidth, availableWidthCap)
         )
         return clampedSidebarDimension(
