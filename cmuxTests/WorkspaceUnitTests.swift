@@ -2713,6 +2713,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             restorableAgentResumeState: nil,
             resumeBinding: resumeBinding,
             agentRuntime: nil,
+            hasRemoteDirectory: false,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
             remoteCleanupConfiguration: nil

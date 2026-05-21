@@ -5827,11 +5827,16 @@ class TerminalController {
                 if shouldPublish {
                     if let owner = AppDelegate.shared?.tabManagerFor(tabId: tab.id) {
                         owner.updateSurfaceDirectory(tabId: tab.id, surfaceId: requestedSurfaceId, directory: directory)
+                        if tab.isRemoteWorkspace {
+                            tab.updateRemotePanelDirectory(panelId: requestedSurfaceId, directory: directory)
+                        }
+                    } else if tab.isRemoteWorkspace {
+                        tab.updateRemotePanelDirectory(panelId: requestedSurfaceId, directory: directory)
                     } else {
                         tab.updatePanelDirectory(panelId: requestedSurfaceId, directory: directory)
                     }
                 } else if tab.isRemoteWorkspace {
-                    tab.updatePanelDirectory(panelId: requestedSurfaceId, directory: directory)
+                    tab.updateRemotePanelDirectory(panelId: requestedSurfaceId, directory: directory)
                 }
             }
 
@@ -5904,11 +5909,16 @@ class TerminalController {
             if shouldPublish {
                 if let owner = AppDelegate.shared?.tabManagerFor(tabId: tab.id) {
                     owner.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
+                    if tab.isRemoteWorkspace {
+                        tab.updateRemotePanelDirectory(panelId: surfaceId, directory: directory)
+                    }
+                } else if tab.isRemoteWorkspace {
+                    tab.updateRemotePanelDirectory(panelId: surfaceId, directory: directory)
                 } else {
                     tab.updatePanelDirectory(panelId: surfaceId, directory: directory)
                 }
             } else if tab.isRemoteWorkspace {
-                tab.updatePanelDirectory(panelId: surfaceId, directory: directory)
+                tab.updateRemotePanelDirectory(panelId: surfaceId, directory: directory)
             }
 
             result = .ok([

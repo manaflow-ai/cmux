@@ -8293,7 +8293,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingRemoteSurfaceTTYName: String?
     private var pendingRemoteSurfaceTTYSurfaceId: UUID?
     private var pendingRemoteSurfaceDirectory: String?
-    private var pendingRemoteSurfaceDirectorySurfaceId: UUID?
+    private var pendingRemoteSurfaceDirectoriesBySurfaceId: [UUID: String] = [:]
     private var pendingRemoteSurfacePortKickReason: WorkspaceRemoteSessionController.PortScanKickReason?
     private var pendingRemoteSurfacePortKickSurfaceId: UUID?
     // When the last live remote terminal is detached out, the source workspace may be
@@ -8986,9 +8986,6 @@ final class Workspace: Identifiable, ObservableObject {
         if panelDirectories[panelId] != trimmed {
             panelDirectories[panelId] = trimmed
         }
-        if activeRemoteTerminalSurfaceIds.contains(panelId) {
-            markRemoteTerminalDirectorySurface(panelId)
-        }
         // Update current directory if this is the focused panel
         if panelId == focusedPanelId {
             if surfaceTabBarDirectory != trimmed {
@@ -8998,6 +8995,14 @@ final class Workspace: Identifiable, ObservableObject {
                 currentDirectory = trimmed
             }
         }
+    }
+
+    func updateRemotePanelDirectory(panelId: UUID, directory: String) {
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        updatePanelDirectory(panelId: panelId, directory: trimmed)
+        guard activeRemoteTerminalSurfaceIds.contains(panelId) else { return }
+        markRemoteTerminalDirectorySurface(panelId)
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
@@ -9880,7 +9885,7 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
         pendingRemoteSurfaceDirectory = nil
-        pendingRemoteSurfaceDirectorySurfaceId = nil
+        pendingRemoteSurfaceDirectoriesBySurfaceId.removeAll()
         pendingRemoteSurfacePortKickReason = nil
         pendingRemoteSurfacePortKickSurfaceId = nil
         clearRemoteDetectedSurfacePorts()
@@ -9927,13 +9932,16 @@ final class Workspace: Identifiable, ObservableObject {
         trackRemoteTerminalSurface(initialPanelId)
     }
 
-    private func trackRemoteTerminalSurface(_ panelId: UUID) {
+    private func trackRemoteTerminalSurface(_ panelId: UUID, trustExistingDirectory: Bool = false) {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         applyPendingRemoteSurfaceDirectoryIfNeeded(to: panelId)
+        if trustExistingDirectory, normalizedSidebarDirectory(panelDirectories[panelId]) != nil {
+            markRemoteTerminalDirectorySurface(panelId)
+        }
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
         _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
     }
@@ -9972,8 +9980,11 @@ final class Workspace: Identifiable, ObservableObject {
     func rememberPendingRemoteSurfaceDirectory(_ directory: String, requestedSurfaceId: UUID?) {
         let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDirectory.isEmpty else { return }
-        pendingRemoteSurfaceDirectory = trimmedDirectory
-        pendingRemoteSurfaceDirectorySurfaceId = requestedSurfaceId
+        if let requestedSurfaceId {
+            pendingRemoteSurfaceDirectoriesBySurfaceId[requestedSurfaceId] = trimmedDirectory
+        } else {
+            pendingRemoteSurfaceDirectory = trimmedDirectory
+        }
     }
 
     @MainActor
@@ -10005,17 +10016,17 @@ final class Workspace: Identifiable, ObservableObject {
 
     @MainActor
     private func applyPendingRemoteSurfaceDirectoryIfNeeded(to panelId: UUID) {
+        if let directory = pendingRemoteSurfaceDirectoriesBySurfaceId.removeValue(forKey: panelId) {
+            updateRemotePanelDirectory(panelId: panelId, directory: directory)
+            return
+        }
+
         guard let directory = pendingRemoteSurfaceDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
               !directory.isEmpty else {
             return
         }
-        if let requestedSurfaceId = pendingRemoteSurfaceDirectorySurfaceId,
-           requestedSurfaceId != panelId {
-            return
-        }
         pendingRemoteSurfaceDirectory = nil
-        pendingRemoteSurfaceDirectorySurfaceId = nil
-        updatePanelDirectory(panelId: panelId, directory: directory)
+        updateRemotePanelDirectory(panelId: panelId, directory: directory)
     }
 
     @MainActor
@@ -12086,7 +12097,10 @@ final class Workspace: Identifiable, ObservableObject {
             detached.isRemoteTerminal
             && detached.remoteRelayPort == remoteConfiguration?.relayPort
         if didAdoptWorkspaceRemoteTracking {
-            trackRemoteTerminalSurface(detached.panelId)
+            trackRemoteTerminalSurface(
+                detached.panelId,
+                trustExistingDirectory: detached.hasRemoteDirectory
+            )
         }
         if let cleanupConfiguration = detached.remoteCleanupConfiguration {
             if didAdoptWorkspaceRemoteTracking {
@@ -14548,6 +14562,7 @@ extension Workspace: BonsplitDelegate {
                 restorableAgentResumeState: restorableAgentResumeState,
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
+                hasRemoteDirectory: remoteTerminalDirectorySurfaceIds.contains(panelId),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
                     ? remoteConfiguration?.relayPort

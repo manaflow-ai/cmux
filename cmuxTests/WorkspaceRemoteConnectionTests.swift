@@ -539,6 +539,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         workspace.panelDirectories[panelID] = "/Users/lawrence/fun"
         workspace.currentDirectory = "/Users/lawrence/fun"
+        workspace.updatePanelDirectory(panelId: panelID, directory: "/Users/lawrence/fun")
 
         XCTAssertNil(workspace.preferredRemoteFileExplorerRootPath())
     }
@@ -562,7 +563,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         workspace.remoteConnectionState = .connecting
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        workspace.updatePanelDirectory(panelId: panelID, directory: "/home/demo/project")
+        workspace.updateRemotePanelDirectory(panelId: panelID, directory: "/home/demo/project")
 
         XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
     }
@@ -590,7 +591,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         XCTAssertNil(workspace.preferredRemoteFileExplorerRootPath())
 
-        workspace.updatePanelDirectory(panelId: panelID, directory: "/home/demo/project")
+        workspace.updateRemotePanelDirectory(panelId: panelID, directory: "/home/demo/project")
 
         XCTAssertGreaterThan(workspace.remoteTerminalDirectoryGeneration, generationBeforeMarker)
         XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
@@ -615,7 +616,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         workspace.remoteConnectionState = .connected
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        workspace.updatePanelDirectory(panelId: panelID, directory: "/home/demo/project")
+        workspace.updateRemotePanelDirectory(panelId: panelID, directory: "/home/demo/project")
 
         XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
     }
@@ -650,7 +651,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: false)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        workspace.updatePanelDirectory(panelId: panelID, directory: "/home/demo/project")
+        workspace.updateRemotePanelDirectory(panelId: panelID, directory: "/home/demo/project")
 
         workspace.configureRemoteConnection(refreshedRelayConfig, autoConnect: false)
 
@@ -687,7 +688,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: false)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        workspace.updatePanelDirectory(panelId: panelID, directory: "/home/demo/project")
+        workspace.updateRemotePanelDirectory(panelId: panelID, directory: "/home/demo/project")
         XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
 
         workspace.configureRemoteConnection(differentRemoteConfig, autoConnect: false)
@@ -1124,6 +1125,42 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == sourceWorkspace.id }))
         XCTAssertTrue(destinationWorkspace.panels.keys.contains(detached.panelId))
+    }
+
+    @MainActor
+    func testTransferredRemoteSurfaceCarriesTrustedDirectoryMarker() throws {
+        let manager = TabManager()
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let destinationWorkspace = manager.addWorkspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64040,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        sourceWorkspace.configureRemoteConnection(config, autoConnect: false)
+        destinationWorkspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        sourceWorkspace.updateRemotePanelDirectory(panelId: panelID, directory: "/home/demo/project")
+
+        let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: panelID))
+        let destinationPaneID = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+
+        let restoredPanelID = destinationWorkspace.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        )
+
+        XCTAssertEqual(restoredPanelID, panelID)
+        XCTAssertEqual(destinationWorkspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
     }
 
     @MainActor

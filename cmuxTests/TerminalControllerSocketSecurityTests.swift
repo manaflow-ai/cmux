@@ -831,6 +831,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             restorableAgentResumeState: nil,
             resumeBinding: nil,
             agentRuntime: nil,
+            hasRemoteDirectory: false,
             isRemoteTerminal: true,
             remoteRelayPort: relayPort,
             remoteCleanupConfiguration: nil
@@ -841,6 +842,95 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(attachedPanelId, incomingPanel.id)
         XCTAssertEqual(workspace.panelDirectories[incomingPanel.id], "/home/demo/project")
         XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
+    }
+
+    func testRemoteSurfaceReportPwdQueuesRequestedSurfacesIndependently() async throws {
+        let socketPath = makeSocketPath("relay-pwd-multi")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let relayPort = 4447
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: relayPort,
+            relayID: "relay-id",
+            relayToken: "relay-token",
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh example.com"
+        )
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.panels.removeAll()
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let firstPanel = TerminalPanel(workspaceId: workspace.id)
+        let secondPanel = TerminalPanel(workspaceId: workspace.id)
+        for (panel, directory) in [
+            (firstPanel, "/home/demo/first"),
+            (secondPanel, "/home/demo/second")
+        ] {
+            let response = try await sendV2RequestAsync(
+                method: "surface.report_pwd",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": panel.id.uuidString,
+                    "directory": directory
+                ],
+                to: socketPath
+            )
+            XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+            let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+            XCTAssertEqual(result["pending"] as? Bool, true)
+        }
+
+        func transfer(for panel: TerminalPanel) -> Workspace.DetachedSurfaceTransfer {
+            Workspace.DetachedSurfaceTransfer(
+                sourceWorkspaceId: workspace.id,
+                panelId: panel.id,
+                panel: panel,
+                title: panel.displayTitle,
+                icon: panel.displayIcon,
+                iconImageData: nil,
+                kind: "terminal",
+                isLoading: false,
+                isPinned: false,
+                directory: nil,
+                ttyName: nil,
+                cachedTitle: nil,
+                customTitle: nil,
+                manuallyUnread: false,
+                restoredUnread: false,
+                restorableAgent: nil,
+                restorableAgentResumeState: nil,
+                resumeBinding: nil,
+                agentRuntime: nil,
+                hasRemoteDirectory: false,
+                isRemoteTerminal: true,
+                remoteRelayPort: relayPort,
+                remoteCleanupConfiguration: nil
+            )
+        }
+
+        XCTAssertEqual(workspace.attachDetachedSurface(transfer(for: firstPanel), inPane: paneId, focus: false), firstPanel.id)
+        XCTAssertEqual(workspace.attachDetachedSurface(transfer(for: secondPanel), inPane: paneId, focus: false), secondPanel.id)
+
+        XCTAssertEqual(workspace.panelDirectories[firstPanel.id], "/home/demo/first")
+        XCTAssertEqual(workspace.panelDirectories[secondPanel.id], "/home/demo/second")
     }
 
     func testRemoteSurfaceReportPwdRefreshesRemoteRootOnDuplicateAfterReconnect() async throws {
