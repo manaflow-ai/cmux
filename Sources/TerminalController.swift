@@ -1391,9 +1391,7 @@ class TerminalController {
         switch stage {
         case "unlink" where errnoCode == EACCES || errnoCode == EPERM:
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "open_lock" where errnoCode == EACCES || errnoCode == EPERM:
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "lock" where errnoCode == EWOULDBLOCK || errnoCode == EAGAIN || errnoCode == EACCES || errnoCode == EPERM:
+        case "open_lock", "lock":
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)

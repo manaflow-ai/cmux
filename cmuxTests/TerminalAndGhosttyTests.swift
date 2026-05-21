@@ -4882,15 +4882,17 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     }
 
     func testStableSocketOpenLockFailureFallsBackToUserScopedSocket() {
-        XCTAssertEqual(
-            TerminalController.fallbackSocketPathAfterBindFailure(
-                requestedPath: SocketControlSettings.stableDefaultSocketPath,
-                stage: "open_lock",
-                errnoCode: EACCES,
-                currentUserID: 501
-            ),
-            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
-        )
+        for errnoCode in [EACCES, ELOOP, EINVAL, EMLINK] {
+            XCTAssertEqual(
+                TerminalController.fallbackSocketPathAfterBindFailure(
+                    requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                    stage: "open_lock",
+                    errnoCode: errnoCode,
+                    currentUserID: 501
+                ),
+                SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+            )
+        }
     }
 
     func testSocketPathAcceptsConnectionsForLiveUnixSocket() throws {
