@@ -412,13 +412,10 @@ final class WindowDecorationsController {
         }
 
         let contentBounds = contentView.bounds
-        let trafficLightFrameInContent: NSRect? = {
-            guard let closeButton = window.standardWindowButton(.closeButton),
-                  let closeButtonSuperview = closeButton.superview else {
-                return nil
-            }
-            return closeButtonSuperview.convert(closeButton.frame, to: contentView)
-        }()
+        let trafficLightFrameInContent = minimalModeTrafficLightFrameInContentCoordinates(
+            window: window,
+            contentView: contentView
+        )
         target.frame = minimalModeSidebarTitlebarControlsFrame(
             contentBounds: contentBounds,
             contentViewIsFlipped: contentView.isFlipped,

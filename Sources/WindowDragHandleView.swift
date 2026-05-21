@@ -714,14 +714,22 @@ func minimalModeSidebarTitlebarControlsFrame(
     )
 }
 
-@MainActor
-private func minimalModeTrafficLightFrameInContentCoordinates(for window: NSWindow) -> NSRect? {
-    guard let contentView = window.contentView,
-          let closeButton = window.standardWindowButton(.closeButton),
+func minimalModeTrafficLightFrameInContentCoordinates(
+    window: NSWindow,
+    contentView: NSView
+) -> NSRect? {
+    dispatchPrecondition(condition: .onQueue(.main))
+    guard let closeButton = window.standardWindowButton(.closeButton),
           let closeButtonSuperview = closeButton.superview else {
         return nil
     }
     return closeButtonSuperview.convert(closeButton.frame, to: contentView)
+}
+
+@MainActor
+private func minimalModeTrafficLightFrameInContentCoordinates(for window: NSWindow) -> NSRect? {
+    guard let contentView = window.contentView else { return nil }
+    return minimalModeTrafficLightFrameInContentCoordinates(window: window, contentView: contentView)
 }
 
 enum MinimalModeSidebarControlActionSlot: Int {
