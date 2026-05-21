@@ -7,6 +7,7 @@ final class PanelOwnedNativeViewSession<View: NSView> {
     private let dismantleView: @MainActor (View) -> Void
     private var ownedView: View?
     private var retiredViews: Set<ObjectIdentifier> = []
+    private var dismantledViews: Set<ObjectIdentifier> = []
 
     init(
         makeView: @escaping @MainActor () -> View,
@@ -24,7 +25,9 @@ final class PanelOwnedNativeViewSession<View: NSView> {
 
     func view(configure: @MainActor (View) -> Void) -> View {
         let view = ownedView ?? makeView()
-        retiredViews.remove(ObjectIdentifier(view))
+        let viewId = ObjectIdentifier(view)
+        retiredViews.remove(viewId)
+        dismantledViews.remove(viewId)
         ownedView = view
         if view.superview != nil {
             view.removeFromSuperview()
@@ -52,8 +55,9 @@ final class PanelOwnedNativeViewSession<View: NSView> {
     @discardableResult
     func dismantle(_ view: View) -> Bool {
         let viewId = ObjectIdentifier(view)
-        guard !retiredViews.contains(viewId) else { return false }
+        guard !dismantledViews.contains(viewId) else { return false }
         retiredViews.insert(viewId)
+        dismantledViews.insert(viewId)
         let dismantledOwnedView = ownedView === view
         if dismantledOwnedView {
             ownedView = nil

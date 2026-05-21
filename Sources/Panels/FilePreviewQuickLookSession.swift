@@ -25,7 +25,7 @@ final class FilePreviewQuickLookSession {
     private let viewSession = PanelOwnedNativeViewSession<NSView>(
         makeView: FilePreviewQuickLookSession.makeView,
         closeView: FilePreviewQuickLookSession.releaseView,
-        dismantleView: FilePreviewQuickLookSession.dismantleView
+        dismantleView: FilePreviewQuickLookSession.releaseView
     )
     private var item: FilePreviewQLItem?
 
@@ -89,15 +89,10 @@ final class FilePreviewQuickLookSession {
 
     private static func releaseView(_ view: NSView) {
         if let previewView = view as? QLPreviewView {
+            // QLPreviewView.close() asserts when the view is inactive and makes the
+            // view permanently reject future items. Session retirement handles stale
+            // updates; clearing the item releases the active preview.
             previewView.previewItem = nil
-        }
-        view.removeFromSuperview()
-    }
-
-    private static func dismantleView(_ view: NSView) {
-        if let previewView = view as? QLPreviewView {
-            previewView.previewItem = nil
-            previewView.close()
         }
         view.removeFromSuperview()
     }
