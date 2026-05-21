@@ -32,6 +32,11 @@ const englishOnlyPages = [
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/blog", title: "Blog" },
+  { path: "/blog/defer-unread", title: "Defer and toggle unread agents in cmux" },
+  {
+    path: "/blog/session-restore",
+    title: "How to resume Claude Code, Codex, and OpenCode sessions in cmux",
+  },
   { path: "/blog/cmux-ssh", title: "cmux SSH" },
   {
     path: "/blog/cmux-claude-teams",
