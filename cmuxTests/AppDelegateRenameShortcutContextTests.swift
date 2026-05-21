@@ -42,6 +42,7 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
     override func setUp() {
         super.setUp()
         executionTimeAllowance = 30
+        AppDelegate.installWindowResponderSwizzlesForTesting()
         actionsWithPersistedShortcut = Set(
             KeyboardShortcutSettings.Action.allCases.filter {
                 UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
