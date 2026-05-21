@@ -598,6 +598,69 @@ func TestWebSocketPTYInputBackpressureDoesNotBlockHub(t *testing.T) {
 	}
 }
 
+func TestWebSocketPTYInputBackpressureRejectsWholePayload(t *testing.T) {
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+	}, stderr)
+	sessionKey := persistentPTYSessionKey("sess-input-atomic")
+	sessionDone := make(chan struct{})
+	attachment := &wsPTYAttachment{
+		sessionKey: sessionKey,
+		id:         "att-input",
+		cols:       80,
+		rows:       24,
+		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:     func() {},
+		persistent: true,
+	}
+	session := &wsPTYSession{
+		id:            "sess-input-atomic",
+		key:           sessionKey,
+		attachments:   map[string]*wsPTYAttachment{attachment.id: attachment},
+		effectiveCols: 80,
+		effectiveRows: 24,
+		lastKnownCols: 80,
+		lastKnownRows: 24,
+		input:         make(chan wsPTYInputChunk, defaultPTYInputQueueCap),
+		done:          sessionDone,
+	}
+	defer close(sessionDone)
+
+	hub.mu.Lock()
+	hub.sessions[session.key] = session
+	hub.mu.Unlock()
+
+	for i := 0; i < defaultPTYInputQueueCap-1; i++ {
+		session.input <- wsPTYInputChunk{
+			attachmentID: attachment.id,
+			attachment:   attachment,
+			payload:      []byte("queued"),
+		}
+	}
+
+	payload := append(
+		bytes.Repeat([]byte("x"), defaultPTYInputChunkBytes),
+		'y',
+	)
+	if hub.writeInputByID(session.id, attachment.id, payload) {
+		t.Fatal("writeInputByID unexpectedly accepted a two-chunk payload with one queue slot free")
+	}
+	if got := len(session.input); got != defaultPTYInputQueueCap-1 {
+		t.Fatalf("input queue length = %d, want unchanged %d", got, defaultPTYInputQueueCap-1)
+	}
+	for len(session.input) > 0 {
+		chunk := <-session.input
+		if bytes.Contains(chunk.payload, []byte("x")) || bytes.Contains(chunk.payload, []byte("y")) {
+			t.Fatalf("rejected payload chunk was partially enqueued: %q", string(chunk.payload))
+		}
+	}
+	if !strings.Contains(stderr.String(), "ws pty input queue full") {
+		t.Fatalf("stderr should report input queue backpressure, got %q", stderr.String())
+	}
+}
+
 func TestWebSocketPTYReapsDetachedIdleSession(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
 	stderr := &bytes.Buffer{}

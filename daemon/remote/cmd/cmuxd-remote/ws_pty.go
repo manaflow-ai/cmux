@@ -147,6 +147,7 @@ type wsPTYSession struct {
 	resizeConfirms int
 	scrollback     []byte
 	input          chan wsPTYInputChunk
+	inputEnqueueMu sync.Mutex
 	done           chan struct{}
 	idleTimer      *time.Timer
 	closed         bool
@@ -1234,25 +1235,43 @@ func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) bool 
 	if !current {
 		return false
 	}
+
+	chunks := make([]wsPTYInputChunk, 0, (len(payload)+defaultPTYInputChunkBytes-1)/defaultPTYInputChunkBytes)
 	for len(payload) > 0 {
 		chunkLen := len(payload)
 		if chunkLen > defaultPTYInputChunkBytes {
 			chunkLen = defaultPTYInputChunkBytes
 		}
-		chunk := wsPTYInputChunk{
+		chunks = append(chunks, wsPTYInputChunk{
 			attachmentID: attachment.id,
 			attachment:   attachment,
 			payload:      append([]byte(nil), payload[:chunkLen]...),
+		})
+		payload = payload[chunkLen:]
+	}
+
+	session.inputEnqueueMu.Lock()
+	defer session.inputEnqueueMu.Unlock()
+
+	h.mu.Lock()
+	current = h.sessions[attachment.sessionKey] == session &&
+		!session.closed &&
+		session.attachments[attachment.id] == attachment &&
+		session.input != nil
+	h.mu.Unlock()
+	if !current {
+		return false
+	}
+	if len(chunks) > cap(session.input)-len(session.input) {
+		if h.stderr != nil {
+			_, _ = fmt.Fprintf(h.stderr, "ws pty input queue full session=%s attachment=%s\n", session.id, attachment.id)
 		}
+		return false
+	}
+	for _, chunk := range chunks {
 		select {
 		case session.input <- chunk:
-			payload = payload[chunkLen:]
 		case <-session.done:
-			return false
-		default:
-			if h.stderr != nil {
-				_, _ = fmt.Fprintf(h.stderr, "ws pty input queue full session=%s attachment=%s\n", session.id, attachment.id)
-			}
 			return false
 		}
 	}
