@@ -34,10 +34,7 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
 
         try invoke(.closeOthers, anchorTabId: anchorTabId, fixture: fixture)
 
-        let closedTitles = ClosedItemHistoryStore.shared.entries.compactMap { entry -> String? in
-            guard case .panel(let panelEntry) = entry else { return nil }
-            return panelEntry.snapshot.customTitle
-        }
+        let closedTitles = ClosedItemHistoryStore.shared.menuSnapshot().items.reversed().map(\.title)
         XCTAssertEqual(closedTitles, ["Tab 1", "Tab 3", "Tab 4"])
     }
 
@@ -66,11 +63,9 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         XCTAssertTrue(fixture.workspace.requestCloseTabRecordingHistory(tabId, force: true))
         drainMainQueue()
 
-        let entry = try XCTUnwrap(ClosedItemHistoryStore.shared.entries.last)
-        guard case .panel(let panelEntry) = entry else {
-            return XCTFail("Expected a closed panel history entry")
-        }
-        XCTAssertEqual(panelEntry.snapshot.customTitle, "Tab 3")
+        let entry = try XCTUnwrap(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
+        XCTAssertEqual(entry.title, "Tab 3")
+        XCTAssertEqual(entry.detail, "Tab")
     }
 
     private struct Fixture {

@@ -617,11 +617,11 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(secondWorkspace.closePanel(closedPanelId, force: true))
         drainMainQueue()
         XCTAssertNil(secondWorkspace.panels[closedPanelId])
-        XCTAssertEqual(ClosedItemHistoryStore.shared.entries.count, 1)
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount, 1)
 
         manager.closeWorkspace(secondWorkspace)
         XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
-        XCTAssertEqual(ClosedItemHistoryStore.shared.entries.count, 2)
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount, 2)
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
         let restoredWorkspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -888,11 +888,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertFalse(manager.reopenMostRecentlyClosedItem())
         XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
-        XCTAssertEqual(ClosedItemHistoryStore.shared.entries.count, 1)
-        guard case .window = ClosedItemHistoryStore.shared.entries.last else {
-            XCTFail("Expected closed window history to remain queued")
-            return
-        }
+        let snapshot = ClosedItemHistoryStore.shared.menuSnapshot()
+        XCTAssertEqual(snapshot.totalItemCount, 1)
+        XCTAssertEqual(snapshot.items.first?.title, "Window")
     }
 
     func testRecentlyClosedMenuSnapshotListsPanelWorkspaceAndWindowRowsNewestFirst() throws {
@@ -1271,7 +1269,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         manager.closeWorkspace(remoteWorkspace)
 
         XCTAssertEqual(manager.tabs.map(\.id), [localWorkspace.id])
-        XCTAssertTrue(ClosedItemHistoryStore.shared.entries.isEmpty)
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
     }
 
     func testCleanupEmptySourceWorkspaceDoesNotRecordRecentlyClosedWorkspace() {
@@ -1296,7 +1294,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == sourceWorkspace.id }))
-        XCTAssertTrue(ClosedItemHistoryStore.shared.entries.isEmpty)
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
     }
 
     func testRestoringLocalWorkspaceSnapshotClearsStaleRemoteState() throws {

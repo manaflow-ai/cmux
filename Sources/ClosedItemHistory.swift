@@ -116,10 +116,6 @@ final class ClosedItemHistoryStore: ObservableObject {
         self.capacity = max(1, capacity)
     }
 
-    var entries: [ClosedItemHistoryEntry] {
-        records.map(\.entry)
-    }
-
     var canReopen: Bool {
         !records.isEmpty
     }
@@ -134,18 +130,6 @@ final class ClosedItemHistoryStore: ObservableObject {
             records.removeFirst(records.count - capacity)
         }
         revision &+= 1
-    }
-
-    func pop() -> ClosedItemHistoryEntry? {
-        popRecord()?.record.entry
-    }
-
-    func popRecord() -> (record: ClosedItemHistoryRecord, index: Int)? {
-        guard let record = records.popLast() else {
-            return nil
-        }
-        revision &+= 1
-        return (record, records.count)
     }
 
     @discardableResult

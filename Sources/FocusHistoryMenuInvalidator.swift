@@ -5,9 +5,11 @@ import SwiftUI
 final class FocusHistoryMenuInvalidator: ObservableObject {
     @Published private(set) var revision: UInt64 = 0
 
+    private let center: NotificationCenter
     private var observers: [NSObjectProtocol] = []
 
     init(center: NotificationCenter = .default) {
+        self.center = center
         observers.append(center.addObserver(
             forName: .tabManagerFocusHistoryRevisionDidChange,
             object: nil,
@@ -29,7 +31,6 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
     }
 
     deinit {
-        let center = NotificationCenter.default
         for observer in observers {
             center.removeObserver(observer)
         }
