@@ -516,7 +516,7 @@ extension CMUXCLI {
 
         return DiffViewerAppearance(
             fontFamily: "Menlo",
-            fontSize: 11.5,
+            fontSize: 10,
             lightTheme: lightTheme,
             darkTheme: darkTheme
         )
@@ -913,8 +913,8 @@ extension CMUXCLI {
               --cmux-diff-selection-bg-light: #abd8ff;
               --cmux-diff-selection-bg-dark: #3f638b;
               --cmux-diff-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-              --cmux-diff-font-size: 11.5px;
-              --cmux-diff-line-height: 17.69px;
+              --cmux-diff-font-size: 10px;
+              --cmux-diff-line-height: 15.38px;
               --cmux-diff-bg: var(--cmux-diff-bg-light);
               --cmux-diff-fg: var(--cmux-diff-fg-light);
               background: var(--cmux-diff-bg);
@@ -1228,7 +1228,7 @@ extension CMUXCLI {
           --no-focus                   Do not focus the diff browser split
           --title <text>               Diff viewer title
           --layout <split|unified>     Diff layout (default: split)
-          --font-size <points>         Set diff font size (default: 11.5)
+          --font-size <points>         Set diff font size (default: 10)
 
         Examples:
           cmux diff changes.patch
