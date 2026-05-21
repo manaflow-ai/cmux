@@ -297,7 +297,6 @@ struct SocketControlSettings {
     static let socketPasswordEnvKey = "CMUX_SOCKET_PASSWORD"
     static let launchTagEnvKey = "CMUX_TAG"
     static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
-    static let staleSocketReplacementAgeThreshold: TimeInterval = 2
     private static let socketDirectoryName = "cmux"
     private static let stableSocketFileName = "cmux.sock"
     static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
@@ -462,7 +461,6 @@ struct SocketControlSettings {
 
     static func initialSocketPathBeforeListenerStart(
         preferredPath: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         isDebugBuild: Bool = SocketControlSettings.isDebugBuild,
         currentUserID: uid_t = getuid(),

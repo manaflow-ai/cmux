@@ -2797,7 +2797,6 @@ final class SocketControlSettingsTests: XCTestCase {
     func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathAcceptsConnections() {
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: SocketControlSettings.stableDefaultSocketPath,
-            environment: ["CMUX_TAG": "ambient-dev-tag"],
             bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false,
             currentUserID: 501,
@@ -2814,7 +2813,6 @@ final class SocketControlSettingsTests: XCTestCase {
     func testInitialStableLaunchKeepsSameUserStableSocketPathWhenItDoesNotAcceptConnections() {
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: SocketControlSettings.stableDefaultSocketPath,
-            environment: [:],
             bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false,
             currentUserID: 501,
@@ -2829,7 +2827,6 @@ final class SocketControlSettingsTests: XCTestCase {
         let debugPath = "/tmp/cmux-debug-tag.sock"
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: debugPath,
-            environment: [:],
             bundleIdentifier: "com.cmuxterm.app.debug.tag",
             isDebugBuild: false,
             currentUserID: 501,

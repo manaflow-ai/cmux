@@ -4869,14 +4869,27 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
-    func testRecentlyRefusedStableSocketBindFailureDoesNotFallbackBeforeRetry() {
-        XCTAssertNil(
+    func testStableSocketLockFailureFallsBackToUserScopedSocket() {
+        XCTAssertEqual(
             TerminalController.fallbackSocketPathAfterBindFailure(
                 requestedPath: SocketControlSettings.stableDefaultSocketPath,
-                stage: TerminalController.recentlyRefusedSocketBindStage,
-                errnoCode: EADDRINUSE,
+                stage: "lock",
+                errnoCode: EWOULDBLOCK,
                 currentUserID: 501
-            )
+            ),
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
+    func testStableSocketOpenLockFailureFallsBackToUserScopedSocket() {
+        XCTAssertEqual(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                stage: "open_lock",
+                errnoCode: EACCES,
+                currentUserID: 501
+            ),
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
         )
     }
 
@@ -4932,7 +4945,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         wait(for: [handled], timeout: 1.0)
     }
 
-    func testPrepareSocketPathForBindPreservesRecentlyRefusedSocketFile() throws {
+    func testPrepareSocketPathForBindPreservesRefusedSocketFileWithoutPathLock() throws {
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)
         Darwin.close(listenerFD)
@@ -4940,59 +4953,19 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
         let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
 
-        XCTAssertEqual(failure.stage, TerminalController.recentlyRefusedSocketBindStage)
+        XCTAssertEqual(failure.stage, "bind")
         XCTAssertEqual(failure.errnoCode, EADDRINUSE)
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
     }
 
-    func testPrepareSocketPathForBindRemovesOldRefusedSocketFile() throws {
+    func testPrepareSocketPathForBindRemovesRefusedSocketFileWithPathLock() throws {
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)
         Darwin.close(listenerFD)
         defer { unlink(path) }
 
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSinceNow: -10)],
-            ofItemAtPath: path
-        )
-
-        XCTAssertNil(TerminalController.prepareSocketPathForBind(path))
+        XCTAssertNil(TerminalController.prepareSocketPathForBind(path, ownsPathLock: true))
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
-    }
-
-    func testSocketBindRetryDelayForRecentlyRefusedSocketUsesRemainingFreshnessWindow() throws {
-        let path = makeTempSocketPath()
-        let listenerFD = try bindUnixSocket(at: path)
-        Darwin.close(listenerFD)
-        defer { unlink(path) }
-
-        let now = Date()
-        try FileManager.default.setAttributes(
-            [.modificationDate: now.addingTimeInterval(-0.5)],
-            ofItemAtPath: path
-        )
-
-        let delayMs = try XCTUnwrap(
-            TerminalController.socketBindRetryDelayMilliseconds(
-                stage: TerminalController.recentlyRefusedSocketBindStage,
-                errnoCode: EADDRINUSE,
-                path: path,
-                now: now
-            )
-        )
-
-        XCTAssertGreaterThanOrEqual(delayMs, 1_000)
-        XCTAssertLessThanOrEqual(delayMs, 2_000)
-    }
-
-    func testSocketBindRetryDelayIgnoresGenericBindFailures() {
-        XCTAssertNil(
-            TerminalController.socketBindRetryDelayMilliseconds(
-                stage: "bind",
-                errnoCode: EADDRINUSE,
-                path: makeTempSocketPath()
-            )
-        )
     }
 
     @MainActor
