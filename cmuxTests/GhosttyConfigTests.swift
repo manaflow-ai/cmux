@@ -2663,17 +2663,25 @@ final class SocketControlSettingsTests: XCTestCase {
     }
 
     func testTaggedDebugBundleRefusesUserScopedStableSocketOverrideEvenWithOptInFlag() {
-        let path = SocketControlSettings.socketPath(
-            environment: [
-                "CMUX_SOCKET_PATH": SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
-                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
-            ],
-            bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
-            isDebugBuild: false,
-            currentUserID: 501
-        )
+        let aliases = [
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
+            SocketControlSettings.legacyUserScopedStableSocketPath(currentUserID: 501),
+            "/private/tmp/cmux-501.sock",
+        ]
 
-        XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
+        for alias in aliases {
+            let path = SocketControlSettings.socketPath(
+                environment: [
+                    "CMUX_SOCKET_PATH": alias,
+                    "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+                ],
+                bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+                isDebugBuild: false,
+                currentUserID: 501
+            )
+
+            XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock", alias)
+        }
     }
 
     func testTaggedDebugBundleRefusesCanonicalLegacyStableSocketAliasEvenWithOptInFlag() {
@@ -2694,6 +2702,8 @@ final class SocketControlSettingsTests: XCTestCase {
             "/tmp/CMUX.sock",
             "/private/tmp/CMUX.sock",
             SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+                .replacingOccurrences(of: "cmux-501.sock", with: "CMUX-501.sock"),
+            SocketControlSettings.legacyUserScopedStableSocketPath(currentUserID: 501)
                 .replacingOccurrences(of: "cmux-501.sock", with: "CMUX-501.sock"),
         ]
 

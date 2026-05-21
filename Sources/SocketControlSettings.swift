@@ -547,6 +547,7 @@ struct SocketControlSettings {
             stableDefaultSocketPath,
             userScopedStableSocketPath(currentUserID: currentUserID),
             legacyStableDefaultSocketPath,
+            legacyUserScopedStableSocketPath(currentUserID: currentUserID),
         ].contains { stablePath in
             canonicalSocketPath(stablePath)
                 .map { socketPathStringsMatch(candidatePath, $0) }
@@ -577,6 +578,10 @@ struct SocketControlSettings {
         stableSocketDirectoryURL()?
             .appendingPathComponent("cmux-\(currentUserID).sock", isDirectory: false)
             .path ?? "/tmp/cmux-\(currentUserID).sock"
+    }
+
+    static func legacyUserScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
+        "/tmp/cmux-\(currentUserID).sock"
     }
 
     static func resolvedStableDefaultSocketPath(
