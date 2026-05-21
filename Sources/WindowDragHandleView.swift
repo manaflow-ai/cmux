@@ -664,16 +664,9 @@ func minimalModeSidebarTitlebarControlsTopInset(
     guard let contentView = window.contentView else {
         return MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults)
     }
-    let trafficLightFrameInContent = minimalModeTrafficLightFrameInContentCoordinates(for: window)
-    let controlsFrame = minimalModeSidebarTitlebarControlsFrame(
-        contentBounds: contentView.bounds,
-        contentViewIsFlipped: contentView.isFlipped,
-        trafficLightFrameInContent: trafficLightFrameInContent,
-        visualDownwardAdjustment: trafficLightFrameInContent == nil
-            ? 0
-            : MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(in: window),
-        defaults: defaults
-    )
+    guard let controlsFrame = minimalModeSidebarTitlebarControlsFrame(in: window, defaults: defaults) else {
+        return MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults)
+    }
     if contentView.isFlipped {
         return controlsFrame.minY - contentView.bounds.minY
     }
