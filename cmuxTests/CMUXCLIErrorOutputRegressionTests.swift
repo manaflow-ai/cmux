@@ -578,11 +578,17 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-socket-\(UUID().uuidString)", isDirectory: true)
         let appURL = root.appendingPathComponent("cmux DEV \(tagSlug).app", isDirectory: true)
+        let sourceContentsURL = URL(fileURLWithPath: sourceCLIPath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
         let contentsURL = appURL.appendingPathComponent("Contents", isDirectory: true)
+        var cliContentsURL = contentsURL
         let binURL: URL
         if nestedIdentifierlessApp {
             let nestedContentsURL = contentsURL
                 .appendingPathComponent("Resources/NestedTool.app/Contents", isDirectory: true)
+            cliContentsURL = nestedContentsURL
             binURL = nestedContentsURL.appendingPathComponent("Resources/bin", isDirectory: true)
             let nestedInfoData = try PropertyListSerialization.data(
                 fromPropertyList: [
@@ -620,7 +626,27 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             [.posixPermissions: 0o755],
             ofItemAtPath: fakeCLIURL.path
         )
+        try copyBundledFrameworks(fromContentsURL: sourceContentsURL, toContentsURL: cliContentsURL)
         return fakeCLIURL.path
+    }
+
+    private func copyBundledFrameworks(fromContentsURL sourceContentsURL: URL, toContentsURL destinationContentsURL: URL) throws {
+        let sourceFrameworksURL = sourceContentsURL.appendingPathComponent("Frameworks", isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: sourceFrameworksURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return
+        }
+
+        let destinationFrameworksURL = destinationContentsURL.appendingPathComponent("Frameworks", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: destinationFrameworksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: destinationFrameworksURL.path) {
+            try FileManager.default.removeItem(at: destinationFrameworksURL)
+        }
+        try FileManager.default.copyItem(at: sourceFrameworksURL, to: destinationFrameworksURL)
     }
 
     private func shellSingleQuote(_ value: String) -> String {
