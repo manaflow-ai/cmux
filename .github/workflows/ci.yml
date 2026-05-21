@@ -14,6 +14,8 @@ concurrency:
 jobs:
   workflow-guard-tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -62,6 +64,8 @@ jobs:
 
   remote-daemon-tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -81,6 +85,8 @@ jobs:
 
   web-typecheck:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: web
@@ -102,6 +108,8 @@ jobs:
 
   web-db-migrations:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: web
@@ -385,6 +393,8 @@ jobs:
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
     runs-on: warp-macos-15-arm64-6x
+    permissions:
+      contents: read
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -581,6 +591,8 @@ jobs:
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
     runs-on: warp-macos-26-arm64-6x
+    permissions:
+      contents: read
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -669,6 +681,8 @@ jobs:
 
   ui-regressions:
     runs-on: warp-macos-15-arm64-6x
+    permissions:
+      contents: read
     timeout-minutes: 25
     steps:
       - name: Checkout
