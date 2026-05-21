@@ -259,6 +259,37 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(updated.workspaces.map(\.id), [third.id, first.id, second.id])
     }
 
+    func testWorkspacesReorderedToleratesDuplicateWorkspaceSnapshots() {
+        let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
+        var replacement = workspace(title: "Replacement", rootPath: nil, projectRootPath: nil)
+        replacement.id = first.id
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 5,
+            selectedWorkspaceId: first.id,
+            workspaces: [first, replacement]
+        )
+
+        let direct = CmuxExtensionSidebarReducer.reduce(
+            snapshot,
+            event: .workspacesReordered([first.id])
+        )
+        let frame = CmuxExtensionEventFrame(
+            sequence: 8,
+            name: "workspace.reordered",
+            category: "workspace",
+            source: "workspace.lifecycle",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 1),
+            workspaceId: first.id,
+            payload: [
+                "workspace_ids": .array([.string(first.id.uuidString)])
+            ]
+        )
+        let eventReduced = CmuxExtensionSidebarReducer.reduce(snapshot, event: frame)
+
+        XCTAssertEqual(direct.workspaces.map(\.title), ["Replacement"])
+        XCTAssertEqual(eventReduced.workspaces.map(\.title), ["Replacement"])
+    }
+
     func testSidebarEventReducerPreservesWindowIdAcrossFreshSnapshots() {
         let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
         let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)

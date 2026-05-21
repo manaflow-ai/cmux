@@ -300,6 +300,26 @@ final class BrowserStackSidebarTests: XCTestCase {
         XCTAssertEqual(rows[1].leadingIcon?.backgroundColorHex, "#000000")
     }
 
+    func testRenderToleratesDuplicateWorkspaceIds() throws {
+        let stateURL = temporaryStateURL()
+        defer { try? FileManager.default.removeItem(at: stateURL.deletingLastPathComponent()) }
+
+        let original = workspace(title: "Original")
+        var replacement = workspace(title: "Replacement")
+        replacement.id = original.id
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 1,
+            selectedWorkspaceId: original.id,
+            workspaces: [original, replacement]
+        )
+
+        let model = BrowserStackSidebar(store: BrowserStackSidebarStore(stateURL: stateURL)).render(snapshot: snapshot)
+        let rows = try XCTUnwrap(model.sections.first { $0.id == "tiles" }?.rows)
+
+        XCTAssertEqual(rows.map(\.workspaceId), [original.id])
+        XCTAssertEqual(rows.map(\.title), ["Replacement"])
+    }
+
     private func temporaryStateURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-browser-stack-\(UUID().uuidString)", isDirectory: true)

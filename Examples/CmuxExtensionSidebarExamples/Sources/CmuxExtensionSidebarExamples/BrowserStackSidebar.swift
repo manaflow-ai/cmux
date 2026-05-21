@@ -31,7 +31,10 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
 
     public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
         let state = stateCache.state(for: snapshot)
-        let workspacesById = Dictionary(uniqueKeysWithValues: snapshot.workspaces.map { ($0.id, $0) })
+        let workspacesById = Dictionary(
+            snapshot.workspaces.map { ($0.id, $0) },
+            uniquingKeysWith: { _, replacement in replacement }
+        )
         let sections = state.sections.map { sectionState in
             ExampleSidebarSection(
                 id: sectionState.id,
