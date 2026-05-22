@@ -871,6 +871,59 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, mainPaneCountBeforeSplitOff)
     }
 
+    func testBrowserCommandsResolveDockPaneTargets() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        workspace.dockLayout.openEdge(.right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let browserPanel = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                url: URL(string: "about:blank"),
+                focus: true,
+                creationPolicy: .restoration
+            )
+        )
+
+        let payload = try v2Result(
+            method: "browser.eval",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "pane_id": dockPaneId.id.uuidString,
+                "script": "'dock-browser'"
+            ]
+        )
+        XCTAssertEqual(payload["surface_id"] as? String, browserPanel.id.uuidString)
+        XCTAssertEqual(payload["value"] as? String, "dock-browser")
+    }
+
     func testSurfaceListOrdersDockSurfacesByDockPaneOrder() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

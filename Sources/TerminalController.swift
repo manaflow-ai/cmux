@@ -9579,13 +9579,13 @@ class TerminalController {
             return (surfaceId, nil)
         }
         if let paneId = v2UUID(params, "pane_id") {
-            guard let pane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == paneId }) else {
+            guard let locatedPane = v2ResolvePane(in: workspace, paneUUID: paneId) else {
                 return (
                     nil,
                     .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneId.uuidString])
                 )
             }
-            guard let selectedTab = workspace.bonsplitController.selectedTab(inPane: pane),
+            guard let selectedTab = locatedPane.controller.selectedTab(inPane: locatedPane.paneId),
                   let selectedSurface = workspace.panelIdFromSurfaceId(selectedTab.id) else {
                 return (
                     nil,
