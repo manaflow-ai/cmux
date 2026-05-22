@@ -113,11 +113,6 @@ final class AgentHibernationController {
         }
     }
 
-    func recordTerminalOutput(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
-        // Agent TUIs often redraw without adding scrollback. Hibernation idleness is
-        // based on stable scrollback tail samples, not every PTY write.
-    }
-
     func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
         let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
         terminalInputByPanel[key] = recordedAt.timeIntervalSince1970

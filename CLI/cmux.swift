@@ -17550,6 +17550,13 @@ struct CMUXCLI {
                     lastSubtitle: "Waiting",
                     lastBody: question
                 )
+                setAgentLifecycle(
+                    client: client,
+                    key: Self.claudeCodeStatusKey,
+                    lifecycle: .needsInput,
+                    workspaceId: workspaceId,
+                    surfaceId: existingSurfaceId
+                )
                 // Don't clear notifications or set status here.
                 // The Notification hook fires right after and will use the saved question.
                 print("OK")
@@ -17684,7 +17691,7 @@ struct CMUXCLI {
         jsonOutput: Bool
     ) throws {
         guard let subcommand = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "Usage: cmux agent-hibernation <on|off>")
+            throw CLIError(message: "Usage: cmux agent-hibernation <on|off> [--json]")
         }
         let response: String
         switch subcommand {
@@ -17693,7 +17700,7 @@ struct CMUXCLI {
         case "off", "disable":
             response = try sendV1Command("agent_hibernation off", client: client)
         default:
-            throw CLIError(message: "Usage: cmux agent-hibernation <on|off>")
+            throw CLIError(message: "Usage: cmux agent-hibernation <on|off> [--json]")
         }
 
         if jsonOutput {

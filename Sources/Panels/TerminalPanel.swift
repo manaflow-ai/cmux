@@ -13,6 +13,21 @@ struct AgentHibernationPanelState {
     }
 }
 
+enum AgentHibernationResumePreparation: Equatable {
+    case unavailable
+    case resumed(queuedStartupInput: Bool)
+
+    var didResume: Bool {
+        if case .resumed = self { return true }
+        return false
+    }
+
+    var queuedStartupInput: Bool {
+        if case .resumed(let queuedStartupInput) = self { return queuedStartupInput }
+        return false
+    }
+}
+
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
@@ -237,18 +252,16 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func prepareAgentHibernationResume() -> Bool {
+    func prepareAgentHibernationResume() -> AgentHibernationResumePreparation {
         guard let state = agentHibernationState else {
-            return false
+            return .unavailable
         }
-        guard let resumeStartupInput = state.agent.resumeStartupInput() else {
-            return false
-        }
+        let resumeStartupInput = state.agent.resumeStartupInput()
         agentHibernationState = nil
         surface.prepareAgentHibernationResume(initialInput: resumeStartupInput)
         requestViewReattach()
         surface.requestBackgroundSurfaceStartIfNeeded()
-        return true
+        return .resumed(queuedStartupInput: resumeStartupInput != nil)
     }
 
     func requestViewReattach() {
@@ -304,7 +317,7 @@ final class TerminalPanel: Panel, ObservableObject {
         if let onRequestAgentHibernationResume {
             return onRequestAgentHibernationResume(focus)
         }
-        return prepareAgentHibernationResume()
+        return prepareAgentHibernationResume().didResume
     }
 
     func hasSelection() -> Bool {

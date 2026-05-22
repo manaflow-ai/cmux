@@ -738,6 +738,31 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
+    @MainActor
+    func testResumePreparationWithoutStartupInputStillLeavesHibernation() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("manual-agent"),
+            sessionId: "manual-agent-session",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: nil
+        )
+
+        panel.enterAgentHibernation(
+            agent: snapshot,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertTrue(panel.isAgentHibernated)
+
+        let preparation = panel.prepareAgentHibernationResume()
+
+        XCTAssertEqual(preparation, .resumed(queuedStartupInput: false))
+        XCTAssertFalse(panel.isAgentHibernated)
+        XCTAssertFalse(panel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
     private func launch(
         _ launcher: String,
         _ executablePath: String,

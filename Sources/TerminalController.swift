@@ -7934,9 +7934,11 @@ class TerminalController {
         terminalPanel: TerminalPanel,
         lineLimit: Int
     ) -> String? {
+        // This runs from the periodic hibernation timer. Sample the visible tail
+        // only, rather than copying full scrollback every cycle.
         readTerminalTextForSnapshot(
             terminalPanel: terminalPanel,
-            includeScrollback: true,
+            includeScrollback: false,
             lineLimit: lineLimit,
             allowVTExport: false
         )

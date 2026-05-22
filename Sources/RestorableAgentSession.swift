@@ -1077,23 +1077,6 @@ struct RestorableAgentSessionIndex: Sendable {
         return size.intValue > 0
     }
 
-    private static func hookRecordStillBelongsToLiveAgent(
-        _ record: RestorableAgentHookSessionRecord,
-        kind: RestorableAgentKind,
-        workspaceId: UUID,
-        panelId: UUID
-    ) -> Bool {
-        record.pid == nil || liveScopedProcessID(
-            for: record,
-            kind: kind,
-            workspaceId: workspaceId,
-            panelId: panelId,
-            processArgumentsProvider: {
-                CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
-            }
-        ) != nil
-    }
-
     private static func liveScopedProcessID(
         for record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,

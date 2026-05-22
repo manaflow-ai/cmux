@@ -499,11 +499,8 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
 
-        if let rawHibernation = section["agentHibernation"] {
-            guard let hibernation = rawHibernation as? [String: Any] else {
-                logInvalid("terminal.agentHibernation", sourcePath: sourcePath)
-                return
-            }
+        if let rawHibernation = section["agentHibernation"],
+           let hibernation = rawHibernation as? [String: Any] {
             if let value = jsonBool(hibernation["enabled"]) {
                 snapshot.managedUserDefaults[AgentHibernationSettings.enabledKey] = .bool(value)
             } else if hibernation.keys.contains("enabled") {
@@ -523,6 +520,8 @@ final class CmuxSettingsFileStore {
             } else if hibernation.keys.contains("maxLiveTerminals") {
                 logInvalid("terminal.agentHibernation.maxLiveTerminals", sourcePath: sourcePath)
             }
+        } else if section.keys.contains("agentHibernation") {
+            logInvalid("terminal.agentHibernation", sourcePath: sourcePath)
         }
     }
 

@@ -4543,17 +4543,6 @@ private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUI
     }
 }
 
-private func recordAgentHibernationTerminalOutput(workspaceId: UUID, panelId: UUID) {
-    let recordedAt = Date()
-    Task { @MainActor in
-        AgentHibernationController.shared.recordTerminalOutput(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            recordedAt: recordedAt
-        )
-    }
-}
-
 final class TerminalSurface: Identifiable, ObservableObject {
     final class SearchState: ObservableObject {
         @Published var needle: String
@@ -6001,7 +5990,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
-    func prepareAgentHibernationResume(initialInput: String) {
+    func prepareAgentHibernationResume(initialInput: String?) {
         runtimeSurfaceSuspendedForAgentHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
     }
@@ -6733,12 +6722,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         guard let pending else { return }
         scrollbar = pending
-        if let terminalSurface {
-            recordAgentHibernationTerminalOutput(
-                workspaceId: terminalSurface.tabId,
-                panelId: terminalSurface.id
-            )
-        }
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,

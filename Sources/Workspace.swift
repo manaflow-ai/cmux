@@ -903,13 +903,15 @@ extension Workspace {
         case .terminal:
             let resumeBinding = snapshot.terminal?.resumeBinding
             let restorableAgent = snapshot.terminal?.agent
+            let restoredHibernation = snapshot.terminal?.hibernation
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
             let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
             let resumeBindingForStartup =
-                resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true
+                restoredHibernation != nil ||
+                (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
                     ? nil
                     : resumeBinding
             let restoredBindingInput = Self.surfaceResumeStartupInput(
@@ -925,7 +927,6 @@ extension Workspace {
                 ?? snapshot.directory
                 ?? currentDirectory
             let localWorkingDirectory = remoteTerminalStartupCommand() == nil ? workingDirectory : nil
-            let restoredHibernation = snapshot.terminal?.hibernation
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingInput == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
@@ -9096,11 +9097,14 @@ final class Workspace: Identifiable, ObservableObject {
               terminalPanel.isAgentHibernated else {
             return false
         }
-        guard terminalPanel.prepareAgentHibernationResume() else {
+        let preparation = terminalPanel.prepareAgentHibernationResume()
+        guard preparation.didResume else {
             return false
         }
         if restoredAgentSnapshotsByPanelId[panelId] != nil {
-            restoredAgentResumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
+            restoredAgentResumeStatesByPanelId[panelId] = preparation.queuedStartupInput
+                ? .awaitingAutoResumeCommand
+                : .manualResumeAvailable
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
