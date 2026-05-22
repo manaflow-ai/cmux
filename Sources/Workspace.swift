@@ -10898,6 +10898,11 @@ final class Workspace: Identifiable, ObservableObject {
             Self.discardWarmTerminalPool(reason: "refill.disabled")
             return
         }
+        if Self.warmTerminalPoolPanel != nil,
+           (Self.warmTerminalPoolOwnerWorkspaceId != id ||
+            !Self.warmTerminalContextsMatch(Self.warmTerminalPoolContext, context)) {
+            Self.discardWarmTerminalPool(reason: "refill.ownerOrContextChanged")
+        }
         guard Self.warmTerminalPoolPanel == nil else { return }
         guard Self.warmTerminalPoolCanStartRuntimeInCurrentProcess else { return }
         guard remoteTerminalStartupCommand() == nil else { return }
