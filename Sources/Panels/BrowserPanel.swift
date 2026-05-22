@@ -2302,6 +2302,219 @@ nonisolated enum BrowserWebViewLifecycleState: String {
     case closing
 }
 
+final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
+    static let scheme = "cmux-diff-viewer"
+    static let shared = CmuxDiffViewerURLSchemeHandler()
+
+    struct RegisteredFile {
+        let requestPath: String
+        let fileURL: URL
+        let mimeType: String
+    }
+
+    private struct Session {
+        let token: String
+        let filesByPath: [String: RegisteredFile]
+        let createdAt: Date
+    }
+
+    private let lock = NSLock()
+    private var sessions: [String: Session] = [:]
+    private let maxSessionAge: TimeInterval = 24 * 60 * 60
+    private let trustedRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("cmux-diff-viewer", isDirectory: true)
+        .standardizedFileURL
+        .resolvingSymlinksInPath()
+
+    func register(token: String, files: [RegisteredFile], now: Date = Date()) throws {
+        guard Self.isValidToken(token) else {
+            throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Invalid diff viewer token"
+            ])
+        }
+        guard !files.isEmpty else {
+            throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "Diff viewer allowlist is empty"
+            ])
+        }
+
+        var byPath: [String: RegisteredFile] = [:]
+        for file in files {
+            guard Self.isValidRequestPath(file.requestPath),
+                  Self.isAllowedMimeType(file.mimeType),
+                  Self.pathExtensionMatchesMimeType(path: file.requestPath, mimeType: file.mimeType) else {
+                throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey: "Invalid diff viewer allowlist entry"
+                ])
+            }
+
+            let standardizedURL = file.fileURL.standardizedFileURL.resolvingSymlinksInPath()
+            var isDirectory: ObjCBool = false
+            guard isTrustedDiffViewerFileURL(standardizedURL),
+                  FileManager.default.fileExists(atPath: standardizedURL.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  FileManager.default.isReadableFile(atPath: standardizedURL.path) else {
+                throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 4, userInfo: [
+                    NSLocalizedDescriptionKey: "Diff viewer file is not readable"
+                ])
+            }
+            guard byPath[file.requestPath] == nil else {
+                throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 5, userInfo: [
+                    NSLocalizedDescriptionKey: "Duplicate diff viewer allowlist entry"
+                ])
+            }
+
+            byPath[file.requestPath] = RegisteredFile(
+                requestPath: file.requestPath,
+                fileURL: standardizedURL,
+                mimeType: file.mimeType
+            )
+        }
+
+        lock.lock()
+        pruneExpiredSessionsLocked(now: now)
+        sessions[token] = Session(token: token, filesByPath: byPath, createdAt: now)
+        lock.unlock()
+    }
+
+    func registeredFile(for url: URL, now: Date = Date()) -> RegisteredFile? {
+        guard url.scheme == Self.scheme,
+              let token = url.host,
+              url.query == nil,
+              url.fragment == nil,
+              Self.isValidToken(token) else {
+            return nil
+        }
+        guard let requestPath = Self.requestPath(for: url) else {
+            return nil
+        }
+
+        lock.lock()
+        pruneExpiredSessionsLocked(now: now)
+        let file = sessions[token]?.filesByPath[requestPath]
+        lock.unlock()
+        return file
+    }
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        guard let requestURL = urlSchemeTask.request.url,
+              let file = registeredFile(for: requestURL) else {
+            urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist))
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: file.fileURL)
+            let response = HTTPURLResponse(
+                url: requestURL,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: responseHeaders(for: file)
+            ) ?? URLResponse(
+                url: requestURL,
+                mimeType: file.mimeType,
+                expectedContentLength: data.count,
+                textEncodingName: "utf-8"
+            )
+            urlSchemeTask.didReceive(response)
+            urlSchemeTask.didReceive(data)
+            urlSchemeTask.didFinish()
+        } catch {
+            urlSchemeTask.didFailWithError(error)
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+
+    static func registeredFile(from object: [String: Any]) -> RegisteredFile? {
+        guard let requestPath = object["request_path"] as? String,
+              let filePath = object["file_path"] as? String,
+              let mimeType = object["mime_type"] as? String else {
+            return nil
+        }
+        return RegisteredFile(
+            requestPath: requestPath,
+            fileURL: URL(fileURLWithPath: filePath, isDirectory: false),
+            mimeType: mimeType
+        )
+    }
+
+    static func isValidToken(_ token: String) -> Bool {
+        guard (16...80).contains(token.count) else { return false }
+        return token.unicodeScalars.allSatisfy { scalar in
+            CharacterSet.alphanumerics.contains(scalar) || scalar == "-"
+        }
+    }
+
+    static func isValidRequestPath(_ path: String) -> Bool {
+        guard path.hasPrefix("/"),
+              !path.contains("\\"),
+              !path.contains("//") else {
+            return false
+        }
+        let components = path.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
+        guard !components.isEmpty else { return false }
+        return components.allSatisfy { component in
+            !component.isEmpty && component != "." && component != ".."
+        }
+    }
+
+    static func requestPath(for url: URL) -> String? {
+        let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+        let requestPath = rawPath.isEmpty ? "/" : rawPath
+        guard isValidRequestPath(requestPath) else { return nil }
+        return requestPath
+    }
+
+    private static func isAllowedMimeType(_ mimeType: String) -> Bool {
+        mimeType == "text/html" || mimeType == "text/javascript"
+    }
+
+    private static func pathExtensionMatchesMimeType(path: String, mimeType: String) -> Bool {
+        if mimeType == "text/html" {
+            return path.hasSuffix(".html")
+        }
+        if mimeType == "text/javascript" {
+            return path.hasSuffix(".mjs")
+        }
+        return false
+    }
+
+    private func isTrustedDiffViewerFileURL(_ url: URL) -> Bool {
+        let rootPath = trustedRootURL.path
+        return url.isFileURL && url.path.hasPrefix(rootPath + "/")
+    }
+
+    private func pruneExpiredSessionsLocked(now: Date) {
+        sessions = sessions.filter { _, session in
+            now.timeIntervalSince(session.createdAt) <= maxSessionAge
+        }
+    }
+
+    private func responseHeaders(for file: RegisteredFile) -> [String: String] {
+        var headers = [
+            "Content-Type": "\(file.mimeType); charset=utf-8",
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Cross-Origin-Resource-Policy": "same-origin"
+        ]
+        if file.mimeType == "text/html" {
+            headers["Content-Security-Policy"] = [
+                "default-src 'none'",
+                "script-src 'self' 'unsafe-inline'",
+                "style-src 'unsafe-inline'",
+                "img-src 'self' data:",
+                "connect-src 'self'",
+                "font-src 'none'",
+                "object-src 'none'",
+                "base-uri 'none'",
+                "form-action 'none'"
+            ].joined(separator: "; ")
+        }
+        return headers
+    }
+}
+
 /// Observable state for browser find-in-page. Mirrors `TerminalSurface.SearchState`.
 @MainActor
 final class BrowserSearchState: ObservableObject {
@@ -3387,6 +3600,10 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
         configuration.websiteDataStore = websiteDataStore
+        configuration.setURLSchemeHandler(
+            CmuxDiffViewerURLSchemeHandler.shared,
+            forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
+        )
 
         // Enable developer extras (DevTools)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")

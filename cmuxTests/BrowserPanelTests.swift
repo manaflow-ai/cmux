@@ -228,6 +228,101 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
 }
 
 
+@MainActor
+final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
+    func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
+        let token = UUID().uuidString.lowercased()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let assetURL = rootURL
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("mod.mjs", isDirectory: false)
+        let indexURL = rootURL.appendingPathComponent("index.html", isDirectory: false)
+        try FileManager.default.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try """
+        export const marker = "module-ok";
+        """.write(to: assetURL, atomically: true, encoding: .utf8)
+        try """
+        <!doctype html>
+        <html>
+        <body>
+        <script type="module">
+          import { marker } from "./assets/mod.mjs";
+          document.body.dataset.loaded = marker;
+        </script>
+        </body>
+        </html>
+        """.write(to: indexURL, atomically: true, encoding: .utf8)
+
+        try CmuxDiffViewerURLSchemeHandler.shared.register(
+            token: token,
+            files: [
+                .init(requestPath: "/index.html", fileURL: indexURL, mimeType: "text/html"),
+                .init(requestPath: "/assets/mod.mjs", fileURL: assetURL, mimeType: "text/javascript"),
+            ]
+        )
+
+        let allowedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html"))
+        let blockedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/not-allowed.html"))
+        let queryURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html?copy=1"))
+        XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedURL))
+        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: blockedURL))
+        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: queryURL))
+
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(
+            CmuxDiffViewerURLSchemeHandler.shared,
+            forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
+        )
+        let webView = WKWebView(frame: .zero, configuration: config)
+        let loaded = expectation(description: "diff viewer loaded")
+        let delegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
+        webView.navigationDelegate = delegate
+        webView.load(URLRequest(url: allowedURL))
+        wait(for: [loaded], timeout: 3)
+        XCTAssertNil(delegate.error)
+
+        let evaluated = expectation(description: "module evaluated")
+        webView.evaluateJavaScript("document.body.dataset.loaded || ''") { value, error in
+            XCTAssertNil(error)
+            XCTAssertEqual(value as? String, "module-ok")
+            evaluated.fulfill()
+        }
+        wait(for: [evaluated], timeout: 3)
+    }
+
+    func testDiffViewerSchemeRejectsSymlinkEscapeFromTrustedRoot() throws {
+        let token = UUID().uuidString.lowercased()
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer-security-\(UUID().uuidString)", isDirectory: true)
+        let trustedRootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let outsideURL = temporaryURL.appendingPathComponent("outside.html", isDirectory: false)
+        let linkURL = trustedRootURL.appendingPathComponent("link.html", isDirectory: false)
+        try FileManager.default.createDirectory(at: temporaryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: trustedRootURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            try? FileManager.default.removeItem(at: trustedRootURL)
+        }
+
+        try "<!doctype html>".write(to: outsideURL, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: outsideURL)
+
+        XCTAssertThrowsError(try CmuxDiffViewerURLSchemeHandler.shared.register(
+            token: token,
+            files: [
+                .init(requestPath: "/link.html", fileURL: linkURL, mimeType: "text/html"),
+            ]
+        ))
+    }
+}
+
+
 final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     func testLightModeSlightlyDarkensThemeBackground() {
         assertResolvedColorMatchesExpectedBlend(for: .light, darkenMix: 0.04)

@@ -275,7 +275,9 @@ final class CMUXOpenCommandTests: XCTestCase {
                   params["focus"] as? Bool == true,
                   let rawURL = params["url"] as? String,
                   let viewerURL = URL(string: rawURL),
-                  viewerURL.isFileURL else {
+                  viewerURL.scheme == "cmux-diff-viewer",
+                  params["diff_viewer_token"] as? String == viewerURL.host,
+                  (params["diff_viewer_files"] as? [[String: Any]])?.isEmpty == false else {
                 return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
             }
             return Self.v2Response(
@@ -313,9 +315,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(params["show_omnibar"] as? Bool, false)
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
-        defer { try? FileManager.default.removeItem(at: viewerURL) }
+        XCTAssertEqual(viewerURL.scheme, "cmux-diff-viewer")
+        XCTAssertEqual(params["diff_viewer_token"] as? String, viewerURL.host)
+        let viewerFileURL = try diffViewerHTMLFileURL(from: params)
+        defer { try? FileManager.default.removeItem(at: viewerFileURL) }
 
-        let html = try String(contentsOf: viewerURL, encoding: .utf8)
+        let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("id=\"files-sidebar\""), html)
         XCTAssertTrue(html.contains("right: 0;"), html)
@@ -325,7 +330,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("id=\"jump-select\""), html)
         XCTAssertTrue(html.contains("id=\"layout-toggle\""), html)
         XCTAssertTrue(html.contains("id=\"options-menu\""), html)
-        let assetDirectory = viewerURL.deletingLastPathComponent()
+        let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("pierre-diffs-1.2.1-trees-1.0.0-beta.4", isDirectory: true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("diffs.mjs").path))
@@ -1182,9 +1187,26 @@ final class CMUXOpenCommandTests: XCTestCase {
         let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
-        defer { try? FileManager.default.removeItem(at: viewerURL) }
-        let html = try String(contentsOf: viewerURL, encoding: .utf8)
+        XCTAssertEqual(viewerURL.scheme, "cmux-diff-viewer")
+        XCTAssertEqual(params["diff_viewer_token"] as? String, viewerURL.host)
+        let viewerFileURL = try diffViewerHTMLFileURL(from: params)
+        defer { try? FileManager.default.removeItem(at: viewerFileURL) }
+        let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         return (html, params, result.stdout)
+    }
+
+    private func diffViewerHTMLFileURL(from params: [String: Any]) throws -> URL {
+        let rawURL = try XCTUnwrap(params["url"] as? String)
+        let viewerURL = try XCTUnwrap(URL(string: rawURL))
+        let files = try XCTUnwrap(params["diff_viewer_files"] as? [[String: Any]])
+        let rawRequestPath = URLComponents(url: viewerURL, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? viewerURL.path
+        let requestPath = rawRequestPath.isEmpty ? "/" : rawRequestPath
+        let entry = try XCTUnwrap(files.first { file in
+            file["request_path"] as? String == requestPath &&
+            file["mime_type"] as? String == "text/html"
+        })
+        let filePath = try XCTUnwrap(entry["file_path"] as? String)
+        return URL(fileURLWithPath: filePath, isDirectory: false)
     }
 
     private func runDiffCLIExpectingNoOpen(
