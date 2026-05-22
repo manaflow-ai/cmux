@@ -426,9 +426,7 @@ def capture_agent(
 def agent_specs() -> tuple[list[AgentSpec], list[dict[str, str]]]:
     unavailable: list[dict[str, str]] = []
 
-    claude = "/Users/lawrence/.local/bin/claude"
-    if not pathlib.Path(claude).exists():
-        claude = which("claude") or "claude"
+    claude = which("claude") or "claude"
 
     specs = [
         AgentSpec(
