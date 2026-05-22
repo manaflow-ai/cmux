@@ -1151,6 +1151,31 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title), ["Unreachable Tab"])
     }
 
+    func testExplicitLastPanelCloseRecordsWorkspaceHistoryInsteadOfStalePanelHistory() throws {
+        let manager = TabManager()
+        let closingWorkspace = manager.addWorkspace(select: true)
+        closingWorkspace.setCustomTitle("Closing Workspace")
+        let panelId = try XCTUnwrap(closingWorkspace.focusedPanelId)
+        let surfaceId = try XCTUnwrap(closingWorkspace.surfaceIdFromPanelId(panelId))
+
+        closingWorkspace.markExplicitClose(surfaceId: surfaceId)
+        XCTAssertFalse(closingWorkspace.closePanel(panelId))
+        drainMainQueue()
+
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == closingWorkspace.id }))
+        let rows = ClosedItemHistoryStore.shared.menuSnapshot().items
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.title, "Closing Workspace")
+        XCTAssertEqual(
+            rows.first?.detail,
+            String(localized: "menu.history.recentlyClosed.kind.workspace", defaultValue: "Workspace")
+        )
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        XCTAssertTrue(manager.tabs.contains { $0.customTitle == "Closing Workspace" })
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+    }
+
     func testReopenSkipsInvalidRecentRecordButKeepsItInHistory() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil
