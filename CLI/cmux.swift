@@ -19044,6 +19044,7 @@ struct CMUXCLI {
                 )
                 do {
                     try sessionStore.clearNotificationEmission(sessionId: sessionId)
+                    try sessionStore.clearAskUserQuestionNotification(sessionId: sessionId)
                 } catch {
                     telemetry.breadcrumb(
                         "claude-hook.clear-notification-emission.error",

@@ -337,6 +337,26 @@ def main() -> int:
             print(f"commands={server.commands_snapshot()!r}")
             return 1
 
+        generic_after_tool_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            generic_attention_payload(session_id, 42),
+            env,
+        )
+        if generic_after_tool_proc.returncode != 0:
+            print("FAIL: generic attention after non-question pre-tool-use failed")
+            print(f"stdout={generic_after_tool_proc.stdout!r}")
+            print(f"stderr={generic_after_tool_proc.stderr!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+        notify_after_tool_generic = wait_for_notify_count(server, 2)
+        if len(notify_after_tool_generic) != 2:
+            print("FAIL: non-question pre-tool-use should stop suppressing later generic attention notifications")
+            print(f"notify_commands={notify_after_tool_generic!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+
         repeated_after_tool_proc = run_claude_hook(
             cli_path,
             server.socket_path,
@@ -350,8 +370,8 @@ def main() -> int:
             print(f"stderr={repeated_after_tool_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_tool_repeat = wait_for_notify_count(server, 2)
-        if len(notify_after_tool_repeat) != 2:
+        notify_after_tool_repeat = wait_for_notify_count(server, 3)
+        if len(notify_after_tool_repeat) != 3:
             print("FAIL: non-question pre-tool-use should clear the needs-input dedup fingerprint for future matching questions")
             print(f"notify_commands={notify_after_tool_repeat!r}")
             print(f"commands={server.commands_snapshot()!r}")
@@ -370,8 +390,8 @@ def main() -> int:
             print(f"stderr={intervening_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_intervening = wait_for_notify_count(server, 3)
-        if len(notify_after_intervening) != 3:
+        notify_after_intervening = wait_for_notify_count(server, 4)
+        if len(notify_after_intervening) != 4:
             print("FAIL: specific attention notification should still publish")
             print(f"notify_commands={notify_after_intervening!r}")
             print(f"commands={server.commands_snapshot()!r}")
@@ -390,8 +410,8 @@ def main() -> int:
             print(f"stderr={duplicate_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_duplicate = wait_for_notify_count(server, 3)
-        if len(notify_after_duplicate) != 3:
+        notify_after_duplicate = wait_for_notify_count(server, 4)
+        if len(notify_after_duplicate) != 4:
             print("FAIL: generic attention Notification should stay deduped after another notification overwrites lastBody")
             print(f"notify_commands={notify_after_duplicate!r}")
             print(f"commands={server.commands_snapshot()!r}")
@@ -411,8 +431,8 @@ def main() -> int:
             print(f"stderr={expired_pending_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_expired_pending = wait_for_notify_count(server, 4)
-        if len(notify_after_expired_pending) != 4:
+        notify_after_expired_pending = wait_for_notify_count(server, 5)
+        if len(notify_after_expired_pending) != 5:
             print("FAIL: stale AskUserQuestion state should not suppress generic attention forever")
             print(f"notify_commands={notify_after_expired_pending!r}")
             print(f"commands={server.commands_snapshot()!r}")
@@ -450,8 +470,8 @@ def main() -> int:
             print(f"stderr={post_answer_attention_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_post_answer = wait_for_notify_count(server, 5)
-        if len(notify_after_post_answer) != 5:
+        notify_after_post_answer = wait_for_notify_count(server, 6)
+        if len(notify_after_post_answer) != 6:
             print("FAIL: prompt-submit should stop suppressing later generic attention notifications")
             print(f"notify_commands={notify_after_post_answer!r}")
             print(f"commands={server.commands_snapshot()!r}")
@@ -470,8 +490,8 @@ def main() -> int:
             print(f"stderr={repeated_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_repeat = wait_for_notify_count(server, 6)
-        if len(notify_after_repeat) != 6:
+        notify_after_repeat = wait_for_notify_count(server, 7)
+        if len(notify_after_repeat) != 7:
             print("FAIL: prompt-submit should clear the needs-input dedup fingerprint")
             print(f"notify_commands={notify_after_repeat!r}")
             print(f"commands={server.commands_snapshot()!r}")
