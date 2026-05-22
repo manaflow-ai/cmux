@@ -1616,6 +1616,15 @@ protocol WorkspaceRemotePTYBridgeRPCClient: AnyObject {
     func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String)
 }
 
+nonisolated func remoteDaemonMissingRequiredCapabilitiesMessage(_ missingCapabilities: [String]) -> String {
+    let missing = Set(missingCapabilities)
+    if missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability) ||
+        missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability) {
+        return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+    }
+    return "remote daemon is missing required functionality; reconnect the remote workspace to update cmux"
+}
+
 private final class WorkspaceRemoteDaemonRPCClient {
     private static let maxStdoutBufferBytes = 256 * 1024
     private static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
@@ -1748,11 +1757,8 @@ private final class WorkspaceRemoteDaemonRPCClient {
                 in: capabilities
             )
             guard missingCapabilities.isEmpty else {
-                let detail = missingCapabilities.contains(Self.requiredPTYSessionCapability)
-                    ? "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
-                    : "remote daemon is missing required functionality; reconnect the remote workspace to update cmux"
                 throw NSError(domain: "cmux.remote.daemon.rpc", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: detail,
+                    NSLocalizedDescriptionKey: remoteDaemonMissingRequiredCapabilitiesMessage(missingCapabilities),
                 ])
             }
         } catch {
@@ -5880,7 +5886,8 @@ final class WorkspaceRemoteSessionController {
             )
             guard missingCapabilities.isEmpty else {
                 throw NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon missing required capability \(missingCapabilities.joined(separator: ","))",
+                    NSLocalizedDescriptionKey: remoteDaemonMissingRequiredCapabilitiesMessage(missingCapabilities),
+                    NSDebugDescriptionErrorKey: "remote daemon missing required capability \(missingCapabilities.joined(separator: ","))",
                 ])
             }
             daemonReady = true
@@ -5922,7 +5929,7 @@ final class WorkspaceRemoteSessionController {
             daemonRemotePath = nil
             let retrySchedule = scheduleReconnectLocked(baseDelay: 4.0)
             let retrySuffix = Self.retrySuffix(retry: retrySchedule.retry, delay: retrySchedule.delay)
-            let detail = "Remote daemon bootstrap failed: \(error.localizedDescription)\(retrySuffix)"
+            let detail = "Remote daemon bootstrap failed: \(Self.userFacingRemoteDaemonBootstrapErrorMessage(error))\(retrySuffix)"
             publishDaemonStatus(.error, detail: detail)
             publishState(.error, detail: detail)
         }
@@ -6455,6 +6462,19 @@ final class WorkspaceRemoteSessionController {
 
     private static func missingRequiredCapabilities(_ required: [String], in capabilities: [String]) -> [String] {
         WorkspaceRemoteDaemonRPCClient.missingRequiredCapabilities(required, in: capabilities)
+    }
+
+    static func userFacingRemoteDaemonBootstrapErrorMessage(_ error: Error) -> String {
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = message.lowercased()
+        if lowered.contains("missing required capability") ||
+            lowered.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability) ||
+            lowered.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability) {
+            return remoteDaemonMissingRequiredCapabilitiesMessage([
+                WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability,
+            ])
+        }
+        return message.isEmpty ? "remote daemon bootstrap failed" : message
     }
 
     private func sshCommonArguments(batchMode: Bool) -> [String] {

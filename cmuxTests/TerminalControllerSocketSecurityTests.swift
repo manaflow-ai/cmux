@@ -205,6 +205,42 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workerError["code"] as? String, "not_found")
     }
 
+    func testRemotePTYBridgeWaitForReadyRunsOnSocketWorker() async throws {
+        let socketPath = makeSocketPath("pty-bridge-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let params: [String: Any] = [
+            "workspace_id": UUID().uuidString,
+            "session_id": "session",
+            "attachment_id": "attachment",
+            "wait_for_ready": true,
+        ]
+        let requestLine = try makeV2RequestLine(
+            method: "workspace.remote.pty_bridge",
+            params: params
+        )
+
+        let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+        let mainError = try XCTUnwrap(mainEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(mainError["code"] as? String, "invalid_dispatch")
+
+        let workerEnvelope = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_bridge",
+            params: params,
+            to: socketPath
+        )
+        let workerError = try XCTUnwrap(workerEnvelope["error"] as? [String: Any])
+        XCTAssertNotEqual(workerError["code"] as? String, "invalid_dispatch")
+        XCTAssertNotEqual(workerError["code"] as? String, "method_not_found")
+        XCTAssertEqual(workerError["code"] as? String, "not_found")
+    }
+
     func testRemotePTYAttachEndRoutesMovedSurfaceToCurrentWorkspace() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

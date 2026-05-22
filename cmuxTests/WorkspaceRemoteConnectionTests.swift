@@ -432,6 +432,26 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse((daemon?["detail"] as? String)?.contains("pty.session") == true)
     }
 
+    func testRemoteDaemonCapabilityErrorsUseUserFacingMessage() {
+        let message = remoteDaemonMissingRequiredCapabilitiesMessage([
+            "pty.session",
+            "pty.session.token",
+        ])
+
+        XCTAssertEqual(
+            message,
+            "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+        )
+        XCTAssertFalse(message.contains("pty.session"))
+
+        let rawError = NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
+            NSLocalizedDescriptionKey: "remote daemon missing required capability pty.session,pty.session.token",
+        ])
+        let bootstrapMessage = WorkspaceRemoteSessionController.userFacingRemoteDaemonBootstrapErrorMessage(rawError)
+        XCTAssertEqual(bootstrapMessage, message)
+        XCTAssertFalse(bootstrapMessage.contains("pty.session"))
+    }
+
     @MainActor
     func testWebSocketVMWithDaemonEndpointStartsProxyCapableConnection() {
         let workspace = Workspace()

@@ -2965,16 +2965,6 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRemoteDisconnect(params: params))
         case "workspace.remote.status":
             return v2Result(id: id, self.v2WorkspaceRemoteStatus(params: params))
-        case "workspace.remote.pty_sessions":
-            return v2Result(id: id, self.v2WorkspaceRemotePTYSessions(params: params))
-        case "workspace.remote.pty_close":
-            return v2Result(id: id, self.v2WorkspaceRemotePTYClose(params: params))
-        case "workspace.remote.pty_detach":
-            return v2Result(id: id, self.v2WorkspaceRemotePTYDetach(params: params))
-        case "workspace.remote.pty_bridge":
-            return v2Result(id: id, self.v2WorkspaceRemotePTYBridge(params: params))
-        case "workspace.remote.pty_resize":
-            return v2Result(id: id, self.v2WorkspaceRemotePTYResize(params: params))
         case "workspace.remote.pty_attach_end":
             return v2Result(id: id, self.v2WorkspaceRemotePTYAttachEnd(params: params))
         case "workspace.remote.terminal_session_end":
@@ -6251,10 +6241,6 @@ class TerminalController {
                     sessions.append(contentsOf: workspaceSessions.map {
                         v2RemotePTYSessionPayload($0, target: target)
                     })
-                } catch where remotePTYSessionListErrorIsUnsupportedDaemon(error) {
-                    var payload = v2RemotePTYTargetPayload(target)
-                    payload["error"] = v2RemotePTYUserFacingErrorMessage(error)
-                    errors.append(payload)
                 } catch {
                     var payload = v2RemotePTYTargetPayload(target)
                     payload["error"] = v2RemotePTYUserFacingErrorMessage(error)
