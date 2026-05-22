@@ -2285,6 +2285,41 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func testCachedAgentHookTrajectoriesReplayThroughCLIAndFeedBridges() throws {
         let fixture = try loadAgentHookTrajectoryReplayFixture()
         XCTAssertEqual(fixture.version, 1)
+        XCTAssertEqual(Set(fixture.trajectories.map(\.agent)), ["antigravity", "claude", "codex", "gemini", "opencode"])
+
+        var promptTexts = Set<String>()
+        for trajectory in fixture.trajectories {
+            XCTAssertGreaterThanOrEqual(trajectory.steps.count, 17, "\(trajectory.name) should replay a longer multi-tool turn")
+            let toolNames = replayToolNames(in: trajectory)
+            XCTAssertGreaterThanOrEqual(toolNames.count, 11, "\(trajectory.name) should exercise a diverse tool mix")
+            let expectedToolGroups: [(String, Set<String>)] = [
+                ("read/search", ["Glob", "Grep", "LS", "Read", "ReadManyFiles", "WebFetch", "WebSearch", "list_directory", "list_files", "search_files", "view_file", "web_search"]),
+                ("write/edit", ["Edit", "MultiEdit", "Write", "apply_patch", "replace_file_content", "write_file", "write_to_file"]),
+                ("shell", ["Bash", "run_command", "shell"]),
+                ("todo/task", ["TodoWrite", "manage_task", "update_plan", "update_todo"]),
+                ("question", ["AskUserQuestion"]),
+                ("plan", ["ExitPlanMode"]),
+            ]
+            for (label, expectedTools) in expectedToolGroups {
+                XCTAssertFalse(
+                    toolNames.intersection(expectedTools).isEmpty,
+                    "\(trajectory.name) missing \(label) coverage; saw \(toolNames.sorted())"
+                )
+            }
+
+            let promptText = try XCTUnwrap(
+                trajectory.steps.first(where: { $0.name == "prompt-submit" })?.stdin.objectValue()?["prompt"] as? String,
+                "\(trajectory.name) should include the submitted prompt"
+            )
+            XCTAssertTrue(promptTexts.insert(promptText).inserted, "\(trajectory.name) prompt should be unique")
+
+            let exitPlanIndex = try XCTUnwrap(
+                trajectory.steps.firstIndex(where: { replayToolName(in: $0) == "ExitPlanMode" }),
+                "\(trajectory.name) should include ExitPlanMode"
+            )
+            XCTAssertGreaterThanOrEqual(exitPlanIndex, trajectory.steps.count - 4, "\(trajectory.name) should keep planning near the end")
+            XCTAssertLessThan(exitPlanIndex, trajectory.steps.count - 2, "\(trajectory.name) should plan before stop/session cleanup")
+        }
 
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("agent-replay")
@@ -3204,6 +3239,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             AgentNetworkCaptureFixture.self,
             from: Data(contentsOf: agentNetworkCaptureFixtureURL())
         )
+    }
+
+    private func replayToolNames(in trajectory: AgentHookTrajectory) -> Set<String> {
+        Set(trajectory.steps.compactMap { replayToolName(in: $0) })
+    }
+
+    private func replayToolName(in step: AgentHookTrajectoryStep) -> String? {
+        step.stdin.objectValue()?["tool_name"] as? String
     }
 
     private func replayFeedResultsByRequestId(
