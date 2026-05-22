@@ -10826,10 +10826,12 @@ final class Workspace: Identifiable, ObservableObject {
         // Inherit working directory: prefer the source panel's reported cwd,
         // then its requested startup cwd if shell integration has not reported
         // back yet, and finally fall back to the workspace's current directory.
-        let splitWorkingDirectory = resolvedWorkingDirectoryForTerminalSplit(
-            explicitWorkingDirectory: workingDirectory,
-            sourcePanelId: panelId
-        )
+        let splitWorkingDirectory = remoteTerminalStartupCommand == nil
+            ? resolvedWorkingDirectoryForTerminalSplit(
+                explicitWorkingDirectory: workingDirectory,
+                sourcePanelId: panelId
+            )
+            : nil
 #if DEBUG
         cmuxDebugLog(
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
@@ -10970,11 +10972,13 @@ final class Workspace: Identifiable, ObservableObject {
             template.waitAfterCommand = true
             inheritedConfig = template
         }
-        let resolvedWorkingDirectory = resolvedWorkingDirectoryForNewTerminal(
-            explicitWorkingDirectory: workingDirectory,
-            preferredPanelId: selectedTerminalPanel(inPane: paneId)?.id,
-            inPane: paneId
-        )
+        let resolvedWorkingDirectory = remoteTerminalStartupCommand == nil
+            ? resolvedWorkingDirectoryForNewTerminal(
+                explicitWorkingDirectory: workingDirectory,
+                preferredPanelId: selectedTerminalPanel(inPane: paneId)?.id,
+                inPane: paneId
+            )
+            : nil
 
         // Create new terminal panel
         let newPanel = terminalPanelForNewTerminal(

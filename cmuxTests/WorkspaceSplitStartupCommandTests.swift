@@ -110,6 +110,32 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(surface.requestedWorkingDirectory, focusedDirectory)
     }
 
+    func testRemoteTerminalSurfaceDoesNotUseRemoteCwdAsLocalWorkingDirectory() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        workspace.currentDirectory = "/home/cmux/project"
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+
+        let surface = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+
+        XCTAssertNil(surface.requestedWorkingDirectory)
+        XCTAssertEqual(surface.surface.debugInitialCommand(), "ssh cmux-macmini")
+    }
+
     func testSplitFallsBackToWorkspaceDirectoryNotSiblingTabDirectory() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -132,6 +158,38 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         ))
 
         XCTAssertEqual(split.requestedWorkingDirectory, workspaceDirectory)
+    }
+
+    func testRemoteTerminalSplitDoesNotUseRemoteCwdAsLocalWorkingDirectory() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.currentDirectory = "/home/cmux/project"
+        workspace.updatePanelDirectory(panelId: sourcePanelId, directory: "/home/cmux/project")
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+
+        let split = try XCTUnwrap(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .vertical,
+            insertFirst: false,
+            focus: false
+        ))
+
+        XCTAssertNil(split.requestedWorkingDirectory)
+        XCTAssertEqual(split.surface.debugInitialCommand(), "ssh cmux-macmini")
     }
 
     func testWarmTerminalCrossWorkspaceActivationRefreshesPortEnvironment() throws {
