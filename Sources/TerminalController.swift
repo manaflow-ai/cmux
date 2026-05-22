@@ -4967,6 +4967,7 @@ class TerminalController {
         }
 
         var newId: UUID?
+        var initialSurfaceId: UUID?
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
         v2MainSync {
             let ws = tabManager.addWorkspace(
@@ -4982,6 +4983,7 @@ class TerminalController {
                 ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
             }
             newId = ws.id
+            initialSurfaceId = ws.focusedPanelId
         }
 
         guard let newId else {
@@ -4992,7 +4994,9 @@ class TerminalController {
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": newId.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: newId)
+            "workspace_ref": v2Ref(kind: .workspace, uuid: newId),
+            "surface_id": v2OrNull(initialSurfaceId?.uuidString),
+            "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
         ])
     }
     private func v2WorkspaceSelect(params: [String: Any]) -> V2CallResult {
@@ -6314,13 +6318,13 @@ class TerminalController {
         if let error = surfaceSelection.error { return error }
         let preferredSurfaceId = surfaceSelection.surfaceId ?? UUID(uuidString: attachmentID)
 
-        let deadline = Date().addingTimeInterval(waitForReady ? 90.0 : 8.0)
+        let controllerDeadline = Date().addingTimeInterval(waitForReady ? 90.0 : 8.0)
         let resolved = waitForReady
             ? v2ResolveRemotePTYTargetWaitingForController(
                 params: params,
                 requestedWorkspaceId: workspaceSelection.workspaceId,
                 preferredSurfaceId: preferredSurfaceId,
-                deadline: deadline
+                deadline: controllerDeadline
             )
             : v2ResolveRemotePTYTarget(
                 params: params,
@@ -6347,7 +6351,7 @@ class TerminalController {
                 command: command?.isEmpty == true ? nil : command,
                 requireExisting: requireExisting,
                 waitForReady: waitForReady,
-                timeout: max(0.1, deadline.timeIntervalSinceNow)
+                timeout: waitForReady ? 90.0 : max(0.1, controllerDeadline.timeIntervalSinceNow)
             )
             var payload = v2RemotePTYTargetPayload(target)
             payload["host"] = endpoint.host

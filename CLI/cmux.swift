@@ -6308,6 +6308,11 @@ struct CMUXCLI {
         guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
             throw CLIError(message: "workspace.create did not return workspace_id")
         }
+        let rawWorkspaceInitialSurfaceId = (workspaceCreate["surface_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspaceInitialSurfaceId = rawWorkspaceInitialSurfaceId?.isEmpty == false
+            ? rawWorkspaceInitialSurfaceId
+            : nil
         let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         cliDebugLog(
@@ -6422,8 +6427,8 @@ struct CMUXCLI {
             "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
         ]
         payload["remote_relay_port"] = sshOptions.remoteRelayPort
-        if usesPersistentSSHPTY {
-            payload["ssh_pty_session_id"] = "ssh-${CMUX_WORKSPACE_ID}-${CMUX_SURFACE_ID}"
+        if usesPersistentSSHPTY, let workspaceInitialSurfaceId {
+            payload["ssh_pty_session_id"] = "ssh-\(workspaceId)-\(workspaceInitialSurfaceId)"
         }
         logSSHTiming("complete", extra: "workspace=\(String(workspaceId.prefix(8)))")
         if jsonOutput {
@@ -8605,7 +8610,7 @@ struct CMUXCLI {
             bridge = try client.sendV2(
                 method: "workspace.remote.pty_bridge",
                 params: bridgeParams,
-                responseTimeout: waitForReady ? 95 : nil
+                responseTimeout: waitForReady ? 185 : nil
             )
         } catch {
             throw CLIError(message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))")

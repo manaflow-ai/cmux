@@ -741,6 +741,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         try assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(run: run)
     }
 
+    func testSSHPersistentPTYJSONReportsResolvedSessionID() throws {
+        let run = try runMockedSSH(arguments: [], jsonOutput: true)
+        let payload = try jsonPayload(from: run.stdout)
+        let sessionID = try XCTUnwrap(payload["ssh_pty_session_id"] as? String)
+
+        XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
+        XCTAssertFalse(sessionID.contains("$"), sessionID)
+        XCTAssertFalse(sessionID.contains("{"), sessionID)
+    }
+
     private func assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(
         run: MockedSSHRun,
         file: StaticString = #filePath,
@@ -6126,10 +6136,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     private struct MockedSSHRun {
         let requests: [[String: Any]]
+        let stdout: String
+        let workspaceId: String
+        let surfaceId: String
     }
 
     private func runMockedSSH(
         arguments sshArguments: [String],
+        jsonOutput: Bool = false,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws -> MockedSSHRun {
@@ -6138,6 +6152,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
         let windowId = "22222222-2222-2222-2222-222222222222"
 
         defer {
@@ -6159,6 +6174,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     ok: true,
                     result: [
                         "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
                         "window_id": windowId,
                     ]
                 )
@@ -6184,9 +6200,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
+        let commandArguments = jsonOutput
+            ? ["--json", "--id-format", "uuids", "ssh", "example.test", "--no-focus"] + sshArguments
+            : ["ssh", "example.test", "--no-focus"] + sshArguments
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["ssh", "example.test", "--no-focus"] + sshArguments,
+            arguments: commandArguments,
             environment: environment,
             timeout: 5
         )
@@ -6200,7 +6219,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.isEmpty, result.stderr, file: file, line: line)
 
         let requests = state.snapshot().compactMap { jsonObject($0) }
-        return MockedSSHRun(requests: requests)
+        return MockedSSHRun(
+            requests: requests,
+            stdout: result.stdout,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
     }
 
     private func waitForMockSocketCommand(
