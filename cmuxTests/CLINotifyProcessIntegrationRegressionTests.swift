@@ -690,6 +690,44 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(sessionAfterFeed["lastBody"])
     }
 
+    func testClaudePermissionRequestSkipsNotificationWhenSamePromptResolvedBeforeAsyncHookStarts() throws {
+        let context = try makeClaudeHookContext(name: "claude-permission-precleared-fingerprint")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-permission-precleared-fingerprint-session"
+        let permissionBody = "Allow Bash to inspect grep error.log?"
+        try markClaudeHookPendingNotificationCleared(
+            sessionId,
+            context: context,
+            fingerprint: "Permission request\n\(permissionBody)"
+        )
+
+        let commandStart = context.state.commands.count
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"grep error.log","allowed_prompts":[{"prompt":"\#(permissionBody)"}]}}"#
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let commands = Array(context.state.commands.dropFirst(commandStart))
+        let notifyCommands = commands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertTrue(
+            notifyCommands.isEmpty,
+            "Expected prompt already resolved by Feed to suppress async notification, saw \(notifyCommands)"
+        )
+        XCTAssertFalse(commands.contains { $0.contains("set_status claude_code Needs input") }, commands.joined(separator: "\n"))
+
+        let sessionAfterPermission = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(sessionAfterPermission["pendingNotificationFingerprint"])
+        XCTAssertNil(sessionAfterPermission["lastSubtitle"])
+        XCTAssertNil(sessionAfterPermission["lastBody"])
+        XCTAssertEqual(sessionAfterPermission["pendingNotificationClearedFingerprint"] as? String, "Permission request\n\(permissionBody)")
+    }
+
     func testClaudePermissionRequestSkipsNeedsInputWhenPendingClearsAfterNotificationSend() throws {
         let context = try makeClaudeHookContext(name: "claude-permission-cleared-after-send")
         defer { context.cleanup() }
@@ -4943,7 +4981,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted]).write(to: stateURL, options: .atomic)
     }
 
-    private func markClaudeHookPendingNotificationCleared(_ sessionId: String, context: ClaudeHookContext) throws {
+    private func markClaudeHookPendingNotificationCleared(
+        _ sessionId: String,
+        context: ClaudeHookContext,
+        fingerprint: String? = nil
+    ) throws {
         let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
         let existingState = FileManager.default.fileExists(atPath: stateURL.path)
             ? (try JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
@@ -4965,6 +5007,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         session["workspaceId"] = context.workspaceId
         session["surfaceId"] = context.surfaceId
         session["cwd"] = context.root.path
+        if let fingerprint {
+            session["pendingNotificationClearedFingerprint"] = fingerprint
+        }
         session["pendingNotificationClearedAt"] = now
         session["updatedAt"] = now
         session.removeValue(forKey: "pendingNotificationFingerprint")
