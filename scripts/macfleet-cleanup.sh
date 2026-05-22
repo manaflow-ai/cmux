@@ -36,7 +36,7 @@ prune_stopped_orchard_tart_vms() {
   [ -n "$tart_bin" ] || return 0
 
   log "free space below ${tart_min_free_gib}GiB, pruning stopped orchard Tart VMs"
-  sudo -H -u admin "$tart_bin" list 2>/dev/null \
+  { sudo -H -u admin "$tart_bin" list 2>/dev/null || true; } \
     | awk '$1 == "local" && $2 ~ /^orchard-user-/ && $NF == "stopped" { print $2 }' \
     | while IFS= read -r vm; do
         [ -n "$vm" ] || continue
@@ -54,13 +54,19 @@ rm_old_children() {
 
 truncate_large_logs() {
   local pattern="$1"
-  for f in $pattern; do
-    [ -f "$f" ] || continue
-    if [ "$(stat -f %z "$f" 2>/dev/null || echo 0)" -gt $((50 * 1024 * 1024)) ]; then
-      : > "$f"
-      log "truncated $f"
-    fi
-  done
+  (
+    shopt -s nullglob
+    for f in $pattern; do
+      [ -f "$f" ] || continue
+      if [ "$(stat -f %z "$f" 2>/dev/null || echo 0)" -gt $((50 * 1024 * 1024)) ]; then
+        if { : > "$f"; } 2>/dev/null; then
+          log "truncated $f"
+        else
+          log "could not truncate $f"
+        fi
+      fi
+    done
+  )
 }
 
 log "cleanup start host=$(hostname) free_gib=$(free_gib)"
@@ -71,7 +77,7 @@ if has_active_builds; then
   log "active build detected, skipping aggressive DerivedData cleanup"
 fi
 
-for home in /Users/cmuxvnc /Users/cmuxvnc[2-9]*; do
+for home in /Users/cmuxvnc*; do
   [ -d "$home" ] || continue
   user="$(basename "$home")"
 
@@ -94,7 +100,7 @@ done
 
 if [ "$active" -eq 0 ] && [ "$(free_gib)" -lt "$min_free_gib" ]; then
   log "free space below ${min_free_gib}GiB, pruning all macfleet DerivedData"
-  for home in /Users/cmuxvnc /Users/cmuxvnc[2-9]*; do
+  for home in /Users/cmuxvnc*; do
     [ -d "$home" ] || continue
     rm -rf "$home/cmux-ci/DerivedData"/* "$home/Library/Developer/Xcode/DerivedData"/* 2>/dev/null || true
   done

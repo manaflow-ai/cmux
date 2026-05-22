@@ -212,6 +212,7 @@ release_build() {
     -derivedDataPath "$derived" \
     -destination "generic/platform=macOS" \
     -clonedSourcePackagesDirPath "$spm" \
+    -disableAutomaticPackageResolution \
     ARCHS="arm64 x86_64" \
     ONLY_ACTIVE_ARCH=NO \
     CODE_SIGNING_ALLOWED=NO \
@@ -221,19 +222,13 @@ release_build() {
 
 unit_test() {
   resolve_packages cmux-unit
-  feed_xcodebuild_stdin() {
-    while true; do
-      printf 'q\n' || return 0
-      sleep 1
-    done
-  }
 
   run_unit_tests() {
     # Xcode 16.4's XCTest memory checker crashes in WebKit teardown for these
     # MarkdownPanelTests on hosted and GUI-less runners, then retries until the
     # job timeout. Keep the quarantine narrow and explicit.
     set +e
-    feed_xcodebuild_stdin | run_with_timeout "$xcodebuild_timeout" xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+    run_with_timeout "$xcodebuild_timeout" xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived" \
       -clonedSourcePackagesDirPath "$spm" \
       -disableAutomaticPackageResolution \
@@ -244,7 +239,7 @@ unit_test() {
       -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate \
       -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderLoadsSafeDataImage \
       test 2>&1
-    local xcode_status=${PIPESTATUS[1]}
+    local xcode_status=$?
     return "$xcode_status"
   }
 
@@ -513,6 +508,8 @@ ui_regressions() {
 
     if [ "$app_ready" != "true" ]; then
       pkill -x "cmux DEV" 2>/dev/null || true
+      kill "$app_pid" >/dev/null 2>&1 || true
+      untrack_pid "$app_pid"
       kill "$helper_pid" >/dev/null 2>&1 || true
       untrack_pid "$helper_pid"
       if [ "$attempt" -eq 2 ]; then
@@ -531,14 +528,26 @@ ui_regressions() {
       fi
       sleep 0.5
     done
+    if ! python3 -c "import json; d=json.load(open('$diag_path')); assert d.get('renderStatsAvailable') == '1'" 2>/dev/null; then
+      echo "renderStatsAvailable not set after timeout; display not ready for UI regression" >&2
+      pkill -x "cmux DEV" 2>/dev/null || true
+      kill "$app_pid" >/dev/null 2>&1 || true
+      untrack_pid "$app_pid"
+      kill "$helper_pid" >/dev/null 2>&1 || true
+      untrack_pid "$helper_pid"
+      if [ "$attempt" -eq 2 ]; then
+        exit 1
+      fi
+      continue
+    fi
 
     printf '{"readyPath":"%s","displayIDPath":"%s","donePath":"%s","logPath":"%s"}\n' \
       "$display_ready" "$display_id_path" "$display_done" "$helper_log" > "$manifest_path"
     printf '{"diagnosticsPath":"%s"}\n' "$diag_path" > "$prelaunch_path"
-    cp "$manifest_path" /tmp/cmux-ui-test-display-harness.json
-    cp "$prelaunch_path" /tmp/cmux-ui-test-prelaunch.json
 
-    if run_with_timeout "$xcodebuild_timeout" xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+    if CMUX_UI_TEST_DISPLAY_HARNESS_MANIFEST_PATH="$manifest_path" \
+      CMUX_UI_TEST_PRELAUNCH_MANIFEST_PATH="$prelaunch_path" \
+      run_with_timeout "$xcodebuild_timeout" xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
       -derivedDataPath "$derived" \
       -clonedSourcePackagesDirPath "$spm" \
       -disableAutomaticPackageResolution \
@@ -550,11 +559,12 @@ ui_regressions() {
       untrack_pid "$app_pid"
       kill "$helper_pid" >/dev/null 2>&1 || true
       untrack_pid "$helper_pid"
-      rm -f /tmp/cmux-ui-test-display-harness.json /tmp/cmux-ui-test-prelaunch.json
       break
     fi
 
     pkill -x "cmux DEV" 2>/dev/null || true
+    kill "$app_pid" >/dev/null 2>&1 || true
+    untrack_pid "$app_pid"
     kill "$helper_pid" >/dev/null 2>&1 || true
     untrack_pid "$helper_pid"
     if [ "$attempt" -eq 2 ]; then
@@ -587,7 +597,7 @@ ui_regressions() {
   fi
   kill "$persistent_pid" >/dev/null 2>&1 || true
   untrack_pid "$persistent_pid"
-  rm -f "$persistent_ready" "$persistent_id" /tmp/cmux-ui-test-display-harness.json /tmp/cmux-ui-test-prelaunch.json
+  rm -f "$persistent_ready" "$persistent_id"
 }
 
 workflow_guards() {
@@ -651,6 +661,7 @@ web_db_migrations() {
     export DATABASE_URL="postgres://cmux:cmux@127.0.0.1:$postgres_port/cmux_test"
     export DIRECT_DATABASE_URL="$DATABASE_URL"
     bunx drizzle-kit migrate --config drizzle.config.ts
+    # Run twice to verify migration idempotency on a fresh local database.
     bunx drizzle-kit migrate --config drizzle.config.ts
     CMUX_DB_TEST=1 bun test tests/db-schema.test.ts
     CMUX_DB_TEST=1 bun test tests/drizzle-effect.test.ts

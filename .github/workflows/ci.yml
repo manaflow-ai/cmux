@@ -248,13 +248,6 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           XCODEBUILD_TEST_TIMEOUT_SECONDS="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-2520}"
-          feed_xcodebuild_stdin() {
-            while true; do
-              printf 'q\n' || return 0
-              sleep 1
-            done
-          }
-
           run_xcodebuild_with_timeout() {
             local timeout_seconds="$1"
             shift
@@ -295,7 +288,7 @@ jobs:
             # these MarkdownPanelTests on hosted runners, then retries until the
             # job timeout. Keep the quarantine narrow and explicit.
             set +e
-            feed_xcodebuild_stdin | run_xcodebuild_with_timeout "$XCODEBUILD_TEST_TIMEOUT_SECONDS" \
+            run_xcodebuild_with_timeout "$XCODEBUILD_TEST_TIMEOUT_SECONDS" \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
@@ -306,7 +299,7 @@ jobs:
               -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate \
               -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderLoadsSafeDataImage \
               test 2>&1
-            local xcode_status=${PIPESTATUS[1]}
+            local xcode_status=$?
             set -e
             return "$xcode_status"
           }
@@ -779,11 +772,12 @@ jobs:
           DISPLAY_START="/tmp/cmux-ui-test-display-${TOKEN}.start"
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
+          MANIFEST_PATH="/tmp/cmux-ui-test-display-harness-${TOKEN}.json"
+          PRELAUNCH_PATH="/tmp/cmux-ui-test-prelaunch-${TOKEN}.json"
 
           cleanup() {
             pkill -x "cmux DEV" 2>/dev/null || true
-            rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
-            rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
+            rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG" "$MANIFEST_PATH" "$PRELAUNCH_PATH"
           }
           trap cleanup EXIT
 
@@ -892,25 +886,31 @@ jobs:
               sleep 0.5
             done
             if [ "$RENDER_READY" != "true" ]; then
-              echo "WARNING: Render stats not available after 20s. Diagnostics:"
+              echo "ERROR: Render stats not available after 20s. Diagnostics:" >&2
               cat "$DIAG_PATH" 2>/dev/null || true
               echo "--- App log ---"
               cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -30 || true
+              pkill -x "cmux DEV" 2>/dev/null || true
+              kill "$HELPER_PID" 2>/dev/null || true
+              if [ "$attempt" -eq 2 ]; then
+                exit 1
+              fi
+              continue
             fi
 
             # Write manifests so test can find the pre-launched state
-            MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
             cat >"$MANIFEST_PATH" <<MANIFEST_EOF
           {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
           MANIFEST_EOF
 
-            PRELAUNCH_PATH="/tmp/cmux-ui-test-prelaunch.json"
             cat >"$PRELAUNCH_PATH" <<PRELAUNCH_EOF
           {"diagnosticsPath":"$DIAG_PATH"}
           PRELAUNCH_EOF
 
             # Run test — app is already launched from shell
-            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            if CMUX_UI_TEST_DISPLAY_HARNESS_MANIFEST_PATH="$MANIFEST_PATH" \
+              CMUX_UI_TEST_PRELAUNCH_MANIFEST_PATH="$PRELAUNCH_PATH" \
+              xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \

@@ -119,13 +119,6 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           XCODEBUILD_TEST_TIMEOUT_SECONDS="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-1620}"
-          feed_xcodebuild_stdin() {
-            while true; do
-              printf 'q\n' || return 0
-              sleep 1
-            done
-          }
-
           run_xcodebuild_with_timeout() {
             local timeout_seconds="$1"
             shift
@@ -166,7 +159,7 @@ jobs:
             # these MarkdownPanelTests on hosted runners, then retries until the
             # job timeout. Keep the quarantine narrow and explicit.
             set +e
-            feed_xcodebuild_stdin | run_xcodebuild_with_timeout "$XCODEBUILD_TEST_TIMEOUT_SECONDS" \
+            run_xcodebuild_with_timeout "$XCODEBUILD_TEST_TIMEOUT_SECONDS" \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
@@ -176,7 +169,7 @@ jobs:
               -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate \
               -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderLoadsSafeDataImage \
               test 2>&1
-            local xcode_status=${PIPESTATUS[1]}
+            local xcode_status=$?
             set -e
             return "$xcode_status"
           }
