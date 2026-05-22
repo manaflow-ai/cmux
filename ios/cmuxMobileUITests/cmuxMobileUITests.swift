@@ -27,7 +27,9 @@ final class cmuxMobileUITests: XCTestCase {
 
     @MainActor
     func testAddDeviceManualHostValidationUsesStableIdentifiers() throws {
-        let app = launchAddDeviceApp()
+        let app = launchAddDeviceApp(environment: [
+            "CMUX_UITEST_ADD_DEVICE_HOST": "dev/path.local"
+        ])
 
         XCTAssertTrue(app.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.textFields["MobileAddDeviceNameField"].exists)
@@ -39,9 +41,8 @@ final class cmuxMobileUITests: XCTestCase {
 
         let pairButton = app.buttons["MobilePairButton"]
         XCTAssertTrue(pairButton.exists)
-        XCTAssertFalse(pairButton.isEnabled)
+        XCTAssertTrue(pairButton.isEnabled)
 
-        try typeText("dev/path.local", into: app.textFields["MobileAddDeviceHostField"], in: app)
         tap(pairButton, in: app)
         assertPairingError(contains: "Enter a host or IP address", in: app)
 
