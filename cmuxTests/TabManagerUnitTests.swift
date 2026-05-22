@@ -320,7 +320,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
-    func testUntrackedRemoteChildExitDisconnectsWorkspace() throws {
+    func testFocusedRemoteChildExitWithMultipleTerminalsDisconnectsWorkspace() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let initialPanelId = workspace.focusedPanelId else {
@@ -328,10 +328,15 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             return
         }
 
-        guard let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal) else {
+        guard let splitPanel = workspace.newTerminalSplit(
+            from: initialPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
             XCTFail("Expected split terminal panel")
             return
         }
+        XCTAssertEqual(workspace.focusedPanelId, initialPanelId)
 
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -351,7 +356,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertFalse(workspace.isRemoteTerminalSurface(initialPanelId))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(initialPanelId))
         XCTAssertFalse(workspace.isRemoteTerminalSurface(splitPanel.id))
         XCTAssertEqual(workspace.remoteConnectionState, .connected)
 

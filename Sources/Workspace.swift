@@ -9656,6 +9656,25 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func shouldMarkRemoteTerminalSessionEndedAfterChildExit(surfaceId: UUID) -> Bool {
+        guard let terminalPanel = panels[surfaceId] as? TerminalPanel else { return false }
+        if activeRemoteTerminalSurfaceIds.contains(surfaceId) { return true }
+
+        // Older sessions could have a remote startup command but no tracked active
+        // surface. Treat only initial-command terminals as legacy remote PTYs so an
+        // unrelated local shell in a remote-configured workspace cannot flip state.
+        guard activeRemoteTerminalSurfaceIds.isEmpty,
+              remoteConnectionState == .connected ||
+                  remoteConnectionState == .connecting ||
+                  remoteConnectionState == .reconnecting,
+              terminalPanel.surface.debugInitialCommand()?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              remoteTerminalStartupCommand() != nil else {
+            return false
+        }
+        return true
+    }
+
+    @MainActor
     func markRemoteTerminalSessionClosingIfLast(surfaceId: UUID) {
         guard !isDetachingCloseTransaction,
               activeRemoteTerminalSurfaceIds.count == 1,
@@ -9945,8 +9964,13 @@ final class Workspace: Identifiable, ObservableObject {
         let terminalIds = panels.compactMap { panelId, panel in
             panel is TerminalPanel ? panelId : nil
         }
-        guard terminalIds.count == 1, let initialPanelId = terminalIds.first else { return }
-        trackRemoteTerminalSurface(initialPanelId)
+        if terminalIds.count == 1, let initialPanelId = terminalIds.first {
+            trackRemoteTerminalSurface(initialPanelId)
+            return
+        }
+        if let focusedPanelId, terminalIds.contains(focusedPanelId) {
+            trackRemoteTerminalSurface(focusedPanelId)
+        }
     }
 
     private func trackRemoteTerminalSurface(_ panelId: UUID) {
@@ -10078,9 +10102,13 @@ final class Workspace: Identifiable, ObservableObject {
     private func remoteTerminalSessionEndMatchesCurrentConfiguration(
         surfaceId: UUID,
         relayPort: Int?,
-        configuration: WorkspaceRemoteConfiguration
+        configuration: WorkspaceRemoteConfiguration,
+        allowUntracked: Bool
     ) -> Bool {
-        guard activeRemoteTerminalSurfaceIds.contains(surfaceId) else { return false }
+        guard activeRemoteTerminalSurfaceIds.contains(surfaceId) ||
+            (allowUntracked && activeRemoteTerminalSurfaceIds.isEmpty) else {
+            return false
+        }
         if let relayPort, relayPort > 0 {
             return configuration.relayPort == relayPort
         }
@@ -10106,7 +10134,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?) {
+    func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?, allowUntracked: Bool = false) {
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
             return
         }
@@ -10114,7 +10142,8 @@ final class Workspace: Identifiable, ObservableObject {
               remoteTerminalSessionEndMatchesCurrentConfiguration(
                 surfaceId: surfaceId,
                 relayPort: relayPort,
-                configuration: configuration
+                configuration: configuration,
+                allowUntracked: allowUntracked
               ) else {
             return
         }
