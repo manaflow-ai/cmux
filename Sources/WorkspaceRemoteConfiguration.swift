@@ -136,25 +136,29 @@ struct WorkspaceRemoteConfiguration: Equatable {
     }
 
     var proxyBrokerTransportKey: String {
-        let normalizedTransport = transport.rawValue
-        let normalizedBootstrapMode = skipDaemonBootstrap ? "vm-baked" : "bootstrap"
-        let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPort = port.map(String.init) ?? ""
-        let normalizedIdentity = WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile) ?? ""
-        let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
-        let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
-        let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
-        return [
-            normalizedTransport,
-            normalizedBootstrapMode,
-            normalizedDestination,
-            normalizedPort,
-            normalizedIdentity,
-            normalizedOptions,
-            normalizedLocalProxyPort,
-            normalizedWebSocketDaemon,
-        ]
+        remoteTransportKeyComponents(includeLocalProxyPort: true)
             .joined(separator: "\u{1e}")
+    }
+
+    var remoteFileSystemIdentityKey: String {
+        remoteTransportKeyComponents(includeLocalProxyPort: false)
+            .joined(separator: "\u{1e}")
+    }
+
+    private func remoteTransportKeyComponents(includeLocalProxyPort: Bool) -> [String] {
+        var components = [
+            transport.rawValue,
+            skipDaemonBootstrap ? "vm-baked" : "bootstrap",
+            destination.trimmingCharacters(in: .whitespacesAndNewlines),
+            port.map(String.init) ?? "",
+            WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile) ?? "",
+            Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}"),
+        ]
+        if includeLocalProxyPort {
+            components.append(localProxyPort.map(String.init) ?? "")
+        }
+        components.append(daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? "")
+        return components
     }
 
     private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
@@ -248,6 +252,27 @@ extension WorkspaceRemoteConfiguration {
             identityFile: WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile),
             sshOptions: WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions),
             skipDaemonBootstrap: skipDaemonBootstrap
+        )
+    }
+}
+
+extension SSHFileExplorerConnection {
+    func sessionPersistentConnection() -> SSHFileExplorerConnection {
+        SSHFileExplorerConnection(
+            destination: destination.trimmingCharacters(in: .whitespacesAndNewlines),
+            port: port,
+            identityFile: WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile),
+            sshOptions: WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions)
+        )
+    }
+}
+
+extension RemoteFilePreviewSource {
+    func sessionPersistentSource() -> RemoteFilePreviewSource {
+        RemoteFilePreviewSource(
+            connection: connection.sessionPersistentConnection(),
+            displayTarget: displayTarget,
+            remotePath: remotePath
         )
     }
 }

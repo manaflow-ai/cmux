@@ -187,6 +187,7 @@ final class FileExplorerStoreTests: XCTestCase {
                 workspaceId: UUID(),
                 connection: connection,
                 displayTarget: "dev@ubuntu-host:2222",
+                preferredRootPath: nil,
                 isAvailable: true,
                 unavailableDetail: nil
             ),
@@ -200,9 +201,82 @@ final class FileExplorerStoreTests: XCTestCase {
 
         XCTAssertTrue(store.provider is SSHFileExplorerProvider)
         XCTAssertEqual(store.rootPath, "/home/dev")
-        XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:2222:/home/dev")
+        XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:2222/home/dev")
         XCTAssertEqual(transport.resolvedHomeConnections, [connection])
         XCTAssertEqual(transport.listedPaths, ["/home/dev"])
+    }
+
+    func testRemoteWorkspaceRootUsesReportedTerminalDirectoryWhenAvailable() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/home/dev/project"] = .success([
+            FileExplorerEntry(name: "README.md", path: "/home/dev/project/README.md", isDirectory: false),
+        ])
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@ubuntu-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: []
+        )
+
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: connection,
+                displayTarget: "dev@ubuntu-host",
+                preferredRootPath: "/home/dev/project",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("reported remote cwd loaded") {
+            store.rootPath == "/home/dev/project" &&
+                store.rootNodes.map(\.name) == ["README.md"]
+        }
+
+        XCTAssertEqual(store.rootPath, "/home/dev/project")
+        XCTAssertEqual(transport.listedPaths, ["/home/dev/project"])
+        XCTAssertTrue(transport.resolvedHomeConnections.isEmpty)
+    }
+
+    func testRemoteHomeFailureDoesNotExposeRawTransportError() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .failure(NSError(
+            domain: "SSHTest",
+            code: 255,
+            userInfo: [NSLocalizedDescriptionKey: "Permission denied for /home/secret"]
+        )))
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@ubuntu-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: []
+        )
+
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: connection,
+                displayTarget: "dev@ubuntu-host",
+                preferredRootPath: nil,
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote home failure is surfaced") {
+            store.rootStatusMessage?.contains("Unable to resolve SSH home") == true
+        }
+
+        let message = try XCTUnwrap(store.rootStatusMessage)
+        XCTAssertTrue(message.contains("Unable to resolve SSH home"))
+        XCTAssertFalse(message.contains("Permission denied"))
+        XCTAssertFalse(message.contains("/home/secret"))
+        XCTAssertFalse(message.contains("255"))
+        XCTAssertFalse(message.hasSuffix(":"))
     }
 
     func testSwitchingFromLocalToRemoteRepointsTreeToRemoteHome() async throws {
@@ -233,6 +307,7 @@ final class FileExplorerStoreTests: XCTestCase {
                     sshOptions: []
                 ),
                 displayTarget: "dev@ubuntu-host",
+                preferredRootPath: nil,
                 isAvailable: true,
                 unavailableDetail: nil
             ),
@@ -268,6 +343,7 @@ final class FileExplorerStoreTests: XCTestCase {
                     sshOptions: []
                 ),
                 displayTarget: "dev@ubuntu-host",
+                preferredRootPath: nil,
                 isAvailable: false,
                 unavailableDetail: nil
             ),
@@ -487,6 +563,143 @@ final class FileExplorerStoreTests: XCTestCase {
         )
     }
 
+    func testEmptySSHCommandFailureUsesActionableFallbackMessage() {
+        let message = FileExplorerError.sshCommandFailed("").localizedDescription
+
+        XCTAssertTrue(message.contains("SSH command failed"))
+        XCTAssertFalse(message.hasSuffix(":"))
+        XCTAssertFalse(message.contains("%@"))
+    }
+
+    func testSSHCommandFailureDoesNotExposeRawDetail() {
+        let message = FileExplorerError.sshCommandFailed("connection reset from /home/secret").localizedDescription
+
+        XCTAssertTrue(message.contains("SSH command failed"))
+        XCTAssertFalse(message.contains("connection reset"))
+        XCTAssertFalse(message.contains("/home/secret"))
+    }
+
+    func testRemotePreviewSSHFailureUsesGenericMessage() {
+        let message = RemoteFilePreviewMaterializerError
+            .sshCommandFailed(status: 255, detail: "Permission denied: /home/secret/movie.mov")
+            .localizedDescription
+
+        XCTAssertTrue(message.contains("Unable to download"))
+        XCTAssertFalse(message.contains("Permission denied"))
+        XCTAssertFalse(message.contains("/home/secret"))
+        XCTAssertFalse(message.contains("255"))
+        XCTAssertFalse(message.hasSuffix(":"))
+        XCTAssertFalse(message.contains("%@"))
+    }
+
+    @MainActor
+    func testRootStatusMessageWrapsInsideNarrowExplorerView() throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .files
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 180, height: 160)
+
+        let statusMessage = "SSH files unavailable: remote proxy handshake timed out while opening a very long destination name"
+        container.updateVisibility(hasContent: false, isLoading: false, statusMessage: statusMessage)
+        container.layoutSubtreeIfNeeded()
+
+        let statusLabel = try XCTUnwrap(Self.findTextField(in: container, stringValue: statusMessage))
+        XCTAssertFalse(statusLabel.isHidden)
+        XCTAssertEqual(statusLabel.lineBreakMode, .byWordWrapping)
+        XCTAssertEqual(statusLabel.maximumNumberOfLines, 6)
+        XCTAssertGreaterThanOrEqual(statusLabel.frame.minX, container.bounds.minX - 1)
+        XCTAssertLessThanOrEqual(statusLabel.frame.maxX, container.bounds.maxX + 1)
+    }
+
+    @MainActor
+    func testRemoteSearchResultDragPreservesRemotePreviewSource() throws {
+        let searchController = FileExplorerStoreSpySearchController()
+        let container = remoteSearchContainer(searchController: searchController)
+        let result = FileSearchResult(
+            path: "/home/dev/movie clip.mp4",
+            relativePath: "movie clip.mp4",
+            lineNumber: 4,
+            columnNumber: 2,
+            preview: "movie"
+        )
+        searchController.publish(FileSearchSnapshot(
+            query: "movie",
+            results: [result],
+            status: .matches,
+            isSearching: false
+        ))
+
+        let writer = try XCTUnwrap(
+            container.tableView(container.searchResultsView, pasteboardWriterForRow: 0) as? FilePreviewDragPasteboardWriter
+        )
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.clearContents()
+        _ = writer.writableTypes(for: dragPasteboard)
+
+        let dragID = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
+        defer {
+            FilePreviewDragRegistry.shared.discard(id: dragID)
+            dragPasteboard.clearContents()
+        }
+        let entry = try XCTUnwrap(FilePreviewDragRegistry.shared.entry(id: dragID))
+        let expectedSource = RemoteFilePreviewSource(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@ubuntu-host",
+                port: 2222,
+                identityFile: "/Users/alice/.ssh/id_ed25519",
+                sshOptions: ["StrictHostKeyChecking=no"]
+            ),
+            displayTarget: "dev@ubuntu-host:2222",
+            remotePath: result.path
+        )
+
+        XCTAssertEqual(entry.filePath, RemoteFilePreviewMaterializer.cacheURL(for: expectedSource).path)
+        XCTAssertEqual(entry.displayTitle, "movie clip.mp4")
+        XCTAssertEqual(entry.displayPath, expectedSource.displayPath)
+        XCTAssertEqual(entry.remoteSource, expectedSource)
+        XCTAssertEqual(entry.textInsertionPath, result.path)
+        XCTAssertFalse(dragPasteboard.types?.contains(.fileURL) ?? false)
+    }
+
+    @MainActor
+    func testRemoteSearchResultMenuOmitsLocalFinderActions() {
+        let searchController = FileExplorerStoreSpySearchController()
+        let container = remoteSearchContainer(searchController: searchController)
+        searchController.publish(FileSearchSnapshot(
+            query: "movie",
+            results: [
+                FileSearchResult(
+                    path: "/home/dev/movie clip.mp4",
+                    relativePath: "movie clip.mp4",
+                    lineNumber: 4,
+                    columnNumber: 2,
+                    preview: "movie"
+                )
+            ],
+            status: .matches,
+            isSearching: false
+        ))
+        container.searchResultsView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        guard let menu = container.searchResultsView.menu else {
+            XCTFail("Expected search result context menu")
+            return
+        }
+
+        container.menuNeedsUpdate(menu)
+
+        let titles = menu.items.map(\.title)
+        XCTAssertTrue(titles.contains("Open in cmux"))
+        XCTAssertFalse(titles.contains("Reveal in Finder"))
+    }
+
     // MARK: - Collapse/Expand
 
     func testCollapseRemovesFromExpandedPaths() {
@@ -505,6 +718,67 @@ final class FileExplorerStoreTests: XCTestCase {
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
         XCTAssertFalse(store.isExpanded(node))
+    }
+
+    private func remoteSearchContainer(searchController: FileExplorerStoreSpySearchController) -> FileExplorerContainerView {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = SSHFileExplorerProvider(
+            destination: "dev@ubuntu-host",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/id_ed25519",
+            sshOptions: ["StrictHostKeyChecking=no"],
+            displayTarget: "dev@ubuntu-host:2222",
+            homePath: "/home/dev",
+            isAvailable: true,
+            transport: MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        )
+        store.setRootPath("/home/dev")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+        return container
+    }
+
+    private final class FileExplorerStoreSpySearchController: FileSearchControlling {
+        var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
+
+        func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {
+            _ = rawQuery
+            _ = rootPath
+            _ = isLocal
+            _ = contentRevision
+        }
+
+        func publish(_ snapshot: FileSearchSnapshot) {
+            onSnapshotChanged?(snapshot)
+        }
+
+        func cancel(clear: Bool) {
+            _ = clear
+        }
+    }
+
+    private static func findTextField(in root: NSView, stringValue: String) -> NSTextField? {
+        if let field = root as? NSTextField,
+           field.stringValue == stringValue {
+            return field
+        }
+        for subview in root.subviews {
+            if let field = findTextField(in: subview, stringValue: stringValue) {
+                return field
+            }
+        }
+        return nil
     }
 }
 

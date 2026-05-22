@@ -99,7 +99,7 @@ enum FileExplorerPanelPlacement: Equatable {
 struct FileExplorerPanelView: NSViewRepresentable {
     @ObservedObject var store: FileExplorerStore
     @ObservedObject var state: FileExplorerState
-    let onOpenFilePreview: (String) -> Void
+    let onOpenFilePreview: (FilePreviewDragEntry) -> Void
     var presentation: FileExplorerPanelPresentation = .files
     var placement: FileExplorerPanelPlacement = .rightSidebar
     var onFocus: (() -> Void)?
@@ -147,7 +147,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var store: FileExplorerStore
         var state: FileExplorerState
-        var onOpenFilePreview: (String) -> Void
+        var onOpenFilePreview: (FilePreviewDragEntry) -> Void
         var placement: FileExplorerPanelPlacement
         var onFocus: (() -> Void)?
         var onContainerChange: ((FileExplorerContainerView?) -> Void)?
@@ -161,7 +161,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         init(
             store: FileExplorerStore,
             state: FileExplorerState,
-            onOpenFilePreview: @escaping (String) -> Void,
+            onOpenFilePreview: @escaping (FilePreviewDragEntry) -> Void,
             placement: FileExplorerPanelPlacement = .rightSidebar,
             onFocus: (() -> Void)? = nil,
             onContainerChange: ((FileExplorerContainerView?) -> Void)? = nil
@@ -589,8 +589,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
             guard let node = item as? FileExplorerNode, !node.isDirectory else { return nil }
-            guard store.provider is LocalFileExplorerProvider else { return nil }
-            return FilePreviewDragPasteboardWriter(filePath: node.path, displayTitle: node.name)
+            guard let entry = filePreviewEntry(for: node) else { return nil }
+            return FilePreviewDragPasteboardWriter(
+                filePath: entry.filePath,
+                displayTitle: entry.displayTitle,
+                displayPath: entry.displayPath,
+                remoteSource: entry.remoteSource,
+                textInsertionPath: entry.textInsertionPath
+            )
         }
 
         func outlineView(
@@ -616,8 +622,37 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 return
             }
 
-            guard store.provider is LocalFileExplorerProvider else { return }
-            onOpenFilePreview(node.path)
+            guard let entry = filePreviewEntry(for: node) else { return }
+            onOpenFilePreview(entry)
+        }
+
+        private func filePreviewEntry(for node: FileExplorerNode) -> FilePreviewDragEntry? {
+            filePreviewEntry(filePath: node.path, displayTitle: node.name, isDirectory: node.isDirectory)
+        }
+
+        func filePreviewEntry(
+            filePath: String,
+            displayTitle: String? = nil,
+            isDirectory: Bool = false
+        ) -> FilePreviewDragEntry? {
+            guard !isDirectory else { return nil }
+            let title = displayTitle ?? (filePath as NSString).lastPathComponent
+            if store.provider is LocalFileExplorerProvider {
+                return FilePreviewDragEntry(filePath: filePath, displayTitle: title)
+            }
+            guard let sshProvider = store.provider as? SSHFileExplorerProvider else { return nil }
+            let source = RemoteFilePreviewSource(
+                connection: sshProvider.connection,
+                displayTarget: sshProvider.displayTarget,
+                remotePath: filePath
+            )
+            return FilePreviewDragEntry(
+                filePath: RemoteFilePreviewMaterializer.cacheURL(for: source).path,
+                displayTitle: title,
+                displayPath: source.displayPath,
+                remoteSource: source,
+                textInsertionPath: filePath
+            )
         }
 
         // MARK: - Context Menu (NSMenuDelegate)
@@ -819,6 +854,12 @@ final class FileExplorerContainerView: NSView {
         emptyLabel.font = .systemFont(ofSize: 13)
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
+        emptyLabel.lineBreakMode = .byWordWrapping
+        emptyLabel.maximumNumberOfLines = 6
+        emptyLabel.cell?.wraps = true
+        emptyLabel.cell?.isScrollable = false
+        emptyLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        emptyLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         emptyLabel.isHidden = true
         addSubview(emptyLabel)
 
@@ -959,6 +1000,10 @@ final class FileExplorerContainerView: NSView {
 
             emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
+            emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+            emptyLabel.topAnchor.constraint(greaterThanOrEqualTo: searchBarView.bottomAnchor, constant: 12),
+            emptyLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -1003,6 +1048,11 @@ final class FileExplorerContainerView: NSView {
         let debugLayoutStart = ProcessInfo.processInfo.systemUptime
 #endif
         super.layout()
+        let maxEmptyLabelWidth = max(0, bounds.width - 32)
+        if emptyLabel.preferredMaxLayoutWidth != maxEmptyLabelWidth {
+            emptyLabel.preferredMaxLayoutWidth = maxEmptyLabelWidth
+            emptyLabel.invalidateIntrinsicContentSize()
+        }
         registerWithKeyboardFocusCoordinatorIfNeeded()
 #if DEBUG
         logSearchLayoutIfNeeded(startedAt: debugLayoutStart, reason: "layout")
@@ -1023,6 +1073,8 @@ final class FileExplorerContainerView: NSView {
         headerView.update(displayPath: store.displayRootPath)
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
+            searchController.cancel(clear: true)
+            applySearchSnapshot(.empty)
             refreshSearchIfNeeded()
         } else if contentRevisionChanged {
             refreshSearchAfterContentRevisionIfNeeded()
@@ -1065,6 +1117,7 @@ final class FileExplorerContainerView: NSView {
         emptyLabel.stringValue = hasStatus
             ? normalizedStatus!
             : String(localized: "fileExplorer.empty", defaultValue: "No folder open")
+        emptyLabel.toolTip = hasStatus ? normalizedStatus : nil
         emptyLabel.isHidden = canShowTree || searchCanShow || isLoading
         loadingIndicator.isHidden = !isLoading
         if isLoading {
@@ -1481,10 +1534,29 @@ final class FileExplorerContainerView: NSView {
         return searchSnapshot.results[row]
     }
 
+    private func filePreviewEntry(forSearchResult result: FileSearchResult) -> FilePreviewDragEntry? {
+        coordinator.filePreviewEntry(
+            filePath: result.path,
+            displayTitle: (result.relativePath as NSString).lastPathComponent
+        )
+    }
+
+    private func filePreviewPasteboardWriter(for entry: FilePreviewDragEntry) -> FilePreviewDragPasteboardWriter {
+        FilePreviewDragPasteboardWriter(
+            filePath: entry.filePath,
+            displayTitle: entry.displayTitle,
+            displayPath: entry.displayPath,
+            remoteSource: entry.remoteSource,
+            textInsertionPath: entry.textInsertionPath
+        )
+    }
+
     fileprivate func openSelectedSearchResult() {
         let row = searchResultsView.selectedRow
         guard row >= 0, row < searchSnapshot.results.count else { return }
-        coordinator.onOpenFilePreview(searchSnapshot.results[row].path)
+        let result = searchSnapshot.results[row]
+        guard let entry = filePreviewEntry(forSearchResult: result) else { return }
+        coordinator.onOpenFilePreview(entry)
     }
 
     @objc private func openSelectedSearchResultFromTable(_ sender: NSTableView) {
@@ -1493,7 +1565,8 @@ final class FileExplorerContainerView: NSView {
 
     @objc private func contextMenuOpenSearchResultInCmux(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        coordinator.onOpenFilePreview(result.path)
+        guard let entry = filePreviewEntry(forSearchResult: result) else { return }
+        coordinator.onOpenFilePreview(entry)
     }
 
     @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {
@@ -1599,10 +1672,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             return nil
         }
         let result = searchSnapshot.results[row]
-        return FilePreviewDragPasteboardWriter(
-            filePath: result.path,
-            displayTitle: (result.relativePath as NSString).lastPathComponent
-        )
+        guard let entry = filePreviewEntry(forSearchResult: result) else { return nil }
+        return filePreviewPasteboardWriter(for: entry)
     }
 
     func tableView(
@@ -1624,6 +1695,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         if clickedRow >= 0 && !searchResultsView.selectedRowIndexes.contains(clickedRow) {
             searchResultsView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
         }
+        let isLocal = coordinator.store.provider is LocalFileExplorerProvider
 
         let openInCmuxItem = NSMenuItem(
             title: String(localized: "fileExplorer.contextMenu.openInCmux", defaultValue: "Open in cmux"),
@@ -1634,23 +1706,25 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         openInCmuxItem.representedObject = NSNumber(value: row)
         menu.addItem(openInCmuxItem)
 
-        addFileExplorerExternalOpenItems(
-            to: menu,
-            fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
-            target: self,
-            action: #selector(contextMenuOpenSearchResultExternally(_:))
-        )
+        if isLocal {
+            addFileExplorerExternalOpenItems(
+                to: menu,
+                fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
+                target: self,
+                action: #selector(contextMenuOpenSearchResultExternally(_:))
+            )
 
-        let revealItem = NSMenuItem(
-            title: String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder"),
-            action: #selector(contextMenuRevealSearchResultInFinder(_:)),
-            keyEquivalent: ""
-        )
-        revealItem.target = self
-        revealItem.representedObject = NSNumber(value: row)
-        menu.addItem(revealItem)
+            let revealItem = NSMenuItem(
+                title: String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder"),
+                action: #selector(contextMenuRevealSearchResultInFinder(_:)),
+                keyEquivalent: ""
+            )
+            revealItem.target = self
+            revealItem.representedObject = NSNumber(value: row)
+            menu.addItem(revealItem)
 
-        menu.addItem(.separator())
+            menu.addItem(.separator())
+        }
 
         menu.addFileExplorerInsertPathItems(target: self, representedObject: NSNumber(value: row), insertAction: #selector(contextMenuInsertSearchResultPath(_:)), insertRelativeAction: #selector(contextMenuInsertSearchResultRelativePath(_:)))
 

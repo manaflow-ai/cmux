@@ -1077,6 +1077,8 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
 
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
+    var displayPath: String? = nil
+    var remoteSource: RemoteFilePreviewSource? = nil
 }
 
 struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {

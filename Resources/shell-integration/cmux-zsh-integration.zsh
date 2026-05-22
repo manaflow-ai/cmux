@@ -140,6 +140,32 @@ _cmux_ports_kick_via_relay() {
     _cmux_relay_rpc_bg "surface.ports_kick" "$params"
 }
 
+_cmux_report_pwd_if_changed() {
+    local pwd="$PWD"
+    [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]] || return 0
+
+    if _cmux_socket_is_unix; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        local qpwd="${pwd//\"/\\\"}"
+        _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        _CMUX_PWD_LAST_PWD="$pwd"
+        return 0
+    fi
+
+    _cmux_socket_uses_remote_relay || return 0
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 0
+    local pwd_json params
+    pwd_json="$(_cmux_json_escape "$pwd")"
+    params="{\"workspace_id\":\"$workspace_id\",\"directory\":\"$pwd_json\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.report_pwd" "$params" || return 0
+    _CMUX_PWD_LAST_PWD="$pwd"
+}
+
 _cmux_restore_scrollback_once() {
     local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
     [[ -n "$path" ]] || return 0
@@ -1410,6 +1436,7 @@ _cmux_precmd() {
     fi
 
     _cmux_report_tty_once
+    _cmux_report_pwd_if_changed
 
     local now="$(_cmux_now)"
     local cmd_start="$_CMUX_CMD_START"
@@ -1442,14 +1469,6 @@ _cmux_precmd() {
             _CMUX_GIT_JOB_STARTED_AT=0
             _CMUX_GIT_FORCE=1
         fi
-    fi
-
-    # CWD: keep the app in sync with the actual shell directory.
-    # This is also the simplest way to test sidebar directory behavior end-to-end.
-    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
-        _CMUX_PWD_LAST_PWD="$pwd"
-        local qpwd="${pwd//\"/\\\"}"
-        _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     fi
 
     # Git branch/dirty: update immediately on directory change, otherwise every ~3s.

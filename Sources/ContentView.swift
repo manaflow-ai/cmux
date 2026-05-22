@@ -970,6 +970,8 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     private struct Snapshot: Equatable {
         let workspaceId: UUID?
         let currentDirectory: String?
+        let panelDirectories: [UUID: String]
+        let remoteTerminalDirectoryGeneration: UInt64
         let remoteConfiguration: WorkspaceRemoteConfiguration?
         let remoteConnectionState: WorkspaceRemoteConnectionState?
         let remoteConnectionDetail: String?
@@ -995,6 +997,8 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                         Snapshot(
                             workspaceId: nil,
                             currentDirectory: nil,
+                            panelDirectories: [:],
+                            remoteTerminalDirectoryGeneration: 0,
                             remoteConfiguration: nil,
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
@@ -1005,21 +1009,27 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                 }
                 return workspace.$currentDirectory
                     .combineLatest(
-                        workspace.$remoteConfiguration,
-                        workspace.$remoteConnectionState,
-                        workspace.$remoteConnectionDetail
+                        workspace.$panelDirectories,
+                        workspace.$remoteTerminalDirectoryGeneration,
+                        workspace.$remoteConfiguration
                     )
-                    .combineLatest(workspace.$remoteDaemonStatus)
-                    .map { values, remoteDaemonStatus in
+                    .combineLatest(
+                        workspace.$remoteConnectionState,
+                        workspace.$remoteConnectionDetail,
+                        workspace.$remoteDaemonStatus
+                    )
+                    .map { values, remoteConnectionState, remoteConnectionDetail, remoteDaemonStatus in
                         let (
                             currentDirectory,
-                            remoteConfiguration,
-                            remoteConnectionState,
-                            remoteConnectionDetail
+                            panelDirectories,
+                            remoteTerminalDirectoryGeneration,
+                            remoteConfiguration
                         ) = values
                         return Snapshot(
                             workspaceId: workspace.id,
                             currentDirectory: currentDirectory,
+                            panelDirectories: panelDirectories,
+                            remoteTerminalDirectoryGeneration: remoteTerminalDirectoryGeneration,
                             remoteConfiguration: remoteConfiguration,
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
@@ -2172,8 +2182,8 @@ struct ContentView: View {
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             },
-            onOpenFilePreview: { filePath in
-                openFilePreviewFromSidebar(filePath: filePath)
+            onOpenFilePreview: { entry in
+                openFilePreviewFromSidebar(entry: entry)
             },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
@@ -2450,7 +2460,7 @@ struct ContentView: View {
         _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
     }
 
-    private func openFilePreviewFromSidebar(filePath: String) {
+    private func openFilePreviewFromSidebar(entry: FilePreviewDragEntry) {
         guard let workspace = tabManager.selectedWorkspace else { return }
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
@@ -2459,7 +2469,7 @@ struct ContentView: View {
         sidebarSelectionState.selection = .tabs
         _ = workspace.openFileSurfaces(
             inPane: paneId,
-            filePaths: [filePath],
+            entries: [entry],
             focus: true,
             reuseExisting: true
         )
@@ -2506,6 +2516,7 @@ struct ContentView: View {
                         sshOptions: config.sshOptions
                     ),
                     displayTarget: config.displayTarget,
+                    preferredRootPath: tab.preferredRemoteFileExplorerRootPath(),
                     isAvailable: tab.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
@@ -2529,6 +2540,7 @@ struct ContentView: View {
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             return nil
         }
+        guard !tab.isRemoteWorkspace else { return nil }
         // Use focused panel's directory if available
         if let focusedPanelId = tab.focusedPanelId,
            let panelDir = tab.panelDirectories[focusedPanelId] {
@@ -14623,13 +14635,13 @@ enum BonsplitTabDragPayload {
         transfer(from: NSPasteboard(name: .drag))
     }
 
-    static func canRouteWorkspaceDrop(pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-            && !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
+    static func canRouteWorkspaceDrop(pasteboard: NSPasteboard) -> Bool {
+        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboard.types)
+            && !DragOverlayRoutingPolicy.hasLiveFilePreviewTransfer(pasteboard)
     }
 
     static func transfer(from pasteboard: NSPasteboard) -> Transfer? {
-        guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types) else {
+        guard !DragOverlayRoutingPolicy.hasLiveFilePreviewTransfer(pasteboard) else {
             return nil
         }
         let type = NSPasteboard.PasteboardType(typeIdentifier)

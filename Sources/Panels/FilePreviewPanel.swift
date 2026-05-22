@@ -425,6 +425,13 @@ private final class FileExternalOpenMenuActionTarget: NSObject {
 struct FilePreviewDragEntry {
     let filePath: String
     let displayTitle: String
+    var displayPath: String? = nil
+    var remoteSource: RemoteFilePreviewSource? = nil
+    var textInsertionPath: String? = nil
+
+    var pathForTextInsertion: String {
+        textInsertionPath ?? remoteSource?.remotePath ?? filePath
+    }
 }
 
 final class FilePreviewDragRegistry {
@@ -518,12 +525,24 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
 
     private let filePath: String
     private let displayTitle: String
+    private let displayPath: String?
+    private let remoteSource: RemoteFilePreviewSource?
+    private let textInsertionPath: String?
     private var transferData: Data?
     private var didMirrorTransferDataToDragPasteboard = false
 
-    init(filePath: String, displayTitle: String) {
+    init(
+        filePath: String,
+        displayTitle: String,
+        displayPath: String? = nil,
+        remoteSource: RemoteFilePreviewSource? = nil,
+        textInsertionPath: String? = nil
+    ) {
         self.filePath = filePath
         self.displayTitle = displayTitle
+        self.displayPath = displayPath
+        self.remoteSource = remoteSource
+        self.textInsertionPath = textInsertionPath
         super.init()
     }
 
@@ -561,7 +580,13 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
         }
 
         let dragId = FilePreviewDragRegistry.shared.register(
-            FilePreviewDragEntry(filePath: filePath, displayTitle: displayTitle)
+            FilePreviewDragEntry(
+                filePath: filePath,
+                displayTitle: displayTitle,
+                displayPath: displayPath,
+                remoteSource: remoteSource,
+                textInsertionPath: textInsertionPath
+            )
         )
         let transfer = MirrorTabTransferData(
             tab: MirrorTabItem(
@@ -587,11 +612,14 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
     func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         let data = transferDataForDrag()
         mirrorTransferDataToDragPasteboard(data)
-        return [
+        var types: [NSPasteboard.PasteboardType] = [
             DragOverlayRoutingPolicy.filePreviewTransferType,
-            Self.bonsplitTransferType,
-            .fileURL
+            Self.bonsplitTransferType
         ]
+        if remoteSource == nil {
+            types.append(.fileURL)
+        }
+        return types
     }
 
     func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
@@ -601,6 +629,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
             return data
         }
         if type == .fileURL {
+            guard remoteSource == nil else { return nil }
             let fileURL = URL(fileURLWithPath: filePath).standardizedFileURL
             return fileURL.absoluteString
         }
@@ -610,13 +639,21 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
     private func mirrorTransferDataToDragPasteboard(_ transferData: Data) {
         guard !didMirrorTransferDataToDragPasteboard else { return }
         didMirrorTransferDataToDragPasteboard = true
-        let fileURLString = URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString
+        let fileURLString = remoteSource == nil
+            ? URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString
+            : nil
         let write = { [transferData, fileURLString] in
             let pasteboard = NSPasteboard(name: .drag)
-            pasteboard.addTypes([DragOverlayRoutingPolicy.filePreviewTransferType, Self.bonsplitTransferType, .fileURL], owner: nil)
+            var types = [DragOverlayRoutingPolicy.filePreviewTransferType, Self.bonsplitTransferType]
+            if fileURLString != nil {
+                types.append(.fileURL)
+            }
+            pasteboard.declareTypes(types, owner: nil)
             pasteboard.setData(transferData, forType: Self.bonsplitTransferType)
             pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
-            pasteboard.setString(fileURLString, forType: .fileURL)
+            if let fileURLString {
+                pasteboard.setString(fileURLString, forType: .fileURL)
+            }
         }
         if Thread.isMainThread {
             write()
@@ -901,10 +938,14 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     let id: UUID
     let panelType: PanelType = .filePreview
     let filePath: String
+    let displayPath: String
+    let remoteSource: RemoteFilePreviewSource?
     private(set) var workspaceId: UUID
     @Published private(set) var displayTitle: String
     @Published private(set) var displayIcon: String?
     @Published private(set) var isFileUnavailable = false
+    @Published private(set) var isLoadingRemoteFile = false
+    @Published private(set) var remoteFileError: String?
     @Published private(set) var textContent = ""
     @Published private(set) var isDirty = false
     @Published private(set) var isSaving = false
@@ -919,18 +960,35 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
+    private var remoteMaterializationTask: Task<Void, Never>?
+    private var remoteMaterializationGeneration = 0
     private weak var textView: NSTextView?
     private let focusCoordinator: FilePreviewFocusCoordinator
+#if DEBUG
+    static var remoteMaterializerForTesting: ((RemoteFilePreviewSource, URL) async throws -> URL)?
+#endif
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
     }
 
-    init(workspaceId: UUID, filePath: String) {
+    var canEditText: Bool {
+        remoteSource == nil
+    }
+
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        displayPath: String? = nil,
+        remoteSource: RemoteFilePreviewSource? = nil
+    ) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
-        self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
+        self.displayPath = displayPath ?? remoteSource?.displayPath ?? filePath
+        self.remoteSource = remoteSource
+        self.displayTitle = remoteSource?.remotePath.split(separator: "/").last.map(String.init)
+            ?? URL(fileURLWithPath: filePath).lastPathComponent
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
@@ -939,8 +997,16 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             preferredIntent: Self.defaultFocusIntent(for: initialPreviewMode)
         )
 
-        prepareContentForPreviewMode()
-        resolvePreviewModeIfNeeded(for: fileURL)
+        if let remoteSource {
+            startRemoteMaterialization(remoteSource)
+        } else {
+            prepareContentForPreviewMode()
+            resolvePreviewModeIfNeeded(for: fileURL)
+        }
+    }
+
+    deinit {
+        remoteMaterializationTask?.cancel()
     }
 
     func focus() {
@@ -952,6 +1018,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func close() {
+        remoteMaterializationTask?.cancel()
+        remoteMaterializationTask = nil
+        remoteMaterializationGeneration += 1
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
@@ -969,13 +1038,31 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
+        handleDroppedPathStringsAsText(urls.map(\.path))
+    }
+
+    func handleDroppedPathStringsAsText(_ paths: [String]) -> Bool {
+        guard canEditText else { return false }
         guard previewMode == .text, let textView else { return false }
-        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+        let text = TerminalImageTransferPlanner.insertedText(forPathStrings: paths)
         guard !text.isEmpty else { return false }
         textView.window?.makeFirstResponder(textView)
         textView.insertText(text, replacementRange: textView.selectedRange())
         updateTextContent(textView.string)
         return true
+    }
+
+    func retryRemoteMaterializationIfNeeded() {
+        guard let remoteSource,
+              !isLoadingRemoteFile else {
+            return
+        }
+        guard isFileUnavailable
+              || remoteFileError != nil
+              || !FileManager.default.fileExists(atPath: filePath) else {
+            return
+        }
+        startRemoteMaterialization(remoteSource)
     }
 
     func retryPendingFocus() {
@@ -1054,12 +1141,15 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func updateTextContent(_ nextContent: String) {
+        guard canEditText else { return }
         guard textContent != nextContent else { return }
         textContent = nextContent
         isDirty = nextContent != originalTextContent
     }
 
     private func prepareContentForPreviewMode() {
+        guard !isLoadingRemoteFile else { return }
+        remoteFileError = nil
         if previewMode == .text {
             loadTextContent(replacingDirtyContent: false)
         } else {
@@ -1137,6 +1227,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
         guard previewMode == .text else { return nil }
+        guard canEditText else { return nil }
         guard !isSaving else { return nil }
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
@@ -1182,6 +1273,59 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         case .quickLook:
             return .quickLook
         }
+    }
+
+    private func startRemoteMaterialization(_ source: RemoteFilePreviewSource) {
+        remoteMaterializationTask?.cancel()
+        remoteMaterializationGeneration += 1
+        let generation = remoteMaterializationGeneration
+        isLoadingRemoteFile = true
+        isFileUnavailable = false
+        remoteFileError = nil
+        nativeViewSessions.closeAll()
+
+        let destinationURL = fileURL
+        remoteMaterializationTask = Task { [weak self, source, destinationURL, generation] in
+            do {
+                _ = try await Self.materializeRemoteFile(source: source, to: destinationURL)
+                guard let self,
+                      self.remoteMaterializationGeneration == generation else { return }
+                self.remoteMaterializationTask = nil
+                self.isLoadingRemoteFile = false
+                self.remoteFileError = nil
+                self.isFileUnavailable = false
+                self.prepareContentForPreviewMode()
+                self.resolvePreviewModeIfNeeded(for: destinationURL)
+            } catch is CancellationError {
+                guard let self,
+                      self.remoteMaterializationGeneration == generation else { return }
+                self.remoteMaterializationTask = nil
+                self.isLoadingRemoteFile = false
+            } catch {
+                guard let self,
+                      self.remoteMaterializationGeneration == generation else { return }
+                self.remoteMaterializationTask = nil
+                self.isLoadingRemoteFile = false
+                self.remoteFileError = Self.remoteMaterializationErrorMessage(error)
+                self.isFileUnavailable = true
+            }
+        }
+    }
+
+    private static func remoteMaterializationErrorMessage(_ error: any Error) -> String {
+        if let materializerError = error as? RemoteFilePreviewMaterializerError {
+            return materializerError.localizedDescription
+        }
+        return String(localized: "filePreview.remote.error.downloadFailed", defaultValue: "Unable to download the remote file.")
+    }
+
+    private static func materializeRemoteFile(source: RemoteFilePreviewSource, to destinationURL: URL) async throws -> URL {
+#if DEBUG
+        if let remoteMaterializerForTesting {
+            return try await remoteMaterializerForTesting(source, destinationURL)
+        }
+#endif
+        return try await RemoteFilePreviewMaterializer.materialize(source: source, to: destinationURL)
     }
 }
 
@@ -1234,10 +1378,10 @@ struct FilePreviewPanelView: View {
     private var header: some View {
         PanelFilePathHeader(
             iconSystemName: panel.displayIcon ?? "doc.viewfinder",
-            filePath: panel.filePath,
+            filePath: panel.displayPath,
             foregroundColor: themeForegroundColor
         ) {
-            if panel.previewMode == .text {
+            if panel.previewMode == .text && panel.canEditText {
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",
                     label: String(localized: "filePreview.revert", defaultValue: "Revert"),
@@ -1253,13 +1397,15 @@ struct FilePreviewPanelView: View {
                 )
             }
 
-            FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
+            FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable || panel.isLoadingRemoteFile)
         }
     }
 
     @ViewBuilder
     private var content: some View {
-        if panel.isFileUnavailable {
+        if panel.isLoadingRemoteFile {
+            remoteLoadingView
+        } else if panel.isFileUnavailable {
             fileUnavailableView
         } else {
             switch panel.previewMode {
@@ -1303,6 +1449,23 @@ struct FilePreviewPanelView: View {
         }
     }
 
+    private var remoteLoadingView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.regular)
+            Text(String(localized: "filePreview.remote.loading.title", defaultValue: "Loading remote file..."))
+                .font(.headline)
+            Text(panel.displayPath)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var fileUnavailableView: some View {
         VStack(spacing: 12) {
             Image(systemName: "doc.questionmark")
@@ -1310,16 +1473,20 @@ struct FilePreviewPanelView: View {
                 .foregroundStyle(.secondary)
             Text(String(localized: "filePreview.fileUnavailable.title", defaultValue: "File unavailable"))
                 .font(.headline)
-            Text(panel.filePath)
+            Text(panel.displayPath)
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
-            Text(String(localized: "filePreview.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
+            Text(panel.remoteFileError ?? String(localized: "filePreview.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

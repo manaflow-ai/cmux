@@ -170,7 +170,7 @@ final class BrowserPaneDropTargetView: NSView {
         if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess {
             if transfer.isFilePreview {
-                guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId),
+                guard let entry = FilePreviewDragRegistry.shared.entry(id: transfer.tabId),
                       let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
 #if DEBUG
                     cmuxDebugLog(
@@ -187,6 +187,9 @@ final class BrowserPaneDropTargetView: NSView {
                         zone: zone
                     )
                 )
+                if handled {
+                    FilePreviewDragRegistry.shared.discard(id: transfer.tabId)
+                }
 #if DEBUG
                 cmuxDebugLog(
                     "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +

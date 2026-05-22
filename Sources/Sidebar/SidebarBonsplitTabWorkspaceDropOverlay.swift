@@ -201,9 +201,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     private func shouldCaptureHitTest() -> Bool {
-        guard BonsplitTabDragPayload.canRouteWorkspaceDrop(
-            pasteboardTypes: NSPasteboard(name: .drag).types
-        ) else { return false }
+        guard BonsplitTabDragPayload.canRouteWorkspaceDrop(pasteboard: NSPasteboard(name: .drag)) else { return false }
         guard let eventType = NSApp.currentEvent?.type else { return true }
         switch eventType {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:

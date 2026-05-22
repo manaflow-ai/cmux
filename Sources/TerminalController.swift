@@ -586,7 +586,7 @@ class TerminalController {
         }
     }
 
-    private static let socketFastPathState = SocketFastPathState()
+    private nonisolated static let socketFastPathState = SocketFastPathState()
     nonisolated static func explicitSocketScope(
         options: [String: String]
     ) -> (workspaceId: UUID, panelId: UUID)? {
@@ -603,7 +603,7 @@ class TerminalController {
 
     nonisolated static func normalizeReportedDirectory(_ directory: String) -> String {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return directory }
+        guard !trimmed.isEmpty else { return "" }
         if trimmed.hasPrefix("file://"), let url = URL(string: trimmed), !url.path.isEmpty {
             return url.path
         }
@@ -1766,6 +1766,7 @@ class TerminalController {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "surface.report_pwd",
         "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
@@ -1855,6 +1856,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "surface.report_pwd":
+            return v2Result(id: request.id, v2SurfaceReportPwd(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.profiles.list":
@@ -2954,6 +2957,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceSendKey(params: params))
         case "surface.report_tty":
             return v2Result(id: id, self.v2SurfaceReportTTY(params: params))
+        case "surface.report_pwd":
+            return v2Result(id: id, self.v2SurfaceReportPwd(params: params))
         case "surface.report_shell_state":
             return v2Result(id: id, self.v2SurfaceReportShellState(params: params))
         case "surface.ports_kick":
@@ -3345,6 +3350,7 @@ class TerminalController {
             "surface.send_text",
             "surface.send_key",
             "surface.report_tty",
+            "surface.report_pwd",
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
@@ -5993,6 +5999,136 @@ class TerminalController {
         }
 
         return result
+    }
+
+    private nonisolated func v2SocketWorkerUUID(_ params: [String: Any], _ key: String) -> UUID? {
+        guard let raw = params[key] as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return UUID(uuidString: trimmed)
+    }
+
+    private nonisolated func v2SocketWorkerHasNonNullParam(_ params: [String: Any], _ key: String) -> Bool {
+        guard let raw = params[key] else { return false }
+        return !(raw is NSNull)
+    }
+
+    private nonisolated func v2SocketWorkerRawString(_ params: [String: Any], _ key: String) -> String? {
+        params[key] as? String
+    }
+
+    private nonisolated func v2SocketWorkerRef(kind _: V2HandleKind, uuid: UUID?) -> Any {
+        guard let uuid else { return NSNull() }
+        return uuid.uuidString
+    }
+
+    private nonisolated func v2SurfaceReportPwd(params: [String: Any]) -> V2CallResult {
+        guard let workspaceId = v2SocketWorkerUUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let requestedSurfaceId = v2SocketWorkerUUID(params, "surface_id")
+        if v2SocketWorkerHasNonNullParam(params, "surface_id"), requestedSurfaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        let directory = [
+            v2SocketWorkerRawString(params, "directory"),
+            v2SocketWorkerRawString(params, "path"),
+            v2SocketWorkerRawString(params, "pwd"),
+        ]
+        .compactMap { $0.map(Self.normalizeReportedDirectory) }
+        .first { !$0.isEmpty }
+        guard let directory else {
+            return .err(code: "invalid_params", message: "Missing directory", data: nil)
+        }
+
+        if let requestedSurfaceId {
+            let shouldPublish = Self.socketFastPathState.shouldPublishDirectory(
+                workspaceId: workspaceId,
+                panelId: requestedSurfaceId,
+                directory: directory
+            )
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let tab = self.tabForSidebarMutation(id: workspaceId) else { return }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                guard validSurfaceIds.contains(requestedSurfaceId) else {
+                    if tab.isRemoteWorkspace {
+                        tab.rememberPendingRemoteSurfaceDirectory(directory, requestedSurfaceId: requestedSurfaceId)
+                    }
+                    return
+                }
+                if shouldPublish {
+                    if tab.isRemoteWorkspace {
+                        tab.updateRemotePanelDirectory(panelId: requestedSurfaceId, directory: directory)
+                    } else if let owner = AppDelegate.shared?.tabManagerFor(tabId: tab.id) {
+                        owner.updateSurfaceDirectory(tabId: tab.id, surfaceId: requestedSurfaceId, directory: directory)
+                    } else {
+                        tab.updatePanelDirectory(panelId: requestedSurfaceId, directory: directory)
+                    }
+                } else if tab.isRemoteWorkspace {
+                    tab.updateRemotePanelDirectory(panelId: requestedSurfaceId, directory: directory)
+                }
+            }
+
+            return .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2SocketWorkerRef(kind: .workspace, uuid: workspaceId),
+                "surface_id": requestedSurfaceId.uuidString,
+                "surface_ref": v2SocketWorkerRef(kind: .surface, uuid: requestedSurfaceId),
+                "directory": directory,
+                "published": shouldPublish,
+                "pending": true,
+            ])
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let surfaceId = self.resolveReportedSurfaceId(
+                in: tab,
+                requestedSurfaceId: requestedSurfaceId,
+                validSurfaceIds: validSurfaceIds
+            )
+            guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
+                if tab.isRemoteWorkspace, validSurfaceIds.isEmpty {
+                    tab.rememberPendingRemoteSurfaceDirectory(directory, requestedSurfaceId: requestedSurfaceId)
+                }
+                return
+            }
+
+            let shouldPublish = Self.socketFastPathState.shouldPublishDirectory(
+                workspaceId: workspaceId,
+                panelId: surfaceId,
+                directory: directory
+            )
+            if shouldPublish {
+                if tab.isRemoteWorkspace {
+                    tab.updateRemotePanelDirectory(panelId: surfaceId, directory: directory)
+                } else if let owner = AppDelegate.shared?.tabManagerFor(tabId: tab.id) {
+                    owner.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
+                } else {
+                    tab.updatePanelDirectory(panelId: surfaceId, directory: directory)
+                }
+            } else if tab.isRemoteWorkspace {
+                tab.updateRemotePanelDirectory(panelId: surfaceId, directory: directory)
+            }
+        }
+
+        return .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2SocketWorkerRef(kind: .workspace, uuid: workspaceId),
+            "surface_id": NSNull(),
+            "surface_ref": NSNull(),
+            "directory": directory,
+            "published": false,
+            "pending": true,
+        ])
     }
 
     private func v2SurfaceReportShellState(params: [String: Any]) -> V2CallResult {
@@ -18469,7 +18605,10 @@ class TerminalController {
             return "ERROR: Missing path — usage: report_pwd <path> [--tab=X] [--panel=Y]"
         }
 
-        let directory = parsed.positional.joined(separator: " ")
+        let directory = Self.normalizeReportedDirectory(parsed.positional.joined(separator: " "))
+        guard !directory.isEmpty else {
+            return "ERROR: Missing path — usage: report_pwd <path> [--tab=X] [--panel=Y]"
+        }
         if let scope = Self.explicitSocketScope(options: parsed.options) {
             TerminalMutationBus.shared.enqueueMainActorMutation {
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),

@@ -66,7 +66,9 @@ final class FileDropOverlayView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes(Array(PasteboardFileURLReader.fileURLPasteboardTypes))
+        registerForDraggedTypes(Array(Set([
+            DragOverlayRoutingPolicy.filePreviewTransferType,
+        ]).union(PasteboardFileURLReader.fileURLPasteboardTypes)))
         addSubview(hintBadgeView)
     }
 

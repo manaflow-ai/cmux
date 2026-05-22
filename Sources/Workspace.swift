@@ -552,10 +552,16 @@ extension Workspace {
             rightSidebarToolSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
+            let remoteSource = filePreviewPanel.remoteSource?.sessionPersistentSource()
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
-            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: remoteSource.map { RemoteFilePreviewMaterializer.cacheURL(for: $0).path }
+                    ?? filePreviewPanel.filePath,
+                displayPath: remoteSource == nil ? nil : filePreviewPanel.displayPath,
+                remoteSource: remoteSource
+            )
             rightSidebarToolSnapshot = nil
         case .rightSidebarTool:
             guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
@@ -1034,10 +1040,14 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
         case .filePreview:
-            guard let filePath = snapshot.filePreview?.filePath,
+            guard let filePreview = snapshot.filePreview,
+                  !filePreview.filePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   let filePreviewPanel = newFilePreviewSurface(
                     inPane: paneId,
-                    filePath: filePath,
+                    filePath: filePreview.remoteSource.map { RemoteFilePreviewMaterializer.cacheURL(for: $0).path }
+                        ?? filePreview.filePath,
+                    displayPath: filePreview.displayPath ?? filePreview.remoteSource?.displayPath,
+                    remoteSource: filePreview.remoteSource,
                     focus: false
                   ) else {
                 return nil
@@ -7518,6 +7528,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
+    @Published private(set) var remoteTerminalDirectoryGeneration: UInt64 = 0
     var surfaceTTYNames: [UUID: String] = [:]
     private var remoteSessionController: WorkspaceRemoteSessionController?
     private var pendingRemoteForegroundAuthToken: String?
@@ -7527,6 +7538,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    private var remoteTerminalDirectorySurfaceIds: Set<UUID> = []
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
     /// Display target of the remote workspace that just disconnected. Set right before
     /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
@@ -8290,6 +8302,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
     private var pendingRemoteSurfaceTTYName: String?
     private var pendingRemoteSurfaceTTYSurfaceId: UUID?
+    private var pendingRemoteSurfaceDirectory: String?
+    private var pendingRemoteSurfaceDirectoriesBySurfaceId: [UUID: String] = [:]
     private var pendingRemoteSurfacePortKickReason: WorkspaceRemoteSessionController.PortScanKickReason?
     private var pendingRemoteSurfacePortKickSurfaceId: UUID?
     // When the last live remote terminal is detached out, the source workspace may be
@@ -8976,21 +8990,32 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
     }
 
+    private func setPanelDirectory(panelId: UUID, directory: String, updateFocusedDirectory: Bool) {
+        let normalized = TerminalController.normalizeReportedDirectory(directory)
+        guard !normalized.isEmpty else { return }
+        if panelDirectories[panelId] != normalized {
+            panelDirectories[panelId] = normalized
+        }
+        if updateFocusedDirectory, panelId == focusedPanelId {
+            if surfaceTabBarDirectory != normalized {
+                surfaceTabBarDirectory = normalized
+            }
+            if currentDirectory != normalized {
+                currentDirectory = normalized
+            }
+        }
+    }
+
     func updatePanelDirectory(panelId: UUID, directory: String) {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        if panelDirectories[panelId] != trimmed {
-            panelDirectories[panelId] = trimmed
-        }
-        // Update current directory if this is the focused panel
-        if panelId == focusedPanelId {
-            if surfaceTabBarDirectory != trimmed {
-                surfaceTabBarDirectory = trimmed
-            }
-            if currentDirectory != trimmed {
-                currentDirectory = trimmed
-            }
-        }
+        setPanelDirectory(panelId: panelId, directory: directory, updateFocusedDirectory: true)
+    }
+
+    func updateRemotePanelDirectory(panelId: UUID, directory: String) {
+        let normalized = TerminalController.normalizeReportedDirectory(directory)
+        guard !normalized.isEmpty else { return }
+        setPanelDirectory(panelId: panelId, directory: normalized, updateFocusedDirectory: false)
+        guard activeRemoteTerminalSurfaceIds.contains(panelId) else { return }
+        markRemoteTerminalDirectorySurface(panelId)
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
@@ -9348,6 +9373,11 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
+        activeRemoteTerminalSurfaceIds = activeRemoteTerminalSurfaceIds.filter { validSurfaceIds.contains($0) }
+        replaceRemoteTerminalDirectorySurfaceIds(remoteTerminalDirectorySurfaceIds.filter {
+            validSurfaceIds.contains($0) && activeRemoteTerminalSurfaceIds.contains($0)
+        })
+        activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         let staleAgentPIDPanelIds = agentPIDKeysByPanelId.keys.filter { !validSurfaceIds.contains($0) }
@@ -9411,8 +9441,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func normalizedSidebarDirectory(_ directory: String?) -> String? {
         guard let directory else { return nil }
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        let normalized = TerminalController.normalizeReportedDirectory(directory)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func sidebarHomeDirectoryForCanonicalization(
@@ -9585,6 +9615,49 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteTerminalSurfaceIds.contains(panelId)
     }
 
+    private func replaceRemoteTerminalDirectorySurfaceIds(_ nextSurfaceIds: Set<UUID>) {
+        guard nextSurfaceIds != remoteTerminalDirectorySurfaceIds else { return }
+        remoteTerminalDirectorySurfaceIds = nextSurfaceIds
+        remoteTerminalDirectoryGeneration &+= 1
+    }
+
+    private func markRemoteTerminalDirectorySurface(_ panelId: UUID) {
+        var nextSurfaceIds = remoteTerminalDirectorySurfaceIds
+        guard nextSurfaceIds.insert(panelId).inserted else { return }
+        replaceRemoteTerminalDirectorySurfaceIds(nextSurfaceIds)
+    }
+
+    private func unmarkRemoteTerminalDirectorySurface(_ panelId: UUID) {
+        var nextSurfaceIds = remoteTerminalDirectorySurfaceIds
+        guard nextSurfaceIds.remove(panelId) != nil else { return }
+        replaceRemoteTerminalDirectorySurfaceIds(nextSurfaceIds)
+    }
+
+    @MainActor
+    func preferredRemoteFileExplorerRootPath() -> String? {
+        guard isRemoteWorkspace else { return nil }
+
+        var candidatePanelIds: [UUID] = []
+        if let focusedPanelId {
+            candidatePanelIds.append(focusedPanelId)
+        }
+        candidatePanelIds.append(
+            contentsOf: activeRemoteTerminalSurfaceIds.sorted { $0.uuidString < $1.uuidString }
+        )
+
+        var seenPanelIds: Set<UUID> = []
+        for panelId in candidatePanelIds where seenPanelIds.insert(panelId).inserted {
+            guard activeRemoteTerminalSurfaceIds.contains(panelId),
+                  remoteTerminalDirectorySurfaceIds.contains(panelId),
+                  let directory = normalizedSidebarDirectory(panelDirectories[panelId]) else {
+                continue
+            }
+            return directory
+        }
+
+        return nil
+    }
+
     @MainActor
     func shouldDemoteWorkspaceAfterChildExit(surfaceId: UUID) -> Bool {
         isRemoteWorkspace || pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
@@ -9710,7 +9783,20 @@ final class Workspace: Identifiable, ObservableObject {
 
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+        let previousFileSystemIdentity = remoteConfiguration?.remoteFileSystemIdentityKey
+        let shouldPreserveRemoteDirectoryMarkers = previousFileSystemIdentity.map {
+            $0 == configuration.remoteFileSystemIdentityKey
+        } ?? false
         remoteConfiguration = configuration
+        if shouldPreserveRemoteDirectoryMarkers {
+            replaceRemoteTerminalDirectorySurfaceIds(remoteTerminalDirectorySurfaceIds.filter {
+                panels[$0] != nil && activeRemoteTerminalSurfaceIds.contains($0)
+            })
+        } else {
+            replaceRemoteTerminalDirectorySurfaceIds([])
+            clearSidebarGitMetadata()
+            owningTabManager?.clearWorkspaceLocalGitTrackingForRemoteConfiguration(workspaceId: id)
+        }
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
@@ -9809,9 +9895,12 @@ final class Workspace: Identifiable, ObservableObject {
         previousController?.stop()
         pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
+        replaceRemoteTerminalDirectorySurfaceIds([])
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
+        pendingRemoteSurfaceDirectory = nil
+        pendingRemoteSurfaceDirectoriesBySurfaceId.removeAll()
         pendingRemoteSurfacePortKickReason = nil
         pendingRemoteSurfacePortKickSurfaceId = nil
         clearRemoteDetectedSurfacePorts()
@@ -9858,18 +9947,23 @@ final class Workspace: Identifiable, ObservableObject {
         trackRemoteTerminalSurface(initialPanelId)
     }
 
-    private func trackRemoteTerminalSurface(_ panelId: UUID) {
+    private func trackRemoteTerminalSurface(_ panelId: UUID, trustExistingDirectory: Bool = false) {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        applyPendingRemoteSurfaceDirectoryIfNeeded(to: panelId)
+        if trustExistingDirectory, normalizedSidebarDirectory(panelDirectories[panelId]) != nil {
+            markRemoteTerminalDirectorySurface(panelId)
+        }
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
         _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
     }
 
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
         guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
+        unmarkRemoteTerminalDirectorySurface(panelId)
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
@@ -9898,6 +9992,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func rememberPendingRemoteSurfaceDirectory(_ directory: String, requestedSurfaceId: UUID?) {
+        let normalizedDirectory = TerminalController.normalizeReportedDirectory(directory)
+        guard !normalizedDirectory.isEmpty else { return }
+        if let requestedSurfaceId {
+            pendingRemoteSurfaceDirectoriesBySurfaceId[requestedSurfaceId] = normalizedDirectory
+        } else {
+            pendingRemoteSurfaceDirectory = normalizedDirectory
+        }
+    }
+
+    @MainActor
     func rememberPendingRemoteSurfacePortKick(
         reason: WorkspaceRemoteSessionController.PortScanKickReason,
         requestedSurfaceId: UUID?
@@ -9922,6 +10027,21 @@ final class Workspace: Identifiable, ObservableObject {
         if !applyPendingRemoteSurfacePortKickIfNeeded(to: panelId) {
             kickRemotePortScan(panelId: panelId, reason: .command)
         }
+    }
+
+    @MainActor
+    private func applyPendingRemoteSurfaceDirectoryIfNeeded(to panelId: UUID) {
+        if let directory = pendingRemoteSurfaceDirectoriesBySurfaceId.removeValue(forKey: panelId) {
+            updateRemotePanelDirectory(panelId: panelId, directory: directory)
+            return
+        }
+
+        guard let directory = pendingRemoteSurfaceDirectory.map({ TerminalController.normalizeReportedDirectory($0) }),
+              !directory.isEmpty else {
+            return
+        }
+        pendingRemoteSurfaceDirectory = nil
+        updateRemotePanelDirectory(panelId: panelId, directory: directory)
     }
 
     @MainActor
@@ -10457,6 +10577,7 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let usesRemoteStartupCommand = explicitInitialCommand == nil && remoteTerminalStartupCommand != nil
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         // Hold the pane open after the remote session ends so the user can read the
         // "ssh exited …" message the startup script prints. Otherwise Ghostty silently
@@ -10480,6 +10601,7 @@ final class Workspace: Identifiable, ObservableObject {
         // then its requested startup cwd if shell integration has not reported
         // back yet, and finally fall back to the workspace's current directory.
         let splitWorkingDirectory: String? = {
+            guard !usesRemoteStartupCommand else { return nil }
             if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !workingDirectory.isEmpty {
                 return workingDirectory
@@ -10625,6 +10747,7 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let usesRemoteStartupCommand = explicitInitialCommand == nil && remoteTerminalStartupCommand != nil
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         // See the comment at the other call site: hold the PTY open after the remote
         // command exits so the user sees the error rather than a silently-respawned
@@ -10636,11 +10759,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         // Create new terminal panel
+        let localWorkingDirectory = usesRemoteStartupCommand ? nil : workingDirectory
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: localWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -11110,6 +11234,8 @@ final class Workspace: Identifiable, ObservableObject {
     func openOrFocusFilePreviewSurface(
         inPane paneId: PaneID,
         filePath: String,
+        displayPath: String? = nil,
+        remoteSource: RemoteFilePreviewSource? = nil,
         focus: Bool = true
     ) -> FilePreviewPanel? {
         let canonical = (filePath as NSString).resolvingSymlinksInPath
@@ -11119,11 +11245,20 @@ final class Workspace: Identifiable, ObservableObject {
                 if focus {
                     focusPanel(existingId)
                 }
+                if remoteSource != nil {
+                    preview.retryRemoteMaterializationIfNeeded()
+                }
                 return preview
             }
         }
 
-        return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return newFilePreviewSurface(
+            inPane: paneId,
+            filePath: filePath,
+            displayPath: displayPath,
+            remoteSource: remoteSource,
+            focus: focus
+        )
     }
 
     @discardableResult
@@ -11157,6 +11292,8 @@ final class Workspace: Identifiable, ObservableObject {
     func newFilePreviewSurface(
         inPane paneId: PaneID,
         filePath: String,
+        displayPath: String? = nil,
+        remoteSource: RemoteFilePreviewSource? = nil,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> FilePreviewPanel? {
@@ -11164,7 +11301,12 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = FilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            displayPath: displayPath,
+            remoteSource: remoteSource
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 
@@ -11177,6 +11319,7 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false,
             inPane: paneId
         ) else {
+            filePreviewPanel.close()
             panels.removeValue(forKey: filePreviewPanel.id)
             panelTitles.removeValue(forKey: filePreviewPanel.id)
             return nil
@@ -11278,9 +11421,16 @@ final class Workspace: Identifiable, ObservableObject {
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
-        filePath: String
+        filePath: String,
+        displayPath: String? = nil,
+        remoteSource: RemoteFilePreviewSource? = nil
     ) -> FilePreviewPanel? {
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = FilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            displayPath: displayPath,
+            remoteSource: remoteSource
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 
@@ -11297,6 +11447,7 @@ final class Workspace: Identifiable, ObservableObject {
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+            filePreviewPanel.close()
             panels.removeValue(forKey: filePreviewPanel.id)
             panelTitles.removeValue(forKey: filePreviewPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
@@ -11970,7 +12121,10 @@ final class Workspace: Identifiable, ObservableObject {
             detached.isRemoteTerminal
             && detached.remoteRelayPort == remoteConfiguration?.relayPort
         if didAdoptWorkspaceRemoteTracking {
-            trackRemoteTerminalSurface(detached.panelId)
+            trackRemoteTerminalSurface(
+                detached.panelId,
+                trustExistingDirectory: detached.hasRemoteDirectory
+            )
         }
         if let cleanupConfiguration = detached.remoteCleanupConfiguration {
             if didAdoptWorkspaceRemoteTracking {
@@ -12623,7 +12777,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = targetPanel as? TerminalPanel {
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
         }
-        if let dir = panelDirectories[targetPanelId] {
+        if !isRemoteWorkspace, let dir = panelDirectories[targetPanelId] {
             currentDirectory = dir
         }
         gitBranch = panelGitBranches[targetPanelId]
@@ -13479,7 +13633,7 @@ final class Workspace: Identifiable, ObservableObject {
         case .insert(let paneId, let index):
             return !openFileSurfaces(
                 inPane: paneId,
-                filePaths: [entry.filePath],
+                entries: [entry],
                 focus: true,
                 targetIndex: index
             ).isEmpty
@@ -13488,9 +13642,21 @@ final class Workspace: Identifiable, ObservableObject {
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
-                filePath: entry.filePath
+                entry: entry
             ) != nil
         }
+    }
+
+    func handleRegisteredFilePreviewDrop(
+        id: UUID,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        guard let entry = FilePreviewDragRegistry.shared.entry(id: id) else { return false }
+        let handled = handleFilePreviewDrop(entry: entry, destination: destination)
+        if handled {
+            FilePreviewDragRegistry.shared.discard(id: id)
+        }
+        return handled
     }
 
     func handleExternalFileDrop(_ request: BonsplitController.ExternalFileDropRequest) -> Bool {
@@ -13557,6 +13723,31 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    @discardableResult
+    private func splitPaneWithFileSurface(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        entry: FilePreviewDragEntry
+    ) -> (any Panel)? {
+        if entry.remoteSource == nil, MarkdownPanelFileLinkResolver.isMarkdownPathLike(entry.filePath) {
+            return splitPaneWithMarkdown(
+                targetPane: paneId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                filePath: entry.filePath
+            )
+        }
+        return splitPaneWithFilePreview(
+            targetPane: paneId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            filePath: entry.filePath,
+            displayPath: entry.displayPath,
+            remoteSource: entry.remoteSource
+        )
+    }
+
     /// Split `paneId` and place a brand-new terminal in the resulting pane.
     /// Used by the session-index drop path; mirrors `newTerminalSplit(from:...)` but
     /// targets a destination pane directly rather than inheriting from a source panel.
@@ -13578,11 +13769,12 @@ final class Workspace: Identifiable, ObservableObject {
             inheritedConfig = template
         }
 
+        let localWorkingDirectory = startupCommand == nil ? workingDirectory : nil
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: localWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             initialInput: initialInput
@@ -13746,8 +13938,8 @@ final class Workspace: Identifiable, ObservableObject {
         if let entry = SessionDragRegistry.shared.consume(id: request.tabId.uuid) {
             return handleSessionDrop(entry: entry, destination: request.destination)
         }
-        if let entry = FilePreviewDragRegistry.shared.consume(id: request.tabId.uuid) {
-            return handleFilePreviewDrop(entry: entry, destination: request.destination)
+        if FilePreviewDragRegistry.shared.contains(id: request.tabId.uuid) {
+            return handleRegisteredFilePreviewDrop(id: request.tabId.uuid, destination: request.destination)
         }
 
         guard let app = AppDelegate.shared else { return false }
@@ -14077,7 +14269,7 @@ extension Workspace: BonsplitDelegate {
         surfaceTabBarDirectory = configTrackingDirectory(for: panelId)
 
         // Update current directory if this is a terminal
-        if let dir = panelDirectories[panelId] {
+        if !isRemoteWorkspace, let dir = panelDirectories[panelId] {
             currentDirectory = dir
         }
         gitBranch = panelGitBranches[panelId]
@@ -14407,6 +14599,7 @@ extension Workspace: BonsplitDelegate {
                 restorableAgentResumeState: restorableAgentResumeState,
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
+                hasRemoteDirectory: remoteTerminalDirectorySurfaceIds.contains(panelId),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
                     ? remoteConfiguration?.relayPort

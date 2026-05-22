@@ -14,12 +14,17 @@ struct PaneDragTransfer: Equatable {
     let tabId: UUID
     let sourcePaneId: UUID
     let sourceProcessId: Int32
+    let kind: String?
+    let isFilePreviewTransfer: Bool
 
     var isFromCurrentProcess: Bool {
         sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
     }
 
     static func decode(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
+        if let transfer = decodeLiveFilePreviewTransfer(from: pasteboard) {
+            return transfer
+        }
         if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
             return decode(from: data)
         }
@@ -29,7 +34,23 @@ struct PaneDragTransfer: Equatable {
         return nil
     }
 
-    static func decode(from data: Data) -> PaneDragTransfer? {
+    private static func decodeLiveFilePreviewTransfer(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
+        let transfer: PaneDragTransfer?
+        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
+            transfer = decode(from: data, isFilePreviewTransfer: true)
+        } else if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
+            transfer = decode(from: Data(raw.utf8), isFilePreviewTransfer: true)
+        } else {
+            transfer = nil
+        }
+        guard let transfer,
+              FilePreviewDragRegistry.shared.contains(id: transfer.tabId) else {
+            return nil
+        }
+        return transfer
+    }
+
+    static func decode(from data: Data, isFilePreviewTransfer: Bool = false) -> PaneDragTransfer? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tab = json["tab"] as? [String: Any],
               let tabIdRaw = tab["id"] as? String,
@@ -40,10 +61,13 @@ struct PaneDragTransfer: Equatable {
         }
 
         let sourceProcessId = (json["sourceProcessId"] as? NSNumber)?.int32Value ?? -1
+        let kind = tab["kind"] as? String
         return PaneDragTransfer(
             tabId: tabId,
             sourcePaneId: sourcePaneId,
-            sourceProcessId: sourceProcessId
+            sourceProcessId: sourceProcessId,
+            kind: kind,
+            isFilePreviewTransfer: isFilePreviewTransfer
         )
     }
 }

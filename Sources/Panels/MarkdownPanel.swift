@@ -43,6 +43,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// SF Symbol icon for the tab bar.
     var displayIcon: String? { "doc.richtext" }
 
+    var canEditText: Bool { true }
+
     /// Whether the file has been deleted or is unreadable.
     @Published private(set) var isFileUnavailable: Bool = false
 

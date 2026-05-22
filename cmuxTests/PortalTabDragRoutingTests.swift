@@ -377,6 +377,22 @@ final class PortalTabDragRoutingTests: XCTestCase {
                 eventType: .leftMouseUp
             )
         )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType, DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .leftMouseUp
+            )
+        )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView(frame: .zero).registeredDraggedTypes.contains(
+                DragOverlayRoutingPolicy.filePreviewTransferType
+            )
+        )
+        XCTAssertTrue(
+            FileDropOverlayView(frame: .zero).registeredDraggedTypes.contains(
+                DragOverlayRoutingPolicy.filePreviewTransferType
+            )
+        )
 
         let externalPayloads: [[NSPasteboard.PasteboardType]] = [
             [.URL],
@@ -395,6 +411,52 @@ final class PortalTabDragRoutingTests: XCTestCase {
                 "Terminal pane drop target should not capture external drag payload: \(pasteboardTypes)"
             )
         }
+    }
+
+    func testTerminalPaneDragTransferUsesDedicatedFilePreviewTransferType() throws {
+        let realTabPasteboard = try makeBonsplitPanePayloadPasteboard(
+            kind: "filePreview",
+            includesFilePreviewTransferType: false
+        )
+        let realTabTransfer = try XCTUnwrap(PaneDragTransfer.decode(from: realTabPasteboard))
+
+        XCTAssertFalse(realTabTransfer.isFilePreviewTransfer)
+        XCTAssertEqual(realTabTransfer.kind, "filePreview")
+
+        let syntheticTabId = UUID()
+        _ = FilePreviewDragRegistry.shared.register(
+            FilePreviewDragEntry(filePath: "/tmp/preview.txt", displayTitle: "preview.txt"),
+            id: syntheticTabId
+        )
+        defer { FilePreviewDragRegistry.shared.discard(id: syntheticTabId) }
+
+        let syntheticPasteboard = try makeBonsplitPanePayloadPasteboard(
+            kind: "filePreview",
+            includesFilePreviewTransferType: true,
+            tabId: syntheticTabId
+        )
+        let syntheticTransfer = try XCTUnwrap(PaneDragTransfer.decode(from: syntheticPasteboard))
+
+        XCTAssertTrue(syntheticTransfer.isFilePreviewTransfer)
+    }
+
+    func testTerminalPaneDragTransferIgnoresStaleFilePreviewTransferWhenFreshBonsplitTransferExists() throws {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.terminal-pane.stale.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let staleFilePreviewId = UUID()
+        let freshTabId = UUID()
+        let staleData = try makeBonsplitPanePayloadData(tabId: staleFilePreviewId, kind: "filePreview")
+        let freshData = try makeBonsplitPanePayloadData(tabId: freshTabId, kind: "terminal")
+        pasteboard.setData(staleData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        pasteboard.setData(freshData, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        FilePreviewDragRegistry.shared.discard(id: staleFilePreviewId)
+
+        let transfer = try XCTUnwrap(PaneDragTransfer.decode(from: pasteboard))
+
+        XCTAssertEqual(transfer.tabId, freshTabId)
+        XCTAssertFalse(transfer.isFilePreviewTransfer)
+        XCTAssertEqual(transfer.kind, "terminal")
     }
 
     func testPaneDropRoutingMapsFileDropsToSharedBonsplitDestinations() {
@@ -481,5 +543,34 @@ final class PortalTabDragRoutingTests: XCTestCase {
             PaneDropRouting.compactOverlayFrame(for: .bottom, in: bounds),
             CGRect(x: 4, y: 4, width: 192, height: 46)
         )
+    }
+
+    private func makeBonsplitPanePayloadPasteboard(
+        kind: String?,
+        includesFilePreviewTransferType: Bool,
+        tabId: UUID = UUID()
+    ) throws -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.terminal-pane.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let data = try makeBonsplitPanePayloadData(tabId: tabId, kind: kind)
+        pasteboard.setData(data, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        if includesFilePreviewTransferType {
+            pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        }
+        return pasteboard
+    }
+
+    private func makeBonsplitPanePayloadData(tabId: UUID, kind: String?) throws -> Data {
+        var tab: [String: Any] = ["id": tabId.uuidString]
+        if let kind {
+            tab["kind"] = kind
+        }
+        let payload: [String: Any] = [
+            "tab": tab,
+            "sourcePaneId": UUID().uuidString,
+            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier)
+        ]
+        return try JSONSerialization.data(withJSONObject: payload)
     }
 }

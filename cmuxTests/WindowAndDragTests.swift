@@ -2517,6 +2517,118 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         XCTAssertFalse(FilePreviewDragRegistry.shared.contains(id: dragID))
     }
 
+    func testRemoteRegistrationOmitsLocalFileURLAndPreservesRemoteTextPath() throws {
+        let source = RemoteFilePreviewSource(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@ubuntu-host",
+                port: 2222,
+                identityFile: "/Users/alice/.ssh/id_ed25519",
+                sshOptions: ["ControlPath /tmp/cmux-ssh-%C"]
+            ),
+            displayTarget: "dev@ubuntu-host:2222",
+            remotePath: "/home/dev/movie clip.mp4"
+        )
+        let localPreviewURL = RemoteFilePreviewMaterializer.cacheURL(for: source)
+        let writer = FilePreviewDragPasteboardWriter(
+            filePath: localPreviewURL.path,
+            displayTitle: "movie clip.mp4",
+            displayPath: source.displayPath,
+            remoteSource: source,
+            textInsertionPath: source.remotePath
+        )
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.declareTypes([.fileURL], owner: nil)
+        dragPasteboard.setString("file:///tmp/stale-local-file.txt", forType: .fileURL)
+
+        let writableTypes = writer.writableTypes(for: dragPasteboard)
+        XCTAssertTrue(writableTypes.contains(DragOverlayRoutingPolicy.filePreviewTransferType))
+        XCTAssertTrue(writableTypes.contains(FilePreviewDragPasteboardWriter.bonsplitTransferType))
+        XCTAssertFalse(writableTypes.contains(.fileURL))
+        XCTAssertFalse(dragPasteboard.types?.contains(.fileURL) ?? false)
+        XCTAssertNil(writer.pasteboardPropertyList(forType: .fileURL))
+
+        let dragID = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
+        let entry = try XCTUnwrap(FilePreviewDragRegistry.shared.entry(id: dragID))
+        XCTAssertEqual(entry.filePath, localPreviewURL.path)
+        XCTAssertEqual(entry.displayPath, source.displayPath)
+        XCTAssertEqual(entry.remoteSource, source)
+        XCTAssertEqual(entry.textInsertionPath, source.remotePath)
+        XCTAssertEqual(DragOverlayRoutingPolicy.fileURLs(from: dragPasteboard), [])
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.textInsertionPayload(from: dragPasteboard),
+            .pathStrings([source.remotePath])
+        )
+    }
+
+    func testRemoteRegistrationTextPayloadDoesNotExposeCollidingLocalFileURL() throws {
+        let localCollisionURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-remote-preview-collision-\(UUID().uuidString).txt")
+        try "local".write(to: localCollisionURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: localCollisionURL) }
+
+        let source = RemoteFilePreviewSource(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@ubuntu-host",
+                port: nil,
+                identityFile: nil,
+                sshOptions: []
+            ),
+            displayTarget: "dev@ubuntu-host",
+            remotePath: localCollisionURL.path
+        )
+        let writer = FilePreviewDragPasteboardWriter(
+            filePath: RemoteFilePreviewMaterializer.cacheURL(for: source).path,
+            displayTitle: localCollisionURL.lastPathComponent,
+            displayPath: source.displayPath,
+            remoteSource: source,
+            textInsertionPath: source.remotePath
+        )
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.clearContents()
+
+        _ = writer.writableTypes(for: dragPasteboard)
+
+        XCTAssertEqual(DragOverlayRoutingPolicy.fileURLs(from: dragPasteboard), [])
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.textInsertionPayload(from: dragPasteboard),
+            .pathStrings([source.remotePath])
+        )
+    }
+
+    func testRemotePreviewTemporaryDownloadURLStaysBoundedForLongBasename() throws {
+        let longName = String(repeating: "a", count: 255)
+        let destinationURL = URL(fileURLWithPath: "/tmp/cmux-remote-file-previews/hash/\(longName)")
+        let uuid = try XCTUnwrap(UUID(uuidString: "12345678-1234-1234-1234-1234567890AB"))
+
+        let temporaryURL = RemoteFilePreviewMaterializer.temporaryDownloadURL(
+            for: destinationURL,
+            uuid: uuid
+        )
+
+        XCTAssertEqual(temporaryURL.deletingLastPathComponent(), destinationURL.deletingLastPathComponent())
+        XCTAssertEqual(temporaryURL.lastPathComponent, ".download-12345678-1234-1234-1234-1234567890AB")
+        XCTAssertLessThanOrEqual(temporaryURL.lastPathComponent.utf8.count, 255)
+        XCTAssertFalse(temporaryURL.lastPathComponent.contains(longName))
+    }
+
+    func testRemotePreviewCacheURLRejectsDotBasenames() {
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@ubuntu-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: []
+        )
+        for remotePath in ["/home/dev/.", "/home/dev/.."] {
+            let source = RemoteFilePreviewSource(
+                connection: connection,
+                displayTarget: "dev@ubuntu-host",
+                remotePath: remotePath
+            )
+
+            XCTAssertEqual(RemoteFilePreviewMaterializer.cacheURL(for: source).lastPathComponent, "remote-file")
+        }
+    }
+
     func testRegistrySweepsExpiredDragEntries() {
         let start = Date(timeIntervalSince1970: 1_000)
         let oldID = FilePreviewDragRegistry.shared.register(
@@ -2609,6 +2721,63 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         ))
         XCTAssertNil(quickLookView.superview)
     }
+
+#if DEBUG
+    func testRemoteTextFilePreviewIsNotAnEditableFileDropDestination() throws {
+        let localURL = try temporaryTextFile(contents: "local", encoding: .utf8)
+        let remoteURL = try temporaryTextFile(contents: "remote cache", encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: localURL)
+            try? FileManager.default.removeItem(at: remoteURL)
+        }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let dropTarget = TerminalPaneDropTargetView(frame: .zero)
+        let localPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: localURL.path,
+            focus: true
+        ))
+        let localContext = PaneDropContext(
+            workspaceId: workspace.id,
+            panelId: localPanel.id,
+            paneId: paneId
+        )
+        XCTAssertEqual(
+            dropTarget.debugFileDropTextDestinationKind(context: localContext, workspace: workspace),
+            .editor
+        )
+
+        let remoteSource = RemoteFilePreviewSource(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@example.com",
+                port: 2222,
+                identityFile: nil,
+                sshOptions: []
+            ),
+            displayTarget: "dev@example.com:2222",
+            remotePath: "/home/dev/remote.txt"
+        )
+        let remotePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: remoteURL.path,
+            displayPath: remoteSource.displayPath,
+            remoteSource: remoteSource,
+            focus: true
+        ))
+        let remoteContext = PaneDropContext(
+            workspaceId: workspace.id,
+            panelId: remotePanel.id,
+            paneId: paneId
+        )
+
+        XCTAssertNil(dropTarget.debugFileDropTextDestinationKind(context: remoteContext, workspace: workspace))
+        XCTAssertFalse(remotePanel.handleDroppedFileURLsAsText([localURL]))
+    }
+#endif
 
     func testSaveTextContentWritesLiveTextViewContent() async throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
@@ -3211,33 +3380,39 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
         XCTAssertNotNil(BonsplitTabDragPayload.transfer(from: pasteboard))
     }
 
-    func testWorkspaceDropRoutingAcceptsTabTransferTypeOnly() {
+    func testWorkspaceDropRoutingAcceptsTabTransferTypeOnly() throws {
+        let pasteboard = try makeBonsplitPayloadPasteboard(kind: nil)
+
         XCTAssertTrue(
-            BonsplitTabDragPayload.canRouteWorkspaceDrop(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType]
-            )
+            BonsplitTabDragPayload.canRouteWorkspaceDrop(pasteboard: pasteboard)
         )
     }
 
-    func testWorkspaceDropRoutingRejectsFilePreviewCompatibilityTransfer() {
+    func testWorkspaceDropRoutingRejectsLiveFilePreviewCompatibilityTransfer() throws {
+        let dragID = FilePreviewDragRegistry.shared.register(
+            FilePreviewDragEntry(filePath: "/tmp/preview.txt", displayTitle: "preview.txt")
+        )
+        defer { FilePreviewDragRegistry.shared.discard(id: dragID) }
+        let pasteboard = try makeBonsplitPayloadPasteboard(
+            kind: "filePreview",
+            includesFilePreviewTransferType: true,
+            tabID: dragID
+        )
+
         XCTAssertFalse(
-            BonsplitTabDragPayload.canRouteWorkspaceDrop(
-                pasteboardTypes: [
-                    DragOverlayRoutingPolicy.filePreviewTransferType,
-                    DragOverlayRoutingPolicy.bonsplitTabTransferType,
-                ]
-            )
+            BonsplitTabDragPayload.canRouteWorkspaceDrop(pasteboard: pasteboard)
         )
     }
 
     private func makeBonsplitPayloadPasteboard(
         kind: String?,
-        includesFilePreviewTransferType: Bool = false
+        includesFilePreviewTransferType: Bool = false,
+        tabID: UUID = UUID()
     ) throws -> NSPasteboard {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.\(UUID().uuidString)"))
         pasteboard.clearContents()
 
-        var tab: [String: Any] = ["id": UUID().uuidString]
+        var tab: [String: Any] = ["id": tabID.uuidString]
         if let kind {
             tab["kind"] = kind
         }
