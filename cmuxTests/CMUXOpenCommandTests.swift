@@ -521,6 +521,41 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(gitLog.contains(plainSiblingURL.path), gitLog)
     }
 
+    func testDiffCommandDoesNotFallbackFromLastTurnBaselineError() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let fileURL = repoURL.appendingPathComponent("story.txt")
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["checkout", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+        try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+
+        let result = runDiffCLIExpectingNoOpen(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn"],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": rootURL.appendingPathComponent("hook-state", isDirectory: true).path,
+                "CMUX_WORKSPACE_ID": UUID().uuidString.lowercased(),
+                "CMUX_SURFACE_ID": UUID().uuidString.lowercased()
+            ],
+            currentDirectoryURL: repoURL
+        )
+
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("No last-turn diff baseline recorded for this workspace and surface yet"), result.stderr)
+        XCTAssertFalse(result.stdout.contains("surface="), result.stdout)
+    }
+
     func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory

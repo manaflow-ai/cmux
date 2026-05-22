@@ -161,6 +161,10 @@ extension CMUXCLI {
         var externalURL: String?
     }
 
+    private struct EmptyDiffSourceError: Error {
+        var message: String
+    }
+
     private struct DiffSourceContext {
         var workspaceId: String?
         var surfaceId: String?
@@ -2306,7 +2310,7 @@ extension CMUXCLI {
         let selectedInput: DiffInput
         do {
             selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: selectedContext)
-        } catch {
+        } catch let error as EmptyDiffSourceError {
             var fallback: (source: DiffSource, context: DiffSourceContext, input: DiffInput)?
             for candidate in DiffSource.allCases where candidate != selectedSource {
                 guard let candidateContext = try? sourceContext(for: candidate, repoRoot: repoRoot),
@@ -2316,7 +2320,7 @@ extension CMUXCLI {
                 fallback = (candidate, candidateContext, candidateInput)
                 break
             }
-            guard let fallback else { throw error }
+            guard let fallback else { throw CLIError(message: error.message) }
             selectedSource = fallback.source
             selectedContext = fallback.context
             selectedInput = fallback.input
@@ -2556,7 +2560,7 @@ extension CMUXCLI {
                     branchBaseRef: page.source == .branch ? pageContext.branchBaseRef : nil
                 )
             } catch {
-                let message = (error as? CLIError)?.message ?? error.localizedDescription
+                let message = diffViewerErrorMessage(error)
                 try? writePendingDiffViewerHTML(to: page.url, title: page.source.title, message: message, pollForReplacement: false)
             }
         }
@@ -2565,9 +2569,19 @@ extension CMUXCLI {
     private func nonEmptyGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
         let input = try readGitDiffInput(source: source, context: context)
         guard !input.patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw CLIError(message: input.emptyMessage ?? "No changes to diff.")
+            throw EmptyDiffSourceError(message: input.emptyMessage ?? "No changes to diff.")
         }
         return input
+    }
+
+    private func diffViewerErrorMessage(_ error: Error) -> String {
+        if let error = error as? CLIError {
+            return error.message
+        }
+        if let error = error as? EmptyDiffSourceError {
+            return error.message
+        }
+        return error.localizedDescription
     }
 
     private func diffViewerSourceOptions(

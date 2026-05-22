@@ -7933,6 +7933,30 @@ struct ContentView: View {
         }
         environment.removeValue(forKey: "CMUX_SOCKET")
         process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        process.terminationHandler = { terminatedProcess in
+            guard terminatedProcess.terminationStatus != 0 else { return }
+            let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = [stderr, stdout]
+                .compactMap { value -> String? in
+                    guard let value, !value.isEmpty else { return nil }
+                    return String(value.prefix(240))
+                }
+                .first ?? "status=\(terminatedProcess.terminationStatus)"
+            DispatchQueue.main.async {
+#if DEBUG
+                cmuxDebugLog("commandPalette.openDiffViewer exited status=\(terminatedProcess.terminationStatus) detail=\(detail)")
+#endif
+                NSSound.beep()
+            }
+        }
 
         do {
             try process.run()

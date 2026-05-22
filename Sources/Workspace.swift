@@ -166,7 +166,7 @@ extension Workspace {
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
-        let layout = sessionLayoutSnapshot(from: tree)
+        let rawLayout = sessionLayoutSnapshot(from: tree)
         if let surfaceResumeBindingIndex {
             reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
         }
@@ -194,6 +194,10 @@ extension Workspace {
                     )
                 )
             }
+        let persistedPanelIds = Set(panelSnapshots.map(\.id))
+        let layout = prunedSessionLayoutSnapshot(rawLayout, keeping: persistedPanelIds) ?? .pane(
+            SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
+        )
 
         let statusSnapshots = statusEntries.values
             .sorted { lhs, rhs in lhs.key < rhs.key }
@@ -365,6 +369,41 @@ extension Workspace {
                     second: sessionLayoutSnapshot(from: split.second)
                 )
             )
+        }
+    }
+
+    private func prunedSessionLayoutSnapshot(
+        _ node: SessionWorkspaceLayoutSnapshot,
+        keeping panelIdsToKeep: Set<UUID>
+    ) -> SessionWorkspaceLayoutSnapshot? {
+        switch node {
+        case .pane(let pane):
+            let panelIds = pane.panelIds.filter { panelIdsToKeep.contains($0) }
+            guard !panelIds.isEmpty else { return nil }
+            let selectedPanelId = pane.selectedPanelId.flatMap {
+                panelIdsToKeep.contains($0) ? $0 : nil
+            } ?? panelIds.first
+            return .pane(SessionPaneLayoutSnapshot(panelIds: panelIds, selectedPanelId: selectedPanelId))
+        case .split(let split):
+            let first = prunedSessionLayoutSnapshot(split.first, keeping: panelIdsToKeep)
+            let second = prunedSessionLayoutSnapshot(split.second, keeping: panelIdsToKeep)
+            switch (first, second) {
+            case (.some(let first), .some(let second)):
+                return .split(
+                    SessionSplitLayoutSnapshot(
+                        orientation: split.orientation,
+                        dividerPosition: split.dividerPosition,
+                        first: first,
+                        second: second
+                    )
+                )
+            case (.some(let first), .none):
+                return first
+            case (.none, .some(let second)):
+                return second
+            case (.none, .none):
+                return nil
+            }
         }
     }
 
