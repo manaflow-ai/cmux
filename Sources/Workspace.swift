@@ -10470,13 +10470,24 @@ final class Workspace: Identifiable, ObservableObject {
 
     private static func warmTerminalActivationInput(
         workspaceId: UUID,
+        portOrdinal: Int,
         workingDirectory: String?,
         shouldRefreshWorkspaceEnvironment: Bool
     ) -> String? {
         var commands: [String] = []
         if shouldRefreshWorkspaceEnvironment {
             let quotedWorkspaceId = shellSingleQuoted(workspaceId.uuidString)
-            commands.append("export CMUX_WORKSPACE_ID=\(quotedWorkspaceId) CMUX_TAB_ID=\(quotedWorkspaceId)")
+            let portValues = TerminalSurface.cmuxPortEnvironmentValues(portOrdinal: portOrdinal)
+            commands.append(
+                [
+                    "export",
+                    "CMUX_WORKSPACE_ID=\(quotedWorkspaceId)",
+                    "CMUX_TAB_ID=\(quotedWorkspaceId)",
+                    "CMUX_PORT=\(shellSingleQuoted(portValues.port))",
+                    "CMUX_PORT_END=\(shellSingleQuoted(portValues.portEnd))",
+                    "CMUX_PORT_RANGE=\(shellSingleQuoted(portValues.portRange))"
+                ].joined(separator: " ")
+            )
         }
         if let directory = normalizedWarmTerminalDirectory(workingDirectory) {
             commands.append("cd -- \(shellSingleQuoted(directory))")
@@ -10484,6 +10495,22 @@ final class Workspace: Identifiable, ObservableObject {
         guard !commands.isEmpty else { return nil }
         return commands.joined(separator: " && ") + " && /usr/bin/clear\n"
     }
+
+#if DEBUG
+    static func debugWarmTerminalActivationInputForTesting(
+        workspaceId: UUID,
+        portOrdinal: Int,
+        workingDirectory: String?,
+        shouldRefreshWorkspaceEnvironment: Bool
+    ) -> String? {
+        warmTerminalActivationInput(
+            workspaceId: workspaceId,
+            portOrdinal: portOrdinal,
+            workingDirectory: workingDirectory,
+            shouldRefreshWorkspaceEnvironment: shouldRefreshWorkspaceEnvironment
+        )
+    }
+#endif
 
     private static func warmTerminalConfigTemplate(from configTemplate: CmuxSurfaceConfigTemplate?) -> CmuxSurfaceConfigTemplate? {
         guard let configTemplate else { return nil }
@@ -10610,6 +10637,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard shouldChangeDirectory || shouldRefreshWorkspaceEnvironment else { return }
         guard let input = Self.warmTerminalActivationInput(
             workspaceId: id,
+            portOrdinal: portOrdinal,
             workingDirectory: shouldChangeDirectory ? targetDirectory : nil,
             shouldRefreshWorkspaceEnvironment: shouldRefreshWorkspaceEnvironment
         ) else { return }

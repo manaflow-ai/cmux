@@ -4716,6 +4716,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    struct CmuxPortEnvironmentValues: Equatable {
+        let port: String
+        let portEnd: String
+        let portRange: String
+    }
+
     private struct PendingKeyEvent {
         let keycode: UInt32
         let mods: ghostty_input_mods_e
@@ -4819,6 +4825,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let val = UserDefaults.standard.integer(forKey: AutomationSettings.portRangeKey)
         return val > 0 ? val : AutomationSettings.defaultPortRange
     }()
+
+    static func cmuxPortEnvironmentValues(portOrdinal: Int) -> CmuxPortEnvironmentValues {
+        let startPort = sessionPortBase + portOrdinal * sessionPortRangeSize
+        return CmuxPortEnvironmentValues(
+            port: String(startPort),
+            portEnd: String(startPort + sessionPortRangeSize - 1),
+            portRange: String(sessionPortRangeSize)
+        )
+    }
+
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: CmuxSurfaceConfigTemplate?
     private let workingDirectory: String?
@@ -5697,10 +5713,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         // Port range for this workspace (base/range snapshotted once per app session)
         do {
-            let startPort = Self.sessionPortBase + portOrdinal * Self.sessionPortRangeSize
-            setManagedEnvironmentValue("CMUX_PORT", String(startPort))
-            setManagedEnvironmentValue("CMUX_PORT_END", String(startPort + Self.sessionPortRangeSize - 1))
-            setManagedEnvironmentValue("CMUX_PORT_RANGE", String(Self.sessionPortRangeSize))
+            let values = Self.cmuxPortEnvironmentValues(portOrdinal: portOrdinal)
+            setManagedEnvironmentValue("CMUX_PORT", values.port)
+            setManagedEnvironmentValue("CMUX_PORT_END", values.portEnd)
+            setManagedEnvironmentValue("CMUX_PORT_RANGE", values.portRange)
         }
 
         let claudeHooksEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()

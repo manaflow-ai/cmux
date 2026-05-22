@@ -110,6 +110,24 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(surface.requestedWorkingDirectory, focusedDirectory)
     }
 
+    func testWarmTerminalCrossWorkspaceActivationRefreshesPortEnvironment() throws {
+        let workspaceId = try XCTUnwrap(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
+        let portOrdinal = 3
+        let portValues = TerminalSurface.cmuxPortEnvironmentValues(portOrdinal: portOrdinal)
+        let input = try XCTUnwrap(Workspace.debugWarmTerminalActivationInputForTesting(
+            workspaceId: workspaceId,
+            portOrdinal: portOrdinal,
+            workingDirectory: nil,
+            shouldRefreshWorkspaceEnvironment: true
+        ))
+
+        XCTAssertTrue(input.contains("CMUX_WORKSPACE_ID='\(workspaceId.uuidString)'"), input)
+        XCTAssertTrue(input.contains("CMUX_TAB_ID='\(workspaceId.uuidString)'"), input)
+        XCTAssertTrue(input.contains("CMUX_PORT='\(portValues.port)'"), input)
+        XCTAssertTrue(input.contains("CMUX_PORT_END='\(portValues.portEnd)'"), input)
+        XCTAssertTrue(input.contains("CMUX_PORT_RANGE='\(portValues.portRange)'"), input)
+    }
+
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
