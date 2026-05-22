@@ -437,6 +437,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
     var activePromptTurnId: String?
+    var lastPromptTurnId: String?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
 }
@@ -578,6 +579,7 @@ private final class ClaudeHookSessionStore {
                     record.activePromptDepth = nil
                 }
                 record.activePromptTurnId = normalizedTurnId
+                record.lastPromptTurnId = normalizedTurnId
             }
             record.activePromptDepth = max(0, record.activePromptDepth ?? 0) + 1
             state.sessions[normalized] = record
@@ -638,7 +640,17 @@ private final class ClaudeHookSessionStore {
                 state.sessions[normalized] = record
                 return true
             }
-            if normalizedTurnId != nil, activeTurnId == nil, depthBeforeStop > 0 {
+            if let normalizedTurnId,
+               activeTurnId == nil,
+               let lastPromptTurnId = normalizeOptional(record.lastPromptTurnId),
+               lastPromptTurnId != normalizedTurnId {
+                state.sessions[normalized] = record
+                return true
+            }
+            if normalizedTurnId != nil,
+               activeTurnId == nil,
+               normalizeOptional(record.lastPromptTurnId) == nil,
+               depthBeforeStop > 0 {
                 record.activePromptDepth = nil
                 record.activePromptTurnId = nil
                 state.sessions[normalized] = record
@@ -698,6 +710,7 @@ private final class ClaudeHookSessionStore {
                 runtimeStatus: nil,
                 activePromptDepth: nil,
                 activePromptTurnId: nil,
+                lastPromptTurnId: nil,
                 startedAt: now,
                 updatedAt: now
             )
@@ -754,6 +767,7 @@ private final class ClaudeHookSessionStore {
             runtimeStatus: nil,
             activePromptDepth: nil,
             activePromptTurnId: nil,
+            lastPromptTurnId: nil,
             startedAt: now,
             updatedAt: now
         )
