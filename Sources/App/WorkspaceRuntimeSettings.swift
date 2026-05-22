@@ -109,6 +109,47 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalWarmPtyPoolSettings {
+    static let enabledKey = "terminal.warmPtyPool"
+    static let defaultEnabled = true
+    static let didChangeNotification = Notification.Name("cmux.terminalWarmPtyPoolSettingsDidChange")
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.set(enabled, forKey: enabledKey)
+        if wasEnabled != enabled {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.removeObject(forKey: enabledKey)
+        let isNowEnabled = isEnabled(defaults: defaults)
+        if wasEnabled != isNowEnabled {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
     static let defaultAutoResumeAgentSessions = true

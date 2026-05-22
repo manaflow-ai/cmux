@@ -311,6 +311,11 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "warmPtyPool": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep one hidden local shell prewarmed so ordinary new terminal tabs and splits can attach immediately. Remote terminals and startup-command terminals are not pooled."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,

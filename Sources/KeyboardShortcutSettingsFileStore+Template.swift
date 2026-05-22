@@ -80,6 +80,7 @@ extension CmuxSettingsFileStore {
             [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
+                    "warmPtyPool": TerminalWarmPtyPoolSettings.defaultEnabled,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                 ],
             ],

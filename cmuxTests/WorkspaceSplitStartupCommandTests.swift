@@ -98,6 +98,18 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(surface.surface.debugTmuxStartCommand(), tmuxStartCommand)
     }
 
+    func testNewTerminalSurfaceInheritsFocusedPaneWorkingDirectory() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let focusedDirectory = "/tmp/cmux-warm-pty-cwd-\(UUID().uuidString)"
+        workspace.updatePanelDirectory(panelId: sourcePanelId, directory: focusedDirectory)
+
+        let surface = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+
+        XCTAssertEqual(surface.requestedWorkingDirectory, focusedDirectory)
+    }
+
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)

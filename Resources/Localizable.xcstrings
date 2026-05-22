@@ -108640,6 +108640,57 @@
         }
       }
     },
+    "settings.terminal.warmPtyPool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prewarm New Terminal Shell"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ターミナルシェルを事前起動"
+          }
+        }
+      }
+    },
+    "settings.terminal.warmPtyPool.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts each terminal shell only after you create the tab or split."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブや分割を作成してから各ターミナルシェルを起動します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.warmPtyPool.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示のローカルシェルを 1 つ待機させ、新しいターミナルタブや分割をすぐに表示します。"
+          }
+        }
+      }
+    },
     "settings.terminal.agentAutoResume": {
       "extractionState": "manual",
       "localizations": {

@@ -479,6 +479,12 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
 
+        if let value = jsonBool(section["warmPtyPool"]) {
+            snapshot.managedUserDefaults[TerminalWarmPtyPoolSettings.enabledKey] = .bool(value)
+        } else if section.keys.contains("warmPtyPool") {
+            logInvalid("terminal.warmPtyPool", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["autoResumeAgentSessions"]) {
             snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
         } else if section.keys.contains("autoResumeAgentSessions") {
@@ -1272,9 +1278,14 @@ final class CmuxSettingsFileStore {
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
+            var terminalWarmPtyPoolDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == TerminalWarmPtyPoolSettings.enabledKey {
+                    terminalWarmPtyPoolDidChange = true
                 }
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
@@ -1291,6 +1302,9 @@ final class CmuxSettingsFileStore {
 
             if agentSessionAutoResumeDidChange {
                 AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if terminalWarmPtyPoolDidChange {
+                TerminalWarmPtyPoolSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
         }
         if Thread.isMainThread {

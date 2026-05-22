@@ -7,6 +7,50 @@ import XCTest
 @testable import cmux
 #endif
 
+final class TerminalWarmPtyPoolSettingsTests: XCTestCase {
+    func testDefaultsKeyAndNotificationOnFlip() throws {
+        let suiteName = "cmux-terminal-warm-pty-pool-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(TerminalWarmPtyPoolSettings.enabledKey, "terminal.warmPtyPool")
+        XCTAssertTrue(TerminalWarmPtyPoolSettings.isEnabled(defaults: defaults))
+
+        let notificationCenter = NotificationCenter()
+        var notificationCount = 0
+        let observer = notificationCenter.addObserver(
+            forName: TerminalWarmPtyPoolSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        TerminalWarmPtyPoolSettings.setEnabled(
+            false,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertFalse(TerminalWarmPtyPoolSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(notificationCount, 1)
+
+        TerminalWarmPtyPoolSettings.setEnabled(
+            false,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertEqual(notificationCount, 1)
+
+        TerminalWarmPtyPoolSettings.reset(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertTrue(TerminalWarmPtyPoolSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(notificationCount, 2)
+    }
+}
+
 final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     func testDefaultsKeyAndNotificationOnFlip() throws {
         let suiteName = "cmux-agent-session-auto-resume-\(UUID().uuidString)"
