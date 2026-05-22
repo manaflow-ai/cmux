@@ -1,0 +1,207 @@
+name: Promote release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      rc_tag:
+        description: RC tag to promote, for example v0.64.0-rc.1
+        required: true
+        type: string
+
+concurrency:
+  group: promote-release-candidate-${{ inputs.rc_tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Resolve tags
+        id: vars
+        run: |
+          set -euo pipefail
+          RC_TAG="${{ inputs.rc_tag }}"
+          if ! [[ "$RC_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            echo "rc_tag must look like v0.64.0-rc.1, got: $RC_TAG" >&2
+            exit 1
+          fi
+          STABLE_TAG="${RC_TAG%%-rc.*}"
+          VERSION="${STABLE_TAG#v}"
+          git fetch origin "refs/tags/${RC_TAG}:refs/tags/${RC_TAG}"
+          CANDIDATE_SHA="$(git rev-list -n 1 "$RC_TAG")"
+          {
+            echo "RC_TAG=$RC_TAG"
+            echo "STABLE_TAG=$STABLE_TAG"
+            echo "VERSION=$VERSION"
+            echo "CANDIDATE_SHA=$CANDIDATE_SHA"
+          } >> "$GITHUB_ENV"
+          {
+            echo "rc_tag=$RC_TAG"
+            echo "stable_tag=$STABLE_TAG"
+            echo "version=$VERSION"
+            echo "candidate_sha=$CANDIDATE_SHA"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Promote release candidate"
+            echo
+            echo "- rc tag: \`$RC_TAG\`"
+            echo "- stable tag: \`$STABLE_TAG\`"
+            echo "- candidate sha: \`$CANDIDATE_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guard immutable stable release assets
+        id: guard_stable_assets
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          STABLE_TAG: ${{ steps.vars.outputs.stable_tag }}
+        with:
+          script: |
+            const {
+              IMMUTABLE_RELEASE_ASSETS,
+              evaluateReleaseAssetGuard,
+            } = require('./scripts/release_asset_guard');
+            const { owner, repo } = context.repo;
+            const stableTag = process.env.STABLE_TAG;
+
+            core.setOutput('skip_upload', 'false');
+            try {
+              const release = await github.rest.repos.getReleaseByTag({
+                owner,
+                repo,
+                tag: stableTag,
+              });
+              const existingAssetNames = (release.data.assets || []).map((asset) => asset.name);
+              const {
+                conflicts,
+                missingImmutableAssets,
+                hasPartialConflict,
+                shouldSkipBuildAndUpload,
+              } = evaluateReleaseAssetGuard({
+                existingAssetNames,
+                immutableAssetNames: IMMUTABLE_RELEASE_ASSETS,
+              });
+
+              if (hasPartialConflict) {
+                core.setFailed(
+                  `Release ${stableTag} has partial immutable assets. Existing: ${conflicts.join(', ')}. ` +
+                  `Missing: ${missingImmutableAssets.join(', ')}. Resolve release assets manually.`
+                );
+                return;
+              }
+
+              if (shouldSkipBuildAndUpload) {
+                core.notice(`Release ${stableTag} already has complete immutable assets. Skipping upload.`);
+                core.setOutput('skip_upload', 'true');
+                return;
+              }
+            } catch (error) {
+              if (error.status === 404) {
+                core.notice(`Release ${stableTag} does not exist yet; safe to publish.`);
+                return;
+              }
+              throw error;
+            }
+
+      - name: Download stable candidate assets from RC release
+        if: steps.guard_stable_assets.outputs.skip_upload != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p rc-assets remote-daemon-assets
+          gh release download "$RC_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'stable-candidate-*' \
+            --dir rc-assets
+
+          mv rc-assets/stable-candidate-cmux-macos.dmg cmux-macos.dmg
+          mv rc-assets/stable-candidate-appcast.xml appcast.xml
+          for asset in \
+            cmuxd-remote-darwin-arm64 \
+            cmuxd-remote-darwin-amd64 \
+            cmuxd-remote-linux-arm64 \
+            cmuxd-remote-linux-amd64 \
+            cmuxd-remote-checksums.txt \
+            cmuxd-remote-manifest.json
+          do
+            mv "rc-assets/stable-candidate-${asset}" "remote-daemon-assets/${asset}"
+          done
+
+          grep -F "releases/download/${STABLE_TAG}/cmux-macos.dmg" appcast.xml >/dev/null
+          if grep -F "$RC_TAG" appcast.xml >/dev/null; then
+            echo "Stable appcast unexpectedly references $RC_TAG" >&2
+            exit 1
+          fi
+
+      - name: Publish stable release from candidate assets
+        if: steps.guard_stable_assets.outputs.skip_upload != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          FILES=(
+            cmux-macos.dmg
+            appcast.xml
+            remote-daemon-assets/cmuxd-remote-darwin-arm64
+            remote-daemon-assets/cmuxd-remote-darwin-amd64
+            remote-daemon-assets/cmuxd-remote-linux-arm64
+            remote-daemon-assets/cmuxd-remote-linux-amd64
+            remote-daemon-assets/cmuxd-remote-checksums.txt
+            remote-daemon-assets/cmuxd-remote-manifest.json
+          )
+
+          if gh release view "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$STABLE_TAG" "${FILES[@]}" \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$STABLE_TAG" "${FILES[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$CANDIDATE_SHA" \
+              --title "$STABLE_TAG" \
+              --generate-notes \
+              --latest
+          fi
+
+      - name: Upload stable appcast to R2
+        if: steps.guard_stable_assets.outputs.skip_upload != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          command -v aws >/dev/null 2>&1 || { echo "Installing AWS CLI..."; python3 -m pip install --user awscli; }
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+          LATEST=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | sort -V | tail -1)
+          if [ -n "$LATEST" ] && [ "$LATEST" != "$STABLE_TAG" ]; then
+            echo "Skipping R2 stable upload: $STABLE_TAG is not the latest release ($LATEST)"
+            exit 0
+          fi
+
+          aws s3 cp appcast.xml \
+            "s3://cmux-binaries/stable/appcast.xml" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+      - name: Trigger Homebrew cask update
+        if: steps.guard_stable_assets.outputs.skip_upload != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run update-homebrew.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            -f version="$VERSION"
