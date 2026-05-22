@@ -7687,6 +7687,13 @@ final class WorkspaceDockLayout: ObservableObject {
         allDocks.forEach { $0.bind(to: workspace) }
     }
 
+    func applyTabBarLeadingInset(_ inset: CGFloat) {
+        configuration.appearance.tabBarLeadingInset = inset
+        for controller in allControllers where controller.configuration.appearance.tabBarLeadingInset != inset {
+            controller.configuration.appearance.tabBarLeadingInset = inset
+        }
+    }
+
     @discardableResult
     func addDock(edge: WorkspaceDockEdge, preferredSize: CGFloat? = nil) -> WorkspaceDock {
         let ordinal = docks(for: edge).count + 1
@@ -8939,6 +8946,35 @@ final class Workspace: Identifiable, ObservableObject {
 
     var renderedBonsplitControllers: [BonsplitController] {
         [bonsplitController] + dockLayout.openControllers
+    }
+
+    func applyTabBarLeadingInset(_ inset: CGFloat) {
+        let normalizedInset = max(0, inset)
+        if bonsplitController.configuration.appearance.tabBarLeadingInset != normalizedInset {
+            bonsplitController.configuration.appearance.tabBarLeadingInset = normalizedInset
+        }
+        dockLayout.applyTabBarLeadingInset(normalizedInset)
+    }
+
+    func orderedPanelsForCommands() -> [any Panel] {
+        var result: [any Panel] = []
+        var seen = Set<UUID>()
+
+        for controller in allBonsplitControllers {
+            for tabId in controller.allTabIds {
+                guard let panelId = panelIdFromSurfaceId(tabId),
+                      let panel = panels[panelId],
+                      seen.insert(panelId).inserted else { continue }
+                result.append(panel)
+            }
+        }
+
+        let orphans = panels.values
+            .filter { !seen.contains($0.id) }
+            .sorted { $0.id.uuidString < $1.id.uuidString }
+        result.append(contentsOf: orphans)
+
+        return result
     }
 
     func bonsplitController(containingTab tabId: TabID) -> BonsplitController? {

@@ -871,6 +871,71 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, mainPaneCountBeforeSplitOff)
     }
 
+    func testSurfaceListOrdersDockSurfacesByDockPaneOrder() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        workspace.dockLayout.openEdge(.right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+
+        let dockPanels = try (0..<4).map { _ in
+            try XCTUnwrap(
+                workspace.newTerminalSurface(
+                    inPane: dockPaneId,
+                    controller: dock.controller,
+                    focus: false
+                )
+            )
+        }
+        let expectedPanelIds = dockPanels.map(\.id).sorted { $0.uuidString > $1.uuidString }
+        for (index, panelId) in expectedPanelIds.enumerated() {
+            let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(panelId))
+            XCTAssertTrue(dock.controller.reorderTab(tabId, toIndex: index))
+        }
+
+        let expectedDockSurfaceIds = dock.controller.allTabIds
+            .compactMap { workspace.panelIdFromSurfaceId($0)?.uuidString }
+        XCTAssertEqual(expectedDockSurfaceIds, expectedPanelIds.map(\.uuidString))
+
+        let payload = try v2Result(method: "surface.list", params: ["workspace_id": workspace.id.uuidString])
+        let surfaces = try XCTUnwrap(payload["surfaces"] as? [[String: Any]])
+        let expectedSet = Set(expectedDockSurfaceIds)
+        let dockSurfaceIdsInList = surfaces
+            .compactMap { $0["id"] as? String }
+            .filter { expectedSet.contains($0) }
+
+        XCTAssertEqual(
+            dockSurfaceIdsInList,
+            expectedDockSurfaceIds,
+            "surface.list indexes should follow dock pane/tab order for dock-owned surfaces"
+        )
+    }
+
     func testIssue2907NoTargetCommandsPreferKeyRecoveredWindowOverRegisteredWindow() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

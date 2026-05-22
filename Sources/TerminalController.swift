@@ -16413,27 +16413,7 @@ class TerminalController {
     }
 
     private func orderedPanels(in tab: Workspace) -> [any Panel] {
-        // Use bonsplit's tab ordering as the source of truth. This avoids relying on
-        // Dictionary iteration order, and prevents indexing into panels that aren't
-        // actually present in bonsplit anymore.
-        let orderedTabIds = tab.bonsplitController.allTabIds
-        var result: [any Panel] = []
-        var seen = Set<UUID>()
-
-        for tabId in orderedTabIds {
-            guard let panelId = tab.panelIdFromSurfaceId(tabId),
-                  let panel = tab.panels[panelId] else { continue }
-            result.append(panel)
-            seen.insert(panelId)
-        }
-
-        // Defensive: include any orphaned panels in a stable order at the end.
-        let orphans = tab.panels.values
-            .filter { !seen.contains($0.id) }
-            .sorted { $0.id.uuidString < $1.id.uuidString }
-        result.append(contentsOf: orphans)
-
-        return result
+        tab.orderedPanelsForCommands()
     }
 
     private func resolveTerminalPanel(from arg: String, tabManager: TabManager) -> TerminalPanel? {

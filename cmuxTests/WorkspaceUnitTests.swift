@@ -4126,6 +4126,19 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
     }
 
+    func testDockControllersReceiveAndInheritTabBarLeadingInset() {
+        let workspace = Workspace()
+        let existingDock = workspace.dockLayout.addDock(edge: .left)
+
+        workspace.applyTabBarLeadingInset(80)
+
+        XCTAssertEqual(workspace.bonsplitController.configuration.appearance.tabBarLeadingInset, 80)
+        XCTAssertEqual(existingDock.controller.configuration.appearance.tabBarLeadingInset, 80)
+
+        let newDock = workspace.dockLayout.addDock(edge: .left)
+        XCTAssertEqual(newDock.controller.configuration.appearance.tabBarLeadingInset, 80)
+    }
+
     func testDockControllersReceiveSurfaceTabBarButtonConfiguration() {
         let workspace = Workspace()
         let existingDock = workspace.dockLayout.addDock(edge: .left)

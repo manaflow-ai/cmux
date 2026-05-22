@@ -2407,9 +2407,7 @@ class TabManager: ObservableObject {
     }
 
     private func applyTabBarLeadingInset(_ inset: CGFloat, to workspace: Workspace) {
-        if workspace.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
-            workspace.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
-        }
+        workspace.applyTabBarLeadingInset(inset)
     }
 
     /// Test seam for mutating live workspace state after the creation snapshot is captured.
