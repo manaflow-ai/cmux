@@ -661,6 +661,7 @@ private enum AgentResumeScriptStore {
 
 private struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var sessionId: String
+    var parentSessionId: String?
     var workspaceId: String
     var surfaceId: String
     var cwd: String?
@@ -790,22 +791,40 @@ struct RestorableAgentSessionIndex: Sendable {
                     registration: registration
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
-                if let existing = resolved[key], existing.updatedAt > record.updatedAt {
+                let candidate = (snapshot: snapshot, updatedAt: record.updatedAt)
+                if !preferredSnapshotCandidate(candidate, over: resolved[key]) {
                     continue
                 }
-                resolved[key] = (snapshot: snapshot, updatedAt: record.updatedAt)
+                resolved[key] = candidate
             }
         }
 
         for (key, detected) in detectedSnapshots {
-            if let existing = resolved[key],
-               existing.updatedAt > detected.updatedAt {
+            if !preferredSnapshotCandidate(detected, over: resolved[key]) {
                 continue
             }
             resolved[key] = detected
         }
 
         return RestorableAgentSessionIndex(snapshotsByPanel: resolved)
+    }
+
+    private static func preferredSnapshotCandidate(
+        _ candidate: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval),
+        over existing: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)?
+    ) -> Bool {
+        guard let existing else { return true }
+
+        let candidateRank = restoreSelectionRank(candidate.snapshot)
+        let existingRank = restoreSelectionRank(existing.snapshot)
+        if candidateRank != existingRank {
+            return candidateRank > existingRank
+        }
+        return candidate.updatedAt >= existing.updatedAt
+    }
+
+    private static func restoreSelectionRank(_ snapshot: SessionRestorableAgentSnapshot) -> Int {
+        snapshot.launchCommand == nil ? 0 : 1
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -1052,8 +1071,7 @@ struct RestorableAgentSessionIndex: Sendable {
         self.snapshotsByPanel = snapshotsByPanel.mapValues(\.snapshot)
         var snapshotsByPanelId: [UUID: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         for (key, value) in snapshotsByPanel {
-            let existing = snapshotsByPanelId[key.panelId]
-            if existing == nil || value.updatedAt >= (existing?.updatedAt ?? 0) {
+            if Self.preferredSnapshotCandidate(value, over: snapshotsByPanelId[key.panelId]) {
                 snapshotsByPanelId[key.panelId] = value
             }
         }

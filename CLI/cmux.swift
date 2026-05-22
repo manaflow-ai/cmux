@@ -333,6 +333,7 @@ private struct ClaudeHookParsedInput {
     let object: [String: Any]?
     let rawFallback: String?
     let sessionId: String?
+    let parentSessionId: String?
     let turnId: String?
     let cwd: String?
     let transcriptPath: String?
@@ -422,6 +423,7 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 
 private struct ClaudeHookSessionRecord: Codable {
     var sessionId: String
+    var parentSessionId: String? = nil
     var workspaceId: String
     var surfaceId: String
     var cwd: String?
@@ -530,12 +532,14 @@ private final class ClaudeHookSessionStore {
     @discardableResult
     func recordPromptSubmit(
         sessionId: String,
+        parentSessionId: String? = nil,
         workspaceId: String,
         surfaceId: String,
         cwd: String?,
         transcriptPath: String? = nil,
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false
     ) throws -> Bool {
@@ -552,13 +556,14 @@ private final class ClaudeHookSessionStore {
             )
             update(
                 &record,
+                parentSessionId: parentSessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: nil,
+                isRestorable: isRestorable,
                 lastSubtitle: nil,
                 lastBody: nil,
                 lastNotificationStatus: nil,
@@ -576,12 +581,14 @@ private final class ClaudeHookSessionStore {
     @discardableResult
     func recordPromptStop(
         sessionId: String,
+        parentSessionId: String? = nil,
         workspaceId: String,
         surfaceId: String,
         cwd: String?,
         transcriptPath: String? = nil,
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool? = nil,
         lastSubtitle: String?,
         lastBody: String?,
         lastNotificationStatus: AgentHookNotificationStatus? = nil,
@@ -603,13 +610,14 @@ private final class ClaudeHookSessionStore {
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             update(
                 &record,
+                parentSessionId: parentSessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: nil,
+                isRestorable: isRestorable,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
                 lastNotificationStatus: lastNotificationStatus,
@@ -627,6 +635,7 @@ private final class ClaudeHookSessionStore {
 
     func upsert(
         sessionId: String,
+        parentSessionId: String? = nil,
         workspaceId: String,
         surfaceId: String,
         cwd: String?,
@@ -669,6 +678,7 @@ private final class ClaudeHookSessionStore {
             )
             update(
                 &record,
+                parentSessionId: parentSessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 cwd: cwd,
@@ -726,6 +736,7 @@ private final class ClaudeHookSessionStore {
 
     private func update(
         _ record: inout ClaudeHookSessionRecord,
+        parentSessionId: String?,
         workspaceId: String,
         surfaceId: String,
         cwd: String?,
@@ -741,6 +752,9 @@ private final class ClaudeHookSessionStore {
         updateRuntimeStatus: Bool,
         now: TimeInterval
     ) {
+        if let parentSessionId = normalizeOptional(parentSessionId) {
+            record.parentSessionId = parentSessionId
+        }
         record.workspaceId = workspaceId
         if !surfaceId.isEmpty {
             record.surfaceId = surfaceId
@@ -851,6 +865,42 @@ private final class ClaudeHookSessionStore {
                 }
                 return true
             }
+        }
+    }
+
+    func sameSurfaceRestorablePeer(
+        workspaceId: String,
+        surfaceId: String,
+        excludingSessionId: String,
+        parentSessionId: String? = nil,
+        requireLaunchCommand: Bool = false
+    ) throws -> ClaudeHookSessionRecord? {
+        guard let normalizedWorkspace = normalizeOptional(workspaceId),
+              let normalizedSurface = normalizeOptional(surfaceId),
+              let excluded = normalizeOptional(excludingSessionId) else {
+            return nil
+        }
+        let normalizedParent = normalizeOptional(parentSessionId)
+        return try withLockedState { state in
+            let peers = state.sessions.values.filter { record in
+                guard record.sessionId != excluded,
+                      normalizeOptional(record.workspaceId) == normalizedWorkspace,
+                      normalizeOptional(record.surfaceId) == normalizedSurface,
+                      record.isRestorable != false else {
+                    return false
+                }
+                if requireLaunchCommand {
+                    return recordHasLaunchCommand(record)
+                }
+                return true
+            }
+            if let normalizedParent,
+               let parent = peers.first(where: { $0.sessionId == normalizedParent }) {
+                return parent
+            }
+            return peers
+                .filter { !requireLaunchCommand || recordHasLaunchCommand($0) }
+                .max(by: { $0.updatedAt < $1.updatedAt })
         }
     }
 
@@ -981,6 +1031,11 @@ private final class ClaudeHookSessionStore {
             }
         }
         return nil
+    }
+
+    private func recordHasLaunchCommand(_ record: ClaudeHookSessionRecord) -> Bool {
+        guard let launchCommand = record.launchCommand else { return false }
+        return !launchCommand.arguments.isEmpty
     }
 
     private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
@@ -18990,6 +19045,7 @@ struct CMUXCLI {
                 object: nil,
                 rawFallback: fallback,
                 sessionId: nil,
+                parentSessionId: nil,
                 turnId: nil,
                 cwd: nil,
                 transcriptPath: nil
@@ -18997,6 +19053,7 @@ struct CMUXCLI {
         }
 
         let sessionId = extractClaudeHookSessionId(from: object)
+        let parentSessionId = extractClaudeHookParentSessionId(from: object)
         let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = extractHookTranscriptPath(from: object)
@@ -19006,6 +19063,7 @@ struct CMUXCLI {
             object: compactObject,
             rawFallback: nil,
             sessionId: sessionId,
+            parentSessionId: parentSessionId,
             turnId: turnId,
             cwd: cwd,
             transcriptPath: transcriptPath
@@ -19188,6 +19246,79 @@ struct CMUXCLI {
         if let context = object["context"] as? [String: Any],
            let id = firstString(in: context, keys: sessionIDKeys) {
             return id
+        }
+        return nil
+    }
+
+    private func extractClaudeHookParentSessionId(from object: [String: Any]) -> String? {
+        let parentKeys = [
+            "parent_session_id",
+            "parentSessionId",
+            "parent_thread_id",
+            "parentThreadId",
+            "parent_conversation_id",
+            "parentConversationId",
+        ]
+        if let id = firstString(in: object, keys: parentKeys) {
+            return id
+        }
+        for key in ["session", "context", "notification", "data"] {
+            if let nested = object[key] as? [String: Any],
+               let id = firstString(in: nested, keys: parentKeys) {
+                return id
+            }
+        }
+        if let source = object["source"] as? [String: Any],
+           let id = extractParentSessionIdFromHookSource(source) {
+            return id
+        }
+        return firstStringRecursively(in: object, keys: Set(parentKeys), maxDepth: 4)
+    }
+
+    private func extractParentSessionIdFromHookSource(_ source: [String: Any]) -> String? {
+        if let id = firstString(
+            in: source,
+            keys: ["parent_session_id", "parentSessionId", "parent_thread_id", "parentThreadId"]
+        ) {
+            return id
+        }
+        let subagentSource = source["subAgent"] ?? source["subagent"]
+        if let subagent = subagentSource as? [String: Any] {
+            let spawnSource = subagent["thread_spawn"] ?? subagent["threadSpawn"]
+            if let spawn = spawnSource as? [String: Any],
+               let id = firstString(in: spawn, keys: ["parent_thread_id", "parentThreadId", "parent_session_id", "parentSessionId"]) {
+                return id
+            }
+        }
+        return nil
+    }
+
+    private func firstStringRecursively(
+        in value: Any,
+        keys: Set<String>,
+        maxDepth: Int
+    ) -> String? {
+        guard maxDepth >= 0 else { return nil }
+        if let object = value as? [String: Any] {
+            for key in keys {
+                if let string = object[key] as? String {
+                    let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        return trimmed
+                    }
+                }
+            }
+            for nested in object.values {
+                if let match = firstStringRecursively(in: nested, keys: keys, maxDepth: maxDepth - 1) {
+                    return match
+                }
+            }
+        } else if let array = value as? [Any] {
+            for nested in array {
+                if let match = firstStringRecursively(in: nested, keys: keys, maxDepth: maxDepth - 1) {
+                    return match
+                }
+            }
         }
         return nil
     }
@@ -23994,6 +24125,31 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 onlyNewerThanExcludedSession: true
             )) == true
         }
+        func shouldSuppressSubagentRestoreTakeover(
+            workspaceId: String,
+            surfaceId: String,
+            launchCommand: AgentHookLaunchCommandRecord?
+        ) -> Bool {
+            guard !sessionId.isEmpty else { return false }
+            if let parentSessionId = input.parentSessionId,
+               (try? store.sameSurfaceRestorablePeer(
+                   workspaceId: workspaceId,
+                   surfaceId: surfaceId,
+                   excludingSessionId: sessionId,
+                   parentSessionId: parentSessionId
+               )) != nil {
+                return true
+            }
+            guard launchCommand == nil else {
+                return false
+            }
+            return (try? store.sameSurfaceRestorablePeer(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                excludingSessionId: sessionId,
+                requireLaunchCommand: true
+            )) != nil
+        }
         func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
             if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
 #if DEBUG
@@ -24139,22 +24295,31 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = inferredPID
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
+            let nestedAgentSuppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                launchCommand: launchCommand
+            )
+            let suppressRestorableRecord = nestedAgentSuppressVisibleMutations || suppressRestoreTakeover
+            let suppressVisibleMutations = suppressRestorableRecord
             if !sessionId.isEmpty {
                 try? store.upsert(
                     sessionId: sessionId,
+                    parentSessionId: input.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand,
+                    isRestorable: suppressRestorableRecord ? false : nil,
                     runtimeStatus: suppressVisibleMutations ? nil : .running,
                     updateRuntimeStatus: !suppressVisibleMutations
                 )
@@ -24198,21 +24363,33 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                launchCommand: launchCommand
+            )
+            let nestedAgentSuppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: pid,
+                env: env
+            )
+            let suppressRestorableRecord = suppressRestoreTakeover || nestedAgentSuppressVisibleMutations
             let nestedPromptSubmit: Bool
             if !sessionId.isEmpty {
                 nestedPromptSubmit = (try? store.recordPromptSubmit(
                     sessionId: sessionId,
+                    parentSessionId: input.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
-                    launchCommand: launchCommand
+                    launchCommand: launchCommand,
+                    isRestorable: suppressRestorableRecord ? false : nil
                 )) ?? false
             } else {
                 nestedPromptSubmit = false
             }
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+            let suppressVisibleMutations = suppressRestorableRecord || shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
@@ -24220,6 +24397,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.upsert(
                     sessionId: sessionId,
+                    parentSessionId: input.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
@@ -24392,23 +24570,36 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: cwd
             )
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                launchCommand: launchCommand
+            )
+            let nestedAgentSuppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: pid,
+                transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
+                env: env
+            )
+            let suppressRestorableRecord = suppressRestoreTakeover || nestedAgentSuppressVisibleMutations
             let nestedPromptStop: Bool
             if !sessionId.isEmpty {
                 nestedPromptStop = (try? store.recordPromptStop(
                     sessionId: sessionId,
+                    parentSessionId: input.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand,
+                    isRestorable: suppressRestorableRecord ? false : nil,
                     lastSubtitle: nil,
                     lastBody: nil
                 )) ?? false
             } else {
                 nestedPromptStop = false
             }
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+            let suppressVisibleMutations = suppressRestorableRecord || shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
                 nestedPromptEvent: nestedPromptStop,
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
@@ -24418,16 +24609,24 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 || codexSubagentSignals.hasSubagentNotificationRelay
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
-                try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
-                                  transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                                  pid: pid,
-                                  launchCommand: launchCommand,
-                                  lastSubtitle: subtitle,
-                                  lastBody: body,
-                                  lastNotificationStatus: stopNotificationStatus,
-                                  updateLastNotificationStatus: true,
-                                  runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
-                                  updateRuntimeStatus: true)
+                try? store.upsert(
+                    sessionId: sessionId,
+                    parentSessionId: input.parentSessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: launchCommand,
+                    lastSubtitle: subtitle,
+                    lastBody: body,
+                    lastNotificationStatus: stopNotificationStatus,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle)
+                        ? .running
+                        : runtimeStatus(for: stopNotificationStatus),
+                    updateRuntimeStatus: true
+                )
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -24610,6 +24809,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return
             }
 
+            var suppressRestorableRecord = false
             if !sessionId.isEmpty {
                 let pid = mapped?.pid ?? inferredPID
                 let launchCommand = agentLaunchCommandFromEnvironment(
@@ -24618,14 +24818,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
+                let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    launchCommand: launchCommand
+                )
+                suppressRestorableRecord = suppressRestoreTakeover
+                    || shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
                 try? store.upsert(
                     sessionId: sessionId,
+                    parentSessionId: input.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: notificationCwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand,
+                    isRestorable: suppressRestorableRecord ? false : nil,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body,
                     lastNotificationStatus: summary.status,
@@ -24633,6 +24842,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     runtimeStatus: runtimeStatus(for: summary.status),
                     updateRuntimeStatus: summary.status != nil
                 )
+            }
+            if suppressRestorableRecord {
+                telemetry.breadcrumb("\(def.name)-hook.notification.subagent-restore-suppressed")
+                sendAgentFeedTelemetry(workspaceId: workspaceId)
+                print("{}")
+                return
             }
 
             let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
@@ -24720,7 +24935,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
+                let suppressVisibleMutations = mapped.isRestorable == false
+                    || shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
                 if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
                 } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
