@@ -893,6 +893,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
+    private var windowMoveTargetSnapshotCache: [WindowMoveTargetSnapshotCacheKey: WindowMoveTargetSnapshotCacheEntry] = [:]
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
@@ -3991,6 +3992,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func notifyMainWindowContextsDidChange() {
+        windowMoveTargetSnapshotCache.removeAll()
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
@@ -4144,6 +4146,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var id: UUID { windowId }
     }
 
+    struct WindowMoveTargetSnapshot: Identifiable, Equatable {
+        let windowId: UUID
+        let label: String
+        let isCurrentWindow: Bool
+
+        var id: UUID { windowId }
+    }
+
+    private struct WindowMoveTargetSnapshotCacheKey: Hashable {
+        let referenceWindowId: UUID?
+    }
+
+    private struct WindowMoveTargetSnapshotCacheEntry {
+        let orderingFingerprint: String
+        let snapshots: [WindowMoveTargetSnapshot]
+    }
+
     struct WorkspaceMoveTarget: Identifiable {
         let windowId: UUID
         let workspaceId: UUID
@@ -4156,6 +4175,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var label: String {
             isCurrentWindow ? workspaceTitle : "\(workspaceTitle) (\(windowLabel))"
         }
+    }
+
+    func windowMoveTargetSnapshots(referenceWindowId: UUID?) -> [WindowMoveTargetSnapshot] {
+        let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
+        let cacheKey = WindowMoveTargetSnapshotCacheKey(referenceWindowId: referenceWindowId)
+        let fingerprint = windowMoveTargetOrderingFingerprint(orderedSummaries)
+        if let cached = windowMoveTargetSnapshotCache[cacheKey],
+           cached.orderingFingerprint == fingerprint {
+            return cached.snapshots
+        }
+
+        let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
+        let snapshots = orderedSummaries.map { summary in
+            WindowMoveTargetSnapshot(
+                windowId: summary.windowId,
+                label: labels[summary.windowId] ?? "Window",
+                isCurrentWindow: summary.windowId == referenceWindowId
+            )
+        }
+        windowMoveTargetSnapshotCache[cacheKey] = WindowMoveTargetSnapshotCacheEntry(
+            orderingFingerprint: fingerprint,
+            snapshots: snapshots
+        )
+        return snapshots
     }
 
     func windowMoveTargets(referenceWindowId: UUID?) -> [WindowMoveTarget] {
@@ -5214,6 +5257,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if lhs.isVisible != rhs.isVisible { return lhs.isVisible }
             return lhs.windowId.uuidString < rhs.windowId.uuidString
         }
+    }
+
+    private func windowMoveTargetOrderingFingerprint(_ summaries: [MainWindowSummary]) -> String {
+        summaries.map { summary in
+            [
+                summary.windowId.uuidString,
+                summary.isKeyWindow ? "key" : "not-key",
+                summary.isVisible ? "visible" : "hidden",
+                String(summary.workspaceCount),
+                summary.selectedWorkspaceId?.uuidString ?? "none",
+            ].joined(separator: ":")
+        }.joined(separator: "|")
     }
 
     private func windowLabelsById(orderedSummaries: [MainWindowSummary], referenceWindowId: UUID?) -> [UUID: String] {

@@ -420,6 +420,150 @@ def test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path: str, root:
             raise AssertionError(f"monitor did not query owner surfaces: {fake.frames!r}")
 
 
+def test_codex_monitor_exits_when_owner_process_exits(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-owner-pid.sock"
+    transcript_path = root / "codex-session-owner-pid.jsonl"
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-owner-pid-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_CODEX_MONITOR_UNRESOLVED_TRANSCRIPT_TIMEOUT_SECONDS"] = "30"
+
+    owner = None
+    monitor = None
+    try:
+        with FakeCmuxSocket(
+            socket_path,
+            None,
+            surfaces=[{"id": FAKE_SURFACE_ID, "ref": FAKE_SURFACE_ID}],
+        ) as fake:
+            owner = subprocess.Popen(["/bin/sleep", "30"])
+            monitor = subprocess.Popen(
+                [
+                    cli_path,
+                    "--socket",
+                    str(socket_path),
+                    "hooks",
+                    "codex",
+                    "monitor",
+                    "--workspace",
+                    FAKE_WORKSPACE_ID,
+                    "--session",
+                    session_id,
+                    "--surface",
+                    FAKE_SURFACE_ID,
+                    "--owner-pid",
+                    str(owner.pid),
+                    "--transcript",
+                    str(transcript_path),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+            wait_for_monitor_pids(session_id, present=True, timeout=5)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if monitor.poll() is not None:
+                    stdout, stderr = monitor.communicate(timeout=1)
+                    raise AssertionError(
+                        "monitor exited before owner PID was terminated; "
+                        f"stdout={stdout}\nstderr={stderr}"
+                    )
+                if any(frame.get("method") == "surface.list" for frame in fake.frames):
+                    break
+                time.sleep(0.05)
+            else:
+                raise AssertionError(f"monitor did not query owner surfaces: {fake.frames!r}")
+
+            if monitor.poll() is not None:
+                stdout, stderr = monitor.communicate(timeout=1)
+                raise AssertionError(
+                    "monitor exited from surface ownership check before owner PID was terminated; "
+                    f"stdout={stdout}\nstderr={stderr}"
+                )
+
+            owner.terminate()
+            owner.wait(timeout=5)
+            stdout, stderr = monitor.communicate(timeout=5)
+            if monitor.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex monitor failed exit={monitor.returncode}\n"
+                    f"stdout={stdout}\nstderr={stderr}"
+                )
+            wait_for_monitor_pids(session_id, present=False, timeout=5)
+    finally:
+        if owner is not None and owner.poll() is None:
+            owner.kill()
+        if monitor is not None and monitor.poll() is None:
+            monitor.kill()
+        for pid in monitor_pids_for_session(session_id):
+            subprocess.run(["/bin/kill", str(pid)], check=False)
+
+
+def test_codex_monitor_rejects_invalid_owner_pid(cli_path: str, root: Path) -> None:
+    for raw_owner_pid in ("1", "0", "-1", "abc"):
+        safe_owner_pid = raw_owner_pid.replace("-", "minus")
+        socket_path = root / f"cmux-monitor-invalid-owner-pid-{safe_owner_pid}.sock"
+        transcript_path = root / f"codex-session-invalid-owner-pid-{safe_owner_pid}.jsonl"
+        transcript_path.write_text("", encoding="utf-8")
+
+        session_id = f"codex-monitor-invalid-owner-pid-{safe_owner_pid}-session-{os.getpid()}"
+        env = os.environ.copy()
+        env["CMUX_SOCKET_PATH"] = str(socket_path)
+        env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+        env["CMUX_CODEX_MONITOR_UNRESOLVED_TRANSCRIPT_TIMEOUT_SECONDS"] = "30"
+
+        with FakeCmuxSocket(
+            socket_path,
+            None,
+            surfaces=[{"id": FAKE_SURFACE_ID, "ref": FAKE_SURFACE_ID}],
+        ) as fake:
+            try:
+                result = subprocess.run(
+                    [
+                        cli_path,
+                        "--socket",
+                        str(socket_path),
+                        "hooks",
+                        "codex",
+                        "monitor",
+                        "--workspace",
+                        FAKE_WORKSPACE_ID,
+                        "--session",
+                        session_id,
+                        "--surface",
+                        FAKE_SURFACE_ID,
+                        "--owner-pid",
+                        raw_owner_pid,
+                        "--transcript",
+                        str(transcript_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    env=env,
+                    timeout=3,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise AssertionError(
+                    "hooks codex monitor timed out; likely still looping when "
+                    f"invalid --owner-pid={raw_owner_pid!r} was passed"
+                ) from exc
+        if result.returncode == 0:
+            raise AssertionError(
+                f"hooks codex monitor accepted invalid --owner-pid={raw_owner_pid!r}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        if any(frame.get("method") == "surface.list" for frame in fake.frames):
+            raise AssertionError(
+                f"invalid owner pid {raw_owner_pid!r} should exit before owner RPC: {fake.frames!r}"
+            )
+
+
 def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-monitor-timeout.sock"
     transcript_path = root / "codex-session-timeout.jsonl"
@@ -554,28 +698,28 @@ def codex_command_hook_hash(
     return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
 
 
-def cmux_codex_hook_command(subcommand: str) -> str:
-    routed_arguments = f"hooks codex {subcommand}"
+def cmux_codex_shell_command(routed_command: str) -> str:
     return (
-        'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; '
-        'then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi; if [ -n "$CMUX_SURFACE_ID" ] '
-        '&& [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] && [ -n "$cmux_cli" ]; then { '
-        f'if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then "$cmux_cli" --socket "$CMUX_SOCKET_PATH" {routed_arguments}; '
-        f'else "$cmux_cli" {routed_arguments}; fi; '
-        "} || echo '{}'; else echo '{}'; fi"
+        'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; '
+        'if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then '
+        'cmux_cli="$(command -v cmux 2>/dev/null || true)"; '
+        'fi; '
+        'if [ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] && [ -n "$cmux_cli" ]; then '
+        '{ if [ -n "${CMUX_SOCKET_PATH:-}" ]; then '
+        f'"$cmux_cli" --socket "$CMUX_SOCKET_PATH" {routed_command}; '
+        "else "
+        f'"$cmux_cli" {routed_command}; '
+        "fi; } || echo '{}'; "
+        "else echo '{}'; fi"
     )
+
+
+def cmux_codex_hook_command(subcommand: str) -> str:
+    return cmux_codex_shell_command(f"hooks codex {subcommand}")
 
 
 def cmux_codex_feed_command(agent_event: str) -> str:
-    routed_arguments = f"hooks feed --source codex --event {agent_event}"
-    return (
-        'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; '
-        'then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi; if [ -n "$CMUX_SURFACE_ID" ] '
-        '&& [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] && [ -n "$cmux_cli" ]; then { '
-        f'if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then "$cmux_cli" --socket "$CMUX_SOCKET_PATH" {routed_arguments}; '
-        f'else "$cmux_cli" {routed_arguments}; fi; '
-        "} || echo '{}'; else echo '{}'; fi"
-    )
+    return cmux_codex_shell_command(f"hooks feed --source codex --event {agent_event}")
 
 
 def is_cmux_codex_hook_command(command: str) -> bool:
@@ -2072,13 +2216,15 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="cmux-codex-feed-hooks-", dir="/tmp") as td:
+    with tempfile.TemporaryDirectory(prefix="cfh-", dir="/tmp") as td:
         root = Path(td)
         try:
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
+            test_codex_monitor_exits_when_owner_process_exits(cli_path, root)
+            test_codex_monitor_rejects_invalid_owner_pid(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
