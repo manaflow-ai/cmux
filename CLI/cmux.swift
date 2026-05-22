@@ -8579,7 +8579,7 @@ struct CMUXCLI {
         }
         var bridgeReachedReady = false
         defer {
-            if !bridgeReachedReady {
+            if requireExisting && !bridgeReachedReady {
                 cleanupFailedSSHPTYAttach(
                     client: client,
                     workspaceId: workspaceId,
