@@ -159,6 +159,10 @@ final class CodexTranscriptMonitorSession {
         guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else { return }
         defer { try? handle.close() }
         let endOffset = (try? handle.seekToEnd()) ?? 0
+        readInitialTail(handle: handle, endOffset: endOffset)
+    }
+
+    private func readInitialTail(handle: FileHandle, endOffset: UInt64) {
         let startOffset = endOffset > Policy.maxTailBytes ? endOffset - Policy.maxTailBytes : 0
         let startsAtLineBoundary = initialTailStartsAtLineBoundary(handle: handle, startOffset: startOffset)
         do {
@@ -167,7 +171,8 @@ final class CodexTranscriptMonitorSession {
             readOffset = endOffset
             return
         }
-        var data = handle.readDataToEndOfFile()
+        let bytesToRead = Int(endOffset - startOffset)
+        var data = handle.readData(ofLength: bytesToRead)
         let bytesRead = UInt64(data.count)
         if startOffset > 0, !startsAtLineBoundary {
             guard let newline = data.firstIndex(of: 0x0A) else {
@@ -203,6 +208,8 @@ final class CodexTranscriptMonitorSession {
         let endOffset = (try? handle.seekToEnd()) ?? 0
         if readOffset > endOffset {
             resetTailState()
+            readInitialTail(handle: handle, endOffset: endOffset)
+            return
         }
         let seekOffset = readOffset
         do {
@@ -215,6 +222,12 @@ final class CodexTranscriptMonitorSession {
         process(data: data)
         readOffset = seekOffset + UInt64(data.count)
     }
+
+    #if DEBUG
+    func debugReadIncrementalForTests(path: String) {
+        readIncremental(path: path)
+    }
+    #endif
 
     private func process(data: Data) {
         guard !data.isEmpty else { return }
@@ -430,6 +443,7 @@ final class CodexTranscriptMonitorSession {
         readOffset = 0
         pendingData.removeAll(keepingCapacity: false)
         discardingOversizedLine = false
+        publishedUserInputCallIds.removeAll(keepingCapacity: false)
         sawRelevantTurn = Self.initialSawRelevantTurn(for: request)
         sawAssistantMessage = false
     }

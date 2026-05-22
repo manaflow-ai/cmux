@@ -138,6 +138,58 @@ final class CodexTranscriptMonitorSessionTests: XCTestCase {
         })
     }
 
+    func testTruncationRecoveryOnlyReadsBoundedTail() throws {
+        let transcriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-monitor-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: transcriptURL) }
+
+        try Data(repeating: 0x70, count: 1_200_000).write(to: transcriptURL)
+
+        let events = LockedUserInputBodies()
+        let session = makeMonitorSession(transcriptURL: transcriptURL, onEvent: events.record)
+        defer { session.cancel() }
+
+        session.start()
+        XCTAssertEqual(events.snapshot(), [])
+
+        let outsideTailLine = try transcriptLine(Self.userInputEvent(callId: "call-outside-tail", question: "outside tail"))
+        var replacement = Data()
+        replacement.append(Data(outsideTailLine.utf8))
+        replacement.append(0x0A)
+        replacement.append(Data(repeating: 0x78, count: 700 * 1024))
+        try replacement.write(to: transcriptURL)
+
+        session.debugReadIncrementalForTests(path: transcriptURL.path)
+
+        XCTAssertEqual(events.snapshot(), [])
+    }
+
+    func testTruncationRecoveryClearsUserInputDedupeForReplacementTranscript() throws {
+        let transcriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-monitor-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: transcriptURL) }
+
+        let duplicateInputLine = try transcriptLine(Self.userInputEvent(callId: "call-duplicate", question: "continue?"))
+        var initial = Data()
+        initial.append(Data(String(repeating: "padding\n", count: 90_000).utf8))
+        initial.append(Data(duplicateInputLine.utf8))
+        initial.append(0x0A)
+        try initial.write(to: transcriptURL)
+
+        let events = LockedUserInputBodies()
+        let session = makeMonitorSession(transcriptURL: transcriptURL, onEvent: events.record)
+        defer { session.cancel() }
+
+        session.start()
+        XCTAssertEqual(events.snapshot(), ["continue?"])
+
+        try (duplicateInputLine + "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        session.debugReadIncrementalForTests(path: transcriptURL.path)
+
+        XCTAssertEqual(events.snapshot(), ["continue?", "continue?"])
+    }
+
     func testFailureSummaryBodyDoesNotExposeRawUpstreamDetails() {
         let summary = CodexTranscriptMonitorParser.summarizeFailure(
             CodexTranscriptFailureCandidate(
@@ -165,11 +217,62 @@ final class CodexTranscriptMonitorSessionTests: XCTestCase {
         return ["type": "event_msg", "payload": eventPayload]
     }
 
+    private static func userInputEvent(callId: String, question: String) -> [String: Any] {
+        eventLine(
+            type: "request_user_input",
+            payload: [
+                "call_id": callId,
+                "questions": [
+                    ["question": question]
+                ]
+            ]
+        )
+    }
+
+    private func makeMonitorSession(
+        transcriptURL: URL,
+        onEvent: @escaping (CodexTranscriptMonitorEvent) -> Void
+    ) -> CodexTranscriptMonitorSession {
+        CodexTranscriptMonitorSession(
+            request: CodexTranscriptMonitorRequest(
+                workspaceId: UUID(),
+                surfaceId: nil,
+                sessionId: "session-\(UUID().uuidString)",
+                turnId: nil,
+                transcriptPath: transcriptURL.path,
+                codexHome: nil
+            ),
+            queue: DispatchQueue(label: "com.cmux.tests.codex-transcript-monitor"),
+            onEvent: onEvent,
+            onFinish: { _, _ in }
+        )
+    }
+
     private func writeTranscript(_ objects: [[String: Any]], to url: URL) throws {
-        let lines = try objects.map { object in
-            let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-            return try XCTUnwrap(String(data: data, encoding: .utf8))
-        }
+        let lines = try objects.map(transcriptLine)
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func transcriptLine(_ object: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        return try XCTUnwrap(String(data: data, encoding: .utf8))
+    }
+}
+
+private final class LockedUserInputBodies: @unchecked Sendable {
+    private let lock = NSLock()
+    private var bodies: [String] = []
+
+    func record(_ event: CodexTranscriptMonitorEvent) {
+        guard case let .userInput(_, body) = event else { return }
+        lock.lock()
+        bodies.append(body)
+        lock.unlock()
+    }
+
+    func snapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return bodies
     }
 }
