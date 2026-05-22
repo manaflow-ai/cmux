@@ -1401,6 +1401,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
         startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
 
+        let childStopStart = context.state.commands.count
         let childStop = runCodexHook(
             context: context,
             subcommand: "stop",
@@ -1409,6 +1410,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(childStop.timedOut, childStop.stderr)
         XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        XCTAssertEqual(childStop.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "{}")
+        XCTAssertEqual(childStop.stderr, "")
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A late terminal child Stop must stay nested while the depth-only parent remains active, saw \(childStopCommands)"
+        )
 
         let siblingPromptStart = context.state.commands.count
         let siblingPrompt = runCodexHook(
@@ -1686,6 +1694,69 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(
             currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
             "A Stop after a missed prompt-submit must mark Codex idle, saw \(currentStopCommands)"
+        )
+    }
+
+    func testCodexStopWithMissedPromptSubmitClearsFullyTerminalStack() throws {
+        let context = try makeClaudeHookContext(name: "codex-missed-prompt-terminal-stack")
+        defer { context.cleanup() }
+
+        let sessionId = "missed-prompt-terminal-stack-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-missed-prompt-terminal-stack.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-parent-turn"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"old-child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-child-turn"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"current-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"current-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 2,
+                    "activePromptTurnId": "old-child-turn",
+                    "activePromptTurnIds": ["old-parent-turn", "old-child-turn"],
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let currentStopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A missed prompt-submit Stop must clear a fully terminal stored stack and notify, saw \(currentStopCommands)"
+        )
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "A missed prompt-submit Stop must clear a fully terminal stored stack and mark Codex idle, saw \(currentStopCommands)"
         )
     }
 
