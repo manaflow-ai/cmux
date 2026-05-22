@@ -5545,10 +5545,10 @@ struct SettingsView: View {
         case 0:
             return String(localized: "settings.browser.extensions.subtitleEmpty", defaultValue: "Install Safari Web Extension app bundles. Direct .appex loading requires Developer Mode.")
         case 1:
-            return String(localized: "settings.browser.extensions.subtitleOne", defaultValue: "1 extension is installed. WebKit enforces extension isolation, host access, and permission prompts.")
+            return String(localized: "settings.browser.extensions.subtitleOne", defaultValue: "1 extension is installed. The system browser engine enforces extension isolation, host access, and permission prompts.")
         default:
             return String(
-                format: String(localized: "settings.browser.extensions.subtitleMany", defaultValue: "%d extensions are installed. WebKit enforces extension isolation, host access, and permission prompts."),
+                format: String(localized: "settings.browser.extensions.subtitleMany", defaultValue: "%d extensions are installed. The system browser engine enforces extension isolation, host access, and permission prompts."),
                 browserExtensionSummaries.count
             )
         }

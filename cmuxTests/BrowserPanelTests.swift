@@ -224,7 +224,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         }
     }
 
-    func testReloadSanitizesPersistedUnsupportedPermissionGrants() throws {
+    func testReloadSanitizesSupportedRecordsAndPreservesUnsupportedRecords() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -259,15 +259,20 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
 
         let store = BrowserWebExtensionInstallStore(registryURL: registryURL)
 
+        XCTAssertEqual(store.records.map(\.sourceKind), [.appExtensionBundle])
         XCTAssertEqual(store.records.first?.grantedPermissions, ["menus", "nativeMessaging", "storage", "webNavigation", "webRequestAuthProvider"])
 
-        let persisted = try JSONDecoder().decode(
-            [BrowserWebExtensionInstallRecord].self,
-            from: Data(contentsOf: registryURL)
+        let persisted = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: registryURL)) as? [[String: Any]]
         )
-        XCTAssertEqual(store.records.map(\.sourceKind), [.appExtensionBundle])
-        XCTAssertEqual(persisted.map(\.sourceKind), [.appExtensionBundle])
-        XCTAssertEqual(persisted.first?.grantedPermissions, ["menus", "nativeMessaging", "storage", "webNavigation", "webRequestAuthProvider"])
+        XCTAssertEqual(
+            persisted.compactMap { $0["sourceKind"] as? String },
+            ["appExtensionBundle", "resourceBaseURL"]
+        )
+        XCTAssertEqual(
+            persisted.first?["grantedPermissions"] as? [String],
+            ["menus", "nativeMessaging", "storage", "webNavigation", "webRequestAuthProvider"]
+        )
     }
 
     func testDirectAppExtensionRequiresDeveloperMode() throws {

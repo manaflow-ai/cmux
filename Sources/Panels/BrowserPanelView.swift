@@ -861,6 +861,7 @@ struct BrowserPanelView: View {
             refreshEmptyStateImportBrowsers()
             panel.historyStore.loadIfNeeded()
             refreshBrowserExtensionActions()
+            noteBrowserExtensionPanelActivationIfNeeded()
 #if DEBUG
             logBrowserFocusState(event: "view.onAppear")
 #endif
@@ -923,6 +924,7 @@ struct BrowserPanelView: View {
                 effectiveVisibility,
                 reason: effectiveVisibility ? "view.visible" : "view.hidden"
             )
+            noteBrowserExtensionPanelActivationIfNeeded()
             if visibleInUI {
                 panel.cancelPendingDeveloperToolsVisibilityLossCheck()
                 return
@@ -948,7 +950,7 @@ struct BrowserPanelView: View {
 #endif
             // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
             if focused {
-                BrowserWebExtensionSupport.notePanelFocusChanged(panel: panel, isFocused: true)
+                noteBrowserExtensionPanelActivationIfNeeded()
                 applyPendingAddressBarFocusRequestIfNeeded()
                 autoFocusOmnibarIfBlank()
             } else {
@@ -1295,6 +1297,11 @@ struct BrowserPanelView: View {
         .background(BrowserWebExtensionActionPopupAnchor(panelID: panel.id))
         .safeHelp(String(localized: "browser.extensions.buttonHelp", defaultValue: "Browser Extensions"))
         .accessibilityIdentifier("BrowserExtensionsButton")
+    }
+
+    private func noteBrowserExtensionPanelActivationIfNeeded() {
+        guard isFocused, isVisibleInUI, isCurrentPaneOwner else { return }
+        BrowserWebExtensionSupport.notePanelFocusChanged(panel: panel, isFocused: true)
     }
 
     private var browserExtensionsInlinePopover: some View {

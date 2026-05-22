@@ -685,6 +685,7 @@ final class BrowserWebExtensionInstallStore {
     private let fileManager: FileManager
 
     private(set) var records: [BrowserWebExtensionInstallRecord] = []
+    private var unsupportedPersistedRecordObjects: [[String: Any]] = []
 
     init(
         registryURL: URL = BrowserWebExtensionInstallStore.defaultRegistryURL(),
@@ -713,13 +714,24 @@ final class BrowserWebExtensionInstallStore {
     func reload() {
         guard fileManager.fileExists(atPath: registryURL.path) else {
             records = []
+            unsupportedPersistedRecordObjects = []
             return
         }
 
         do {
             let data = try Data(contentsOf: registryURL)
+            let rawObjects = Self.registryObjects(from: data)
             let persisted = try JSONDecoder().decode([BrowserWebExtensionPersistedInstallRecord].self, from: data)
-            let decoded = persisted.compactMap { $0.installRecord() }
+            unsupportedPersistedRecordObjects = []
+            let decoded: [BrowserWebExtensionInstallRecord] = persisted.enumerated().compactMap { index, persistedRecord in
+                guard let record = persistedRecord.installRecord() else {
+                    if rawObjects.indices.contains(index) {
+                        unsupportedPersistedRecordObjects.append(rawObjects[index])
+                    }
+                    return nil
+                }
+                return record
+            }
             records = decoded.compactMap(sanitizedRecord)
             if records.count != persisted.count || records != decoded {
                 try? persist()
@@ -986,7 +998,10 @@ final class BrowserWebExtensionInstallStore {
                 at: registryURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            let data = try JSONEncoder.cmuxBrowserExtensions.encode(recordsToPersist)
+            let data = try Self.registryData(
+                supportedRecords: recordsToPersist,
+                unsupportedRecordObjects: unsupportedPersistedRecordObjects
+            )
             try data.write(to: registryURL, options: .atomic)
         } catch {
             browserWebExtensionLogger.error(
@@ -1013,6 +1028,22 @@ final class BrowserWebExtensionInstallStore {
                 "Failed to quarantine extension registry: \(error.localizedDescription, privacy: .private)"
             )
         }
+    }
+
+    private static func registryObjects(from data: Data) -> [[String: Any]] {
+        (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
+    }
+
+    private static func registryData(
+        supportedRecords: [BrowserWebExtensionInstallRecord],
+        unsupportedRecordObjects: [[String: Any]]
+    ) throws -> Data {
+        let supportedData = try JSONEncoder.cmuxBrowserExtensions.encode(supportedRecords)
+        let supportedObjects = registryObjects(from: supportedData)
+        return try JSONSerialization.data(
+            withJSONObject: supportedObjects + unsupportedRecordObjects,
+            options: [.prettyPrinted, .sortedKeys]
+        )
     }
 
     private func sanitizedRecord(
@@ -1317,6 +1348,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private var activeTabsByRuntimeKey: [BrowserWebExtensionRuntimeKey: any WKWebExtensionTab] = [:]
     private var runtimePermissionPromptTasks: [UUID: Task<Void, Never>] = [:]
     private var runtimePermissionPromptDenyHandlers: [UUID: () -> Void] = [:]
+    private var runtimePermissionPromptWindows: [UUID: NSWindow] = [:]
+    private var backgroundLoadTasksByRuntimeKey: [BrowserWebExtensionRuntimeKey: [UUID: Task<Void, Never>]] = [:]
     private var loadedRuntimeKeys: Set<BrowserWebExtensionRuntimeKey> = []
 
     override init() {
@@ -1524,6 +1557,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         cancelRuntimePermissionPrompts()
         closeAllActionPopups()
         closeAllAuxiliaryWindows()
+        cancelAllBackgroundLoadTasks()
         for (runtimeKey, contextsByRecordID) in contextsByRuntimeKey {
             guard let controller = controllersByRuntimeKey[runtimeKey] else { continue }
             for context in contextsByRecordID.values {
@@ -1814,6 +1848,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             defaultWebsiteDataStore: websiteDataStore
         )
         if let existing = contextsByRuntimeKey[runtimeKey]?[record.id] {
+            cancelBackgroundLoadTask(recordID: record.id, runtimeKey: runtimeKey)
             try? controller.unload(existing)
             contextsByRuntimeKey[runtimeKey]?[record.id] = nil
         }
@@ -1889,23 +1924,29 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }
         try? store.setLastError(nil, for: record.id, profileID: profileID)
         if webExtension.hasBackgroundContent {
-            Task { @MainActor [weak self] in
+            let task = Task { @MainActor [weak self] in
+                guard let self else { return }
                 do {
                     try await context.loadBackgroundContent()
                 } catch {
+                    guard !Task.isCancelled else { return }
+                    guard let currentContext = self.contextsByRuntimeKey[runtimeKey]?[record.id],
+                          currentContext === context else { return }
 #if DEBUG
                     cmuxDebugLog(
                         "browser.extensions.background.loadFailed label=\(record.displayName) error=\(error.localizedDescription)"
                     )
 #endif
-                    try? self?.store.setLastError(
+                    try? self.store.setLastError(
                         BrowserWebExtensionInstallError.loadFailed(error.localizedDescription).localizedDescription,
                         for: record.id,
                         profileID: profileID
                     )
-                    self?.postDidChange()
+                    self.postDidChange()
                 }
+                self.backgroundLoadTasksByRuntimeKey[runtimeKey]?[record.id] = nil
             }
+            backgroundLoadTasksByRuntimeKey[runtimeKey, default: [:]][record.id] = task
         }
     }
 
@@ -1917,6 +1958,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     private func unload(recordID: UUID, runtimeKey: BrowserWebExtensionRuntimeKey) {
         guard let context = contextsByRuntimeKey[runtimeKey]?[recordID] else { return }
+        cancelBackgroundLoadTask(recordID: recordID, runtimeKey: runtimeKey)
         try? controllersByRuntimeKey[runtimeKey]?.unload(context)
         contextsByRuntimeKey[runtimeKey]?[recordID] = nil
     }
@@ -1979,7 +2021,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         return String(
             format: String(
                 localized: "browser.extensions.install.message",
-                defaultValue: "%@\n\nSource: %@\nAPI permissions: %@\nWebsite access: %@\n\ncmux grants only these permissions and lets WebKit enforce extension isolation, host access, and runtime permission prompts."
+                defaultValue: "%@\n\nSource: %@\nAPI permissions: %@\nWebsite access: %@\n\ncmux grants only these permissions and lets the system browser engine enforce extension isolation, host access, and runtime permission prompts."
             ),
             extensionName,
             browserWebExtensionSourceDescription(for: sourceKind),
@@ -1989,14 +2031,56 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     private func runModal(_ alert: NSAlert) async -> NSApplication.ModalResponse {
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-            return await withCheckedContinuation { continuation in
-                alert.beginSheetModal(for: window) { response in
-                    continuation.resume(returning: response)
-                }
+        guard let window = modalHostWindow() else {
+            return .alertSecondButtonReturn
+        }
+        return await withCheckedContinuation { continuation in
+            alert.beginSheetModal(for: window) { response in
+                continuation.resume(returning: response)
             }
         }
-        return alert.runModal()
+    }
+
+    private func runRuntimePermissionModal(
+        _ alert: NSAlert,
+        promptID: UUID
+    ) async -> NSApplication.ModalResponse {
+        guard let window = modalHostWindow() else {
+            return .alertSecondButtonReturn
+        }
+        return await withCheckedContinuation { continuation in
+            alert.beginSheetModal(for: window) { [weak self] response in
+                self?.runtimePermissionPromptWindows[promptID] = nil
+                continuation.resume(returning: response)
+            }
+            runtimePermissionPromptWindows[promptID] = alert.window
+        }
+    }
+
+    private func modalHostWindow() -> NSWindow? {
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow, window.isVisible {
+            return window
+        }
+        return NSApp.windows.first { window in
+            window.isVisible && !window.isMiniaturized
+        }
+    }
+
+    private func cancelBackgroundLoadTask(recordID: UUID, runtimeKey: BrowserWebExtensionRuntimeKey) {
+        backgroundLoadTasksByRuntimeKey[runtimeKey]?[recordID]?.cancel()
+        backgroundLoadTasksByRuntimeKey[runtimeKey]?[recordID] = nil
+        if backgroundLoadTasksByRuntimeKey[runtimeKey]?.isEmpty == true {
+            backgroundLoadTasksByRuntimeKey[runtimeKey] = nil
+        }
+    }
+
+    private func cancelAllBackgroundLoadTasks() {
+        for tasksByRecordID in backgroundLoadTasksByRuntimeKey.values {
+            for task in tasksByRecordID.values {
+                task.cancel()
+            }
+        }
+        backgroundLoadTasksByRuntimeKey.removeAll()
     }
 
     private func requiredMatchPatternStrings(for webExtension: WKWebExtension) -> [String] {
@@ -2469,7 +2553,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 completion(false)
                 return
             }
-            let response = await runModal(alert)
+            let response = await runRuntimePermissionModal(alert, promptID: promptID)
             guard self.runtimePermissionPromptDenyHandlers.removeValue(forKey: promptID) != nil else {
                 return
             }
@@ -2482,6 +2566,15 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private func cancelRuntimePermissionPrompts() {
         let denyHandlers = runtimePermissionPromptDenyHandlers
         runtimePermissionPromptDenyHandlers.removeAll()
+        let promptWindows = runtimePermissionPromptWindows
+        runtimePermissionPromptWindows.removeAll()
+        for promptWindow in promptWindows.values {
+            if let sheetParent = promptWindow.sheetParent {
+                sheetParent.endSheet(promptWindow, returnCode: .alertSecondButtonReturn)
+            } else {
+                promptWindow.close()
+            }
+        }
         for task in runtimePermissionPromptTasks.values {
             task.cancel()
         }
@@ -2996,7 +3089,12 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
         for context: WKWebExtensionContext,
         completionHandler: @escaping (Error?) -> Void
     ) {
-        panel.setFrame(frame, display: true)
+        let visibleFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame
+        let width = min(max(frame.width, 1), visibleFrame.width)
+        let height = min(max(frame.height, 1), visibleFrame.height)
+        let x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - width)
+        let y = min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - height)
+        panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
         completionHandler(nil)
     }
 
