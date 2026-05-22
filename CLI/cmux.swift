@@ -852,19 +852,34 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func clearPendingNotification(sessionId: String, fingerprint: String) throws {
+    func clearPendingNotification(sessionId: String, fingerprint: String, clearSummary: Bool = false) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedFingerprint.isEmpty else { return }
         try withLockedState { state in
-            guard var record = state.sessions[normalized],
-                  record.pendingNotificationFingerprint == normalizedFingerprint else {
+            guard var record = state.sessions[normalized] else {
                 return
             }
+            let pendingMatches = record.pendingNotificationFingerprint == normalizedFingerprint
+            let summaryMatches: Bool
+            if clearSummary,
+               let lastSubtitle = record.lastSubtitle,
+               let lastBody = record.lastBody {
+                summaryMatches = "\(lastSubtitle)\n\(lastBody)" == normalizedFingerprint
+            } else {
+                summaryMatches = false
+            }
+            guard pendingMatches || summaryMatches else { return }
             let now = Date().timeIntervalSince1970
-            record.pendingNotificationFingerprint = nil
-            record.pendingNotificationStartedAt = nil
+            if pendingMatches {
+                record.pendingNotificationFingerprint = nil
+                record.pendingNotificationStartedAt = nil
+            }
+            if summaryMatches {
+                record.lastSubtitle = nil
+                record.lastBody = nil
+            }
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -18844,6 +18859,13 @@ struct CMUXCLI {
                     }
                 ) else {
                     telemetry.breadcrumb("claude-hook.permission-request.pending-cleared")
+                    if let sessionId = parsedInput.sessionId {
+                        try? sessionStore.clearPendingNotification(
+                            sessionId: sessionId,
+                            fingerprint: notificationFingerprint,
+                            clearSummary: true
+                        )
+                    }
                     print("OK")
                     return
                 }

@@ -601,6 +601,24 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let sessionAfterPermission = try readClaudeHookSession(sessionId, context: context)
         XCTAssertNil(sessionAfterPermission["pendingNotificationFingerprint"])
         XCTAssertNil(sessionAfterPermission["lastEmittedNotificationFingerprint"])
+        XCTAssertNil(sessionAfterPermission["lastSubtitle"])
+        XCTAssertNil(sessionAfterPermission["lastBody"])
+
+        let genericNotificationStart = context.state.commands.count
+        let genericNotification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#
+        )
+        XCTAssertFalse(genericNotification.timedOut, genericNotification.stderr)
+        XCTAssertEqual(genericNotification.status, 0, genericNotification.stderr)
+
+        let genericNotifyCommands = Array(context.state.commands.dropFirst(genericNotificationStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let genericCommand = try XCTUnwrap(genericNotifyCommands.last)
+        XCTAssertTrue(genericCommand.contains("Claude Workspace - Claude waiting|Idle prompt|"), genericCommand)
+        XCTAssertTrue(genericCommand.contains("Claude Code needs your attention"), genericCommand)
+        XCTAssertFalse(genericCommand.contains("Allow Bash to inspect grep error.log?"), genericCommand)
     }
 
     func testClaudeNotificationRefreshesSessionBeforeGenericDedupe() throws {
