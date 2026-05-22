@@ -436,6 +436,10 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastEmittedNotificationAt: TimeInterval?
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
+    var activePromptTurnId: String?
+    var activePromptTurnIds: [String]?
+    var lastPromptTurnId: String?
+    var terminalPromptTurnIds: [String]?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
 }
@@ -494,6 +498,7 @@ private struct ClaudeHookSessionStoreFile: Codable {
 private final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+    private static let maxRememberedTerminalPromptTurnIds = 32
 
     private let statePath: String
     private let fileManager: FileManager
@@ -534,6 +539,9 @@ private final class ClaudeHookSessionStore {
         surfaceId: String,
         cwd: String?,
         transcriptPath: String? = nil,
+        turnId: String? = nil,
+        previousActivePromptTurnIsTerminal: Bool = false,
+        terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
@@ -567,7 +575,48 @@ private final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
-            record.activePromptDepth = max(0, record.activePromptDepth ?? 0) + 1
+            let normalizedTurnId = normalizeOptional(turnId)
+            if let normalizedTurnId {
+                markPromptTurnActive(normalizedTurnId, on: &record)
+                var turnStack = activePromptTurnStack(from: record)
+                let legacyDepth = max(0, record.activePromptDepth ?? 0)
+                if turnStack.isEmpty, legacyDepth > 0 {
+                    record.activePromptDepth = legacyDepth + 1
+                    record.activePromptTurnId = nil
+                    record.activePromptTurnIds = nil
+                    record.lastPromptTurnId = normalizedTurnId
+                    state.sessions[normalized] = record
+                    return true
+                } else if let activeTurnId = turnStack.last,
+                          activeTurnId != normalizedTurnId {
+                    var removedTurnCount = 0
+                    var removedTerminalTurnIds: [String] = []
+                    if previousActivePromptTurnIsTerminal {
+                        removedTerminalTurnIds.append(turnStack.removeLast())
+                        removedTurnCount += 1
+                        while let activeTurnId = turnStack.last,
+                              terminalActivePromptTurnIds.contains(activeTurnId) {
+                            removedTerminalTurnIds.append(turnStack.removeLast())
+                            removedTurnCount += 1
+                        }
+                    }
+                    let totalDepth = max(0, max(legacyDepth, turnStack.count + removedTurnCount) - removedTurnCount) + 1
+                    turnStack.append(normalizedTurnId)
+                    setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
+                    markPromptTurnsTerminal(removedTerminalTurnIds, on: &record)
+                    record.lastPromptTurnId = normalizedTurnId
+                    state.sessions[normalized] = record
+                    return totalDepth > 1
+                }
+                let totalDepth = max(legacyDepth, turnStack.count) + 1
+                turnStack.append(normalizedTurnId)
+                setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
+                record.lastPromptTurnId = normalizedTurnId
+                state.sessions[normalized] = record
+                return totalDepth > 1
+            }
+            let existingTurnStackDepth = activePromptTurnStack(from: record).count
+            record.activePromptDepth = max(max(0, record.activePromptDepth ?? 0), existingTurnStackDepth) + 1
             state.sessions[normalized] = record
             return (record.activePromptDepth ?? 0) > 1
         }
@@ -580,6 +629,8 @@ private final class ClaudeHookSessionStore {
         surfaceId: String,
         cwd: String?,
         transcriptPath: String? = nil,
+        turnId: String? = nil,
+        terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         lastSubtitle: String?,
@@ -619,7 +670,98 @@ private final class ClaudeHookSessionStore {
                 now: now
             )
             let depthAfterStop = max(0, depthBeforeStop - 1)
-            record.activePromptDepth = depthAfterStop == 0 ? nil : depthAfterStop
+            let normalizedTurnId = normalizeOptional(turnId)
+            if let normalizedTurnId {
+                var turnStack = activePromptTurnStack(from: record)
+                var totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
+                let terminalTurnIdsToPrune = terminalActivePromptTurnIds.subtracting([normalizedTurnId])
+                if !terminalTurnIdsToPrune.isEmpty {
+                    var removedTerminalTurnIds: [String] = []
+                    turnStack.removeAll { activeTurnId in
+                        if terminalTurnIdsToPrune.contains(activeTurnId) {
+                            removedTerminalTurnIds.append(activeTurnId)
+                            return true
+                        }
+                        return false
+                    }
+                    if !removedTerminalTurnIds.isEmpty {
+                        totalDepthBeforeStop = max(0, totalDepthBeforeStop - removedTerminalTurnIds.count)
+                        setActivePromptTurnStack(turnStack, totalDepth: totalDepthBeforeStop, on: &record)
+                        markPromptTurnsTerminal(removedTerminalTurnIds, on: &record)
+                    }
+                }
+                if let lastTurnId = turnStack.last {
+                    if lastTurnId == normalizedTurnId {
+                        let nested = totalDepthBeforeStop > 1
+                        turnStack.removeLast()
+                        setActivePromptTurnStack(
+                            turnStack,
+                            totalDepth: max(0, totalDepthBeforeStop - 1),
+                            on: &record
+                        )
+                        markPromptTurnTerminal(normalizedTurnId, on: &record)
+                        state.sessions[normalized] = record
+                        return nested
+                    }
+                    if let staleIndex = turnStack.lastIndex(of: normalizedTurnId) {
+                        turnStack.remove(at: staleIndex)
+                        setActivePromptTurnStack(
+                            turnStack,
+                            totalDepth: max(0, totalDepthBeforeStop - 1),
+                            on: &record
+                        )
+                        markPromptTurnTerminal(normalizedTurnId, on: &record)
+                    } else if depthBeforeStop > turnStack.count {
+                        setActivePromptTurnStack(
+                            turnStack,
+                            totalDepth: max(0, totalDepthBeforeStop - 1),
+                            on: &record
+                        )
+                        markPromptTurnTerminal(normalizedTurnId, on: &record)
+                    }
+                    state.sessions[normalized] = record
+                    return true
+                }
+                if totalDepthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
+                    state.sessions[normalized] = record
+                    return true
+                }
+                markPromptTurnTerminal(normalizedTurnId, on: &record)
+                if totalDepthBeforeStop == 0 {
+                    state.sessions[normalized] = record
+                    return false
+                }
+                let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
+                if depthAfterTurnStop == 0 {
+                    record.activePromptDepth = nil
+                } else {
+                    record.activePromptDepth = depthAfterTurnStop
+                }
+                record.activePromptTurnId = nil
+                record.activePromptTurnIds = nil
+                state.sessions[normalized] = record
+                return totalDepthBeforeStop > 1
+            }
+            if depthAfterStop == 0 {
+                record.activePromptDepth = nil
+                record.activePromptTurnId = nil
+                record.activePromptTurnIds = nil
+            } else {
+                let turnStack = activePromptTurnStack(from: record)
+                if !turnStack.isEmpty {
+                    setActivePromptTurnStack(
+                        Array(turnStack.prefix(depthAfterStop)),
+                        totalDepth: depthAfterStop,
+                        on: &record
+                    )
+                } else {
+                    record.activePromptDepth = depthAfterStop
+                }
+                if let normalizedTurnId, turnStack.isEmpty {
+                    record.activePromptTurnId = normalizedTurnId
+                    record.activePromptTurnIds = Array(repeating: normalizedTurnId, count: depthAfterStop)
+                }
+            }
             state.sessions[normalized] = record
             return depthBeforeStop > 1
         }
@@ -664,6 +806,10 @@ private final class ClaudeHookSessionStore {
                 lastEmittedNotificationAt: nil,
                 runtimeStatus: nil,
                 activePromptDepth: nil,
+                activePromptTurnId: nil,
+                activePromptTurnIds: nil,
+                lastPromptTurnId: nil,
+                terminalPromptTurnIds: nil,
                 startedAt: now,
                 updatedAt: now
             )
@@ -719,9 +865,71 @@ private final class ClaudeHookSessionStore {
             lastEmittedNotificationAt: nil,
             runtimeStatus: nil,
             activePromptDepth: nil,
+            activePromptTurnId: nil,
+            activePromptTurnIds: nil,
+            lastPromptTurnId: nil,
+            terminalPromptTurnIds: nil,
             startedAt: now,
             updatedAt: now
         )
+    }
+
+    private func activePromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
+        if let activePromptTurnIds = record.activePromptTurnIds {
+            let normalized = activePromptTurnIds.compactMap { normalizeOptional($0) }
+            if !normalized.isEmpty {
+                return normalized
+            }
+        }
+        if let activePromptTurnId = normalizeOptional(record.activePromptTurnId) {
+            return [activePromptTurnId]
+        }
+        return []
+    }
+
+    private func setActivePromptTurnStack(_ stack: [String], totalDepth: Int? = nil, on record: inout ClaudeHookSessionRecord) {
+        let normalizedStack = stack.compactMap { normalizeOptional($0) }
+        let resolvedDepth = max(max(0, totalDepth ?? normalizedStack.count), normalizedStack.count)
+        if resolvedDepth == 0 {
+            record.activePromptDepth = nil
+            record.activePromptTurnId = nil
+            record.activePromptTurnIds = nil
+        } else {
+            record.activePromptDepth = resolvedDepth
+            record.activePromptTurnId = normalizedStack.last
+            record.activePromptTurnIds = normalizedStack.isEmpty ? nil : normalizedStack
+        }
+    }
+
+    private func terminalPromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
+        record.terminalPromptTurnIds?.compactMap { normalizeOptional($0) } ?? []
+    }
+
+    private func terminalPromptTurnSet(from record: ClaudeHookSessionRecord) -> Set<String> {
+        Set(terminalPromptTurnStack(from: record))
+    }
+
+    private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
+        var terminalTurnIds = terminalPromptTurnStack(from: record)
+        terminalTurnIds.removeAll { $0 == turnId }
+        record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
+    }
+
+    private func markPromptTurnsTerminal(_ turnIds: [String], on record: inout ClaudeHookSessionRecord) {
+        for turnId in turnIds {
+            markPromptTurnTerminal(turnId, on: &record)
+        }
+    }
+
+    private func markPromptTurnTerminal(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
+        guard let normalizedTurnId = normalizeOptional(turnId) else { return }
+        var terminalTurnIds = terminalPromptTurnStack(from: record)
+        terminalTurnIds.removeAll { $0 == normalizedTurnId }
+        terminalTurnIds.append(normalizedTurnId)
+        if terminalTurnIds.count > Self.maxRememberedTerminalPromptTurnIds {
+            terminalTurnIds.removeFirst(terminalTurnIds.count - Self.maxRememberedTerminalPromptTurnIds)
+        }
+        record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
     }
 
     private func update(
@@ -2306,7 +2514,7 @@ struct CMUXCLI {
         "--dx", "--dy", "--email", "--event", "--expires", "--focus",
         "--function", "--id", "--image", "--index", "--key", "--kind",
         "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
-        "--out", "--pane", "--panel", "--path", "--profile", "--property",
+        "--order", "--out", "--pane", "--panel", "--path", "--profile", "--property",
         "--provider", "--relay-port", "--script", "--selector", "--session",
         "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane",
         "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
@@ -3274,6 +3482,9 @@ struct CMUXCLI {
 
         case "reorder-workspace":
             try runReorderWorkspace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "reorder-workspaces":
+            try runReorderWorkspaces(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "workspace-action":
             try runWorkspaceAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
@@ -5653,10 +5864,95 @@ struct CMUXCLI {
         if let windowHandle {
             params["window_id"] = windowHandle
         }
+        let dryRun = hasFlag(commandArgs, name: "--dry-run")
+        if dryRun {
+            params["dry_run"] = true
+        }
 
         let payload = try client.sendV2(method: "workspace.reorder", params: params)
-        let summary = "OK workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown") window=\(formatHandle(payload, kind: "window", idFormat: idFormat) ?? "unknown") index=\(payload["index"] ?? "?")"
+        let summary = dryRun
+            ? reorderResultLines(payload, idFormat: idFormat, dryRun: true).joined(separator: "\n")
+            : "OK workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown") window=\(formatHandle(payload, kind: "window", idFormat: idFormat) ?? "unknown") index=\(payload["index"] ?? "?")"
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
+    }
+
+    private func runReorderWorkspaces(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        guard let orderRaw = optionValue(commandArgs, name: "--order") else {
+            throw CLIError(message: String(
+                localized: "cli.reorderWorkspaces.error.missingOrder",
+                defaultValue: "reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."
+            ))
+        }
+
+        let rawRefs = orderRaw
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard !rawRefs.isEmpty else {
+            throw CLIError(message: String(
+                localized: "cli.reorderWorkspaces.error.emptyOrder",
+                defaultValue: "reorder-workspaces requires at least one workspace in --order"
+            ))
+        }
+        guard !rawRefs.contains(where: \.isEmpty) else {
+            throw CLIError(message: String(
+                localized: "cli.reorderWorkspaces.error.emptyOrderItem",
+                defaultValue: "reorder-workspaces --order cannot contain empty workspace refs"
+            ))
+        }
+
+        let windowRaw = optionValue(commandArgs, name: "--window")
+        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+        let workspaceHandles = try rawRefs.map { rawRef in
+            guard let workspaceHandle = try normalizeWorkspaceHandle(rawRef, client: client, windowHandle: windowHandle) else {
+                let messageFormat = String(
+                    localized: "cli.reorderWorkspaces.error.workspaceNotFound",
+                    defaultValue: "Workspace not found: %@"
+                )
+                throw CLIError(message: String(format: messageFormat, rawRef))
+            }
+            return workspaceHandle
+        }
+
+        var params: [String: Any] = ["workspace_ids": workspaceHandles]
+        if let windowHandle {
+            params["window_id"] = windowHandle
+        }
+        let dryRun = hasFlag(commandArgs, name: "--dry-run")
+        if dryRun {
+            params["dry_run"] = true
+        }
+
+        let payload = try client.sendV2(method: "workspace.reorder_many", params: params)
+        let summary = reorderResultLines(payload, idFormat: idFormat, dryRun: dryRun).joined(separator: "\n")
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
+    }
+
+    private func reorderResultLines(
+        _ payload: [String: Any],
+        idFormat: CLIIDFormat,
+        dryRun: Bool
+    ) -> [String] {
+        let planItems = payload["plan"] as? [[String: Any]] ?? [payload]
+        let lineFormat = dryRun
+            ? String(
+                localized: "cli.reorderWorkspaces.result.planLine",
+                defaultValue: "OK plan workspace=%@ window=%@ index=%@"
+            )
+            : String(
+                localized: "cli.reorderWorkspaces.result.appliedLine",
+                defaultValue: "OK workspace=%@ window=%@ index=%@"
+            )
+        return planItems.map { item in
+            let workspace = formatHandle(item, kind: "workspace", idFormat: idFormat) ?? "unknown"
+            let window = formatHandle(item, kind: "window", idFormat: idFormat) ?? "unknown"
+            let index = item["to_index"] ?? item["index"] ?? "?"
+            return String(format: lineFormat, workspace, window, String(describing: index))
+        }
     }
 
     private func runWorkspaceAction(
@@ -10693,11 +10989,31 @@ struct CMUXCLI {
               --after-workspace <id|ref|index>
                                          Alias for --after
               --window <id|ref|index>      Window context
+              --dry-run                    Print the resolved final index without applying
 
             Example:
               cmux reorder-workspace --workspace workspace:2 --index 0
               cmux reorder-workspace --workspace workspace:3 --after workspace:1
+              cmux reorder-workspace --workspace workspace:2 --index 0 --dry-run
             """
+        case "reorder-workspaces":
+            return String(localized: "cli.help.reorderWorkspaces", defaultValue: """
+            Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]
+
+            Reorder workspaces within a window as one atomic batch. The comma-separated
+            order is the final leading order inside the pinned and unpinned groups;
+            unmentioned workspaces keep their relative order after listed peers in the
+            same group.
+
+            Flags:
+              --order <refs>                Comma-separated workspace refs to place first
+              --window <id|ref|index>       Window context
+              --dry-run                     Print the resolved final indexes without applying
+
+            Example:
+              cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31
+              cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run
+            """)
         case "workspace-action":
             return """
             Usage: cmux workspace-action --action <name> [flags]
@@ -19584,6 +19900,55 @@ struct CMUXCLI {
         return .healthy
     }
 
+    private func codexTranscriptTerminalTurnIds(path: String, turnIds: Set<String>) -> Set<String> {
+        let expectedTurnIds = Set(turnIds.compactMap { normalizedHookValue($0) })
+        guard !expectedTurnIds.isEmpty,
+              let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
+            return []
+        }
+
+        var terminalTurnIds = Set<String>()
+        var currentTurnId: String?
+        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let objectType = object["type"] as? String else {
+                continue
+            }
+
+            if objectType == "turn_context",
+               let payload = object["payload"] as? [String: Any] {
+                currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                continue
+            }
+
+            guard objectType == "event_msg",
+                  let payload = object["payload"] as? [String: Any],
+                  let eventType = payload["type"] as? String else {
+                continue
+            }
+
+            if eventType == "task_started" {
+                currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                continue
+            }
+
+            switch eventType {
+            case "task_complete", "turn_complete", "turn_aborted":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId
+                if let payloadTurnId, expectedTurnIds.contains(payloadTurnId) {
+                    terminalTurnIds.insert(payloadTurnId)
+                }
+            default:
+                break
+            }
+        }
+
+        return terminalTurnIds
+    }
+
     private func readCodexTranscriptUserInput(
         path: String,
         turnId: String?,
@@ -24198,6 +24563,28 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
+            let activePromptTurnStack = mapped?.activePromptTurnIds?
+                .compactMap({ normalizedHookValue($0) }) ?? []
+            let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
+            let terminalActivePromptTurnIds: Set<String>
+            let previousActivePromptTurnIsTerminal: Bool
+            if def.name == "codex",
+               let incomingTurnId = normalizedHookValue(input.turnId),
+               let activeTurnId = activePromptTurnId,
+               activeTurnId != incomingTurnId,
+               let transcriptPath = normalizedHookValue(transcriptPathForStore)
+                   ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                let activeTurnIds = activePromptTurnStack.isEmpty ? [activeTurnId] : activePromptTurnStack
+                terminalActivePromptTurnIds = codexTranscriptTerminalTurnIds(
+                    path: transcriptPath,
+                    turnIds: Set(activeTurnIds)
+                )
+                previousActivePromptTurnIsTerminal = terminalActivePromptTurnIds.contains(activeTurnId)
+            } else {
+                terminalActivePromptTurnIds = []
+                previousActivePromptTurnIsTerminal = false
+            }
             let nestedPromptSubmit: Bool
             if !sessionId.isEmpty {
                 nestedPromptSubmit = (try? store.recordPromptSubmit(
@@ -24205,7 +24592,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    transcriptPath: transcriptPathForStore,
+                    turnId: input.turnId,
+                    previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
+                    terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                     pid: pid,
                     launchCommand: launchCommand
                 )) ?? false
@@ -24392,6 +24782,29 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: cwd
             )
+            let terminalActivePromptTurnIdsForStop: Set<String>
+            if def.name == "codex",
+               let incomingTurnId = normalizedHookValue(input.turnId) {
+                let activePromptTurnStack = mapped?.activePromptTurnIds?
+                    .compactMap({ normalizedHookValue($0) }) ?? []
+                let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
+                let activeTurnIds = activePromptTurnStack.isEmpty
+                    ? activePromptTurnId.map { [$0] } ?? []
+                    : activePromptTurnStack
+                let activeTurnIdsToCheck = activeTurnIds.filter { $0 != incomingTurnId }
+                if !activeTurnIdsToCheck.isEmpty,
+                   let transcriptPath = normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath)
+                       ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                    terminalActivePromptTurnIdsForStop = codexTranscriptTerminalTurnIds(
+                        path: transcriptPath,
+                        turnIds: Set(activeTurnIdsToCheck)
+                    )
+                } else {
+                    terminalActivePromptTurnIdsForStop = []
+                }
+            } else {
+                terminalActivePromptTurnIdsForStop = []
+            }
             let nestedPromptStop: Bool
             if !sessionId.isEmpty {
                 nestedPromptStop = (try? store.recordPromptStop(
@@ -24400,6 +24813,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     surfaceId: surfaceId,
                     cwd: cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    turnId: input.turnId,
+                    terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
                     launchCommand: launchCommand,
                     lastSubtitle: nil,
@@ -27966,7 +28381,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           focus-window --window <id>
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
-          reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
+          reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
+          reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
