@@ -5951,13 +5951,13 @@ class TabManager: ObservableObject {
 
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
         guard let workspace = selectedWorkspace else { return nil }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let target = workspace.focusedBonsplitPaneForCommands() else {
             return nil
         }
 
-        let tabsInPane = workspace.bonsplitController.tabs(inPane: paneId)
+        let tabsInPane = target.controller.tabs(inPane: target.paneId)
         guard !tabsInPane.isEmpty else { return nil }
-        guard let selectedTabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id ?? tabsInPane.first?.id else {
+        guard let selectedTabId = target.controller.selectedTab(inPane: target.paneId)?.id ?? tabsInPane.first?.id else {
             return nil
         }
 
@@ -6140,14 +6140,9 @@ class TabManager: ObservableObject {
             return focusedPanelId
         }
 
-        if workspace.panels.count == 1 {
-            return workspace.panels.keys.first
-        }
-
-        let candidatePane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
-        if let candidatePane,
-           let selectedTabId = workspace.bonsplitController.selectedTab(inPane: candidatePane)?.id
-                ?? workspace.bonsplitController.tabs(inPane: candidatePane).first?.id,
+        if let target = workspace.focusedBonsplitPaneForCommands(),
+           let selectedTabId = target.controller.selectedTab(inPane: target.paneId)?.id
+                ?? target.controller.tabs(inPane: target.paneId).first?.id,
            let panelId = workspace.panelIdFromSurfaceId(selectedTabId),
            workspace.panels[panelId] != nil {
             return panelId

@@ -1885,6 +1885,88 @@ final class TabManagerNotificationFocusTests: XCTestCase {
 
 
 @MainActor
+final class TabManagerCloseOtherTabsInPaneTests: XCTestCase {
+    func testCloseOtherTabsInFocusedPaneUsesDockController() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let mainTabCountBefore = workspace.bonsplitController.allTabIds.count
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let firstDockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        let selectedDockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+        let thirdDockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+
+        workspace.focusPanel(selectedDockPanel.id)
+        XCTAssertEqual(workspace.focusedPanelId, selectedDockPanel.id)
+        XCTAssertTrue(manager.canCloseOtherTabsInFocusedPane())
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return true
+        }
+
+        manager.closeOtherTabsInFocusedPaneWithConfirmation()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(workspace.bonsplitController.allTabIds.count, mainTabCountBefore)
+        let remainingDockPanelIds = dock.controller.tabs(inPane: dockPaneId).compactMap { tab in
+            workspace.panelIdFromSurfaceId(tab.id)
+        }
+        XCTAssertEqual(remainingDockPanelIds, [selectedDockPanel.id])
+        XCTAssertNil(workspace.panels[firstDockPanel.id])
+        XCTAssertNil(workspace.panels[thirdDockPanel.id])
+        XCTAssertNotNil(workspace.panels[selectedDockPanel.id])
+    }
+
+    func testCloseCurrentPanelDoesNotUseMainFallbackWhenEmptyDockPaneFocused() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        XCTAssertNil(workspace.focusedPanelId)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return true
+        }
+
+        manager.closeCurrentPanelWithConfirmation()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(promptCount, 0)
+        XCTAssertNotNil(workspace.panels[mainPanelId])
+        XCTAssertEqual(workspace.focusedBonsplitPaneForCommands()?.paneId, dockPaneId)
+    }
+}
+
+
+@MainActor
 final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
     func testDoesNotUnfocusWhenPendingTabIsCurrentlySelected() {
         let tabId = UUID()
