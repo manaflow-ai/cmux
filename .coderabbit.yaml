@@ -82,6 +82,9 @@ reviews:
     - path: "cmuxTests/**/*Hook*.swift"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook-related tests. Tests for special hook dispatch should prove the agent cannot use the shared env-interpolating path.
+    - path: "cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Claude notification hook integration regressions. Preserve hook command routing, socket behavior, and notification payload handling.
     - path: "cmuxTests/FeedCoordinatorTests.swift"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed bridge tests. Preserve source/event routing through `cmux hooks feed --source <agent> --event <event>` and the longer Feed timeout behavior.
@@ -121,7 +124,7 @@ reviews:
       - name: "cmux agent hook standardization"
         mode: error
         instructions: |
-          For agent hook install, uninstall, command generation, Feed bridge, hook config writer, hook docs, and hook tests, fail when the diff violates `.github/review-bot-rules/agent-hook-standardization.md`: new hook integrations must use shared `AgentHookDef` metadata and shared command generation, pinned dispatch needs agent-specific behavior coverage, and hook code/docs/tests must not hardcode app bundle paths, socket paths, or release channel names outside the shared pinned hook path. Pinned dispatch must preserve owned-hook markers, install-time CLI/socket pinning, fallback to `command -v cmux`, disable-env handling, longer Feed timeouts, CLI source/event routing, direct plugin bridge contracts such as OpenCode `feed.push`, and legacy cmux-owned hook pruning. Pass for agent-native config writers that still call shared command helpers, direct plugin Feed bridges that own their event bus, and existing complexity not worsened by the PR.
+          For agent hook install, uninstall, command generation, Feed bridge, hook config writer, hook docs, and hook tests, fail when the diff violates `.github/review-bot-rules/agent-hook-standardization.md`: new hook integrations must use shared `AgentHookDef` metadata and shared command generation, pinned dispatch needs agent-specific behavior coverage, and hook code/docs/tests must not hardcode app bundle paths, socket paths, or release channel names outside the shared pinned hook path. Pinned dispatch must preserve owned-hook markers, install-time CLI/socket pinning, fallback to `command -v cmux`, disable-env handling, longer Feed timeouts, CLI source/event routing, direct plugin bridge contracts such as OpenCode `feed.push`, and legacy cmux-owned hook pruning. In mixed files, apply this check only to hook and Feed bridge hunks. Pass for agent-native config writers that still call shared command helpers, direct plugin Feed bridges that own their event bus, and existing complexity not worsened by the PR.
       - name: "cmux Swift actor isolation"
         mode: error
         instructions: |
