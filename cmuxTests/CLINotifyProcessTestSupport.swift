@@ -33,6 +33,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         private let listenerFD: Int32
         private let socketPath: String
         private var stopped = false
+        private var acceptFailure: String?
 
         init(listenerFD: Int32, socketPath: String, finished: XCTestExpectation) {
             self.listenerFD = listenerFD
@@ -44,6 +45,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
             lock.lock()
             defer { lock.unlock() }
             return stopped
+        }
+
+        var acceptFailureDescription: String? {
+            lock.lock()
+            defer { lock.unlock() }
+            return acceptFailure
+        }
+
+        func recordAcceptFailure(errnoValue: Int32) {
+            lock.lock()
+            if acceptFailure == nil {
+                acceptFailure = "accept failed with errno \(errnoValue)"
+            }
+            lock.unlock()
         }
 
         func stop() {
@@ -237,7 +252,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     }
                 }
                 if clientFD < 0 {
-                    if errno == EINTR { continue }
+                    let errnoValue = errno
+                    if errnoValue == EINTR { continue }
+                    if !server.isStopped {
+                        server.recordAcceptFailure(errnoValue: errnoValue)
+                    }
                     return
                 }
                 if server.isStopped {

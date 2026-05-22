@@ -681,6 +681,29 @@ def agent_specs() -> tuple[list[AgentSpec], list[dict[str, str]]]:
     return specs, unavailable
 
 
+def merge_existing_fixture(
+    output: pathlib.Path,
+    selected_agents: set[str] | None,
+    captures: list[dict[str, Any]],
+    unavailable: list[dict[str, str]],
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    if not selected_agents or not output.exists():
+        return captures, unavailable
+
+    existing = json.loads(output.read_text())
+    preserved_captures = [
+        item
+        for item in existing.get("captures", [])
+        if item.get("agent") not in selected_agents
+    ]
+    preserved_unavailable = [
+        item
+        for item in existing.get("unavailable", [])
+        if item.get("agent") not in selected_agents
+    ]
+    return preserved_captures + captures, preserved_unavailable + unavailable
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=pathlib.Path, default=DEFAULT_OUTPUT)
@@ -694,10 +717,11 @@ def main() -> int:
     register_capture_root(capture_root)
 
     specs, unavailable = agent_specs()
+    selected_agents: set[str] | None = None
     if args.agent:
-        wanted = set(args.agent)
-        specs = [spec for spec in specs if spec.agent in wanted]
-        unavailable = [item for item in unavailable if item["agent"] in wanted]
+        selected_agents = set(args.agent)
+        specs = [spec for spec in specs if spec.agent in selected_agents]
+        unavailable = [item for item in unavailable if item["agent"] in selected_agents]
 
     captures: list[dict[str, Any]] = []
     try:
@@ -719,6 +743,7 @@ def main() -> int:
                     )
                 unavailable.append(failed)
 
+        captures, unavailable = merge_existing_fixture(output, selected_agents, captures, unavailable)
         fixture = {
             "version": 1,
             "captureSource": "real-cli-mitm-har",

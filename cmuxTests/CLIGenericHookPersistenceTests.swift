@@ -2386,6 +2386,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             startIndex: commandStart,
                             expectedSubstrings: expectedSocketSubstrings
                         )
+                        XCTAssertNil(
+                            acceptingServer?.acceptFailureDescription,
+                            "\(trajectory.name) \(step.name): mock socket accept loop failed"
+                        )
                         XCTAssertNotNil(
                             stepCommands,
                             "\(trajectory.name) \(step.name): expected \(expectedSocketSubstrings), saw \(Array(state.snapshot().dropFirst(commandStart)))"
@@ -2420,7 +2424,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(Set(capturesByAgent.keys), ["claude", "codex", "opencode"])
 
         let unavailableByAgent = Dictionary(uniqueKeysWithValues: fixture.unavailable.map { ($0.agent, $0.reason) })
-        XCTAssertEqual(unavailableByAgent["gemini"], "Gemini CLI opened an auth flow and produced no HAR entries with the current local configuration.")
+        let geminiUnavailableReason = try XCTUnwrap(unavailableByAgent["gemini"])
+        XCTAssertTrue(
+            [
+                "Gemini CLI opened an auth flow and produced no HAR entries with the current local configuration.",
+                "No gemini executable was available on PATH.",
+            ].contains(geminiUnavailableReason),
+            geminiUnavailableReason
+        )
         XCTAssertEqual(unavailableByAgent["antigravity"], "No agy or antigravity executable was available on PATH.")
 
         let fixtureText = try String(contentsOf: agentNetworkCaptureFixtureURL(), encoding: .utf8)
