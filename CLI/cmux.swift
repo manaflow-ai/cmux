@@ -24088,7 +24088,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             for _ in 0..<8 {
                 guard seenSessionIds.insert(ancestorSessionId).inserted,
                       let candidate = try? store.lookup(sessionId: ancestorSessionId),
-                      normalizedHookValue(candidate.workspaceId) == normalizedHookValue(workspaceId),
                       normalizedHookValue(candidate.surfaceId) == normalizedHookValue(surfaceId) else {
                     break
                 }
@@ -24588,7 +24587,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     launchCommand: launchCommand,
                     isRestorable: suppressRestorableRecord ? false : nil,
                     lastSubtitle: nil,
-                    lastBody: nil
+                    lastBody: nil,
+                    runtimeStatus: nil,
+                    updateRuntimeStatus: suppressRestorableRecord
                 )) ?? false
             } else {
                 nestedPromptStop = false
