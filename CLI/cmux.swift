@@ -21426,7 +21426,9 @@ struct CMUXCLI {
         displayName: String,
         sessionId: String,
         cwd: String?,
-        launchCommand: AgentHookLaunchCommandRecord?
+        launchCommand: AgentHookLaunchCommandRecord?,
+        expectedCurrentSessionId: String? = nil,
+        expectedCurrentSource: String? = nil
     ) -> Bool {
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
@@ -21451,6 +21453,12 @@ struct CMUXCLI {
             "command": command,
             "auto_resume": true
         ]
+        if let expectedCurrentSessionId = normalizedHookValue(expectedCurrentSessionId) {
+            params["expected_checkpoint_id"] = expectedCurrentSessionId
+        }
+        if let expectedCurrentSource = normalizedHookValue(expectedCurrentSource) {
+            params["expected_source"] = expectedCurrentSource
+        }
         if let cwd = normalizedHookValue(cwd) ?? normalizedHookValue(launchCommand?.workingDirectory) {
             params["cwd"] = cwd
         }
@@ -24103,7 +24111,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: parent.sessionId,
                     cwd: parent.cwd,
-                    launchCommand: parent.launchCommand
+                    launchCommand: parent.launchCommand,
+                    expectedCurrentSessionId: sessionId,
+                    expectedCurrentSource: "agent-hook"
                 )
                 if publishedParentBinding {
                     return

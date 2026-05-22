@@ -6611,6 +6611,31 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Surface not found", data: nil)
                 return
             }
+            let currentBinding = target.workspace.surfaceResumeBinding(panelId: target.surfaceId)
+            let expectedCheckpointId = v2OptionalTrimmedRawString(params, "expected_checkpoint_id")
+                ?? v2OptionalTrimmedRawString(params, "expectedCheckpointId")
+            if let expectedCheckpointId, currentBinding?.checkpointId != expectedCheckpointId {
+                result = .ok(v2SurfaceResumeResult(
+                    tabManager: target.tabManager,
+                    workspace: target.workspace,
+                    surfaceId: target.surfaceId,
+                    binding: currentBinding,
+                    cleared: false
+                ))
+                return
+            }
+            let expectedSource = v2OptionalTrimmedRawString(params, "expected_source")
+                ?? v2OptionalTrimmedRawString(params, "expectedSource")
+            if let expectedSource, currentBinding?.source != expectedSource {
+                result = .ok(v2SurfaceResumeResult(
+                    tabManager: target.tabManager,
+                    workspace: target.workspace,
+                    surfaceId: target.surfaceId,
+                    binding: currentBinding,
+                    cleared: false
+                ))
+                return
+            }
             let effectiveBinding = v2SurfaceResumeBindingWithApproval(binding)
             guard target.workspace.setSurfaceResumeBinding(effectiveBinding, panelId: target.surfaceId) else {
                 result = .err(code: "invalid_params", message: "Resume command is empty", data: nil)
