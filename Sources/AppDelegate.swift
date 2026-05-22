@@ -576,6 +576,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.detectRunningUnderXCTest(env)
     }
 
+    private func shouldBootstrapInitialMainWindowDuringLaunch(
+        environment env: [String: String],
+        isRunningUnderXCTest: Bool
+    ) -> Bool {
+        if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) {
+            return true
+        }
+        return !isRunningUnderXCTest
+    }
+
+    private func shouldRunUITestLaunchWindowFallback(
+        environment env: [String: String],
+        isRunningUnderXCTest: Bool
+    ) -> Bool {
+        isRunningUnderXCTest && env.keys.contains { $0.hasPrefix("CMUX_UI_TEST_") }
+    }
+
     @MainActor
     final class MainWindowContext {
         let windowId: UUID
@@ -1220,8 +1237,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
 
-        StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
-        scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        if shouldBootstrapInitialMainWindowDuringLaunch(
+            environment: env,
+            isRunningUnderXCTest: isRunningUnderXCTest
+        ) {
+            StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
+            scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        } else {
+            StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.skipped.unitTest")
+        }
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
@@ -1245,7 +1269,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // In UI tests, `WindowGroup` occasionally fails to materialize a window quickly on the VM.
         // If there are no windows shortly after launch, force-create one so XCUITest can proceed.
-        if isRunningUnderXCTest {
+        if shouldRunUITestLaunchWindowFallback(
+            environment: env,
+            isRunningUnderXCTest: isRunningUnderXCTest
+        ) {
             if let rawVariant = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] {
                 UserDefaults.standard.set(
                     BrowserImportHintSettings.variant(for: rawVariant).rawValue,

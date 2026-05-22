@@ -4861,6 +4861,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
     private var runtimeSurfaceFreedOutOfBandForTesting = false
+    private var debugInjectedStaleSurfacePointerForTesting: UnsafeMutableRawPointer?
     private var runtimeSurfaceCreateAttemptCountForTesting = 0
     private let debugForceRefreshCountLock = NSLock()
     private var debugForceRefreshCountValue = 0
@@ -5169,6 +5170,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let registeredOwnerId = registry.runtimeSurfaceOwnerId(surface)
         guard registeredOwnerId == id,
               cmuxSurfacePointerAppearsLive(surface) else {
+#if DEBUG
+            let keepCallbackContextForOutOfBandStaleSurface = runtimeSurfaceFreedOutOfBandForTesting
+            runtimeSurfaceFreedOutOfBandForTesting = false
+            let injectedStalePointer = debugInjectedStaleSurfacePointerForTesting == surface
+                ? debugInjectedStaleSurfacePointerForTesting
+                : nil
+            debugInjectedStaleSurfacePointerForTesting = nil
+#else
+            let keepCallbackContextForOutOfBandStaleSurface = false
+#endif
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
@@ -5184,10 +5195,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 "registryOwner=\(registeredOwnerToken)"
             )
 #endif
-            callbackContext?.release()
+            if !keepCallbackContextForOutOfBandStaleSurface {
+                callbackContext?.release()
+            }
+#if DEBUG
+            injectedStalePointer?.deallocate()
+#endif
             return nil
         }
         return surface
+    }
+
+    private func liveSurfaceForMainThreadGhosttyAccess(reason: String) -> ghostty_surface_t? {
+        guard Thread.isMainThread else { return nil }
+        return MainActor.assumeIsolated {
+            liveSurfaceForGhosttyAccess(reason: reason)
+        }
     }
 
     private static let portalHostAreaThreshold: CGFloat = 4
@@ -5535,7 +5558,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             if let screen = view.window?.screen ?? NSScreen.main,
                let displayID = screen.displayID,
                displayID != 0,
-               let s = surface {
+               let s = liveSurfaceForGhosttyAccess(reason: "surface.attach.reuse") {
                 ghostty_surface_set_display_id(s, displayID)
             }
             return
@@ -5589,7 +5612,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         } else if let screen = view.window?.screen ?? NSScreen.main,
                   let displayID = screen.displayID,
                   displayID != 0,
-                  let s = surface {
+                  let s = liveSurfaceForGhosttyAccess(reason: "surface.attach.displayId") {
             // Surface exists but we're (re)attaching after a view hierarchy move; ensure display id.
             ghostty_surface_set_display_id(s, displayID)
 #if DEBUG
@@ -5979,7 +6002,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         layerScale: CGFloat,
         backingSize: CGSize? = nil
     ) -> Bool {
-        guard let surface = surface else { return false }
+        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.updateSize") else { return false }
         _ = layerScale
 
         let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
@@ -6097,7 +6120,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         desiredFocusState = focused
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
-        guard let surface = surface else { return }
+        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.setFocus") else { return }
         ghostty_surface_set_focus(surface, focused)
 
         // If we focus a surface while it is being rapidly reparented (closing splits, etc),
@@ -6114,7 +6137,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func setOcclusion(_ visible: Bool) {
-        guard let surface = surface else { return }
+        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.setOcclusion") else { return }
         ghostty_surface_set_occlusion(surface, visible)
     }
 
@@ -6124,7 +6147,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return needsConfirmCloseOverrideForTesting
         }
 #endif
-        guard let surface = surface else { return false }
+        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.needsConfirmClose") else { return false }
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
@@ -6568,7 +6591,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func performBindingAction(_ action: String) -> Bool {
-        guard let surface = surface else { return false }
+        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.performBindingAction") else { return false }
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
@@ -6598,7 +6621,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func hasSelection() -> Bool {
-        guard let surface = surface else { return false }
+        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.hasSelection") else { return false }
         return ghostty_surface_has_selection(surface)
     }
 
@@ -6645,24 +6668,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
         callbackContext?.release()
     }
 
-    /// Test-only helper to simulate a stale Swift wrapper whose native surface
-    /// was already freed out-of-band.
+    /// Test-only helper to simulate a stale Swift wrapper whose runtime surface
+    /// was removed from ownership tracking out-of-band.
     @MainActor
-    func replaceSurfaceWithFreedPointerForTesting() {
+    func replaceSurfaceWithStalePointerForTesting() {
         guard !runtimeSurfaceFreedOutOfBandForTesting else { return }
 
-        let callbackContext = surfaceCallbackContext
-        surfaceCallbackContext = nil
+        debugInjectedStaleSurfacePointerForTesting?.deallocate()
 
-        guard let surfaceToFree = surface else {
-            callbackContext?.release()
-            return
-        }
-
-        TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
-        ghostty_surface_free(surfaceToFree)
+        let staleSurface = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+        surface = staleSurface
+        debugInjectedStaleSurfacePointerForTesting = staleSurface
+        TerminalSurfaceRegistry.shared.registerRuntimeSurface(staleSurface, ownerId: id)
+        TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(staleSurface, ownerId: id)
         runtimeSurfaceFreedOutOfBandForTesting = true
-        callbackContext?.release()
     }
 #endif
 
@@ -6696,6 +6715,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
 #if DEBUG
+        if let injectedStalePointer = debugInjectedStaleSurfacePointerForTesting,
+           injectedStalePointer == surfaceToFree {
+            debugInjectedStaleSurfacePointerForTesting = nil
+            runtimeSurfaceFreedOutOfBandForTesting = false
+            injectedStalePointer.deallocate()
+            callbackContext?.release()
+            return
+        }
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
@@ -7160,7 +7187,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             self?.windowDidChangeScreen(notification)
         }
 
-        if let surface = terminalSurface?.surface,
+        if let surface = terminalSurface?.liveSurfaceForGhosttyAccess(reason: "surfaceView.viewDidMoveToWindow"),
            let displayID = window.screen?.displayID,
            displayID != 0 {
             ghostty_surface_set_display_id(surface, displayID)
@@ -10022,7 +10049,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let window else { return }
         guard let object = notification.object as? NSWindow, window == object else { return }
         guard let screen = window.screen else { return }
-        guard let surface = terminalSurface?.surface else { return }
+        guard let surface = terminalSurface?.liveSurfaceForGhosttyAccess(reason: "surfaceView.windowDidChangeScreen") else { return }
 
         if let displayID = screen.displayID,
            displayID != 0 {
@@ -11097,6 +11124,9 @@ final class GhosttySurfaceScrollView: NSView {
     /// Request an immediate terminal redraw after geometry updates so stale IOSurface
     /// contents do not remain stretched during live resize churn.
     func refreshSurfaceNow(reason: String = "portal.refreshSurfaceNow") {
+        guard let terminalSurface = surfaceView.terminalSurface else { return }
+        guard terminalSurface.liveSurfaceForGhosttyAccess(reason: "\(reason).preflight") != nil else { return }
+
         // Portal reparent/reveal can settle geometry a tick before AppKit finishes
         // realizing the terminal subtree's backing layer state. Flush display for the
         // hosted subtree first so forceRefresh does not race a still-unrealized layer.
@@ -11104,7 +11134,7 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.layoutSubtreeIfNeeded()
         displayIfNeeded()
         surfaceView.displayIfNeeded()
-        surfaceView.terminalSurface?.forceRefresh(reason: reason)
+        terminalSurface.forceRefresh(reason: reason)
     }
 
     @discardableResult

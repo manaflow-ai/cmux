@@ -861,8 +861,19 @@ struct cmuxApp: App {
         }
     }
 
+    private static func shouldBootstrapMainWindowScene(
+        environment env: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) {
+            return true
+        }
+        return !SocketControlSettings.isRunningUnderXCTest(environment: env)
+    }
+
     private func bootstrapMainWindowScene() {
-        appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
+        if Self.shouldBootstrapMainWindowScene() {
+            appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
+        }
         applyAppearance()
     }
 
