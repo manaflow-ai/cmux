@@ -3943,6 +3943,7 @@ final class WindowBrowserPortal: NSObject {
         }()
         return BrowserWindowPortalRegistry.DebugSnapshot(
             visibleInUI: entry.visibleInUI,
+            zPriority: entry.zPriority,
             containerHidden: entry.containerView?.isHidden ?? true,
             frameInWindow: frameInWindow,
             paneDropContext: entry.paneDropContext
@@ -4001,6 +4002,7 @@ final class WindowBrowserPortal: NSObject {
 enum BrowserWindowPortalRegistry {
     struct DebugSnapshot {
         let visibleInUI: Bool
+        let zPriority: Int
         let containerHidden: Bool
         let frameInWindow: CGRect
         let paneDropContext: BrowserPaneDropContext?

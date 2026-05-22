@@ -726,6 +726,7 @@ final class MarkdownPanelTests: XCTestCase {
             ),
             reason: "unit-test"
         )
+        workspace.setPortalPresentationZPriority(1, reason: "unit-test-priority")
 
         panel.rendererSession.hidePortal(reason: "unit-test-hidden")
         XCTAssertEqual(panel.rendererSession.portalSnapshot()?.visibleInUI, false)
@@ -734,6 +735,7 @@ final class MarkdownPanelTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(panel.rendererSession.portalSnapshot())
         XCTAssertEqual(snapshot.visibleInUI, true)
+        XCTAssertEqual(snapshot.zPriority, 1)
         XCTAssertEqual(snapshot.containerHidden, false)
     }
 

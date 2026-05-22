@@ -8274,6 +8274,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
     private var portalPresentationVisibleInUI = true
+    private var portalPresentationZPriority = 2
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -12499,6 +12500,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func setPortalPresentationZPriority(_ zPriority: Int, reason: String) {
+        let changed = portalPresentationZPriority != zPriority
+        portalPresentationZPriority = zPriority
+        guard changed, portalRenderingEnabled, portalPresentationVisibleInUI else { return }
+        reconcileMarkdownPortalVisibilityForCurrentRenderedLayout(reason: reason)
+    }
+
     // MARK: - Utility
 
     /// Writes a small shell wrapper that prints a banner ("remote ssh ended — target X"),
@@ -13348,7 +13356,7 @@ final class Workspace: Identifiable, ObservableObject {
                     snapshot?.containerHidden == true
                 guard portalNeedsShow else { continue }
                 let restored = markdownPanel.rendererSession.restorePortalIfPossible(
-                    zPriority: 2,
+                    zPriority: portalPresentationZPriority,
                     dropContext: dropContext,
                     reason: reason
                 )
