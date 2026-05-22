@@ -561,6 +561,103 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTerminalNestedChildDoesNotClearParentTurnStack() throws {
+        let context = try makeClaudeHookContext(name: "codex-terminal-child-stack")
+        defer { context.cleanup() }
+
+        let sessionId = "terminal-child-stack-session"
+        let terminalChildTranscript = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-terminal-child-stack.jsonl",
+            turnId: "child-turn",
+            eventType: "turn_complete"
+        )
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"spawn child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(terminalChildTranscript.path)","hook_event_name":"UserPromptSubmit","prompt":"first child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let siblingPromptStart = context.state.commands.count
+        let siblingPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"sibling-turn","cwd":"\#(context.root.path)","transcript_path":"\#(terminalChildTranscript.path)","hook_event_name":"UserPromptSubmit","prompt":"second child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(siblingPrompt.timedOut, siblingPrompt.stderr)
+        XCTAssertEqual(siblingPrompt.status, 0, siblingPrompt.stderr)
+        let siblingPromptCommands = Array(context.state.commands.dropFirst(siblingPromptStart))
+        XCTAssertFalse(
+            siblingPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A sibling child prompt after a terminal child transcript must stay nested, saw \(siblingPromptCommands)"
+        )
+        XCTAssertFalse(
+            siblingPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "A sibling child prompt after a terminal child transcript must not rewrite parent Running status, saw \(siblingPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(terminalChildTranscript.path)","hook_event_name":"Stop","last_assistant_message":"first child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A late terminal child Stop must remain nested after a sibling child prompt, saw \(childStopCommands)"
+        )
+
+        let siblingStopStart = context.state.commands.count
+        let siblingStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"sibling-turn","cwd":"\#(context.root.path)","transcript_path":"\#(terminalChildTranscript.path)","hook_event_name":"Stop","last_assistant_message":"second child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(siblingStop.timedOut, siblingStop.stderr)
+        XCTAssertEqual(siblingStop.status, 0, siblingStop.stderr)
+        let siblingStopCommands = Array(context.state.commands.dropFirst(siblingStopStart))
+        XCTAssertFalse(
+            siblingStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "The sibling child Stop must not notify while the parent is active, saw \(siblingStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The parent Stop should still notify after terminal nested children, saw \(parentStopCommands)"
+        )
+    }
+
     func testCodexStopFromStaleOlderTurnDoesNotNotifyWhileNewerTurnIsActive() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-turn-stop")
         defer { context.cleanup() }
