@@ -1588,6 +1588,110 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteDisconnectClearsExplicitRemotePTYSessionIDBeforeReseed() throws {
+        let workspace = Workspace()
+        let explicitSessionConfig = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64011,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        workspace.configureRemoteConnection(explicitSessionConfig, autoConnect: false)
+
+        let initialPanelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: true,
+                initialCommand: "cmux ssh-pty-attach",
+                remotePTYSessionID: "old-explicit-session"
+            )
+        )
+        XCTAssertTrue(workspace.closePanel(initialPanelID, force: true))
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: "old-explicit-session"))
+
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+
+        let reseededConfig = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64012,
+            relayID: String(repeating: "c", count: 16),
+            relayToken: String(repeating: "d", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true
+        )
+        workspace.configureRemoteConnection(reseededConfig, autoConnect: false)
+
+        let defaultSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)
+        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: defaultSessionID))
+        let outcome = workspace.markRemotePTYAttachEnded(surfaceId: panel.id, sessionID: defaultSessionID)
+        XCTAssertTrue(outcome.clearedRemotePTYSession)
+        XCTAssertTrue(outcome.untrackedRemoteTerminal)
+    }
+
+    @MainActor
+    func testRemoteReconfigureClearsExplicitRemotePTYSessionIDForTrackedSurface() throws {
+        let workspace = Workspace()
+        let originalConfig = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64013,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        workspace.configureRemoteConnection(originalConfig, autoConnect: false)
+
+        let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: true,
+                initialCommand: "cmux ssh-pty-attach",
+                remotePTYSessionID: "old-explicit-session"
+            )
+        )
+        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: "old-explicit-session"))
+
+        let replacementConfig = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64014,
+            relayID: String(repeating: "c", count: 16),
+            relayToken: String(repeating: "d", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true
+        )
+        workspace.configureRemoteConnection(replacementConfig, autoConnect: false)
+
+        let defaultSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)
+        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: defaultSessionID))
+    }
+
+    @MainActor
     func testExplicitRemotePTYSessionSplitTracksRemoteTerminalWithoutDefaultStartup() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
