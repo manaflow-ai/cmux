@@ -259,26 +259,33 @@ extension CMUXCLI {
             graceSeconds = try parseMemoryDuration(
                 graceSecondsOpt,
                 label: "--grace-seconds",
-                maximum: Self.memoryTrimMaximumGraceSeconds
+                maximum: Self.memoryTrimMaximumGraceSeconds,
+                allowZero: false
             )
         } else {
             graceSeconds = try parseMemoryDuration(
                 graceOpt ?? "5s",
                 label: "--grace",
-                maximum: Self.memoryTrimMaximumGraceSeconds
+                maximum: Self.memoryTrimMaximumGraceSeconds,
+                allowZero: false
             )
         }
         let workspaceHandle = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         return MemoryTrimCommandOptions(
             workspaceHandle: workspaceHandle,
             agent: agentOpt,
-            graceSeconds: max(0, graceSeconds),
+            graceSeconds: graceSeconds,
             dryRun: dryRun,
             jsonOutput: jsonOutput
         )
     }
 
-    func parseMemoryDuration(_ raw: String, label: String, maximum: TimeInterval? = nil) throws -> TimeInterval {
+    func parseMemoryDuration(
+        _ raw: String,
+        label: String,
+        maximum: TimeInterval? = nil,
+        allowZero: Bool = true
+    ) throws -> TimeInterval {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else {
             throw CLIError(message: String(
@@ -332,6 +339,15 @@ extension CMUXCLI {
                 format: String(
                     localized: "cli.memory.error.durationInvalid",
                     defaultValue: "%@ must be a non-negative duration like 30s, 15m, 6h, or 1d"
+                ),
+                label
+            ))
+        }
+        if !allowZero, seconds <= 0 {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationPositiveRequired",
+                    defaultValue: "%@ must be a positive duration like 30s, 15m, 6h, or 1d"
                 ),
                 label
             ))

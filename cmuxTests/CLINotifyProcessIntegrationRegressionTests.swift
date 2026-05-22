@@ -1136,7 +1136,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "--agent",
                 "claude",
                 "--grace-seconds",
-                "0",
+                "1",
                 "--json",
                 "--id-format",
                 "uuids",
