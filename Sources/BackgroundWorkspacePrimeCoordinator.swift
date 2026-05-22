@@ -101,6 +101,7 @@ final class BackgroundWorkspacePrimeCoordinator {
     private var readinessObservers: [NSObjectProtocol] = []
 
     deinit {
+        cancelRegisteredReadinessWaiters()
         readinessCancellables.forEach { $0.cancel() }
         readinessObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }

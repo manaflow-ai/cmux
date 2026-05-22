@@ -1,7 +1,9 @@
 import Darwin
 import Foundation
 
-final class CodexTranscriptMonitorSession {
+// Mutable monitor state is confined to `queue`; public lifecycle entrypoints
+// synchronously enter that queue so tests and registry callers share one owner.
+final class CodexTranscriptMonitorSession: @unchecked Sendable {
     private enum Policy {
         static let maxTailBytes: UInt64 = 512 * 1024
         static let maxBufferedLineBytes = 1 * 1024 * 1024
@@ -10,9 +12,11 @@ final class CodexTranscriptMonitorSession {
     }
 
     let workspaceId: UUID
+    private static let queueKey = DispatchSpecificKey<ObjectIdentifier>()
 
     private let request: CodexTranscriptMonitorRequest
     private let queue: DispatchQueue
+    private let queueIdentifier: ObjectIdentifier
     private let onEvent: (CodexTranscriptMonitorEvent) -> Void
     private let onFinish: (String, CodexTranscriptMonitorSession) -> Void
     private var source: DispatchSourceFileSystemObject?
@@ -35,11 +39,13 @@ final class CodexTranscriptMonitorSession {
     ) {
         self.request = request
         self.queue = queue
+        self.queueIdentifier = ObjectIdentifier(queue)
         self.onEvent = onEvent
         self.onFinish = onFinish
         self.workspaceId = request.workspaceId
         self.transcriptPath = CodexTranscriptMonitorParser.normalizedValue(request.transcriptPath)
         self.sawRelevantTurn = Self.initialSawRelevantTurn(for: request)
+        queue.setSpecific(key: Self.queueKey, value: queueIdentifier)
     }
 
     deinit {
@@ -47,6 +53,13 @@ final class CodexTranscriptMonitorSession {
     }
 
     func start() {
+        syncOnQueue {
+            self.startOnQueue()
+        }
+    }
+
+    private func startOnQueue() {
+        guard !finished else { return }
         armDeadline()
         installSourceOrRetry()
     }
@@ -57,6 +70,12 @@ final class CodexTranscriptMonitorSession {
     }
 
     func cancel() {
+        syncOnQueue {
+            self.cancelOnQueue()
+        }
+    }
+
+    private func cancelOnQueue() {
         finished = true
         source?.cancel()
         source = nil
@@ -71,7 +90,7 @@ final class CodexTranscriptMonitorSession {
         if publishCompletion {
             onEvent(.completion(request: request))
         }
-        cancel()
+        cancelOnQueue()
         onFinish(request.sessionId, self)
     }
 
@@ -225,9 +244,19 @@ final class CodexTranscriptMonitorSession {
 
     #if DEBUG
     func debugReadIncrementalForTests(path: String) {
-        readIncremental(path: path)
+        syncOnQueue {
+            self.readIncremental(path: path)
+        }
     }
     #endif
+
+    private func syncOnQueue(_ operation: @Sendable () -> Void) {
+        if DispatchQueue.getSpecific(key: Self.queueKey) == queueIdentifier {
+            operation()
+        } else {
+            queue.sync(execute: operation)
+        }
+    }
 
     private func process(data: Data) {
         guard !data.isEmpty else { return }
