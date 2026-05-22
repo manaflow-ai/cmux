@@ -235,6 +235,19 @@ Workspace:
 | `workspace.moved` | Workspace moved to another window. |
 | `workspace.action` | Workspace action command completed. |
 
+`workspace.reordered` payloads use short refs and final indexes:
+
+```json
+{
+  "type": "workspace.reordered",
+  "window": "window:1",
+  "workspace": "workspace:11",
+  "from_index": 12,
+  "to_index": 1,
+  "ts": "2026-05-21T22:00:00Z"
+}
+```
+
 Surface and pane:
 
 | Name | Trigger |
