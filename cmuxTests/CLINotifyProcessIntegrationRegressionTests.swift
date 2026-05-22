@@ -73,6 +73,46 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testLateClaudeSessionStartDoesNotClearRestorablePromptSession() throws {
+        let context = try makeClaudeHookContext(name: "claude-late-start-restorable")
+        defer { context.cleanup() }
+
+        let sessionId = "late-start-session"
+        let start = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/late-start-session.jsonl","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/late-start-session.jsonl","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["isRestorable"] as? Bool, true)
+
+        let lateStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/late-start-session.jsonl","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(lateStart.timedOut, lateStart.stderr)
+        XCTAssertEqual(lateStart.status, 0, lateStart.stderr)
+
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(
+            record["isRestorable"] as? Bool,
+            true,
+            "Late non-promoting SessionStart events must not make an already restorable Claude session disappear from restore."
+        )
+    }
+
     func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
