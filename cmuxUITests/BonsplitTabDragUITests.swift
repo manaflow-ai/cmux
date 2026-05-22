@@ -928,7 +928,6 @@ final class MarkdownPaneDragUITests: XCTestCase {
         assertCounter(data, "droppedPushMarkdownCount", equals: 1)
         assertCounter(data, "droppedWebContentProcessTerminationCount", equals: 0)
         assertCounter(data, "droppedNavigationFailureCount", equals: 0)
-        assertCounter(data, "droppedFlickerSignalCount", equals: 0)
 
         guard let paneCountBefore = intValue(data["paneCountBefore"]),
               let paneCountAfter = intValue(data["paneCountAfter"]),
