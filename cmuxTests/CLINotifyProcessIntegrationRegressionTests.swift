@@ -844,6 +844,92 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(child["isRestorable"] as? Bool, false)
     }
 
+    func testCodexSubagentStopWithUnresumableLateParentClearsStaleChildResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-late-unresumable-parent")
+        defer { context.cleanup() }
+
+        let parentSessionId = "late-unresumable-parent-thread"
+        let childSessionId = "late-unresumable-child-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let childStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: childSessionId)
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Unmarked child SessionStart sets up the stale child binding this regression repairs, saw \(context.state.commands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        var seededState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var seededSessions = try XCTUnwrap(seededState["sessions"] as? [String: Any])
+        let now = Date().timeIntervalSince1970
+        seededSessions[parentSessionId] = [
+            "sessionId": parentSessionId,
+            "workspaceId": context.workspaceId,
+            "surfaceId": context.surfaceId,
+            "cwd": context.root.path,
+            "startedAt": now,
+            "updatedAt": now,
+            "launchCommand": [
+                "launcher": "omx",
+                "executablePath": "/usr/local/bin/cmux",
+                "arguments": ["/usr/local/bin/cmux", "omx", "hud"],
+                "workingDirectory": context.root.path,
+                "capturedAt": now,
+                "source": "test",
+            ],
+        ]
+        seededState["sessions"] = seededSessions
+        try JSONSerialization.data(withJSONObject: seededState, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateURL, options: .atomic)
+
+        let childStopIndex = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}"#
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertFalse(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == parentSessionId
+            },
+            "An unresumable parent must not republish a parent binding, saw \(childStopCommands)"
+        )
+        let clearRequests = childStopCommands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertTrue(
+            clearRequests.contains { $0["checkpoint_id"] as? String == childSessionId },
+            "When the parent cannot be republished, repair must clear the stale child checkpoint, saw \(childStopCommands)"
+        )
+    }
+
     func testCodexTransientVisibleSuppressionDoesNotPersistUnrestorableState() throws {
         let context = try makeClaudeHookContext(name: "codex-transient-visible-suppression")
         defer { context.cleanup() }
