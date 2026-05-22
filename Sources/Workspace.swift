@@ -4590,6 +4590,7 @@ final class WorkspaceRemotePTYBridgeServer {
         private var pendingInputBytes = 0
         private var pendingOutputSends = 0
         private var pendingOutputBytes = 0
+        private var clientInputDidComplete = false
         private var pendingPTYEventsBeforeReady: [WorkspaceRemotePTYBridgeEvent] = []
         private var pendingPTYEventBytesBeforeReady = 0
         private var closeWhenOutputFlushes: (detach: Bool, gracefulOutputClose: Bool)?
@@ -4655,6 +4656,10 @@ final class WorkspaceRemotePTYBridgeServer {
                 if isComplete {
                     // TCP half-close means the CLI is done sending stdin, but still
                     // expects PTY output until the remote session exits.
+                    self.clientInputDidComplete = true
+                    if self.isAttaching {
+                        return
+                    }
                     if !self.isAttached {
                         self.close(detach: false)
                     } else if self.clientHasExited() {
@@ -4755,6 +4760,9 @@ final class WorkspaceRemotePTYBridgeServer {
                     let pendingInput = pendingInputBeforeAttach
                     pendingInputBeforeAttach.removeAll(keepingCapacity: false)
                     forwardInput(pendingInput)
+                }
+                if clientInputDidComplete, clientHasExited() {
+                    close(detach: true)
                 }
             } catch {
                 closeWithBridgeError(Self.userFacingBridgeErrorMessage(error))
@@ -5019,7 +5027,7 @@ final class WorkspaceRemotePTYBridgeServer {
         }
 
         private func clientHasExited() -> Bool {
-            guard let clientPID else { return true }
+            guard let clientPID else { return false }
             return !Self.processIsRunning(clientPID)
         }
 

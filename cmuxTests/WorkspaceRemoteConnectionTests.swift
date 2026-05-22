@@ -2149,10 +2149,17 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     private final class DelayedOutputPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
         let detachSemaphore = DispatchSemaphore(value: 0)
 
+        private let attachStarted: DispatchSemaphore?
+        private let attachGate: DispatchSemaphore?
         private let lock = NSLock()
         private var queue: DispatchQueue?
         private var onEvent: ((WorkspaceRemotePTYBridgeEvent) -> Void)?
         private var didEmit = false
+
+        init(attachStarted: DispatchSemaphore? = nil, attachGate: DispatchSemaphore? = nil) {
+            self.attachStarted = attachStarted
+            self.attachGate = attachGate
+        }
 
         func attachBridgePTY(
             sessionID: String,
@@ -2164,6 +2171,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             queue: DispatchQueue,
             onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
         ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            attachStarted?.signal()
+            if let attachGate {
+                _ = attachGate.wait(timeout: .now() + 2)
+            }
             lock.lock()
             self.queue = queue
             self.onEvent = onEvent
@@ -4119,6 +4130,88 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
         XCTAssertTrue(writeAll(handshake + "\nafter-half-close-input", to: fd))
         XCTAssertEqual(Darwin.shutdown(fd, SHUT_WR), 0)
+
+        let responseData = try readUntilEOF(from: fd, timeout: 2)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+        let responseText = String(data: responseData, encoding: .utf8) ?? ""
+        XCTAssertTrue(responseText.contains("\"ready\""), responseText)
+        XCTAssertTrue(responseText.contains("after-half-close-output"), responseText)
+        XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 0.1), .timedOut)
+    }
+
+    func testPTYBridgeKeepsOutputOpenAfterClientHalfCloseWithoutPID() throws {
+        let rpcClient = DelayedOutputPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-half-close-no-pid",
+            attachmentID: "attachment-half-close-no-pid",
+            command: nil,
+            requireExisting: false
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\nafter-half-close-input", to: fd))
+        XCTAssertEqual(Darwin.shutdown(fd, SHUT_WR), 0)
+
+        let responseData = try readUntilEOF(from: fd, timeout: 2)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+        let responseText = String(data: responseData, encoding: .utf8) ?? ""
+        XCTAssertTrue(responseText.contains("\"ready\""), responseText)
+        XCTAssertTrue(responseText.contains("after-half-close-output"), responseText)
+        XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 0.1), .timedOut)
+    }
+
+    func testPTYBridgeDefersHalfCloseUntilAttachCompletes() throws {
+        let attachStarted = DispatchSemaphore(value: 0)
+        let attachGate = DispatchSemaphore(value: 0)
+        let rpcClient = DelayedOutputPTYBridgeRPC(attachStarted: attachStarted, attachGate: attachGate)
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-half-close-before-attach",
+            attachmentID: "attachment-half-close-before-attach",
+            command: nil,
+            requireExisting: false
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+            "client_pid": Int(getpid()),
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\nafter-half-close-input", to: fd))
+        XCTAssertEqual(attachStarted.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(Darwin.shutdown(fd, SHUT_WR), 0)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        attachGate.signal()
 
         let responseData = try readUntilEOF(from: fd, timeout: 2)
         XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
