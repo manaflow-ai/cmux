@@ -4677,7 +4677,6 @@ nonisolated enum BuildFlavor: String, Sendable {
             bundleNames: [
                 bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
                 bundle.object(forInfoDictionaryKey: "CFBundleName") as? String,
-                bundle.bundleURL.deletingPathExtension().lastPathComponent,
                 ProcessInfo.processInfo.processName,
             ].compactMap { $0 },
             bundleIdentifier: bundle.bundleIdentifier
