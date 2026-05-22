@@ -236,15 +236,33 @@ cmux 是原语，而非解决方案。它提供终端、浏览器、通知、工
 
 cmux NIGHTLY 是一个拥有独立 Bundle ID 的单独应用，因此可以与稳定版并行运行。它从最新的 `main` 提交自动构建，并通过独立的 Sparkle 更新源自动更新。
 
-## 会话恢复（当前行为）
+## 会话恢复
 
-重新启动时，cmux 目前仅恢复应用布局和元数据：
+退出 cmux 会保存当前会话。重新启动时，cmux 会恢复应用管理的状态：
 - 窗口/工作区/窗格布局
 - 工作目录
 - 终端回滚缓冲区（尽力恢复）
 - 浏览器 URL 和导航历史
 
-cmux **不会**恢复终端应用内部的实时进程状态。例如，活动的 Claude Code/tmux/vim 会话在重启后尚无法恢复。
+cmux 不会为任意实时进程状态做检查点。tmux、vim、shell 和不支持的终端应用会作为普通终端重新打开。
+
+当 hooks 保存了原生会话 ID 时，受支持的 agent 会话可以恢复：
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+高级用户和集成可以把自定义恢复命令绑定到当前终端 surface。这适用于 tmux 会话或自定义 agent CLI 等拥有持久状态的工具：
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+这个绑定会继续关联到 cmux surface。通过公开 CLI 或 socket 创建的绑定会保存用于检查和手动恢复。cmux 只会自动运行被标记为可信的恢复绑定，例如从运行中进程检测到的 tmux 绑定。 令牌、密码、密钥和 API key 等敏感环境变量键会在保存恢复绑定前被丢弃。
 
 ## Star History
 
