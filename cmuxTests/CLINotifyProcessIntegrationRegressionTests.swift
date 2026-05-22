@@ -421,6 +421,1520 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["source"] as? String, "agent-hook")
     }
 
+    func testNestedCodexPromptAndStopDoNotReplaceParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-nested-resume-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "same-process-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"spawn subagent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Parent Codex prompt should publish a resume binding, saw \(context.state.commands)"
+        )
+
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"return 1+1"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Nested Codex prompt should not replace the parent resume binding, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "Nested Codex prompt should not rewrite parent Running status, saw \(childPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"2"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertTrue(
+            childStopCommands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Nested Codex Stop should remain Feed telemetry, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Nested Codex Stop should not replace the parent resume binding, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Nested Codex Stop should not notify or mark the parent idle, saw \(childStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Parent Codex Stop should still refresh the resume binding, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Parent Codex Stop should still notify, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "Parent Codex Stop should mark Codex idle, saw \(parentStopCommands)"
+        )
+    }
+
+    func testCodexLegacyStopWithoutTurnIdPopsStoredTurnStack() throws {
+        let context = try makeClaudeHookContext(name: "codex-legacy-stop-turn-stack")
+        defer { context.cleanup() }
+
+        let sessionId = "legacy-stop-turn-stack-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"parent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let legacyChildStopStart = context.state.commands.count
+        let legacyChildStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(legacyChildStop.timedOut, legacyChildStop.stderr)
+        XCTAssertEqual(legacyChildStop.status, 0, legacyChildStop.stderr)
+        let legacyChildStopCommands = Array(context.state.commands.dropFirst(legacyChildStopStart))
+        XCTAssertFalse(
+            legacyChildStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A legacy child Stop without a turn_id must stay nested, saw \(legacyChildStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The parent Stop must still notify after a legacy child Stop without a turn_id, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "The parent Stop must still mark Codex idle after a legacy child Stop without a turn_id, saw \(parentStopCommands)"
+        )
+    }
+
+    func testGenericAgentTurnIdsStayNestedAcrossTurnChanges() throws {
+        let context = try makeClaudeHookContext(name: "generic-turn-stack")
+        defer { context.cleanup() }
+
+        let sessionId = "generic-turn-stack-session"
+        let launchEnvironment = agentLaunchEnvironment(context: context, kind: "gemini", executable: "/usr/local/bin/gemini")
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let parentPrompt = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"BeforeAgent","prompt":"parent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"BeforeAgent","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { (self.jsonObject($0)?["method"] as? String)?.hasPrefix("surface.resume.") == true },
+            "A generic nested turn_id prompt must not replace the parent resume binding, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status gemini Running ") },
+            "A generic nested turn_id prompt must not rewrite parent Running status, saw \(childPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status gemini ") },
+            "A generic nested turn_id Stop must not notify or mark the parent idle, saw \(childStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Gemini|") },
+            "The generic parent Stop must still notify after its nested child, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status gemini ") && $0.contains(" Idle ") },
+            "The generic parent Stop must still mark Gemini idle, saw \(parentStopCommands)"
+        )
+    }
+
+    func testCodexTurnStackPreservesAnonymousDepthBetweenKnownTurns() throws {
+        let context = try makeClaudeHookContext(name: "codex-mixed-anonymous-depth")
+        defer { context.cleanup() }
+
+        let sessionId = "mixed-anonymous-depth-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"parent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+
+        let anonymousChildPromptStart = context.state.commands.count
+        let anonymousChildPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"anonymous child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(anonymousChildPrompt.timedOut, anonymousChildPrompt.stderr)
+        XCTAssertEqual(anonymousChildPrompt.status, 0, anonymousChildPrompt.stderr)
+        let anonymousChildPromptCommands = Array(context.state.commands.dropFirst(anonymousChildPromptStart))
+        XCTAssertFalse(
+            anonymousChildPromptCommands.contains { (self.jsonObject($0)?["method"] as? String)?.hasPrefix("surface.resume.") == true },
+            "An anonymous child under a known parent must not replace the parent resume binding, saw \(anonymousChildPromptCommands)"
+        )
+        XCTAssertFalse(
+            anonymousChildPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "An anonymous child under a known parent must not rewrite parent Running status, saw \(anonymousChildPromptCommands)"
+        )
+
+        let grandchildPromptStart = context.state.commands.count
+        let grandchildPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"grandchild-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"grandchild"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(grandchildPrompt.timedOut, grandchildPrompt.stderr)
+        XCTAssertEqual(grandchildPrompt.status, 0, grandchildPrompt.stderr)
+        let grandchildPromptCommands = Array(context.state.commands.dropFirst(grandchildPromptStart))
+        XCTAssertFalse(
+            grandchildPromptCommands.contains { (self.jsonObject($0)?["method"] as? String)?.hasPrefix("surface.resume.") == true },
+            "A known grandchild after anonymous depth must stay nested, saw \(grandchildPromptCommands)"
+        )
+        XCTAssertFalse(
+            grandchildPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "A known grandchild after anonymous depth must not rewrite parent Running status, saw \(grandchildPromptCommands)"
+        )
+
+        let grandchildStopStart = context.state.commands.count
+        let grandchildStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"grandchild-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"grandchild done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(grandchildStop.timedOut, grandchildStop.stderr)
+        XCTAssertEqual(grandchildStop.status, 0, grandchildStop.stderr)
+        let grandchildStopCommands = Array(context.state.commands.dropFirst(grandchildStopStart))
+        XCTAssertFalse(
+            grandchildStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Grandchild Stop must not collapse anonymous child depth and notify, saw \(grandchildStopCommands)"
+        )
+
+        let anonymousChildStopStart = context.state.commands.count
+        let anonymousChildStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"anonymous child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(anonymousChildStop.timedOut, anonymousChildStop.stderr)
+        XCTAssertEqual(anonymousChildStop.status, 0, anonymousChildStop.stderr)
+        let anonymousChildStopCommands = Array(context.state.commands.dropFirst(anonymousChildStopStart))
+        XCTAssertFalse(
+            anonymousChildStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Anonymous child Stop must stay nested after a known grandchild Stop, saw \(anonymousChildStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The parent Stop must still notify after mixed anonymous depth, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "The parent Stop must still mark Codex idle after mixed anonymous depth, saw \(parentStopCommands)"
+        )
+    }
+
+    func testCodexStopWithNewTurnIdPopsAnonymousDepthUnderKnownParent() throws {
+        let context = try makeClaudeHookContext(name: "codex-anonymous-depth-turn-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "anonymous-depth-turn-stop-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"parent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+
+        let anonymousChildPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"anonymous child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(anonymousChildPrompt.timedOut, anonymousChildPrompt.stderr)
+        XCTAssertEqual(anonymousChildPrompt.status, 0, anonymousChildPrompt.stderr)
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "The child Stop should pop anonymous depth without notifying, saw \(childStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The parent Stop must still notify after a child Stop supplies a new turn_id, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "The parent Stop must still mark Codex idle after a child Stop supplies a new turn_id, saw \(parentStopCommands)"
+        )
+    }
+
+    func testCodexStopAfterInterruptedPriorTurnStillNotifies() throws {
+        let context = try makeClaudeHookContext(name: "codex-interrupted-turn-depth")
+        defer { context.cleanup() }
+
+        let sessionId = "interrupted-depth-session"
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-interrupted-turn-depth.jsonl",
+            turnId: "old-turn",
+            eventType: "turn_aborted"
+        )
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let interruptedPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"interrupted"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(interruptedPrompt.timedOut, interruptedPrompt.stderr)
+        XCTAssertEqual(interruptedPrompt.status, 0, interruptedPrompt.stderr)
+
+        let currentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"finish now"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
+        XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
+
+        let stopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+
+        XCTAssertTrue(
+            stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A stale prompt depth from an interrupted prior turn must not suppress the current top-level completion notification, saw \(stopCommands)"
+        )
+        XCTAssertTrue(
+            stopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "A stale prompt depth from an interrupted prior turn must not leave Codex marked running, saw \(stopCommands)"
+        )
+    }
+
+    func testCodexStopPrunesLateTerminalPriorTurnBeforeCurrentStop() throws {
+        let context = try makeClaudeHookContext(name: "codex-late-terminal-prior-turn")
+        defer { context.cleanup() }
+
+        let sessionId = "late-terminal-prior-turn-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-late-terminal-prior-turn.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let oldPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
+        XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
+
+        let currentPromptStart = context.state.commands.count
+        let currentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
+        XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
+        let currentPromptCommands = Array(context.state.commands.dropFirst(currentPromptStart))
+        XCTAssertFalse(
+            currentPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Before the late terminal transcript update, the current prompt should still look nested, saw \(currentPromptCommands)"
+        )
+
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-turn"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"current-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"current-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let currentStopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A late terminal prior turn must not suppress the current top-level completion notification, saw \(currentStopCommands)"
+        )
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "A late terminal prior turn must not leave Codex marked running after the current Stop, saw \(currentStopCommands)"
+        )
+    }
+
+    func testCodexTerminalNestedChildDoesNotClearParentTurnStack() throws {
+        let context = try makeClaudeHookContext(name: "codex-terminal-child-stack")
+        defer { context.cleanup() }
+
+        let sessionId = "terminal-child-stack-session"
+        let terminalChildTranscript = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-terminal-child-stack.jsonl",
+            turnId: "child-turn",
+            eventType: "turn_complete"
+        )
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"spawn child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(terminalChildTranscript.path)","hook_event_name":"UserPromptSubmit","prompt":"first child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let siblingPromptStart = context.state.commands.count
+        let siblingPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"sibling-turn","cwd":"\#(context.root.path)","transcript_path":"\#(terminalChildTranscript.path)","hook_event_name":"UserPromptSubmit","prompt":"second child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(siblingPrompt.timedOut, siblingPrompt.stderr)
+        XCTAssertEqual(siblingPrompt.status, 0, siblingPrompt.stderr)
+        let siblingPromptCommands = Array(context.state.commands.dropFirst(siblingPromptStart))
+        XCTAssertFalse(
+            siblingPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A sibling child prompt after a terminal child transcript must stay nested, saw \(siblingPromptCommands)"
+        )
+        XCTAssertFalse(
+            siblingPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "A sibling child prompt after a terminal child transcript must not rewrite parent Running status, saw \(siblingPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(terminalChildTranscript.path)","hook_event_name":"Stop","last_assistant_message":"first child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A late terminal child Stop must remain nested after a sibling child prompt, saw \(childStopCommands)"
+        )
+
+        let siblingStopStart = context.state.commands.count
+        let siblingStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"sibling-turn","cwd":"\#(context.root.path)","transcript_path":"\#(terminalChildTranscript.path)","hook_event_name":"Stop","last_assistant_message":"second child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(siblingStop.timedOut, siblingStop.stderr)
+        XCTAssertEqual(siblingStop.status, 0, siblingStop.stderr)
+        let siblingStopCommands = Array(context.state.commands.dropFirst(siblingStopStart))
+        XCTAssertFalse(
+            siblingStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "The sibling child Stop must not notify while the parent is active, saw \(siblingStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The parent Stop should still notify after terminal nested children, saw \(parentStopCommands)"
+        )
+    }
+
+    func testCodexTerminalInterruptedStackClearsBeforeCurrentPrompt() throws {
+        let context = try makeClaudeHookContext(name: "codex-terminal-stack-reset")
+        defer { context.cleanup() }
+
+        let sessionId = "terminal-stack-reset-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-terminal-stack-reset.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"parent-turn"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"child-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"parent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let currentPromptStart = context.state.commands.count
+        let currentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
+        XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
+        let currentPromptCommands = Array(context.state.commands.dropFirst(currentPromptStart))
+        XCTAssertTrue(
+            currentPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A current prompt after a fully terminal interrupted stack must become top-level, saw \(currentPromptCommands)"
+        )
+
+        let currentStopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A current Stop after a fully terminal interrupted stack must notify, saw \(currentStopCommands)"
+        )
+    }
+
+    func testCodexDepthOnlyLegacyNestingRemainsNestedWhenTurnIdsAppear() throws {
+        let context = try makeClaudeHookContext(name: "codex-depth-only-nested")
+        defer { context.cleanup() }
+
+        let sessionId = "depth-only-nested-session"
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A legacy depth-only nested prompt that first gains a turn_id must remain nested, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "A legacy depth-only nested prompt that first gains a turn_id must not rewrite parent Running status, saw \(childPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A legacy depth-only nested Stop that first gains a turn_id must remain nested, saw \(childStopCommands)"
+        )
+    }
+
+    func testCodexDepthOnlyHistoricalTerminalDoesNotResetActiveParent() throws {
+        let context = try makeClaudeHookContext(name: "codex-depth-only-history")
+        defer { context.cleanup() }
+
+        let sessionId = "depth-only-history-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-depth-only-history.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"old-turn"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"parent-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A historical terminal turn must not make an active depth-only parent look finished, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "A historical terminal turn must not let the child rewrite parent Running status, saw \(childPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A historical terminal turn must not let a child Stop notify while the parent is active, saw \(childStopCommands)"
+        )
+    }
+
+    func testCodexDepthOnlyTurnContextOnlyParentDoesNotResetActiveParent() throws {
+        let context = try makeClaudeHookContext(name: "codex-depth-only-context-parent")
+        defer { context.cleanup() }
+
+        let sessionId = "depth-only-context-parent-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-depth-only-context-parent.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"old-turn"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"parent-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A non-terminal parent turn_context must not make a depth-only parent look finished, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "A non-terminal parent turn_context must not let the child rewrite parent Running status, saw \(childPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A non-terminal parent turn_context must not let a child Stop notify while the parent is active, saw \(childStopCommands)"
+        )
+    }
+
+    func testCodexDepthOnlyParentStopNotifiesAfterChildTurnStops() throws {
+        let context = try makeClaudeHookContext(name: "codex-depth-only-parent-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "depth-only-parent-stop-session"
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "The child Stop should close only the child depth, saw \(childStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The depth-only parent Stop must notify after its child turn stops, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "The depth-only parent Stop must mark Codex idle, saw \(parentStopCommands)"
+        )
+    }
+
+    func testCodexDepthOnlySiblingStaysNestedAfterChildTerminalTranscript() throws {
+        let context = try makeClaudeHookContext(name: "codex-depth-only-child-terminal")
+        defer { context.cleanup() }
+
+        let sessionId = "depth-only-child-terminal-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-depth-only-child-terminal.jsonl")
+        try [
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"child-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 2,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        XCTAssertEqual(childStop.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "{}")
+        XCTAssertEqual(childStop.stderr, "")
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A late terminal child Stop must stay nested while the depth-only parent remains active, saw \(childStopCommands)"
+        )
+
+        let siblingPromptStart = context.state.commands.count
+        let siblingPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"sibling-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"sibling"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(siblingPrompt.timedOut, siblingPrompt.stderr)
+        XCTAssertEqual(siblingPrompt.status, 0, siblingPrompt.stderr)
+        let siblingPromptCommands = Array(context.state.commands.dropFirst(siblingPromptStart))
+        XCTAssertFalse(
+            siblingPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A sibling prompt must stay nested while the depth-only parent remains active, saw \(siblingPromptCommands)"
+        )
+        XCTAssertFalse(
+            siblingPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "A sibling prompt must not rewrite parent Running status while the depth-only parent remains active, saw \(siblingPromptCommands)"
+        )
+
+        let siblingStopStart = context.state.commands.count
+        let siblingStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"sibling-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"sibling done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(siblingStop.timedOut, siblingStop.stderr)
+        XCTAssertEqual(siblingStop.status, 0, siblingStop.stderr)
+        let siblingStopCommands = Array(context.state.commands.dropFirst(siblingStopStart))
+        XCTAssertFalse(
+            siblingStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A sibling Stop must stay nested while the depth-only parent remains active, saw \(siblingStopCommands)"
+        )
+    }
+
+    func testCodexDepthOnlyTerminalHistoryDoesNotResetUnknownActiveDepth() throws {
+        let context = try makeClaudeHookContext(name: "codex-depth-only-terminal-history")
+        defer { context.cleanup() }
+
+        let sessionId = "depth-only-terminal-history-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-depth-only-terminal-history.jsonl")
+        try [
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-parent-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 2,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { (self.jsonObject($0)?["method"] as? String)?.hasPrefix("surface.resume.") == true },
+            "Terminal history alone must not make unknown depth-only active prompts look finished, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "Terminal history alone must not let the child rewrite parent Running status, saw \(childPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Terminal history alone must not let a child Stop notify while unknown depth remains, saw \(childStopCommands)"
+        )
+    }
+
+    func testCodexStopFromStaleOlderTurnDoesNotNotifyWhileNewerTurnIsActive() throws {
+        let context = try makeClaudeHookContext(name: "codex-stale-turn-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "stale-turn-stop-session"
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-stale-turn-stop.jsonl",
+            turnId: "old-turn",
+            eventType: "turn_aborted"
+        )
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let oldPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
+        XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
+
+        let currentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
+        XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
+
+        let staleStopStart = context.state.commands.count
+        let staleStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(staleStop.timedOut, staleStop.stderr)
+        XCTAssertEqual(staleStop.status, 0, staleStop.stderr)
+        let staleStopCommands = Array(context.state.commands.dropFirst(staleStopStart))
+
+        XCTAssertFalse(
+            staleStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A stale Stop from an older turn must not notify or mark the newer active turn idle, saw \(staleStopCommands)"
+        )
+
+        let currentStopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The current turn should still notify after a stale older Stop, saw \(currentStopCommands)"
+        )
+    }
+
+    func testCodexLateStopFromOlderTurnDoesNotNotifyAfterNewerTurnCompleted() throws {
+        let context = try makeClaudeHookContext(name: "codex-late-stale-turn-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "late-stale-turn-stop-session"
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-late-stale-turn-stop.jsonl",
+            turnId: "old-turn",
+            eventType: "turn_aborted"
+        )
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let oldPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
+        XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
+
+        let currentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
+        XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
+
+        let currentStopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The current turn should notify before a late stale Stop arrives, saw \(currentStopCommands)"
+        )
+
+        let lateStopStart = context.state.commands.count
+        let lateStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(lateStop.timedOut, lateStop.stderr)
+        XCTAssertEqual(lateStop.status, 0, lateStop.stderr)
+        let lateStopCommands = Array(context.state.commands.dropFirst(lateStopStart))
+
+        XCTAssertFalse(
+            lateStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A late stale Stop from an older turn must not duplicate the newer turn completion, saw \(lateStopCommands)"
+        )
+    }
+
+    func testCodexStopWithMissedPromptSubmitClearsTerminalStaleTurn() throws {
+        let context = try makeClaudeHookContext(name: "codex-missed-prompt-stale-turn")
+        defer { context.cleanup() }
+
+        let sessionId = "missed-prompt-stale-turn-session"
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-missed-prompt-stale-turn.jsonl",
+            turnId: "old-turn",
+            eventType: "turn_aborted"
+        )
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let oldPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
+        XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
+
+        let currentStopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A Stop after a missed prompt-submit must clear terminal stale turns and notify, saw \(currentStopCommands)"
+        )
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "A Stop after a missed prompt-submit must mark Codex idle, saw \(currentStopCommands)"
+        )
+    }
+
+    func testCodexStopWithMissedPromptSubmitClearsFullyTerminalStack() throws {
+        let context = try makeClaudeHookContext(name: "codex-missed-prompt-terminal-stack")
+        defer { context.cleanup() }
+
+        let sessionId = "missed-prompt-terminal-stack-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-missed-prompt-terminal-stack.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-parent-turn"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"old-child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-child-turn"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"current-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"current-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 2,
+                    "activePromptTurnId": "old-child-turn",
+                    "activePromptTurnIds": ["old-parent-turn", "old-child-turn"],
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let currentStopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A missed prompt-submit Stop must clear a fully terminal stored stack and notify, saw \(currentStopCommands)"
+        )
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "A missed prompt-submit Stop must clear a fully terminal stored stack and mark Codex idle, saw \(currentStopCommands)"
+        )
+    }
+
+    func testCodexStopWithUnseenTurnIdNotSuppressedAtIdleDepth() throws {
+        let context = try makeClaudeHookContext(name: "codex-unseen-turn-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "unseen-turn-stop-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let oldPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
+        XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
+
+        let oldStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(oldStop.timedOut, oldStop.stderr)
+        XCTAssertEqual(oldStop.status, 0, oldStop.stderr)
+
+        let unseenStopStart = context.state.commands.count
+        let unseenStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"new-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"new done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(unseenStop.timedOut, unseenStop.stderr)
+        XCTAssertEqual(unseenStop.status, 0, unseenStop.stderr)
+        let unseenStopCommands = Array(context.state.commands.dropFirst(unseenStopStart))
+
+        XCTAssertTrue(
+            unseenStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A Stop with a missed prompt-submit must still notify at idle depth, saw \(unseenStopCommands)"
+        )
+        XCTAssertTrue(
+            unseenStopCommands.contains { $0.hasPrefix("set_status codex ") },
+            "A Stop with a missed prompt-submit must still update Codex status, saw \(unseenStopCommands)"
+        )
+    }
+
+    func testManagedCodexSubagentStopDoesNotReplaceResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-resume-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-child-session"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Managed subagent Stop should remain Feed telemetry, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Managed subagent Stop should not publish a child resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Managed subagent Stop should not notify or clobber visible status, saw \(context.state.commands)"
+        )
+    }
+
+    func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
+        let context = try makeClaudeHookContext(name: "codex-stale-relay")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-stale-relay-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-stale-relay.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"old-turn"}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":"<subagent_notification>old child finished</subagent_notification>"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"top-level"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stopStart = context.state.commands.count
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        XCTAssertTrue(
+            stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Stale completed-turn subagent relay should not suppress the parent completion notification, saw \(stopCommands)"
+        )
+    }
+
+    func testManagedCodexSubagentSessionEndDoesNotClearParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-end-resume-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-child-session-end"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": 12345,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-end",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            extraEnvironment: [
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
+            "Managed subagent SessionEnd should not clear the parent resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("clear_agent_pid codex.") },
+            "Managed subagent SessionEnd should not clear the visible parent PID, saw \(context.state.commands)"
+        )
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        XCTAssertNotNil(savedSessions[sessionId], "Suppressed SessionEnd should leave the stored parent session intact")
+    }
+
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
         let cliPath = try bundledCLIPath()
         let cases: [(name: String, arguments: [String], expectedCommand: String, response: String, stdout: String)] = [
@@ -650,7 +2164,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     @MainActor
-    func testNotifyWithUUIDSurfaceKeepsCallerWorkspaceFallback() throws {
+    func testNotifyWithUUIDSurfaceDoesNotRequireCallerWorkspaceOrWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify-uuid-surface")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -677,9 +2191,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 }
 
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["workspace_id"] as? String, callerWorkspace)
+                XCTAssertNil(params["workspace_id"], "surface UUIDs should not be constrained to the caller workspace")
+                XCTAssertNil(params["window_id"], "surface UUIDs should not require an explicit window")
                 XCTAssertEqual(params["surface_id"] as? String, callerSurface)
-                XCTAssertEqual(params["body"] as? String, "--json")
+                XCTAssertEqual(params["body"] as? String, "Body")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -699,7 +2214,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["notify", "--surface", callerSurface, "--title", "UUID", "--body", "--json"],
+            arguments: ["notify", "--surface", callerSurface, "--title", "UUID", "--body", "Body"],
             environment: environment,
             timeout: 5
         )
@@ -1076,6 +2591,1531 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             state.commands.contains { $0.contains("set_status codex Running") && $0.contains("--tab=\(currentWorkspaceId)") },
             "Expected Codex prompt status to target current workspace, saw \(state.commands)"
         )
+    }
+
+    func testNewPaneWindowFlagScopesWorkspaceIndex() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("pane-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let paneId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "workspace.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": workspaceId,
+                                "ref": "workspace:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "pane.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["direction"] as? String, "right")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "window_id": windowId,
+                        "workspace_id": workspaceId,
+                        "pane_id": paneId,
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["new-pane", "--window", windowId, "--workspace", "0", "--direction", "right"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.list", "pane.create"]
+        )
+    }
+
+    func testFocusPaneWindowFlagRejectsPaneFromOtherWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("pane-other-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let targetWindowId = "11111111-1111-1111-1111-111111111111"
+        let targetWorkspaceId = "22222222-2222-2222-2222-222222222222"
+        let targetPaneId = "33333333-3333-3333-3333-333333333333"
+        let otherPaneId = "44444444-4444-4444-4444-444444444444"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": targetWorkspaceId,
+                                "ref": "workspace:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "pane.list":
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "panes": [
+                            [
+                                "id": targetPaneId,
+                                "ref": "pane:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["focus-pane", "--window", targetWindowId, "--pane", otherPaneId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("Pane not found in window"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.list", "pane.list"]
+        )
+    }
+
+    func testReorderSurfaceWindowFlagRejectsSurfaceFromOtherWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("surface-other-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let targetWindowId = "11111111-1111-1111-1111-111111111111"
+        let targetWorkspaceId = "22222222-2222-2222-2222-222222222222"
+        let targetSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let otherSurfaceId = "44444444-4444-4444-4444-444444444444"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": targetWorkspaceId,
+                                "ref": "workspace:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "surface.list":
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": targetSurfaceId,
+                                "ref": "surface:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["reorder-surface", "--window", targetWindowId, "--surface", otherSurfaceId, "--index", "0"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("Surface not found in window"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.list", "surface.list"]
+        )
+    }
+
+    func testSendWindowFlagRejectsUnknownWindowRefBeforeMutation() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("send-window-ref")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let existingWindowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": existingWindowId,
+                                "ref": "window:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["send", "--window", "window:2", "--", "should-not-send"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("Window not found: window:2"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list"]
+        )
+    }
+
+    func testVMNewWindowFlagValidatesBeforeCreate() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-window-validate")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let missingWindowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            guard method == "window.list" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            return self.v2Response(id: id, ok: true, result: ["windows": []])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--window", missingWindowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("Window not found: \(missingWindowId)"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list"]
+        )
+    }
+
+    func testVMNewWindowFlagAcceptsCaseInsensitiveUUID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-window-case")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let listedWindowId = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
+        let requestedWindowId = listedWindowId.lowercased()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": listedWindowId,
+                                "ref": "window:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "vm.create":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "id": "vm-test-case-window",
+                        "provider": "freestyle",
+                        "image": "default",
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--window", requestedWindowId, "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("OK vm-test-case-window"), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list", "vm.create"]
+        )
+    }
+
+    func testPipePaneWindowFlagDoesNotBecomePositionalCommandText() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("pipe-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "system.identify":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "focused": [
+                            "window_id": windowId,
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                        ],
+                    ]
+                )
+            case "surface.read_text":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return self.v2Response(id: id, ok: true, result: ["text": "hello\n"])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["pipe-pane", "--window", "window:2", "cat"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "hello\nOK\n")
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list", "system.identify", "surface.read_text"]
+        )
+    }
+
+    func testPipePaneWindowWorkspaceOmittedSurfaceDoesNotUseSelectedWorkspaceSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("pipe-window-workspace")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let selectedWorkspaceSurfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": workspaceId,
+                                "ref": "workspace:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "system.identify":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "focused": [
+                            "window_id": windowId,
+                            "workspace_id": "44444444-4444-4444-4444-444444444444",
+                            "surface_id": selectedWorkspaceSurfaceId,
+                        ],
+                    ]
+                )
+            case "surface.read_text":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertNil(params["surface_id"], line)
+                return self.v2Response(id: id, ok: true, result: ["text": "workspace text\n"])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["pipe-pane", "--window", "window:2", "--workspace", "workspace:2", "cat"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "workspace text\nOK\n")
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list", "workspace.list", "surface.read_text"]
+        )
+    }
+
+    func testRespawnPaneWindowFlagDoesNotBecomePositionalCommandText() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("respawn-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "system.identify":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "focused": [
+                            "window_id": windowId,
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                        ],
+                    ]
+                )
+            case "surface.send_text":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["text"] as? String, "echo fresh\n")
+                return self.v2Response(id: id, ok: true, result: ["surface_id": surfaceId])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["respawn-pane", "--window", "window:2", "echo", "fresh"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list", "system.identify", "surface.send_text"]
+        )
+    }
+
+    func testMoveSurfaceWindowFlagKeepsIndexedSourceInCallerContext() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("move-surface-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let targetWindowId = "11111111-1111-1111-1111-111111111111"
+        let sourceSurfaceId = "22222222-2222-2222-2222-222222222222"
+        let targetWorkspaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "surface.list":
+                XCTAssertNil(params["window_id"])
+                XCTAssertNil(params["workspace_id"])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": sourceSurfaceId,
+                                "ref": "surface:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "surface.move":
+                XCTAssertEqual(params["surface_id"] as? String, sourceSurfaceId)
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surface_id": sourceSurfaceId,
+                        "window_id": targetWindowId,
+                        "workspace_id": targetWorkspaceId,
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["move-surface", "--surface", "0", "--workspace", targetWorkspaceId, "--window", targetWindowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["surface.list", "surface.move"]
+        )
+    }
+
+    func testMoveSurfaceWindowFlagAllowsSourceSurfaceRefFromOtherWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("move-surface-cross-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let targetWindowId = "11111111-1111-1111-1111-111111111111"
+        let sourceSurfaceRef = "surface:1"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            guard method == "surface.move" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            XCTAssertEqual(params["surface_id"] as? String, sourceSurfaceRef)
+            XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "surface_ref": sourceSurfaceRef,
+                    "window_id": targetWindowId,
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["move-surface", "--surface", sourceSurfaceRef, "--window", targetWindowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["surface.move"]
+        )
+    }
+
+    func testSidebarMetadataWindowFlagTargetsSelectedWorkspaceInWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("status-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let payload = self.jsonObject(line),
+               let id = payload["id"] as? String,
+               let method = payload["method"] as? String {
+                guard method == "workspace.current" else {
+                    return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+                }
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            }
+
+            XCTAssertTrue(line.hasPrefix("set_status build running"), line)
+            XCTAssertTrue(line.contains("--tab=\(workspaceId)"), line)
+            XCTAssertFalse(line.contains("--window"), line)
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["set-status", "build", "running", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+    }
+
+    func testSidebarMetadataWindowFlagAfterSeparatorStaysMessageText() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("log-separator")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let payload = self.jsonObject(line),
+               let id = payload["id"] as? String,
+               let method = payload["method"] as? String {
+                guard method == "workspace.current" else {
+                    return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+                }
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            }
+
+            XCTAssertEqual(line, "log --tab=\(workspaceId) -- --window target")
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["log", "--window", windowId, "--", "--window", "target"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+    }
+
+    func testSidebarMetadataWindowFlagFailsWhenWindowHasNoCurrentWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("status-window-empty")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.current" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["window_id"] as? String, windowId)
+            return self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["set-status", "build", "running", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("set-status: targeted window has no current workspace"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current"]
+        )
+    }
+
+    func testNotifyWindowFlagResolvesCurrentWorkspaceInWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "workspace.current":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            case "notification.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["title"] as? String, "Window Notify")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": workspaceId, "surface_id": surfaceId]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--window", windowId, "--title", "Window Notify"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current", "notification.create"]
+        )
+    }
+
+    func testNotifyWindowSurfaceRefResolvesAcrossTargetWindowWorkspaces() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-window-surface")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let selectedWorkspaceId = "22222222-2222-2222-2222-222222222222"
+        let targetWorkspaceId = "33333333-3333-3333-3333-333333333333"
+        let selectedSurfaceId = "44444444-4444-4444-4444-444444444444"
+        let targetSurfaceId = "55555555-5555-5555-5555-555555555555"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                XCTAssertTrue(line.hasPrefix("notify_target \(targetWorkspaceId) \(targetSurfaceId) "), line)
+                XCTAssertTrue(line.contains("Window Surface Notify"), line)
+                return "OK"
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": selectedWorkspaceId,
+                                "ref": "workspace:1",
+                                "index": 1,
+                            ],
+                            [
+                                "id": targetWorkspaceId,
+                                "ref": "workspace:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "surface.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                switch params["workspace_id"] as? String {
+                case selectedWorkspaceId:
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "surfaces": [
+                                [
+                                    "id": selectedSurfaceId,
+                                    "ref": "surface:1",
+                                    "index": 1,
+                                ],
+                            ],
+                        ]
+                    )
+                case targetWorkspaceId:
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "surfaces": [
+                                [
+                                    "id": targetSurfaceId,
+                                    "ref": "surface:3",
+                                    "index": 3,
+                                ],
+                            ],
+                        ]
+                    )
+                default:
+                    XCTFail("Unexpected surface.list params: \(params)")
+                    return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected workspace"])
+                }
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--window", "window:2", "--surface", "surface:3", "--title", "Window Surface Notify"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        let methods = state.commands.compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, ["window.list", "workspace.list", "surface.list", "surface.list"])
+    }
+
+    func testNotifyWindowSurfaceIndexUsesCurrentWorkspaceInTargetWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-window-surface-index")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let selectedWorkspaceId = "22222222-2222-2222-2222-222222222222"
+        let selectedSurfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                XCTAssertTrue(line.hasPrefix("notify_target \(selectedWorkspaceId) \(selectedSurfaceId) "), line)
+                XCTAssertTrue(line.contains("Window Indexed Notify"), line)
+                return "OK"
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.current":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": selectedWorkspaceId])
+            case "surface.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, selectedWorkspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": selectedSurfaceId,
+                                "ref": "surface:8",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--window", "window:2", "--surface", "0", "--title", "Window Indexed Notify"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        let methods = state.commands.compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, ["window.list", "workspace.current", "surface.list"])
+    }
+
+    func testWorkspaceActionWindowFlagResolvesCurrentWorkspaceInWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("action-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "workspace.current":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            case "workspace.action":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["action"] as? String, "pin")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["window_id": windowId, "workspace_id": workspaceId, "action": "pin"]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["workspace-action", "--window", windowId, "--action", "pin"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current", "workspace.action"]
+        )
+    }
+
+    func testClearNotificationsWindowFlagFailsWhenWindowHasNoCurrentWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("clear-window-empty")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.current" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["window_id"] as? String, windowId)
+            return self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["clear-notifications", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("clear-notifications: targeted window has no current workspace"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current"]
+        )
+    }
+
+    func testTreeCommandForwardsWindowFlag() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tree-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            guard method == "system.tree" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["window_id"] as? String, windowId)
+            XCTAssertEqual(params["all_windows"] as? Bool, false)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "active": NSNull(),
+                    "caller": NSNull(),
+                    "windows": [],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["tree", "--json", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+    }
+
+    func testTreeCommandWindowFlagSurvivesLegacyFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tree-legacy-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let otherWindowId = "22222222-2222-2222-2222-222222222222"
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let paneId = "44444444-4444-4444-4444-444444444444"
+        let surfaceId = "55555555-5555-5555-5555-555555555555"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "system.tree":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "method_not_found", "message": "system.tree"]
+                )
+            case "system.identify":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "focused": [
+                            "window_id": windowId,
+                            "workspace_id": workspaceId,
+                            "pane_id": paneId,
+                            "surface_id": surfaceId,
+                        ],
+                        "caller": NSNull(),
+                    ]
+                )
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            ["id": otherWindowId, "ref": "window:1", "index": 0],
+                            ["id": windowId, "ref": "window:2", "index": 1],
+                        ],
+                    ]
+                )
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, "window:2")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "window_id": windowId,
+                        "window_ref": "window:2",
+                        "workspaces": [
+                            ["id": workspaceId, "ref": "workspace:1", "index": 0, "selected": true],
+                        ],
+                    ]
+                )
+            case "pane.list":
+                XCTAssertTrue([workspaceId, "workspace:1"].contains(params["workspace_id"] as? String))
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "panes": [
+                            ["id": paneId, "ref": "pane:1", "index": 0],
+                        ],
+                    ]
+                )
+            case "surface.list":
+                XCTAssertTrue([workspaceId, "workspace:1"].contains(params["workspace_id"] as? String))
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": surfaceId,
+                                "ref": "surface:1",
+                                "pane_id": paneId,
+                                "pane_ref": "pane:1",
+                                "index": 0,
+                                "type": "terminal",
+                                "focused": true,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--id-format", "uuids", "tree", "--json", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        let windows = try XCTUnwrap(payload["windows"] as? [[String: Any]])
+        XCTAssertEqual(windows.count, 1, result.stdout)
+        XCTAssertEqual(windows.first?["id"] as? String, windowId)
+        XCTAssertFalse(result.stdout.contains(otherWindowId), result.stdout)
     }
 
     func testCodexPromptSubmitWithForeignCmuxEnvDoesNotFallbackToSelectedWorkspace() throws {
@@ -2096,6 +5136,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
 
         let windowId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let surfaceId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
         let surfaceRef = "surface:7"
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line),
@@ -2114,11 +5155,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.v2Response(id: id, ok: true, result: ["window_id": windowId])
             case "surface.list":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["window_id"] as? String, "window:1")
+                XCTAssertEqual(params["window_id"] as? String, windowId)
                 return self.v2Response(
                     id: id,
                     ok: true,
-                    result: ["surfaces": [["id": "ignored-id", "ref": surfaceRef, "index": 0]]]
+                    result: ["surfaces": [["id": surfaceId, "ref": surfaceRef, "index": 0]]]
                 )
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
@@ -2157,9 +5198,83 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "surface resume metadata commands should route by window_id without focusing the window"
         )
         let request = try XCTUnwrap(clearRequests.first)
-        XCTAssertEqual(request["window_id"] as? String, "window:1")
+        XCTAssertEqual(request["window_id"] as? String, windowId)
         XCTAssertNotEqual(request["window_id"] as? String, "0")
-        XCTAssertEqual(request["surface_id"] as? String, surfaceRef)
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+    }
+
+    func testSurfaceResumeClearCLIParsesLocalWindowOption() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-clear-local-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let windowId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let surfaceId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["windows": [["id": windowId, "ref": "window:1", "index": 0]]]
+                )
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "ref": "surface:7", "index": 0]]]
+                )
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "clear", "--window", "0", "--surface", "0"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertFalse(
+            state.commands.contains { command in
+                jsonObject(command)?["method"] as? String == "window.focus"
+            },
+            "local --window should route surface resume metadata without focusing the window"
+        )
+
+        let clearRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(clearRequests.first)
+        XCTAssertEqual(request["window_id"] as? String, windowId)
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
     }
 
     private struct ClaudeHookContext {
@@ -2175,6 +5290,155 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String) -> [String: String] {
+        agentLaunchEnvironment(
+            context: context,
+            kind: "codex",
+            executable: "/usr/local/bin/codex",
+            arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"]
+        )
+    }
+
+    private func agentLaunchEnvironment(
+        context: ClaudeHookContext,
+        kind: String,
+        executable: String,
+        arguments: [String]? = nil
+    ) -> [String: String] {
+        [
+            "CMUX_AGENT_LAUNCH_KIND": kind,
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": executable,
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(arguments ?? [executable]),
+        ]
+    }
+
+    private func writeCodexTerminalTranscript(
+        context: ClaudeHookContext,
+        name: String,
+        turnId: String,
+        eventType: String = "turn_complete"
+    ) throws -> URL {
+        let transcriptURL = context.root.appendingPathComponent(name)
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"\#(turnId)"}}"#,
+            #"{"type":"event_msg","payload":{"type":"\#(eventType)","turn_id":"\#(turnId)"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        return transcriptURL
+    }
+
+    private func runCodexHook(
+        context: ClaudeHookContext,
+        subcommand: String,
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
+        runAgentHook(
+            context: context,
+            agent: "codex",
+            subcommand: subcommand,
+            standardInput: standardInput,
+            extraEnvironment: extraEnvironment
+        )
+    }
+
+    private func runAgentHook(
+        context: ClaudeHookContext,
+        agent: String,
+        subcommand: String,
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": context.root.path,
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
+
+        return runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", agent, subcommand],
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
+    private func startAgentHookMockServerAccepting(
+        context: ClaudeHookContext,
+        connectionLimit: Int
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var accepted = 0
+            while accepted < connectionLimit {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(context.listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                if clientFD < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                accepted += 1
+
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { Darwin.close(clientFD) }
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            context.state.append(line)
+                            let response = self.agentHookMockResponse(line: line, context: context) + "\n"
+                            _ = response.withCString { ptr in
+                                Darwin.write(clientFD, ptr, strlen(ptr))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
+        guard let payload = jsonObject(line) else {
+            return "OK"
+        }
+        guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+            return malformedRequestResponse(id: payload["id"] as? String, raw: line)
+        }
+        switch method {
+        case "surface.list":
+            return surfaceListResponse(id: id, surfaceId: context.surfaceId)
+        case "feed.push":
+            return v2Response(id: id, ok: true, result: [:])
+        case "surface.resume.set":
+            return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+        case "surface.resume.clear":
+            return v2Response(id: id, ok: true, result: ["cleared": true])
+        default:
+            return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }
     }
 

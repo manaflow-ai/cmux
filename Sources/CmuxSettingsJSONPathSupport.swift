@@ -64,6 +64,7 @@ extension CmuxSettingsFileStore {
         "terminal.showScrollBar",
         "terminal.showTimestamps",
         "terminal.autoResumeAgentSessions",
+        "terminal.resumeCommands",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",

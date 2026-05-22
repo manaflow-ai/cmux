@@ -405,6 +405,11 @@ private extension SessionAgent {
             return .rovodev
         case .hermesAgent:
             return .hermesAgent(source: nil, model: nil, hermesHome: nil)
+        case .registered:
+            // Registered (Vault) agents aren't exercised by these tests; if a
+            // future test reaches this branch, point them at the missing
+            // helper instead of silently returning a misleading default.
+            fatalError("defaultSpecificsForTesting does not support .registered SessionAgent; extend the helper when adding registered-agent coverage")
         }
     }
 }
