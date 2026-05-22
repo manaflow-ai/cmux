@@ -195,6 +195,30 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         assertNoPendingClient(on: replacementFD)
     }
 
+    func testSocketFileHealthCheckDoesNotProbeReplacementSocket() throws {
+        let socketPath = makeSocketPath("health-replacement")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+        let replacementFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(replacementFD)
+            unlink(socketPath)
+        }
+
+        TerminalController.shared.performSocketFileHealthCheck()
+
+        assertNoPendingClient(on: replacementFD)
+    }
+
     func testPasswordModeRejectsUnauthenticatedCommands() throws {
         let socketPath = makeSocketPath("password-mode")
         let tabManager = TabManager()

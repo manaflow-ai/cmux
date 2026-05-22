@@ -174,83 +174,29 @@ extension TerminalController {
             return
         }
 
-        let observedPathStatus = SocketPathProbe.observedStatus(
+        let pathStatus = SocketPathProbe.observedStatus(
             path: snapshot.socketPath,
             expectedIdentity: snapshot.boundSocketPathIdentity
         )
-        let pathStatus: SocketPathOwnershipStatus
-        if observedPathStatus == .socketFileChanged {
-            pathStatus = socketPathOwnershipStatus(path: snapshot.socketPath)
-        } else {
-            pathStatus = observedPathStatus
-        }
         let recoveryPath: String
         let shouldUnlinkNonSocketReplacement: Bool
         let nonSocketReplacementIdentity: SocketPathIdentity?
-        let ownerPid = pathStatus.ownerPid
-        if case .ownedByOtherProcess(let ownerPid) = pathStatus {
+
+        guard pathStatus.shouldAttemptListenerRecovery else {
+            return
+        }
+        if case .socketFileChanged = pathStatus {
             let configuredPath = SocketControlSettings.socketPath()
-            if let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
-                requestedPath: snapshot.socketPath,
-                stage: "existing_socket_owned_by_other_process",
-                errnoCode: EADDRINUSE
-            ),
-                fallbackPath != snapshot.socketPath {
-                recoveryPath = fallbackPath
-                shouldUnlinkNonSocketReplacement = false
-                nonSocketReplacementIdentity = nil
-            } else if configuredPath != snapshot.socketPath {
-                recoveryPath = configuredPath
-                shouldUnlinkNonSocketReplacement = false
-                nonSocketReplacementIdentity = nil
-            } else {
-                reportSocketListenerFailure(
-                    message: "socket.listener.path.owned_by_other_process",
-                    stage: "socket_file_health_check",
-                    extra: [
-                        "pathStatus": pathStatus.debugLabel,
-                        "ownerPid": Int(ownerPid),
-                        "generation": snapshot.activeGeneration
-                    ]
-                )
-                return
-            }
-        } else if case .connectFailed(let errnoCode) = pathStatus,
-                  errnoCode != ECONNREFUSED,
-                  errnoCode != ENOENT {
-            guard let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
-                requestedPath: snapshot.socketPath,
-                stage: "existing_socket_connect_failed",
-                errnoCode: errnoCode
-            ),
-                fallbackPath != snapshot.socketPath else {
-                reportSocketListenerFailure(
-                    message: "socket.listener.path.recovery.skipped",
-                    stage: "socket_file_health_check",
-                    errnoCode: errnoCode,
-                    extra: [
-                        "pathStatus": pathStatus.debugLabel,
-                        "generation": snapshot.activeGeneration,
-                        "reason": "no_safe_recovery_path"
-                    ]
-                )
-                return
-            }
-            recoveryPath = fallbackPath
+            recoveryPath = configuredPath != snapshot.socketPath ? configuredPath : snapshot.socketPath
+        } else {
+            recoveryPath = snapshot.socketPath
+        }
+        if case .notSocket = pathStatus {
+            shouldUnlinkNonSocketReplacement = true
+            nonSocketReplacementIdentity = SocketPathProbe.fileIdentity(path: snapshot.socketPath)
+        } else {
             shouldUnlinkNonSocketReplacement = false
             nonSocketReplacementIdentity = nil
-        } else {
-            guard pathStatus.shouldAttemptListenerRecovery else {
-                return
-            }
-            recoveryPath = snapshot.socketPath
-            if case .notSocket = pathStatus {
-                shouldUnlinkNonSocketReplacement = true
-                nonSocketReplacementIdentity = SocketPathProbe.fileIdentity(path: snapshot.socketPath)
-            } else {
-                shouldUnlinkNonSocketReplacement = false
-                nonSocketReplacementIdentity = nil
-            }
         }
 
         let shouldScheduleRecovery = withListenerState {
@@ -273,9 +219,6 @@ extension TerminalController {
             "generation": snapshot.activeGeneration,
             "recoveryPath": recoveryPath
         ]
-        if let ownerPid {
-            recoveryData["ownerPid"] = Int(ownerPid)
-        }
         reportSocketListenerFailure(
             message: "socket.listener.path.recovery.requested",
             stage: "socket_file_health_check",
