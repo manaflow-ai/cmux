@@ -7,6 +7,7 @@ import Network
 import CFNetwork
 import SQLite3
 import CryptoKit
+import Darwin
 #if canImport(CommonCrypto)
 import CommonCrypto
 #endif
@@ -2322,8 +2323,8 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     private let lock = NSLock()
     private var sessions: [String: Session] = [:]
     private let maxSessionAge: TimeInterval = 24 * 60 * 60
-    private let trustedRootURL = FileManager.default.temporaryDirectory
-        .appendingPathComponent("cmux-diff-viewer", isDirectory: true)
+    private let trustedRootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
         .standardizedFileURL
         .resolvingSymlinksInPath()
 

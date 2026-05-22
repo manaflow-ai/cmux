@@ -2830,9 +2830,10 @@ extension CMUXCLI {
     }
 
     private func diffViewerDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-diff-viewer", isDirectory: true)
+        let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(getuid())", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: 0o700)], ofItemAtPath: directory.path)
         pruneDiffViewerFiles(in: directory)
         return directory
     }
@@ -3571,11 +3572,11 @@ extension CMUXCLI {
               updateToolbarState();
               preloadDiffHighlighter(payload.appearance, diffItems, getFiletypeFromFileName, preloadHighlighter)
                 .catch((error) => console.warn("cmux diff highlighter preload failed", error));
-              status.remove();
               codeView = new CodeView(codeViewOptions());
               codeView.setup(viewerElement);
               codeView.setItems(diffItems);
               codeView.render(true);
+              status.remove();
               codeView.subscribeToScroll(updateActiveFileFromScroll);
               renderUntilCodeViewReady(codeView, viewerElement, performance.now());
               updateActiveFile(diffItems[0]?.id ?? "");
