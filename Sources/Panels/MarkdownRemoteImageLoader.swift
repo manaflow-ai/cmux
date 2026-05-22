@@ -64,7 +64,7 @@ enum MarkdownRemoteImageSecurity {
         let request = [
             "GET \(pathAndQuery(for: url)) HTTP/1.1",
             "Host: \(hostHeader)",
-            "Accept: image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml;q=0.9,*/*;q=0.1",
+            "Accept: image/png,image/jpeg,image/gif,image/webp,image/avif;q=0.9,image/svg+xml;q=0.9,*/*;q=0.1",
             "User-Agent: cmux-markdown-image-loader",
             "Connection: close",
             "",
