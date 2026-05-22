@@ -286,7 +286,51 @@ final class MarkdownPanelTests: XCTestCase {
 
         XCTAssertNil(hostView.onDidMoveToWindow)
         XCTAssertNil(hostView.onGeometryChanged)
-        XCTAssertEqual(coordinator.diagnosticsSnapshot.dismantleRetainedWebViewCount, 1)
+        XCTAssertEqual(coordinator.diagnosticsSnapshot.dismantleRetainedWebViewCount, 0)
+    }
+
+    func testMarkdownRendererIgnoresStalePortalHostDismantleAfterRebind() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: frame)
+        window.contentView = root
+
+        let currentHost = MarkdownWebPortalHostView(frame: NSRect(x: 20, y: 20, width: 320, height: 180))
+        let staleHost = MarkdownWebPortalHostView(frame: currentHost.frame)
+        root.addSubview(currentHost)
+        root.addSubview(staleHost)
+
+        coordinator.bindPortal(
+            to: currentHost,
+            visibleInUI: true,
+            zPriority: 1,
+            dropContext: BrowserPaneDropContext(
+                workspaceId: UUID(),
+                panelId: UUID(),
+                paneId: PaneID(id: UUID()),
+                allowsHostedWebViewTextDrop: false
+            ),
+            reason: "unit-test"
+        )
+
+        MarkdownWebRenderer.dismantleNSView(staleHost, coordinator: coordinator)
+
+        XCTAssertEqual(coordinator.diagnosticsSnapshot.dismantleRetainedWebViewCount, 0)
     }
 
     func testMarkdownRendererPortalReattachDiagnosticIsLive() {
