@@ -8,6 +8,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case amp
     case cursor
     case gemini
+    case antigravity
     case opencode
     case rovodev
     case hermesAgent
@@ -20,12 +21,13 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     static let allCases: [RestorableAgentKind] = [
         .claude,
         .codex,
-        .grok,
-        // Pi is registry-owned so the built-in Vault registration can be
-        // overridden by project config while direct .pi values still encode.
+        // Pi and Grok are registry-owned so the built-in Vault registrations can be
+        // overridden by project config while direct native values still encode.
         .amp,
         .cursor,
         .gemini,
+        // Antigravity is registry-owned so the built-in Vault registration can be
+        // overridden by project config while direct .antigravity values still encode.
         .opencode,
         .rovodev,
         .hermesAgent,
@@ -45,6 +47,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "amp": self = .amp
         case "cursor": self = .cursor
         case "gemini": self = .gemini
+        case "antigravity": self = .antigravity
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
         case "hermes-agent": self = .hermesAgent
@@ -67,6 +70,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .amp: return "amp"
         case .cursor: return "cursor"
         case .gemini: return "gemini"
+        case .antigravity: return "antigravity"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
         case .hermesAgent: return "hermes-agent"
