@@ -909,6 +909,18 @@ def main() -> int:
     selected_agents: set[str] | None = None
     if args.agent:
         selected_agents = set(args.agent)
+        known_agents = {spec.agent for spec in specs} | {item["agent"] for item in unavailable}
+        unknown_agents = sorted(selected_agents - known_agents)
+        if unknown_agents:
+            print(
+                f"unknown agent selection: {', '.join(unknown_agents)}",
+                file=sys.stderr,
+            )
+            print(
+                f"known agents: {', '.join(sorted(known_agents))}",
+                file=sys.stderr,
+            )
+            return 2
         specs = [spec for spec in specs if spec.agent in selected_agents]
         unavailable = [item for item in unavailable if item["agent"] in selected_agents]
 
