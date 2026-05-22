@@ -80,25 +80,25 @@ class TerminalController {
 
     static let shared = TerminalController()
 
-    nonisolated(unsafe) var socketPath = SocketControlSettings.stableDefaultSocketPath
-    nonisolated(unsafe) var boundSocketPathIdentity: SocketPathIdentity?
-    nonisolated(unsafe) var serverSocket: Int32 = -1
-    nonisolated(unsafe) var isRunning = false
-    nonisolated(unsafe) var acceptLoopAlive = false
-    nonisolated(unsafe) var activeAcceptLoopGeneration: UInt64 = 0
+    private nonisolated(unsafe) var socketPath = SocketControlSettings.stableDefaultSocketPath
+    private nonisolated(unsafe) var boundSocketPathIdentity: SocketPathIdentity?
+    private nonisolated(unsafe) var serverSocket: Int32 = -1
+    private nonisolated(unsafe) var isRunning = false
+    private nonisolated(unsafe) var acceptLoopAlive = false
+    private nonisolated(unsafe) var activeAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var nextAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var pendingAcceptLoopRearmGeneration: UInt64?
-    nonisolated(unsafe) var listenerStartInProgress = false
-    nonisolated let listenerStateLock = NSLock()
+    private nonisolated(unsafe) var listenerStartInProgress = false
+    private nonisolated let listenerStateLock = NSLock()
     nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
     private nonisolated(unsafe) var listenerReadSource: DispatchSourceRead?
     private nonisolated(unsafe) var listenerReadSourceSuspended = false
-    nonisolated(unsafe) var socketPathWatchSource: DispatchSourceFileSystemObject?
-    nonisolated(unsafe) var pendingSocketFileRecoveryGeneration: UInt64?
+    private nonisolated(unsafe) var socketPathWatchSource: DispatchSourceFileSystemObject?
+    private nonisolated(unsafe) var pendingSocketFileRecoveryGeneration: UInt64?
     private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
     var tabManager: TabManager?
-    nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
+    private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenBacklog: Int32 = 128
@@ -113,7 +113,7 @@ class TerminalController {
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     // Binding runs on the main actor; classify only immediately-ready sockets there.
     private nonisolated static let socketBindOwnershipProbeTimeout: TimeInterval = 0
-    nonisolated static let socketFileHealthProbeTimeout: TimeInterval = 0
+    private nonisolated static let socketFileHealthProbeTimeout: TimeInterval = 0
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
@@ -325,7 +325,7 @@ class TerminalController {
         }
     }
 
-    nonisolated func withListenerState<T>(_ body: () -> T) -> T {
+    private nonisolated func withListenerState<T>(_ body: () -> T) -> T {
         listenerStateLock.lock()
         defer { listenerStateLock.unlock() }
         return body()
@@ -352,6 +352,92 @@ class TerminalController {
             return snapshot.socketPath
         }
         return preferredPath
+    }
+
+    nonisolated func installSocketFileHealthWatchSource(
+        _ source: DispatchSourceFileSystemObject,
+        snapshot: ListenerStateSnapshot
+    ) -> (shouldStart: Bool, previousSource: DispatchSourceFileSystemObject?) {
+        withListenerState {
+            guard isRunning,
+                  serverSocket == snapshot.serverSocket,
+                  socketPath == snapshot.socketPath else {
+                return (false, nil)
+            }
+            let previousSource = socketPathWatchSource
+            socketPathWatchSource = source
+            return (true, previousSource)
+        }
+    }
+
+    nonisolated func installSocketFileRecoveryRetryWatchSource(
+        _ source: DispatchSourceFileSystemObject,
+        socketPath retrySocketPath: String,
+        accessMode retryAccessMode: SocketControlMode
+    ) -> (shouldStart: Bool, previousSource: DispatchSourceFileSystemObject?) {
+        withListenerState {
+            guard !isRunning,
+                  !listenerStartInProgress else {
+                return (false, nil)
+            }
+            let previousSource = socketPathWatchSource
+            socketPath = retrySocketPath
+            accessMode = retryAccessMode
+            socketPathWatchSource = source
+            return (true, previousSource)
+        }
+    }
+
+    nonisolated func beginSocketFileRecoveryRetry(from watchSource: DispatchSourceFileSystemObject) -> Bool {
+        withListenerState {
+            guard let currentWatchSource = socketPathWatchSource,
+                  currentWatchSource === watchSource,
+                  !isRunning,
+                  !listenerStartInProgress else {
+                return false
+            }
+            listenerStartInProgress = true
+            return true
+        }
+    }
+
+    nonisolated func clearSocketListenerStartInProgress() {
+        withListenerState {
+            listenerStartInProgress = false
+        }
+    }
+
+    nonisolated func scheduleSocketFileRecoveryIfCurrent(_ snapshot: ListenerStateSnapshot) -> Bool {
+        withListenerState {
+            guard isRunning,
+                  acceptLoopAlive,
+                  serverSocket == snapshot.serverSocket,
+                  activeAcceptLoopGeneration == snapshot.activeGeneration,
+                  pendingSocketFileRecoveryGeneration == nil else {
+                return false
+            }
+            pendingSocketFileRecoveryGeneration = snapshot.activeGeneration
+            return true
+        }
+    }
+
+    nonisolated func clearPendingSocketFileRecovery(generation: UInt64) {
+        withListenerState {
+            if pendingSocketFileRecoveryGeneration == generation {
+                pendingSocketFileRecoveryGeneration = nil
+            }
+        }
+    }
+
+    nonisolated func takeSocketFileRecoveryRestart(generation: UInt64) -> (path: String, mode: SocketControlMode)? {
+        withListenerState {
+            guard pendingSocketFileRecoveryGeneration == generation,
+                  activeAcceptLoopGeneration == generation else {
+                return nil
+            }
+            pendingSocketFileRecoveryGeneration = nil
+            return (socketPath, accessMode)
+        }
     }
 
     private nonisolated func shouldContinueAcceptLoop(generation: UInt64) -> Bool {
@@ -1505,11 +1591,11 @@ class TerminalController {
         if sourceWasSuspended {
             sourceToCancel?.resume()
         }
+        socketPathWatchSourceToCancel?.cancel()
         sourceToCancel?.cancel()
         if socketToClose >= 0 {
             close(socketToClose)
         }
-        socketPathWatchSourceToCancel?.cancel()
         SocketPathProbe.unlinkIfIdentityMatches(
             socketPathToUnlink,
             expectedIdentity: socketPathIdentityToUnlink

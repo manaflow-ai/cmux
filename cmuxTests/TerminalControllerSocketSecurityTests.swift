@@ -125,7 +125,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         try waitForSocket(at: socketPath)
         XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
 
-        let generation = TerminalController.shared.listenerStateSnapshot().activeGeneration
+        let recoverySnapshot = TerminalController.shared.listenerStateSnapshot()
+        let generation = recoverySnapshot.activeGeneration
         XCTAssertNotEqual(generation, 0)
 
         XCTAssertEqual(Darwin.unlink(socketPath), 0)
@@ -138,9 +139,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             unlink(socketPath)
         }
 
-        TerminalController.shared.withListenerState {
-            TerminalController.shared.pendingSocketFileRecoveryGeneration = generation
-        }
+        XCTAssertTrue(TerminalController.shared.scheduleSocketFileRecoveryIfCurrent(recoverySnapshot))
         TerminalController.shared.recoverSocketListenerAfterSocketFileLoss(
             generation: generation,
             recoveryPath: socketPath,
@@ -168,6 +167,58 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             "Listener should retry and serve \(socketPath) after the foreign socket is released"
         )
         XCTAssertEqual(try socketMode(at: socketPath), 0o666)
+    }
+
+    func testStopCancelsRecoveryRetryWatcherWithoutRestartingListener() throws {
+        let socketPath = makeSocketPath("retry-stop")
+        let tabManager = TabManager()
+
+        XCTAssertTrue(TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        ))
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        let recoverySnapshot = TerminalController.shared.listenerStateSnapshot()
+        let generation = recoverySnapshot.activeGeneration
+        XCTAssertNotEqual(generation, 0)
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+        let helper = try launchForeignSocketBinder(at: socketPath)
+        var shouldTerminateHelper = true
+        defer {
+            if shouldTerminateHelper {
+                terminate(helper)
+            }
+            unlink(socketPath)
+        }
+
+        XCTAssertTrue(TerminalController.shared.scheduleSocketFileRecoveryIfCurrent(recoverySnapshot))
+        TerminalController.shared.recoverSocketListenerAfterSocketFileLoss(
+            generation: generation,
+            recoveryPath: socketPath,
+            shouldUnlinkNonSocketReplacement: false,
+            nonSocketReplacementIdentity: nil
+        )
+        XCTAssertFalse(
+            TerminalController.shared.listenerStateSnapshot().isRunning,
+            "Listener should stop after recovery start loses the path to a foreign socket"
+        )
+
+        TerminalController.shared.stop()
+        terminate(helper)
+        shouldTerminateHelper = false
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+
+        XCTAssertFalse(
+            TerminalController.shared.listenerStateSnapshot().isRunning,
+            "An inactive recovery retry watcher should not restart the listener after explicit stop()"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: socketPath))
     }
 
     func testStopDoesNotProbeReplacementSocketAtListenerPath() throws {
@@ -1069,7 +1120,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 XCTFail("Unexpected accept errno \(lastErrno)", file: file, line: line)
                 return
             }
-            usleep(10_000)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
         XCTAssertTrue(lastErrno == EAGAIN || lastErrno == EWOULDBLOCK, file: file, line: line)
     }

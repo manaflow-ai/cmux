@@ -37,22 +37,12 @@ extension TerminalController {
             close(fd)
         }
 
-        var shouldStartSource = false
-        let previousSource = withListenerState { () -> DispatchSourceFileSystemObject? in
-            guard isRunning,
-                  serverSocket == snapshot.serverSocket,
-                  socketPath == snapshot.socketPath else {
-                return nil
-            }
-            let previousSource = socketPathWatchSource
-            socketPathWatchSource = source
-            shouldStartSource = true
-            return previousSource
-        }
-        source.resume()
-        if shouldStartSource {
-            previousSource?.cancel()
+        let installResult = installSocketFileHealthWatchSource(source, snapshot: snapshot)
+        if installResult.shouldStart {
+            source.resume()
+            installResult.previousSource?.cancel()
         } else {
+            source.resume()
             source.cancel()
         }
     }
@@ -82,8 +72,10 @@ extension TerminalController {
             eventMask: [.write, .link, .rename, .delete],
             queue: socketListenerQueue
         )
-        source.setEventHandler { [weak self, retrySocketPath, retryAccessMode] in
+        source.setEventHandler { [weak self, weak source, retrySocketPath, retryAccessMode] in
+            guard let source else { return }
             self?.retrySocketListenerStartFromRecoveryWatcher(
+                watchSource: source,
                 socketPath: retrySocketPath,
                 accessMode: retryAccessMode
             )
@@ -92,41 +84,28 @@ extension TerminalController {
             close(fd)
         }
 
-        var shouldStartSource = false
-        let previousSource = withListenerState { () -> DispatchSourceFileSystemObject? in
-            guard !isRunning,
-                  !listenerStartInProgress else {
-                return nil
-            }
-            let previousSource = socketPathWatchSource
-            socketPath = retrySocketPath
-            accessMode = retryAccessMode
-            socketPathWatchSource = source
-            shouldStartSource = true
-            return previousSource
-        }
-        source.resume()
-        if shouldStartSource {
-            previousSource?.cancel()
+        let installResult = installSocketFileRecoveryRetryWatchSource(
+            source,
+            socketPath: retrySocketPath,
+            accessMode: retryAccessMode
+        )
+        if installResult.shouldStart {
+            source.resume()
+            installResult.previousSource?.cancel()
             return true
         } else {
+            source.resume()
             source.cancel()
             return false
         }
     }
 
     private nonisolated func retrySocketListenerStartFromRecoveryWatcher(
+        watchSource: DispatchSourceFileSystemObject,
         socketPath retrySocketPath: String,
         accessMode retryAccessMode: SocketControlMode
     ) {
-        let shouldRetry = withListenerState { () -> Bool in
-            guard !isRunning,
-                  !listenerStartInProgress else {
-                return false
-            }
-            listenerStartInProgress = true
-            return true
-        }
+        let shouldRetry = beginSocketFileRecoveryRetry(from: watchSource)
         guard shouldRetry else {
             return
         }
@@ -134,9 +113,7 @@ extension TerminalController {
         Task { @MainActor [weak self, retrySocketPath, retryAccessMode] in
             guard let self else { return }
             guard let tabManager = self.tabManager else {
-                self.withListenerState {
-                    self.listenerStartInProgress = false
-                }
+                self.clearSocketListenerStartInProgress()
                 return
             }
 
@@ -199,22 +176,12 @@ extension TerminalController {
             nonSocketReplacementIdentity = nil
         }
 
-        let shouldScheduleRecovery = withListenerState {
-            guard isRunning,
-                  acceptLoopAlive,
-                  serverSocket == snapshot.serverSocket,
-                  activeAcceptLoopGeneration == snapshot.activeGeneration,
-                  pendingSocketFileRecoveryGeneration == nil else {
-                return false
-            }
-            pendingSocketFileRecoveryGeneration = snapshot.activeGeneration
-            return true
-        }
+        let shouldScheduleRecovery = scheduleSocketFileRecoveryIfCurrent(snapshot)
         guard shouldScheduleRecovery else {
             return
         }
 
-        var recoveryData: [String: Any] = [
+        let recoveryData: [String: Any] = [
             "pathStatus": pathStatus.debugLabel,
             "generation": snapshot.activeGeneration,
             "recoveryPath": recoveryPath
@@ -243,22 +210,11 @@ extension TerminalController {
         nonSocketReplacementIdentity: SocketPathIdentity?
     ) {
         guard let tabManager else {
-            withListenerState {
-                if pendingSocketFileRecoveryGeneration == generation {
-                    pendingSocketFileRecoveryGeneration = nil
-                }
-            }
+            clearPendingSocketFileRecovery(generation: generation)
             return
         }
 
-        guard let restart = withListenerState({ () -> (path: String, mode: SocketControlMode)? in
-            guard pendingSocketFileRecoveryGeneration == generation,
-                  activeAcceptLoopGeneration == generation else {
-                return nil
-            }
-            pendingSocketFileRecoveryGeneration = nil
-            return (socketPath, accessMode)
-        }) else {
+        guard let restart = takeSocketFileRecoveryRestart(generation: generation) else {
             return
         }
 
