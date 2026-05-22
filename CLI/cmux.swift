@@ -18456,6 +18456,9 @@ struct CMUXCLI {
         func claudeNeedsInputStatusValue() -> String {
             String(localized: "agent.claude.status.needsInput", defaultValue: "Needs input")
         }
+        func claudeRunningStatusValue() -> String {
+            String(localized: "agent.generic.status.running", defaultValue: "Running")
+        }
         func claudeWaitingNotificationFingerprint(_ summary: (subtitle: String, body: String)) -> String {
             "\(summary.subtitle)\n\(summary.body)"
         }
@@ -18936,14 +18939,6 @@ struct CMUXCLI {
                     return
                 }
             }
-            _ = try? setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                value: claudeNeedsInputStatusValue(),
-                icon: "bell.fill",
-                color: "#4C8DFF"
-            )
             let response: String
             do {
                 guard let sentResponse = try sendClaudeWaitingNotificationIfCurrent(
@@ -18971,6 +18966,14 @@ struct CMUXCLI {
                     return
                 }
                 response = sentResponse
+                _ = try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    value: claudeNeedsInputStatusValue(),
+                    icon: "bell.fill",
+                    color: "#4C8DFF"
+                )
                 markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
             } catch {
                 if let sessionId = parsedInput.sessionId {
@@ -19126,7 +19129,7 @@ struct CMUXCLI {
                let toolStatus = describeToolUse(parsedInput.object) {
                 statusValue = toolStatus
             } else {
-                statusValue = "Running"
+                statusValue = claudeRunningStatusValue()
             }
             try setClaudeStatus(
                 client: client,
@@ -27708,6 +27711,55 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
 
+        func restoreClaudeStatusAfterResolvedDecision() {
+            guard source == "claude", isActionable else { return }
+            switch hookEventName {
+            case "PermissionRequest", "ExitPlanMode", "AskUserQuestion":
+                break
+            default:
+                return
+            }
+
+            let store = ClaudeHookSessionStore()
+            let mapped = try? store.lookup(sessionId: sessionId)
+            let workspaceCandidate = nonEmptyClaudeHookIdentifier(mapped?.workspaceId)
+                ?? nonEmptyClaudeHookIdentifier(eventDict["workspace_id"] as? String)
+                ?? nonEmptyClaudeHookIdentifier(env["CMUX_WORKSPACE_ID"])
+            guard let workspaceCandidate,
+                  let workspaceId = try? resolveWorkspaceIdForClaudeHook(workspaceCandidate, client: client) else {
+                return
+            }
+
+            guard shouldApplyClaudeHookVisibleMutation(
+                sessionStore: store,
+                sessionId: sessionId,
+                turnId: firstString(in: stdinObj, keys: ["turn_id", "turnId"]),
+                workspaceId: workspaceId,
+                telemetry: telemetry
+            ) else {
+                return
+            }
+
+            let surfaceCandidate = nonEmptyClaudeHookIdentifier(mapped?.surfaceId)
+                ?? nonEmptyClaudeHookIdentifier(firstString(in: stdinObj, keys: ["surface_id", "surfaceId", "surface_ref", "surfaceRef"]))
+                ?? nonEmptyClaudeHookIdentifier(env["CMUX_SURFACE_ID"])
+            let surfaceId = surfaceCandidate.flatMap {
+                try? resolveSurfaceIdForClaudeHook($0, workspaceId: workspaceId, client: client)
+            }
+
+            try? store.clearPendingNotification(sessionId: sessionId)
+            let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+            _ = try? setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                value: runningStatus,
+                icon: "bolt.fill",
+                color: "#4C8DFF",
+                pid: agentPid
+            )
+        }
+
         // Sync. For actionable events we block up to 120s waiting
         // for the user's Feed click; the hook's stdout is then a
         // proper hookSpecificOutput that Claude honors directly
@@ -27752,6 +27804,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         let status = result["status"] as? String ?? "acknowledged"
+        if status == "resolved" {
+            restoreClaudeStatusAfterResolvedDecision()
+        }
         if status == "resolved", let decision = result["decision"] as? [String: Any] {
             let out = Self.renderAgentDecision(
                 source: source,
