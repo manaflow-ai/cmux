@@ -71,9 +71,7 @@ final class CmuxMainWindow: NSWindow {
             case 3, 4:
                 // If the event is targeted at a browser web view, let the browser
                 // handle its own page history (CmuxWebView already consumes these).
-                if let contentView = contentView,
-                   let hitView = contentView.hitTest(event.locationInWindow),
-                   isViewInsideBrowserWebView(hitView) {
+                if isPointerOverBrowserWebView(event) {
                     super.sendEvent(event)
                     return
                 }
@@ -96,6 +94,17 @@ final class CmuxMainWindow: NSWindow {
             }
         }
         super.sendEvent(event)
+    }
+
+    private func isPointerOverBrowserWebView(_ event: NSEvent) -> Bool {
+        if BrowserWindowPortalRegistry.webViewAtWindowPoint(event.locationInWindow, in: self) is CmuxWebView {
+            return true
+        }
+        guard let contentView,
+              let hitView = contentView.hitTest(event.locationInWindow) else {
+            return false
+        }
+        return isViewInsideBrowserWebView(hitView)
     }
 
     private func isViewInsideBrowserWebView(_ view: NSView) -> Bool {
