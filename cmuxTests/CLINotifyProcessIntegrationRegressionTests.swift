@@ -277,6 +277,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "Claude failed to parse the tool result"
             ),
             (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"There was an error."}"#,
+                "Claude Workspace - Claude waiting",
+                "Error",
+                "There was an error."
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Error"}"#,
+                "Claude Workspace - Claude waiting",
+                "Error",
+                "Error"
+            ),
+            (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","type":"error","message":"failed while waiting for tool output"}"#,
                 "Claude Workspace - Claude waiting",
                 "Error",

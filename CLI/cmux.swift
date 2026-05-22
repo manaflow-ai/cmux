@@ -2213,19 +2213,7 @@ struct CMUXCLI {
             if messageText.contains("approve") || messageText.contains("approval") {
                 return .toolApproval
             }
-            let metadataIndicatesError = metadata.contains("error")
-                || metadata.contains("failed")
-                || metadata.contains("failure")
-                || metadata.contains("exception")
-            let messageIndicatesError = messageText.contains("failed")
-                || messageText.contains("failure")
-                || messageText.contains("exception")
-                || messageText.contains("error:")
-                || messageText.contains("error occurred")
-                || messageText.contains("reported an error")
-                || messageText.contains("encountered an error")
-                || messageText.hasPrefix("error ")
-            if metadataIndicatesError || messageIndicatesError {
+            if metadataIndicatesError(metadata) || messageIndicatesError(messageText) {
                 return .error
             }
             if event == "stop" || lower.contains("idle") || lower.contains("waiting") || lower.contains("awaiting") || lower.contains("needs input") || lower.contains("needs your input") {
@@ -2235,6 +2223,64 @@ struct CMUXCLI {
                 return .question
             }
             return .idlePrompt
+        }
+
+        static func metadataIndicatesError(_ metadata: String) -> Bool {
+            containsStandaloneErrorCue(metadata)
+                || metadata.contains("failed")
+                || metadata.contains("failure")
+                || metadata.contains("exception")
+        }
+
+        static func messageIndicatesError(_ messageText: String) -> Bool {
+            containsStandaloneErrorCue(messageText)
+                || messageText.contains("failed")
+                || messageText.contains("failure")
+                || messageText.contains("exception")
+                || messageText.contains("error:")
+                || messageText.contains("error occurred")
+                || messageText.contains("reported an error")
+                || messageText.contains("encountered an error")
+                || messageText.hasPrefix("error ")
+        }
+
+        private static func containsStandaloneErrorCue(_ text: String) -> Bool {
+            var searchStart = text.startIndex
+            while let range = text.range(of: "error", range: searchStart..<text.endIndex) {
+                let before = range.lowerBound == text.startIndex ? nil : text[text.index(before: range.lowerBound)]
+                let after = range.upperBound == text.endIndex ? nil : text[range.upperBound]
+                if isBoundaryBeforeError(before), isBoundaryAfterError(after, in: text, afterError: range.upperBound) {
+                    return true
+                }
+                searchStart = range.upperBound
+            }
+            return false
+        }
+
+        private static func isBoundaryBeforeError(_ character: Character?) -> Bool {
+            guard let character else { return true }
+            return !isIdentifierCharacter(character)
+        }
+
+        private static func isBoundaryAfterError(
+            _ character: Character?,
+            in text: String,
+            afterError: String.Index
+        ) -> Bool {
+            guard let character else { return true }
+            if isIdentifierCharacter(character) {
+                return false
+            }
+            if character == "." {
+                let nextIndex = text.index(after: afterError)
+                guard nextIndex < text.endIndex else { return true }
+                return !isIdentifierCharacter(text[nextIndex])
+            }
+            return true
+        }
+
+        private static func isIdentifierCharacter(_ character: Character) -> Bool {
+            character.isLetter || character.isNumber || character == "_"
         }
     }
 
@@ -20894,24 +20940,14 @@ struct CMUXCLI {
               !metadata.contains("permission"),
               !metadata.contains("approve"),
               !metadata.contains("approval"),
-              !metadata.contains("error"),
-              !metadata.contains("failed"),
-              !metadata.contains("failure"),
-              !metadata.contains("exception"),
+              !ClaudeWaitingNotificationClassifier.metadataIndicatesError(metadata),
               !messageText.contains("permissionrequest"),
               !messageText.contains("permission request"),
               !messageText.contains("permission_prompt"),
               !messageText.contains("permission"),
               !messageText.contains("approve"),
               !messageText.contains("approval"),
-              !messageText.contains("failed"),
-              !messageText.contains("failure"),
-              !messageText.contains("exception"),
-              !messageText.contains("error:"),
-              !messageText.contains("error occurred"),
-              !messageText.contains("reported an error"),
-              !messageText.contains("encountered an error"),
-              !messageText.hasPrefix("error ") else {
+              !ClaudeWaitingNotificationClassifier.messageIndicatesError(messageText) else {
             return nil
         }
         guard containsCompletionCue("\(metadata) \(messageText)") else {
