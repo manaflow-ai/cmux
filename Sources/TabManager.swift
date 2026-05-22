@@ -5565,6 +5565,7 @@ class TabManager: ObservableObject {
         isDirty: Bool?
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard tab.panels[surfaceId] != nil else { return }
         let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
         guard sidebarGitMetadataWatchEnabled else {
             clearWorkspaceGitMetadata(for: probeKey)
@@ -5594,6 +5595,7 @@ class TabManager: ObservableObject {
 
     func clearSurfaceGitBranch(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard tab.panels[surfaceId] != nil else { return }
         let hadBranch = tab.panelGitBranches[surfaceId] != nil
         let hadPullRequest = tab.panelPullRequests[surfaceId] != nil
         guard hadBranch || hadPullRequest else { return }
@@ -5619,6 +5621,7 @@ class TabManager: ObservableObject {
         state: Workspace.PanelShellActivityState
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard tab.panels[surfaceId] != nil else { return }
         tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
         if state == .promptIdle {
             scheduleWorkspacePullRequestRefresh(

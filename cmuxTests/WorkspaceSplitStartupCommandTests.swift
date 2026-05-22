@@ -314,11 +314,24 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             surfaceId: hiddenPanelId,
             directory: "/tmp/cmux-hidden-warm-shell"
         )
+        manager.updateSurfaceGitBranch(
+            tabId: workspace.id,
+            surfaceId: hiddenPanelId,
+            branch: "hidden-warm-shell",
+            isDirty: false
+        )
+        manager.updateSurfaceShellActivity(
+            tabId: workspace.id,
+            surfaceId: hiddenPanelId,
+            state: .promptIdle
+        )
 
         XCTAssertEqual(workspace.title, originalTitle)
         XCTAssertEqual(workspace.currentDirectory, originalCurrentDirectory)
         XCTAssertNil(workspace.panelTitles[hiddenPanelId])
         XCTAssertNil(workspace.panelDirectories[hiddenPanelId])
+        XCTAssertNil(workspace.panelGitBranches[hiddenPanelId])
+        XCTAssertNil(workspace.panelShellActivityStates[hiddenPanelId])
     }
 
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {
