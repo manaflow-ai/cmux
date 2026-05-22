@@ -2633,8 +2633,10 @@ extension CMUXCLI {
 
         if parentURL.lastPathComponent == "worktrees" {
             let hqURL = parentURL.deletingLastPathComponent()
-            candidateURLs.append(hqURL.appendingPathComponent("repo", isDirectory: true))
-            candidateURLs.append(contentsOf: gitChildRepoURLs(in: parentURL))
+            let primaryRepoURL = hqURL.appendingPathComponent("repo", isDirectory: true)
+            if diffViewerDirectoryContainsGitMetadata(primaryRepoURL) {
+                candidateURLs.append(primaryRepoURL)
+            }
         } else if selectedURL.lastPathComponent == "repo" {
             let worktreesURL = parentURL.appendingPathComponent("worktrees", isDirectory: true)
             candidateURLs.append(contentsOf: gitChildRepoURLs(in: worktreesURL))
@@ -2674,9 +2676,14 @@ extension CMUXCLI {
         }
         return children
             .filter { url in
-                (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true &&
+                    diffViewerDirectoryContainsGitMetadata(url)
             }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    private func diffViewerDirectoryContainsGitMetadata(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.appendingPathComponent(".git", isDirectory: false).path)
     }
 
     private func gitDiffViewerRepoLabel(_ repoRoot: String, selectedRepoRoot: String) -> String {

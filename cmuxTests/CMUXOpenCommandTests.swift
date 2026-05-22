@@ -483,9 +483,28 @@ final class CMUXOpenCommandTests: XCTestCase {
         try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "story.txt"], in: repoURL)
 
+        let plainSiblingURL = rootURL.appendingPathComponent("plain-sibling", isDirectory: true)
+        let binURL = rootURL.appendingPathComponent("bin", isDirectory: true)
+        let gitWrapperURL = binURL.appendingPathComponent("git", isDirectory: false)
+        let gitLogURL = rootURL.appendingPathComponent("git-log.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: plainSiblingURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        printf '%s\\n' "$*" >> "\(gitLogURL.path)"
+        case "$*" in
+          *"\(plainSiblingURL.path)"*) echo "unexpected plain sibling probe" >&2; exit 99 ;;
+        esac
+        exec /usr/bin/git "$@"
+        """.write(to: gitWrapperURL, atomically: true, encoding: .utf8)
+        chmod(gitWrapperURL.path, 0o755)
+
         let stagedFallback = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", "--unstaged"],
+            environmentOverrides: [
+                "PATH": "\(binURL.path):/usr/bin:/bin:/usr/sbin:/sbin"
+            ],
             currentDirectoryURL: repoURL
         )
 
@@ -498,6 +517,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         let unstagedOption = try XCTUnwrap(sourceOptions.first { $0["value"] as? String == "unstaged" })
         XCTAssertEqual(stagedOption["selected"] as? Bool, true)
         XCTAssertEqual(unstagedOption["selected"] as? Bool, false)
+        let gitLog = try String(contentsOf: gitLogURL, encoding: .utf8)
+        XCTAssertFalse(gitLog.contains(plainSiblingURL.path), gitLog)
     }
 
     func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
