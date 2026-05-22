@@ -508,6 +508,53 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexStopAfterInterruptedPriorTurnStillNotifies() throws {
+        let context = try makeClaudeHookContext(name: "codex-interrupted-turn-depth")
+        defer { context.cleanup() }
+
+        let sessionId = "interrupted-depth-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let interruptedPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"interrupted"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(interruptedPrompt.timedOut, interruptedPrompt.stderr)
+        XCTAssertEqual(interruptedPrompt.status, 0, interruptedPrompt.stderr)
+
+        let currentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"finish now"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
+        XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
+
+        let stopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+
+        XCTAssertTrue(
+            stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A stale prompt depth from an interrupted prior turn must not suppress the current top-level completion notification, saw \(stopCommands)"
+        )
+        XCTAssertTrue(
+            stopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "A stale prompt depth from an interrupted prior turn must not leave Codex marked running, saw \(stopCommands)"
+        )
+    }
+
     func testManagedCodexSubagentStopDoesNotReplaceResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "codex-managed-resume-guard")
         defer { context.cleanup() }
