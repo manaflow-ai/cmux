@@ -6308,9 +6308,24 @@ struct CMUXCLI {
         }
         let rawWorkspaceInitialSurfaceId = (workspaceCreate["surface_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let workspaceInitialSurfaceId = rawWorkspaceInitialSurfaceId?.isEmpty == false
+        var workspaceInitialSurfaceId = rawWorkspaceInitialSurfaceId?.isEmpty == false
             ? rawWorkspaceInitialSurfaceId
             : nil
+        if usesPersistentSSHPTY && workspaceInitialSurfaceId == nil {
+            do {
+                workspaceInitialSurfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+            } catch {
+                do {
+                    _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+                } catch {
+                    let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
+                    FileHandle.standardError.write(Data(warning.utf8))
+                }
+                throw CLIError(
+                    message: "cmux could not resolve the initial terminal surface for persistent SSH PTY startup"
+                )
+            }
+        }
         let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         cliDebugLog(

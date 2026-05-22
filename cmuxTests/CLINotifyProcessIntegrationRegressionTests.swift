@@ -751,6 +751,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(sessionID.contains("{"), sessionID)
     }
 
+    func testSSHPersistentPTYJSONResolvesSessionIDWhenWorkspaceCreateOmitsSurfaceID() throws {
+        let run = try runMockedSSH(arguments: [], jsonOutput: true, omitWorkspaceCreateSurfaceID: true)
+        let payload = try jsonPayload(from: run.stdout)
+        let sessionID = try XCTUnwrap(payload["ssh_pty_session_id"] as? String)
+
+        XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
+    }
+
     private func assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(
         run: MockedSSHRun,
         file: StaticString = #filePath,
@@ -6279,6 +6287,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     private func runMockedSSH(
         arguments sshArguments: [String],
         jsonOutput: Bool = false,
+        omitWorkspaceCreateSurfaceID: Bool = false,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws -> MockedSSHRun {
@@ -6304,13 +6313,31 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
             switch method {
             case "workspace.create":
+                var result: [String: Any] = [
+                    "workspace_id": workspaceId,
+                    "window_id": windowId,
+                ]
+                if !omitWorkspaceCreateSurfaceID {
+                    result["surface_id"] = surfaceId
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: result
+                )
+            case "surface.list":
                 return self.v2Response(
                     id: id,
                     ok: true,
                     result: [
-                        "workspace_id": workspaceId,
-                        "surface_id": surfaceId,
-                        "window_id": windowId,
+                        "surfaces": [
+                            [
+                                "id": surfaceId,
+                                "ref": "surface:1",
+                                "index": 1,
+                                "focused": true,
+                            ],
+                        ],
                     ]
                 )
             case "workspace.remote.configure":
