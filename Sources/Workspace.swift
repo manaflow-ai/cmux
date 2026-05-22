@@ -8048,15 +8048,16 @@ final class Workspace: Identifiable, ObservableObject {
             }
         } else {
             // Create initial terminal panel
-            let terminalPanel = TerminalPanel(
-                workspaceId: id,
+            let terminalPanel = terminalPanelForNewTerminal(
                 context: GHOSTTY_SURFACE_CONTEXT_TAB,
                 configTemplate: resolvedConfigTemplate,
                 workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
-                portOrdinal: portOrdinal,
                 initialCommand: initialTerminalCommand,
+                tmuxStartCommand: nil,
                 initialInput: initialTerminalInput,
-                initialEnvironmentOverrides: initialTerminalEnvironment
+                initialEnvironmentOverrides: initialTerminalEnvironment,
+                startupEnvironment: [:],
+                reason: "workspace.init"
             )
             configureTerminalPanel(terminalPanel)
             panels[terminalPanel.id] = terminalPanel
@@ -10583,6 +10584,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String?,
         tmuxStartCommand: String?,
         initialInput: String?,
+        initialEnvironmentOverrides: [String: String],
         startupEnvironment: [String: String],
         configTemplate: CmuxSurfaceConfigTemplate?
     ) -> Bool {
@@ -10591,6 +10593,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else { return false }
         guard tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else { return false }
         guard initialInput?.isEmpty != false else { return false }
+        guard initialEnvironmentOverrides.isEmpty else { return false }
         guard startupEnvironment.isEmpty else { return false }
         guard configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
             return false
@@ -10695,6 +10698,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String?,
         tmuxStartCommand: String?,
         initialInput: String?,
+        initialEnvironmentOverrides: [String: String] = [:],
         startupEnvironment: [String: String],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         reason: String
@@ -10703,6 +10707,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
             startupEnvironment: startupEnvironment,
             configTemplate: configTemplate
         ), let warmPanel = takeWarmTerminalPanelIfAvailable(
@@ -10722,6 +10727,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: startupEnvironment,
             focusPlacement: focusPlacement
         )
