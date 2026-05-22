@@ -267,7 +267,8 @@ struct WorkspaceContentView: View {
                 // Fallback for tabs without panels (shouldn't happen normally)
                 EmptyPanelView(
                     paneId: paneId,
-                    settingsRevision: keyboardShortcutSettingsObserver.revision
+                    settingsRevision: keyboardShortcutSettingsObserver.revision,
+                    registerShortcuts: workspace.bonsplitController.focusedPaneId == paneId
                 ) { action, paneId in
                     action.perform(
                         workspace: workspace,
@@ -280,7 +281,8 @@ struct WorkspaceContentView: View {
             // Empty pane content
             EmptyPanelView(
                 paneId: paneId,
-                settingsRevision: keyboardShortcutSettingsObserver.revision
+                settingsRevision: keyboardShortcutSettingsObserver.revision,
+                registerShortcuts: workspace.bonsplitController.focusedPaneId == paneId
             ) { action, paneId in
                 action.perform(
                     workspace: workspace,
@@ -1027,6 +1029,9 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
             triggerFlash: { panelId in
                 workspace.triggerDebugFlash(panelId: panelId)
             },
+            isFocusedPane: { paneId in
+                dock.controller.focusedPaneId == paneId
+            },
             performEmptyPaneAction: { action, paneId in
                 action.perform(workspace: workspace, paneId: paneId, controller: dock.controller)
             },
@@ -1237,6 +1242,7 @@ struct WorkspaceDockToggleCluster: View {
                 .buttonStyle(.plain)
                 .frame(width: 18, height: 16)
                 .contentShape(Rectangle())
+                .accessibilityLabel(WorkspaceDockToggleText.helpTitle(edge: edge))
                 .help(WorkspaceDockToggleText.helpTitle(edge: edge))
                 .contextMenu {
                     Button(layout.isEdgeOpen(edge) ? WorkspaceDockToggleText.closeTitle(edge: edge) : WorkspaceDockToggleText.openTitle(edge: edge)) {
@@ -1447,6 +1453,7 @@ private struct WorkspaceDockPaneActions {
     let focusPanelFromTerminalFirstResponder: (UUID) -> Void
     let requestPanelFocus: (UUID) -> Void
     let triggerFlash: (UUID) -> Void
+    let isFocusedPane: (PaneID) -> Bool
     let performEmptyPaneAction: (EmptyPaneCreationAction, PaneID) -> Bool
     let addDock: () -> Void
     let removeDock: () -> Void
@@ -1547,6 +1554,7 @@ private struct WorkspaceDockPaneView: View {
         EmptyPanelView(
             paneId: paneId,
             settingsRevision: snapshot.keyboardShortcutSettingsRevision,
+            registerShortcuts: actions.isFocusedPane(paneId),
             onPerformAction: actions.performEmptyPaneAction
         )
     }
@@ -1665,15 +1673,18 @@ private enum EmptyPaneCreationAction: Hashable, Identifiable {
 private struct EmptyPanelView: View {
     let paneId: PaneID
     let settingsRevision: UInt64
+    let registerShortcuts: Bool
     let onPerformAction: (EmptyPaneCreationAction, PaneID) -> Bool
 
     init(
         paneId: PaneID,
         settingsRevision: UInt64,
+        registerShortcuts: Bool,
         onPerformAction: @escaping (EmptyPaneCreationAction, PaneID) -> Bool
     ) {
         self.paneId = paneId
         self.settingsRevision = settingsRevision
+        self.registerShortcuts = registerShortcuts
         self.onPerformAction = onPerformAction
     }
 
@@ -1818,7 +1829,7 @@ private struct EmptyPanelView: View {
             }
         }
 
-        if let shortcut, let key = shortcut.keyEquivalent {
+        if registerShortcuts, let shortcut, let key = shortcut.keyEquivalent {
             button
             .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
         } else {
