@@ -2554,7 +2554,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self
             case .string(let value):
                 var replaced = value
-                for (placeholder, replacement) in replacements {
+                for (placeholder, replacement) in CLINotifyProcessIntegrationRegressionTests.orderedReplayReplacements(replacements) {
                     replaced = replaced.replacingOccurrences(of: placeholder, with: replacement)
                 }
                 return .string(replaced)
@@ -2586,6 +2586,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             guard case .object(let values) = self else { return nil }
             return values.mapValues { $0.anyValue() }
         }
+    }
+
+    private static func orderedReplayReplacements(
+        _ replacements: [String: String]
+    ) -> [(placeholder: String, replacement: String)] {
+        replacements
+            .map { (placeholder: $0.key, replacement: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.placeholder.count != rhs.placeholder.count {
+                    return lhs.placeholder.count > rhs.placeholder.count
+                }
+                return lhs.placeholder < rhs.placeholder
+            }
     }
 
     private func loadAgentHookTrajectoryReplayFixture() throws -> AgentHookTrajectoryReplayFixture {
@@ -2710,7 +2723,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     private func replacingPlaceholders(in value: String, replacements: [String: String]) -> String {
         var result = value
-        for (placeholder, replacement) in replacements {
+        for (placeholder, replacement) in Self.orderedReplayReplacements(replacements) {
             result = result.replacingOccurrences(of: placeholder, with: replacement)
         }
         return result
