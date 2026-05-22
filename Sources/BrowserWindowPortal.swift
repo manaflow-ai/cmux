@@ -3967,7 +3967,12 @@ final class WindowBrowserPortal: NSObject {
     }
 
     func textDropWebViewAtWindowPoint(_ windowPoint: NSPoint) -> WKWebView? {
-        guard ensureInstalled() else { return nil }
+        guard case .webView(let webView) = textDropHitAtWindowPoint(windowPoint) else { return nil }
+        return webView
+    }
+
+    func textDropHitAtWindowPoint(_ windowPoint: NSPoint) -> BrowserPortalTextDropHit {
+        guard ensureInstalled() else { return .none }
         let point = hostView.convert(windowPoint, from: nil)
         for subview in hostView.subviews.reversed() {
             guard let container = subview as? WindowBrowserSlotView else { continue }
@@ -3975,13 +3980,13 @@ final class WindowBrowserPortal: NSObject {
             guard container.frame.contains(point) else { continue }
             let pointInContainer = container.convert(point, from: hostView)
             if container.blocksHostedTextDropForFileDrop(at: pointInContainer) {
-                return nil
+                return .blocked
             }
             if let webView = container.hostedTextDropWebViewForFileDrop(at: pointInContainer) {
-                return webView
+                return .webView(webView)
             }
         }
-        return nil
+        return .none
     }
 
     func browserPaneDropTargetAtWindowPoint(_ windowPoint: NSPoint) -> BrowserPaneDropTargetView? {
@@ -3996,6 +4001,13 @@ final class WindowBrowserPortal: NSObject {
         }
         return nil
     }
+}
+
+@MainActor
+enum BrowserPortalTextDropHit {
+    case webView(WKWebView)
+    case blocked
+    case none
 }
 
 @MainActor
@@ -4231,9 +4243,14 @@ enum BrowserWindowPortalRegistry {
     }
 
     static func textDropWebViewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> WKWebView? {
+        guard case .webView(let webView) = textDropHitAtWindowPoint(windowPoint, in: window) else { return nil }
+        return webView
+    }
+
+    static func textDropHitAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> BrowserPortalTextDropHit {
         let windowId = ObjectIdentifier(window)
-        guard let portal = portalsByWindowId[windowId] else { return nil }
-        return portal.textDropWebViewAtWindowPoint(windowPoint)
+        guard let portal = portalsByWindowId[windowId] else { return .none }
+        return portal.textDropHitAtWindowPoint(windowPoint)
     }
 
     static func browserPaneDropTargetAtWindowPoint(
