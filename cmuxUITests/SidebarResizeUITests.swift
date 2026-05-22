@@ -8,6 +8,7 @@ final class SidebarResizeUITests: XCTestCase {
 
     func testSidebarResizerTracksCursor() {
         let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launch()
 
         let elements = app.descendants(matching: .any)
@@ -39,6 +40,7 @@ final class SidebarResizeUITests: XCTestCase {
 
     func testSidebarResizerAllowsSmallerMinimumWidth() {
         let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launch()
 
         let window = app.windows.firstMatch
@@ -63,6 +65,7 @@ final class SidebarResizeUITests: XCTestCase {
 
     func testSidebarResizerHasMaximumWidthCap() {
         let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launch()
 
         let window = app.windows.firstMatch

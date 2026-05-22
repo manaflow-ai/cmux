@@ -137,7 +137,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
     }
 
     func testNotificationOpenFocusesDestinationAndMarksRead() async throws {
-        let fixture = try makeSocketFixture(name: "notif-open", includeWindow: true)
+        let fixture = try makeSocketFixture(name: "notif-open")
         defer { fixture.cleanup() }
 
         let targetWorkspace = fixture.manager.addWorkspace(title: "Open Target", select: false)

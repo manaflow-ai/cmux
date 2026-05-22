@@ -14695,6 +14695,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         guard let window else {
 #if DEBUG
+            if SocketControlSettings.isRunningUnderXCTest(environment: ProcessInfo.processInfo.environment) {
+                return openNotificationInWindowlessTestContext(context, tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+            }
+#endif
+#if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(
                 tabId: tabId,
                 surfaceId: surfaceId,
@@ -14749,6 +14754,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         return true
     }
+
+#if DEBUG
+    private func openNotificationInWindowlessTestContext(_ context: MainWindowContext, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+        context.sidebarSelectionState.selection = .tabs
+        guard context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
+            recordMultiWindowNotificationOpenFailureIfNeeded(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                notificationId: notificationId,
+                reason: "windowless_test_focus_failed"
+            )
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+                writeJumpUnreadTestData(["jumpUnreadOpenResult": "0"])
+            }
+            return false
+        }
+
+        recordJumpUnreadFocusFromModelIfNeeded(
+            tabManager: context.tabManager,
+            tabId: tabId,
+            expectedSurfaceId: surfaceId
+        )
+
+        if let notificationId, let store = notificationStore {
+            store.markRead(id: notificationId)
+        }
+
+        recordMultiWindowNotificationFocusIfNeeded(
+            windowId: context.windowId,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sidebarSelection: context.sidebarSelectionState.selection
+        )
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+            writeJumpUnreadTestData(["jumpUnreadOpenInWindowlessTestContext": "1", "jumpUnreadOpenResult": "1"])
+        }
+        return true
+    }
+#endif
 
     private func openNotificationFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
         // If the owning window context hasn't been registered yet, fall back to the "active" window.
