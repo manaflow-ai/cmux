@@ -10890,6 +10890,7 @@ final class Workspace: Identifiable, ObservableObject {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            refillWarmTerminalPoolIfNeeded(reason: "newTerminalSplit.layoutFailed")
             return nil
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
@@ -11010,6 +11011,7 @@ final class Workspace: Identifiable, ObservableObject {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            refillWarmTerminalPoolIfNeeded(reason: "newTerminalSurface.layoutFailed")
             return nil
         }
 
@@ -15151,6 +15153,7 @@ extension Workspace: BonsplitDelegate {
             panelTitles.removeValue(forKey: newPanel.id)
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             newPanel.close()
+            refillWarmTerminalPoolIfNeeded(reason: "uiSplitAutoCreate.layoutFailed")
             return
         }
 
