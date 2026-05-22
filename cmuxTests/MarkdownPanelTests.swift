@@ -484,6 +484,79 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(snapshot.containerHidden, false)
     }
 
+    func testMarkdownLayoutReconcileKeepsTextModePortalHidden() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-layout-text-mode-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appendingPathComponent("editable.md")
+        try "# Editable\n\nThe retained preview portal must stay hidden in TextEdit mode.\n"
+            .write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace(title: "Markdown layout text mode")
+        defer {
+            for panel in workspace.panels.values {
+                panel.close()
+            }
+        }
+
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(workspace.newMarkdownSurface(
+            inPane: pane,
+            filePath: fileURL.path,
+            focus: true
+        ))
+
+        let coordinator = panel.rendererSession.coordinator(
+            panelId: panel.id,
+            workspaceId: workspace.id,
+            filePath: panel.filePath
+        )
+        coordinator.webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: frame)
+        window.contentView = root
+
+        let probe = MarkdownWebPortalProbeView(frame: NSRect(x: 20, y: 20, width: 320, height: 180))
+        root.addSubview(probe)
+        coordinator.bindPortal(
+            to: probe,
+            visibleInUI: true,
+            zPriority: 1,
+            dropContext: BrowserPaneDropContext(
+                workspaceId: workspace.id,
+                panelId: panel.id,
+                paneId: pane,
+                allowsHostedWebViewTextDrop: false
+            ),
+            reason: "unit-test"
+        )
+
+        panel.setDisplayMode(.text)
+        panel.rendererSession.hidePortal(reason: "unit-test-text-mode")
+        XCTAssertEqual(panel.rendererSession.portalSnapshot()?.visibleInUI, false)
+
+        XCTAssertFalse(workspace.debugReconcileMarkdownPortalVisibilityForTesting(reason: "unit-test-text-mode"))
+
+        let snapshot = try XCTUnwrap(panel.rendererSession.portalSnapshot())
+        XCTAssertEqual(snapshot.visibleInUI, false)
+        XCTAssertEqual(snapshot.containerHidden, true)
+    }
+
     func testMarkdownRendererPortalReattachDiagnosticIsLive() {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
