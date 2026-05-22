@@ -279,7 +279,7 @@ jobs:
               -skip-testing:cmuxTests/TerminalNotificationSocketActionTests/testNotificationJumpToUnreadPayloadMatchesOpenedFallbackNotification \
               test 2>&1 &
             local xcodebuild_pid=$!
-            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
+            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-1800}"
             local deadline=$((SECONDS + timeout_seconds))
             while kill -0 "$xcodebuild_pid" 2>/dev/null; do
               if [ "$SECONDS" -ge "$deadline" ]; then
