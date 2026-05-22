@@ -754,7 +754,6 @@ jobs:
           name: task-manager-memory-${{ matrix.label }}
           path: |
             memory-leak-artifacts-${{ matrix.label }}
-            /tmp/cmux-memory-guard-*.log
           if-no-files-found: ignore
 
       - name: Cleanup virtual display

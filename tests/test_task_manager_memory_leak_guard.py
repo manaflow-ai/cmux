@@ -15,6 +15,7 @@ import json
 import math
 import os
 import plistlib
+import shutil
 import socket
 import statistics
 import subprocess
@@ -146,6 +147,7 @@ def launch_app(app_path: Path, socket_path: str, cmuxd_socket: str, log_path: st
         "CMUX_SOCKET_PATH",
         "CMUX_SOCKET_PASSWORD",
         "CMUX_SOCKET_MODE",
+        "CMUX_SOCKET_ENABLE",
         "CMUX_ALLOW_SOCKET_OVERRIDE",
         "CMUX_TAB_ID",
         "CMUX_PANEL_ID",
@@ -159,6 +161,7 @@ def launch_app(app_path: Path, socket_path: str, cmuxd_socket: str, log_path: st
     env.update(
         {
             "CMUX_UI_TEST_MODE": "1",
+            "CMUX_SOCKET_ENABLE": "1",
             "CMUX_SOCKET_MODE": "allowAll",
             "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
             "CMUX_SOCKET_PATH": socket_path,
@@ -407,7 +410,12 @@ def detector_self_check(max_growth_mb: float, max_slope_mb_per_min: float) -> No
     )
 
 
-def write_artifacts(artifacts_dir: Path | None, samples: list[MemorySample], trend: TrendResult) -> None:
+def write_artifacts(
+    artifacts_dir: Path | None,
+    samples: list[MemorySample],
+    trend: TrendResult,
+    log_path: Path | None = None,
+) -> None:
     if artifacts_dir is None:
         return
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -422,6 +430,8 @@ def write_artifacts(artifacts_dir: Path | None, samples: list[MemorySample], tre
         ),
         encoding="utf-8",
     )
+    if log_path is not None and log_path.exists():
+        shutil.copyfile(log_path, artifacts_dir / "cmux-memory-guard.log")
 
 
 def tail_file(path: Path, line_count: int = 80) -> str:
@@ -487,7 +497,7 @@ def run_guard(args: argparse.Namespace) -> int:
         print(tail_file(Path(log_path)))
         raise
     finally:
-        write_artifacts(artifacts_dir, samples, trend)
+        write_artifacts(artifacts_dir, samples, trend, Path(log_path))
         if proc.poll() is None:
             proc.terminate()
             try:
