@@ -207,7 +207,6 @@ final class BrowserHiddenWebViewDiscardManager {
 
     private func stopOnMainActor() {
         cancel()
-        BrowserHiddenWebViewDiscardRegistry.shared.noteInactive(self)
         if let policyObserver {
             NotificationCenter.default.removeObserver(policyObserver)
             self.policyObserver = nil
