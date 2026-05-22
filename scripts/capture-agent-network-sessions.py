@@ -214,7 +214,7 @@ def sanitize_text(value: str) -> str:
         (r"sess-[A-Za-z0-9_-]{12,}", "sess-<redacted>"),
         (r"\b(user|org|acct|proj|ses)-[A-Za-z0-9_-]{12,}\b", "<redacted-id>"),
         (r"\b(user|org|acct|proj|ses)_[A-Za-z0-9_-]{12,}\b", "<redacted-id>"),
-        (r"\b(req|msg|resp|evt|call)_[A-Za-z0-9_-]{12,}\b", "<redacted-id>"),
+        (r"\b(req|msg|resp|evt|call|rs)_[A-Za-z0-9_-]{12,}\b", "<redacted-id>"),
         (r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9._-]{20,}", "<redacted-jwt>"),
         (r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<redacted-email>"),
         (r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "<redacted-uuid>"),
@@ -872,13 +872,10 @@ def main() -> int:
         print(f"unavailable agents: {', '.join(item['agent'] for item in fixture['unavailable']) or 'none'}")
         if args.keep_raw:
             print(f"raw captures: {capture_root}")
-        else:
-            shutil.rmtree(capture_root, ignore_errors=True)
         return 0
-    except Exception:
+    finally:
         if not args.keep_raw:
             shutil.rmtree(capture_root, ignore_errors=True)
-        raise
 
 
 if __name__ == "__main__":

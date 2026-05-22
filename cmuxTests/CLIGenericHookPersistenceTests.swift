@@ -2465,6 +2465,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "req_",
             "msg_",
             "resp_",
+            "rs_",
             "anthropic-ratelimit",
             "anthropic-organization-id",
             "x-codex-active-limit",
