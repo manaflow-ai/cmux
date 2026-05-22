@@ -29,20 +29,15 @@ extension AppDelegate {
 
         let requestedScenario = env["CMUX_UI_TEST_MARKDOWN_PANE_DRAG_SCENARIO"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let requestedScenario, !requestedScenario.isEmpty else {
-            writeMarkdownPaneDragUITestData([
-                "setupError": "Missing CMUX_UI_TEST_MARKDOWN_PANE_DRAG_SCENARIO",
-                "done": "1",
-            ], at: path)
-            return
-        }
         let scenario: String
         switch requestedScenario {
-        case "center", "split":
-            scenario = requestedScenario
+        case nil, "", "center":
+            scenario = "center"
+        case "split":
+            scenario = "split"
         default:
             writeMarkdownPaneDragUITestData([
-                "setupError": "Invalid CMUX_UI_TEST_MARKDOWN_PANE_DRAG_SCENARIO: \(requestedScenario)",
+                "setupError": "Invalid CMUX_UI_TEST_MARKDOWN_PANE_DRAG_SCENARIO: \(requestedScenario ?? "")",
                 "done": "1",
             ], at: path)
             return
