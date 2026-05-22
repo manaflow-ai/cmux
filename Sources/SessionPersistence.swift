@@ -601,8 +601,10 @@ enum SurfaceResumeApprovalSignature {
 
 enum SurfaceResumeApprovalStore {
     static let didChangeNotification = Notification.Name("cmux.surfaceResumeApprovalsDidChange")
-    private static let defaultFileName = "resume-commands.json"
+    private static let legacyFileName = "resume-commands.json"
     private static let secretFileName = ".surface-resume-approval-secret"
+    private static let settingsTerminalSectionKey = "terminal"
+    private static let settingsRecordsKey = "resumeCommands"
     private static let keychainService = "com.cmuxterm.app.surface-resume-approvals"
     private static let keychainAccount = "hmac-secret-v1"
 
@@ -611,19 +613,78 @@ enum SurfaceResumeApprovalStore {
         var records: [SurfaceResumeApprovalRecord]
     }
 
+    private enum CmuxSettingsRootLoadResult {
+        case missing
+        case invalid
+        case parsed([String: Any])
+    }
+
     static func defaultURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         if let override = environment["CMUX_SURFACE_RESUME_APPROVAL_STORE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath, isDirectory: false)
         }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/cmux", isDirectory: true)
-            .appendingPathComponent(defaultFileName, isDirectory: false)
+        return URL(fileURLWithPath: CmuxSettingsFileStore.defaultPrimaryPath, isDirectory: false)
     }
 
     static func loadRecords(
         fileURL: URL = defaultURL(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        defaultSettingsURL: URL = defaultURL()
+    ) -> [SurfaceResumeApprovalRecord] {
+        if storesRecordsInCmuxSettings(fileURL) {
+            let loaded = loadRecordsFromCmuxSettings(fileURL: fileURL)
+            if loaded.hasResumeCommandsKey {
+                return loaded.records
+            }
+            guard fileURL.standardizedFileURL.path == defaultSettingsURL.standardizedFileURL.path else {
+                return loaded.records
+            }
+            let legacyURL = legacyURL(forCmuxSettingsURL: fileURL)
+            let legacyRecords = loadStandaloneRecords(fileURL: legacyURL, fileManager: fileManager)
+            guard !legacyRecords.isEmpty else {
+                return loaded.records
+            }
+            guard loaded.canWriteSettings else {
+                return legacyRecords
+            }
+            _ = migrateLegacyRecordsIfNeeded(
+                fileURL: fileURL,
+                fileManager: fileManager,
+                legacyFileURL: legacyURL
+            )
+            return legacyRecords
+        }
+        return loadStandaloneRecords(fileURL: fileURL, fileManager: fileManager)
+    }
+
+    @discardableResult
+    static func migrateLegacyRecordsIfNeeded(
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        legacyFileURL: URL? = nil
+    ) -> Bool {
+        guard storesRecordsInCmuxSettings(fileURL) else {
+            return false
+        }
+        let loaded = loadRecordsFromCmuxSettings(fileURL: fileURL)
+        guard !loaded.hasResumeCommandsKey else {
+            return false
+        }
+        guard loaded.canWriteSettings else {
+            return false
+        }
+        let legacyURL = legacyFileURL ?? legacyURL(forCmuxSettingsURL: fileURL)
+        let legacyRecords = loadStandaloneRecords(fileURL: legacyURL, fileManager: fileManager)
+        guard !legacyRecords.isEmpty else {
+            return false
+        }
+        return writeRecordsToCmuxSettings(records: legacyRecords, fileURL: fileURL, fileManager: fileManager)
+    }
+
+    private static func loadStandaloneRecords(
+        fileURL: URL,
+        fileManager: FileManager
     ) -> [SurfaceResumeApprovalRecord] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         if let file = try? JSONDecoder().decode(StoredFile.self, from: data) {
@@ -843,6 +904,9 @@ enum SurfaceResumeApprovalStore {
         fileURL: URL = defaultURL(),
         fileManager: FileManager = .default
     ) -> Bool {
+        if storesRecordsInCmuxSettings(fileURL) {
+            return write(records: [], fileURL: fileURL, fileManager: fileManager)
+        }
         try? fileManager.removeItem(at: fileURL)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
         return true
@@ -890,6 +954,18 @@ enum SurfaceResumeApprovalStore {
         fileURL: URL,
         fileManager: FileManager
     ) -> Bool {
+        if storesRecordsInCmuxSettings(fileURL) {
+            return writeRecordsToCmuxSettings(records: records, fileURL: fileURL, fileManager: fileManager)
+        }
+        return writeStandaloneRecords(records: records, fileURL: fileURL, fileManager: fileManager)
+    }
+
+    @discardableResult
+    private static func writeStandaloneRecords(
+        records: [SurfaceResumeApprovalRecord],
+        fileURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
         do {
             try fileManager.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
@@ -899,6 +975,123 @@ enum SurfaceResumeApprovalStore {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(StoredFile(version: 1, records: records))
+            try data.write(to: fileURL, options: [.atomic])
+            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            NotificationCenter.default.post(name: didChangeNotification, object: nil)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private static func storesRecordsInCmuxSettings(_ fileURL: URL) -> Bool {
+        fileURL.lastPathComponent == "cmux.json"
+    }
+
+    private static func legacyURL(forCmuxSettingsURL fileURL: URL) -> URL {
+        fileURL.deletingLastPathComponent()
+            .appendingPathComponent(legacyFileName, isDirectory: false)
+    }
+
+    private static func loadRecordsFromCmuxSettings(
+        fileURL: URL
+    ) -> (records: [SurfaceResumeApprovalRecord], hasResumeCommandsKey: Bool, canWriteSettings: Bool) {
+        let root: [String: Any]
+        switch loadCmuxSettingsRoot(fileURL: fileURL) {
+        case .missing:
+            return ([], false, true)
+        case .invalid:
+            return ([], false, false)
+        case .parsed(let parsedRoot):
+            root = parsedRoot
+        }
+        guard let terminalSection = root[settingsTerminalSectionKey] as? [String: Any],
+              let rawRecords = terminalSection[settingsRecordsKey] else {
+            return ([], false, true)
+        }
+        guard JSONSerialization.isValidJSONObject(rawRecords),
+              let data = try? JSONSerialization.data(withJSONObject: rawRecords, options: []),
+              let records = try? JSONDecoder().decode([SurfaceResumeApprovalRecord].self, from: data) else {
+            return ([], true, true)
+        }
+        return (records, true, true)
+    }
+
+    private static func loadCmuxSettingsRoot(fileURL: URL) -> CmuxSettingsRootLoadResult {
+        guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else {
+            return .missing
+        }
+        do {
+            let sanitized = try JSONCParser.preprocess(data: data)
+            guard let root = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any] else {
+                return .invalid
+            }
+            return .parsed(root)
+        } catch {
+            return .invalid
+        }
+    }
+
+    @discardableResult
+    private static func writeRecordsToCmuxSettings(
+        records: [SurfaceResumeApprovalRecord],
+        fileURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        do {
+            let rootLoadResult = loadCmuxSettingsRoot(fileURL: fileURL)
+
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let recordsData = try encoder.encode(records)
+            let recordsValue = try JSONSerialization.jsonObject(with: recordsData, options: [])
+            guard let recordsJSON = String(data: recordsData, encoding: .utf8) else {
+                return false
+            }
+
+            let data: Data
+            switch rootLoadResult {
+            case .missing:
+                let root: [String: Any] = [
+                    "$schema": CmuxSettingsFileStore.schemaURLString,
+                    "schemaVersion": CmuxSettingsFileStore.currentSchemaVersion,
+                    settingsTerminalSectionKey: [
+                        settingsRecordsKey: recordsValue,
+                    ],
+                ]
+                guard JSONSerialization.isValidJSONObject(root) else {
+                    return false
+                }
+                data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            case .invalid:
+                return false
+            case .parsed:
+                guard let existingData = fileManager.contents(atPath: fileURL.path),
+                      let decodedSource = try? JSONCParser.source(data: existingData),
+                      let updatedSource = JSONCObjectEditor.setNestedObjectProperty(
+                          parentKey: settingsTerminalSectionKey,
+                          childKey: settingsRecordsKey,
+                          childValueJSON: recordsJSON,
+                          in: decodedSource.text
+                      ) else {
+                    return false
+                }
+                guard let updatedData = updatedSource.data(using: decodedSource.encoding) else {
+                    return false
+                }
+                let sanitized = try JSONCParser.preprocess(data: updatedData)
+                guard let root = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any],
+                      JSONSerialization.isValidJSONObject(root) else {
+                    return false
+                }
+                data = updatedData
+            }
+
+            try fileManager.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fileURL.deletingLastPathComponent().path)
             try data.write(to: fileURL, options: [.atomic])
             try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
             NotificationCenter.default.post(name: didChangeNotification, object: nil)
@@ -1083,6 +1276,66 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     var mode: RightSidebarMode
 }
 
+struct SessionNotificationSnapshot: Codable, Sendable {
+    var id: UUID
+    var title: String
+    var subtitle: String
+    var body: String
+    var createdAt: TimeInterval
+    var isRead: Bool
+    var paneFlash: Bool?
+    var clickAction: TerminalNotificationClickAction?
+
+    init(
+        id: UUID,
+        title: String,
+        subtitle: String,
+        body: String,
+        createdAt: TimeInterval,
+        isRead: Bool,
+        paneFlash: Bool? = nil,
+        clickAction: TerminalNotificationClickAction? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.createdAt = createdAt
+        self.isRead = isRead
+        self.paneFlash = paneFlash
+        self.clickAction = clickAction
+    }
+
+    init(notification: TerminalNotification) {
+        self.init(
+            id: notification.id,
+            title: notification.title,
+            subtitle: notification.subtitle,
+            body: notification.body,
+            createdAt: notification.createdAt.timeIntervalSince1970,
+            isRead: notification.isRead,
+            paneFlash: notification.paneFlash,
+            clickAction: notification.clickAction
+        )
+    }
+
+    func terminalNotification(tabId: UUID, surfaceId: UUID?, panelId: UUID?) -> TerminalNotification {
+        TerminalNotification(
+            id: id,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            createdAt: Date(timeIntervalSince1970: createdAt),
+            isRead: isRead,
+            paneFlash: paneFlash ?? true,
+            clickAction: clickAction
+        )
+    }
+}
+
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
     var type: PanelType
@@ -1092,6 +1345,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var isPinned: Bool
     var isManuallyUnread: Bool
     var hasUnreadIndicator: Bool? = nil
+    var notifications: [SessionNotificationSnapshot]? = nil
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
     var ttyName: String?
@@ -1181,6 +1435,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var isPinned: Bool
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
+    var notifications: [SessionNotificationSnapshot]? = nil
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
     var focusedPanelId: UUID?
