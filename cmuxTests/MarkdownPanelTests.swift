@@ -268,6 +268,31 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(dropContext.allowsHostedWebViewTextDrop)
     }
 
+    func testMarkdownPanelPublishesWorkspaceIdChanges() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-workspace-publish-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appendingPathComponent("publish.md")
+        try "# Publish\n\nWorkspace id changes should invalidate observers.\n"
+            .write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+
+        var didPublish = false
+        let cancellable = panel.objectWillChange.sink { _ in
+            didPublish = true
+        }
+        defer { cancellable.cancel() }
+
+        panel.updateWorkspaceId(UUID())
+
+        XCTAssertTrue(didPublish)
+    }
+
     func testMarkdownRendererSessionReusesCoordinatorAcrossViewRecreation() {
         let session = MarkdownRendererSession()
         let panelId = UUID()

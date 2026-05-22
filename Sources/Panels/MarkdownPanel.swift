@@ -20,7 +20,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     let filePath: String
 
     /// The workspace this panel belongs to.
-    private(set) var workspaceId: UUID
+    @Published private(set) var workspaceId: UUID
 
     /// Current markdown content read from the file.
     @Published private(set) var content: String = ""
