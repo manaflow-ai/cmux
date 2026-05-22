@@ -268,9 +268,13 @@ extension Workspace {
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
         if let restoredRemoteConfiguration {
+            let shouldAutoConnect = Self.shouldAutoConnectRestoredRemote(
+                foregroundAuthToken: restoredRemoteConfiguration.foregroundAuthToken,
+                snapshot: snapshot
+            )
             configureRemoteConnection(
                 restoredRemoteConfiguration,
-                autoConnect: !SessionRestorePolicy.isRunningUnderAutomatedTests()
+                autoConnect: shouldAutoConnect
             )
         } else {
             disconnectRemoteConnection(clearConfiguration: true)
@@ -515,11 +519,12 @@ extension Workspace {
                     lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
                 )
                 : nil
+            let hasRestoredScrollbackFallback = restoredTerminalScrollbackByPanelId[panelId] != nil
             let resolvedScrollback = terminalSnapshotScrollback(
                 panelId: panelId,
                 capturedScrollback: capturedScrollback,
                 includeScrollback: includeScrollback,
-                allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback
+                allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
@@ -527,6 +532,7 @@ extension Workspace {
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
                 resumeBinding: resumeBinding,
+                remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
@@ -765,6 +771,18 @@ extension Workspace {
         // old TUI scrollback can print stale launch commands and race the resume input.
         // OMX HUD panes restore from their tmux start command for the same reason.
         restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil && resumeStartupInput == nil
+    }
+
+    nonisolated static func shouldAutoConnectRestoredRemote(
+        foregroundAuthToken: String?,
+        snapshot: SessionWorkspaceSnapshot,
+        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
+    ) -> Bool {
+        guard !isRunningUnderAutomatedTests else { return false }
+        let normalizedForegroundAuthToken = foregroundAuthToken?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedForegroundAuthToken?.isEmpty == false else { return true }
+        return !snapshot.panels.contains { $0.terminal != nil }
     }
 
     nonisolated static func surfaceResumeStartupInput(
@@ -1104,6 +1122,11 @@ extension Workspace {
                 restoredAgentResumeInput != nil ||
                 (restoredBindingInput != nil && resumeBinding?.isAgentHookBinding == true)
             )
+            // Snapshot session IDs belong to the previous app run's remote daemon.
+            // Restored persistent SSH terminals start a fresh attach path and replay
+            // local scrollback until the new remote PTY is ready.
+            let restoredRemotePTYSessionID: String? = nil
+            let restoredRemotePTYAttachCommand: String? = nil
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1126,17 +1149,18 @@ extension Workspace {
                 )
             }
 #endif
-            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
-                for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
-            )
+            let shouldReplayLocalScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
+            let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
+            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: restoredScrollback)
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: localWorkingDirectory,
-                initialCommand: restoredTmuxStartupScript?.path,
+                initialCommand: restoredRemotePTYAttachCommand ?? restoredTmuxStartupScript?.path,
                 tmuxStartCommand: restoredTmuxStartCommand,
-                initialInput: restoredStartupInput,
-                startupEnvironment: replayEnvironment
+                initialInput: restoredRemotePTYAttachCommand == nil ? restoredStartupInput : nil,
+                startupEnvironment: replayEnvironment,
+                remotePTYSessionID: restoredRemotePTYSessionID
             ) else {
                 return nil
             }
@@ -1145,9 +1169,7 @@ extension Workspace {
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
-            let fallbackScrollback = shouldReplayScrollback
-                ? SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
-                : nil
+            let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(restoredScrollback)
             if let fallbackScrollback {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
             } else {
@@ -1723,11 +1745,50 @@ final class WorkspaceRemoteDaemonPendingCallRegistry {
     }
 }
 
+enum WorkspaceRemotePTYBridgeEvent {
+    case ready
+    case data(Data)
+    case exit
+    case error(String)
+}
+
+struct WorkspaceRemotePTYBridgeAttachment {
+    let attachmentID: String
+    let token: String
+}
+
+protocol WorkspaceRemotePTYBridgeRPCClient: AnyObject {
+    func attachBridgePTY(
+        sessionID: String,
+        attachmentID: String,
+        cols: Int,
+        rows: Int,
+        command: String?,
+        requireExisting: Bool,
+        queue: DispatchQueue,
+        onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+    ) throws -> WorkspaceRemotePTYBridgeAttachment
+
+    func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws
+    func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String)
+}
+
+nonisolated func remoteDaemonMissingRequiredCapabilitiesMessage(_ missingCapabilities: [String]) -> String {
+    let missing = Set(missingCapabilities)
+    if missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability) ||
+        missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability) {
+        return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+    }
+    return "remote daemon is missing required functionality; reconnect the remote workspace to update cmux"
+}
+
 private final class WorkspaceRemoteDaemonRPCClient {
     private static let maxStdoutBufferBytes = 256 * 1024
     private static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
     private static let socketForwardStartupGracePeriod: TimeInterval = 0.75
     static let requiredProxyStreamCapability = "proxy.stream.push"
+    static let requiredPTYSessionCapability = "pty.session"
+    static let requiredPTYSessionTokenCapability = "pty.session.token"
 
     enum StreamEvent {
         case data(Data)
@@ -1735,9 +1796,21 @@ private final class WorkspaceRemoteDaemonRPCClient {
         case error(String)
     }
 
+    enum PTYEvent {
+        case ready
+        case data(Data)
+        case exit
+        case error(String)
+    }
+
     private struct StreamSubscription {
         let queue: DispatchQueue
         let handler: (StreamEvent) -> Void
+    }
+
+    private struct PTYSubscription {
+        let queue: DispatchQueue
+        let handler: (PTYEvent) -> Void
     }
 
     private final class WebSocketDelegate: NSObject, URLSessionWebSocketDelegate {
@@ -1808,6 +1881,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
     private var stdoutBuffer = Data()
     private var stderrBuffer = ""
     private var streamSubscriptions: [String: StreamSubscription] = [:]
+    private var ptySubscriptions: [String: PTYSubscription] = [:]
 
     init(
         configuration: WorkspaceRemoteConfiguration,
@@ -1835,15 +1909,33 @@ private final class WorkspaceRemoteDaemonRPCClient {
         do {
             let hello = try call(method: "hello", params: [:], timeout: 8.0)
             let capabilities = (hello["capabilities"] as? [String]) ?? []
-            guard capabilities.contains(Self.requiredProxyStreamCapability) else {
+            let missingCapabilities = Self.missingRequiredCapabilities(
+                Self.requiredCapabilities(for: configuration),
+                in: capabilities
+            )
+            guard missingCapabilities.isEmpty else {
                 throw NSError(domain: "cmux.remote.daemon.rpc", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon missing required capability \(Self.requiredProxyStreamCapability)",
+                    NSLocalizedDescriptionKey: remoteDaemonMissingRequiredCapabilitiesMessage(missingCapabilities),
                 ])
             }
         } catch {
             stop(suppressTerminationCallback: true)
             throw error
         }
+    }
+
+    static func requiredCapabilities(for configuration: WorkspaceRemoteConfiguration) -> [String] {
+        var capabilities = [requiredProxyStreamCapability]
+        if configuration.preserveAfterTerminalExit {
+            capabilities.append(requiredPTYSessionCapability)
+            capabilities.append(requiredPTYSessionTokenCapability)
+        }
+        return capabilities
+    }
+
+    static func missingRequiredCapabilities(_ required: [String], in capabilities: [String]) -> [String] {
+        let advertised = Set(capabilities)
+        return required.filter { !advertised.contains($0) }
     }
 
     private func markTransportOpen() {
@@ -1858,6 +1950,17 @@ private final class WorkspaceRemoteDaemonRPCClient {
         stdoutBuffer = Data()
         stderrBuffer = ""
         streamSubscriptions.removeAll(keepingCapacity: false)
+        ptySubscriptions.removeAll(keepingCapacity: false)
+    }
+
+    private func failPTYSubscriptionsLocked(_ detail: String) {
+        let subscriptions = Array(ptySubscriptions.values)
+        ptySubscriptions.removeAll(keepingCapacity: false)
+        for subscription in subscriptions {
+            subscription.queue.async {
+                subscription.handler(.error(detail))
+            }
+        }
     }
 
     private func startViaSSHExec() throws {
@@ -2132,6 +2235,148 @@ private final class WorkspaceRemoteDaemonRPCClient {
         )
     }
 
+    func attachPTY(
+        sessionID: String,
+        attachmentID: String,
+        cols: Int,
+        rows: Int,
+        command: String?,
+        requireExisting: Bool,
+        queue: DispatchQueue,
+        onEvent: @escaping (PTYEvent) -> Void
+    ) throws -> WorkspaceRemotePTYBridgeAttachment {
+        let trimmedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAttachmentID = attachmentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSessionID.isEmpty else {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 28, userInfo: [
+                NSLocalizedDescriptionKey: "pty.attach requires session_id",
+            ])
+        }
+        guard !trimmedAttachmentID.isEmpty else {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 29, userInfo: [
+                NSLocalizedDescriptionKey: "pty.attach requires attachment_id",
+            ])
+        }
+
+        let clientAttachmentToken = UUID().uuidString.lowercased()
+        let key = Self.ptySubscriptionKey(
+            sessionID: trimmedSessionID,
+            attachmentID: trimmedAttachmentID,
+            attachmentToken: clientAttachmentToken
+        )
+        stateQueue.sync {
+            ptySubscriptions[key] = PTYSubscription(queue: queue, handler: onEvent)
+        }
+
+        var params: [String: Any] = [
+            "session_id": trimmedSessionID,
+            "attachment_id": trimmedAttachmentID,
+            "client_attachment_token": clientAttachmentToken,
+            "cols": max(1, cols),
+            "rows": max(1, rows),
+        ]
+        if let command = command?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !command.isEmpty {
+            params["command"] = command
+        }
+        if requireExisting {
+            params["require_existing"] = true
+        }
+
+        do {
+            let result = try call(method: "pty.attach", params: params, timeout: 12.0)
+            let returnedAttachmentID = (result["attachment_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? trimmedAttachmentID
+            let returnedToken = (result["attachment_token"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? clientAttachmentToken
+            return WorkspaceRemotePTYBridgeAttachment(
+                attachmentID: returnedAttachmentID,
+                token: returnedToken
+            )
+        } catch {
+            unregisterPTY(
+                sessionID: trimmedSessionID,
+                attachmentID: trimmedAttachmentID,
+                attachmentToken: clientAttachmentToken
+            )
+            throw error
+        }
+    }
+
+    func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {
+        _ = try call(
+            method: "pty.write",
+            params: [
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+                "client_attachment_token": attachmentToken,
+                "data_base64": data.base64EncodedString(),
+            ],
+            timeout: 8.0
+        )
+    }
+
+    func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
+        _ = try call(
+            method: "pty.resize",
+            params: [
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+                "client_attachment_token": attachmentToken,
+                "cols": max(1, cols),
+                "rows": max(1, rows),
+            ],
+            timeout: 8.0
+        )
+    }
+
+    func detachPTYChecked(sessionID: String, attachmentID: String, attachmentToken: String) throws {
+        unregisterPTY(sessionID: sessionID, attachmentID: attachmentID, attachmentToken: attachmentToken)
+        _ = try call(
+            method: "pty.detach",
+            params: [
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+                "client_attachment_token": attachmentToken,
+            ],
+            timeout: 4.0
+        )
+    }
+
+    func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
+        _ = try? detachPTYChecked(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            attachmentToken: attachmentToken
+        )
+    }
+
+    func closePTY(sessionID: String) throws {
+        _ = try call(
+            method: "pty.close",
+            params: ["session_id": sessionID],
+            timeout: 8.0
+        )
+    }
+
+    func listPTY() throws -> [[String: Any]] {
+        let result = try call(method: "pty.list", params: [:], timeout: 8.0)
+        return result["sessions"] as? [[String: Any]] ?? []
+    }
+
+    func unregisterPTY(sessionID: String, attachmentID: String, attachmentToken: String? = nil) {
+        let key = Self.ptySubscriptionKey(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            attachmentToken: attachmentToken
+        )
+        _ = stateQueue.sync {
+            ptySubscriptions.removeValue(forKey: key)
+        }
+    }
+
     private func call(method: String, params: [String: Any], timeout: TimeInterval) throws -> [String: Any] {
         let pendingCall = pendingCalls.register()
         let requestID = pendingCall.id
@@ -2242,14 +2487,18 @@ private final class WorkspaceRemoteDaemonRPCClient {
             return
         }
 
-        stdoutBuffer.append(data)
-        if stdoutBuffer.count > Self.maxStdoutBufferBytes {
+        func failOversizedBuffer(_ detail: String) {
             stdoutBuffer.removeAll(keepingCapacity: false)
-            signalPendingFailureLocked("daemon transport stdout exceeded \(Self.maxStdoutBufferBytes) bytes without message framing")
+            signalPendingFailureLocked(detail)
             process?.terminate()
-            return
         }
+
+        stdoutBuffer.append(data)
         while let newlineIndex = stdoutBuffer.firstIndex(of: 0x0A) {
+            guard newlineIndex <= Self.maxStdoutBufferBytes else {
+                failOversizedBuffer("daemon transport stdout frame exceeded \(Self.maxStdoutBufferBytes) bytes")
+                return
+            }
             var lineData = Data(stdoutBuffer[..<newlineIndex])
             stdoutBuffer.removeSubrange(...newlineIndex)
 
@@ -2258,6 +2507,9 @@ private final class WorkspaceRemoteDaemonRPCClient {
             }
             guard !lineData.isEmpty else { continue }
             consumeJSONPayload(lineData)
+        }
+        if stdoutBuffer.count > Self.maxStdoutBufferBytes {
+            failOversizedBuffer("daemon transport stdout exceeded \(Self.maxStdoutBufferBytes) bytes without message framing")
         }
     }
 
@@ -2311,6 +2563,10 @@ private final class WorkspaceRemoteDaemonRPCClient {
     }
 
     private func consumeEventPayload(_ payload: [String: Any]) {
+        if consumePTYEventPayload(payload) {
+            return
+        }
+
         guard let eventName = (payload["event"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !eventName.isEmpty,
@@ -2348,6 +2604,61 @@ private final class WorkspaceRemoteDaemonRPCClient {
         }
     }
 
+    private func consumePTYEventPayload(_ payload: [String: Any]) -> Bool {
+        guard let eventName = (payload["event"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              eventName.hasPrefix("pty."),
+              let sessionID = (payload["session_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty,
+              let attachmentID = (payload["attachment_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachmentID.isEmpty else {
+            return false
+        }
+
+        let attachmentToken = (payload["attachment_token"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = Self.ptySubscriptionKey(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            attachmentToken: attachmentToken
+        )
+        let legacyKey = Self.ptySubscriptionKey(sessionID: sessionID, attachmentID: attachmentID)
+        let subscription: PTYSubscription?
+        let event: PTYEvent?
+        switch eventName {
+        case "pty.ready":
+            subscription = ptySubscriptions[key] ?? ptySubscriptions[legacyKey]
+            event = .ready
+
+        case "pty.data":
+            subscription = ptySubscriptions[key] ?? ptySubscriptions[legacyKey]
+            event = .data(Self.decodeBase64Data(payload["data_base64"]))
+
+        case "pty.exit":
+            subscription = ptySubscriptions.removeValue(forKey: key)
+                ?? ptySubscriptions.removeValue(forKey: legacyKey)
+            event = .exit
+
+        case "pty.error":
+            subscription = ptySubscriptions.removeValue(forKey: key)
+                ?? ptySubscriptions.removeValue(forKey: legacyKey)
+            let detail = ((payload["error"] as? String) ?? (payload["message"] as? String))?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            event = .error(detail?.isEmpty == false ? detail! : "PTY error")
+
+        default:
+            return true
+        }
+
+        guard let subscription, let event else { return true }
+        subscription.queue.async {
+            subscription.handler(event)
+        }
+        return true
+    }
+
     private func handleProcessTermination(_ process: Process) {
         let shouldNotify: Bool = {
             guard self.process === process else { return false }
@@ -2366,6 +2677,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
         stderrHandle?.readabilityHandler = nil
         stderrHandle = nil
         streamSubscriptions.removeAll(keepingCapacity: false)
+        failPTYSubscriptionsLocked(detail)
         signalPendingFailureLocked(detail)
 
         guard shouldNotify else { return }
@@ -2382,6 +2694,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
         webSocketSession = nil
         webSocketDelegate = nil
         streamSubscriptions.removeAll(keepingCapacity: false)
+        failPTYSubscriptionsLocked(detail)
         signalPendingFailureLocked(detail)
         capturedTask?.cancel(with: .normalClosure, reason: nil)
         capturedSession?.invalidateAndCancel()
@@ -2419,6 +2732,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
             webSocketSession = nil
             webSocketDelegate = nil
             streamSubscriptions.removeAll(keepingCapacity: false)
+            failPTYSubscriptionsLocked(detail)
             return (
                 capturedProcess,
                 capturedStdin,
@@ -2463,6 +2777,19 @@ private final class WorkspaceRemoteDaemonRPCClient {
     private static func decodeBase64Data(_ value: Any?) -> Data {
         guard let encoded = value as? String, !encoded.isEmpty else { return Data() }
         return Data(base64Encoded: encoded) ?? Data()
+    }
+
+    private static func ptySubscriptionKey(
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String? = nil
+    ) -> String {
+        let token = attachmentToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return [
+            sessionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            attachmentID.trimmingCharacters(in: .whitespacesAndNewlines),
+            token,
+        ].joined(separator: "\u{1f}")
     }
 
     private static func encodeJSON(_ object: [String: Any]) throws -> Data {
@@ -2621,6 +2948,40 @@ private final class WorkspaceRemoteDaemonRPCClient {
         if lowered.hasPrefix("openbsd_") { return true }
         if lowered.contains("pseudo-terminal will not be allocated") { return true }
         return false
+    }
+}
+
+extension WorkspaceRemoteDaemonRPCClient: WorkspaceRemotePTYBridgeRPCClient {
+    func attachBridgePTY(
+        sessionID: String,
+        attachmentID: String,
+        cols: Int,
+        rows: Int,
+        command: String?,
+        requireExisting: Bool,
+        queue: DispatchQueue,
+        onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+    ) throws -> WorkspaceRemotePTYBridgeAttachment {
+        try attachPTY(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            cols: cols,
+            rows: rows,
+            command: command,
+            requireExisting: requireExisting,
+            queue: queue
+        ) { event in
+            switch event {
+            case .ready:
+                onEvent(.ready)
+            case .data(let data):
+                onEvent(.data(data))
+            case .exit:
+                onEvent(.exit)
+            case .error(let detail):
+                onEvent(.error(detail))
+            }
+        }
     }
 }
 
@@ -3363,6 +3724,7 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
     private var listener: NWListener?
     private var rpcClient: WorkspaceRemoteDaemonRPCClient?
     private var sessions: [UUID: ProxySession] = [:]
+    private var ptyBridgeServers: [UUID: WorkspaceRemotePTYBridgeServer] = [:]
     private var isStopped = false
 
     init(
@@ -3428,6 +3790,85 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         }
     }
 
+    func listPTY() throws -> [[String: Any]] {
+        try queue.sync {
+            guard let rpcClient, !isStopped else {
+                throw NSError(domain: "cmux.remote.pty", code: 30, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
+            }
+            return try rpcClient.listPTY()
+        }
+    }
+
+    func closePTY(sessionID: String) throws {
+        try queue.sync {
+            guard let rpcClient, !isStopped else {
+                throw NSError(domain: "cmux.remote.pty", code: 31, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
+            }
+            try rpcClient.closePTY(sessionID: sessionID)
+        }
+    }
+
+    func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
+        try queue.sync {
+            guard let rpcClient, !isStopped else {
+                throw NSError(domain: "cmux.remote.pty", code: 32, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
+            }
+            try rpcClient.resizePTY(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken,
+                cols: cols,
+                rows: rows
+            )
+        }
+    }
+
+    func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) throws {
+        try queue.sync {
+            guard let rpcClient, !isStopped else {
+                throw NSError(domain: "cmux.remote.pty", code: 34, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
+            }
+            try rpcClient.detachPTYChecked(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken
+            )
+        }
+    }
+
+    func startPTYBridge(sessionID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
+        try queue.sync {
+            guard let rpcClient, !isStopped else {
+                throw NSError(domain: "cmux.remote.pty", code: 33, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
+            }
+            let bridgeID = UUID()
+            let server = WorkspaceRemotePTYBridgeServer(
+                rpcClient: rpcClient,
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting
+            ) { [weak self] in
+                self?.queue.async {
+                    self?.ptyBridgeServers.removeValue(forKey: bridgeID)
+                }
+            }
+            let endpoint = try server.start()
+            ptyBridgeServers[bridgeID] = server
+            return endpoint
+        }
+    }
+
     private func handleListenerStateLocked(_ state: NWListener.State) {
         guard !isStopped else { return }
         switch state {
@@ -3480,6 +3921,11 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         sessions.removeAll()
         for session in activeSessions {
             session.stop()
+        }
+        let activePTYBridges = ptyBridgeServers.values
+        ptyBridgeServers.removeAll()
+        for bridge in activePTYBridges {
+            bridge.stop()
         }
 
         rpcClient?.stop()
@@ -3587,6 +4033,84 @@ private final class WorkspaceRemoteProxyBroker {
             }
 
             return Lease(key: key, subscriberID: subscriberID, broker: self)
+        }
+    }
+
+    func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] {
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            try tunnel.listPTY()
+        }
+    }
+
+    func closePTY(configuration: WorkspaceRemoteConfiguration, sessionID: String) throws {
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            try tunnel.closePTY(sessionID: sessionID)
+        }
+    }
+
+    func resizePTY(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String,
+        cols: Int,
+        rows: Int
+    ) throws {
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            try tunnel.resizePTY(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken,
+                cols: cols,
+                rows: rows
+            )
+        }
+    }
+
+    func detachPTY(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String
+    ) throws {
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            try tunnel.detachPTY(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken
+            )
+        }
+    }
+
+    func startPTYBridge(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool
+    ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            try tunnel.startPTYBridge(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting
+            )
+        }
+    }
+
+    private func withReadyTunnel<T>(
+        configuration: WorkspaceRemoteConfiguration,
+        _ body: (WorkspaceRemoteDaemonProxyTunnel) throws -> T
+    ) throws -> T {
+        try queue.sync {
+            let key = Self.transportKey(for: configuration)
+            guard let entry = entries[key], let tunnel = entry.tunnel else {
+                throw NSError(domain: "cmux.remote.pty", code: 40, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
+            }
+            return try body(tunnel)
         }
     }
 
@@ -4230,6 +4754,675 @@ private final class WorkspaceRemoteCLIRelayServer {
     }
 }
 
+final class WorkspaceRemotePTYBridgeServer {
+    private static let unusedBridgeTimeout: TimeInterval = 30.0
+
+    struct Endpoint {
+        let host: String
+        let port: Int
+        let token: String
+        let sessionID: String
+        let attachmentID: String
+    }
+
+    private final class Session {
+        private static let maxHandshakeBytes = 4096
+        private static let handshakeTimeout: TimeInterval = 30.0
+        private static let maxPendingOutputSends = 256
+        private static let maxPendingOutputBytes = 4 * 1024 * 1024
+        private static let maxPendingInputWrites = 256
+        private static let maxPendingInputBytes = 4 * 1024 * 1024
+
+        private let connection: NWConnection
+        private let rpcClient: any WorkspaceRemotePTYBridgeRPCClient
+        private let sessionID: String
+        private let attachmentID: String
+        private let command: String?
+        private let requireExisting: Bool
+        private let token: String
+        private let queue: DispatchQueue
+        private let rpcQueue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.rpc.\(UUID().uuidString)", qos: .userInitiated)
+        private let onClose: () -> Void
+
+        private var isClosed = false
+        private var isAttaching = false
+        private var isAttached = false
+        private var handshakeBuffer = Data()
+        private var pendingInputBeforeAttach = Data()
+        private var pendingInputWrites = 0
+        private var pendingInputBytes = 0
+        private var pendingOutputSends = 0
+        private var pendingOutputBytes = 0
+        private var clientInputDidComplete = false
+        private var pendingPTYEventsBeforeReady: [WorkspaceRemotePTYBridgeEvent] = []
+        private var pendingPTYEventBytesBeforeReady = 0
+        private var closeWhenOutputFlushes: (detach: Bool, gracefulOutputClose: Bool)?
+        private var handshakeTimeoutWorkItem: DispatchWorkItem?
+        private var remoteAttachment: WorkspaceRemotePTYBridgeAttachment?
+        private var clientPID: pid_t?
+        private var clientProcessExitSource: DispatchSourceProcess?
+
+        init(
+            connection: NWConnection,
+            rpcClient: any WorkspaceRemotePTYBridgeRPCClient,
+            sessionID: String,
+            attachmentID: String,
+            command: String?,
+            requireExisting: Bool,
+            token: String,
+            queue: DispatchQueue,
+            onClose: @escaping () -> Void
+        ) {
+            self.connection = connection
+            self.rpcClient = rpcClient
+            self.sessionID = sessionID
+            self.attachmentID = attachmentID
+            self.command = command
+            self.requireExisting = requireExisting
+            self.token = token
+            self.queue = queue
+            self.onClose = onClose
+        }
+
+        func start() {
+            armHandshakeTimeout()
+            connection.stateUpdateHandler = { [weak self] state in
+                guard let self else { return }
+                switch state {
+                case .failed, .cancelled:
+                    self.close(detach: true)
+                default:
+                    break
+                }
+            }
+            connection.start(queue: queue)
+            receiveNext()
+        }
+
+        func stop() {
+            close(detach: true)
+        }
+
+        private func receiveNext() {
+            guard !isClosed else { return }
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 32768) { [weak self] data, _, isComplete, error in
+                guard let self, !self.isClosed else { return }
+                if let data, !data.isEmpty {
+                    if self.isAttached {
+                        self.forwardInput(data)
+                    } else if self.isAttaching {
+                        self.bufferInputUntilAttach(data)
+                    } else {
+                        self.consumeHandshake(data)
+                    }
+                }
+                if isComplete {
+                    // TCP half-close means the CLI is done sending stdin, but still
+                    // expects PTY output until the remote session exits.
+                    self.clientInputDidComplete = true
+                    if self.isAttaching {
+                        return
+                    }
+                    if !self.isAttached {
+                        self.close(detach: false)
+                    } else if self.clientHasExited() {
+                        self.close(detach: true)
+                    }
+                    return
+                }
+                if error != nil {
+                    self.close(detach: true)
+                    return
+                }
+                self.receiveNext()
+            }
+        }
+
+        private func consumeHandshake(_ data: Data) {
+            handshakeBuffer.append(data)
+            guard handshakeBuffer.count <= Self.maxHandshakeBytes else {
+                close(detach: false)
+                return
+            }
+            guard let newlineIndex = handshakeBuffer.firstIndex(of: 0x0A) else { return }
+            var lineData = Data(handshakeBuffer[..<newlineIndex])
+            let remainingStart = handshakeBuffer.index(after: newlineIndex)
+            let remaining = remainingStart < handshakeBuffer.endIndex
+                ? Data(handshakeBuffer[remainingStart...])
+                : Data()
+            handshakeBuffer.removeAll(keepingCapacity: false)
+            if let carriageIndex = lineData.lastIndex(of: 0x0D),
+               carriageIndex == lineData.index(before: lineData.endIndex) {
+                lineData.remove(at: carriageIndex)
+            }
+            guard let payload = try? JSONSerialization.jsonObject(with: lineData, options: []) as? [String: Any],
+                  let receivedToken = payload["token"] as? String,
+                  receivedToken == token else {
+                close(detach: false)
+                return
+            }
+            let cols = Self.strictInt(payload["cols"]) ?? 80
+            let rows = Self.strictInt(payload["rows"]) ?? 24
+            clientPID = Self.strictPositivePID(payload["client_pid"])
+            armClientProcessExitMonitor()
+            handshakeTimeoutWorkItem?.cancel()
+            handshakeTimeoutWorkItem = nil
+            isAttaching = true
+            if !remaining.isEmpty {
+                bufferInputUntilAttach(remaining)
+            }
+            rpcQueue.async { [weak self] in
+                guard let self else { return }
+                let result: Result<WorkspaceRemotePTYBridgeAttachment, Error>
+                do {
+                    let remoteAttachment = try self.rpcClient.attachBridgePTY(
+                        sessionID: self.sessionID,
+                        attachmentID: self.attachmentID,
+                        cols: cols,
+                        rows: rows,
+                        command: self.command,
+                        requireExisting: self.requireExisting,
+                        queue: self.queue
+                    ) { [weak self] event in
+                        self?.handlePTYEvent(event)
+                    }
+                    result = .success(remoteAttachment)
+                } catch {
+                    result = .failure(error)
+                }
+                self.queue.async {
+                    self.finishAttach(result)
+                }
+            }
+        }
+
+        private func finishAttach(_ result: Result<WorkspaceRemotePTYBridgeAttachment, Error>) {
+            guard !isClosed else {
+                if case .success(let remoteAttachment) = result {
+                    detachRemoteAttachment(remoteAttachment)
+                }
+                return
+            }
+            isAttaching = false
+            do {
+                let remoteAttachment = try result.get()
+                self.remoteAttachment = remoteAttachment
+                sendBridgeStatus([
+                    "type": "ready",
+                    "attachment_token": remoteAttachment.token,
+                ])
+                isAttached = true
+                let pendingPTYEvents = pendingPTYEventsBeforeReady
+                pendingPTYEventsBeforeReady.removeAll(keepingCapacity: false)
+                pendingPTYEventBytesBeforeReady = 0
+                for event in pendingPTYEvents {
+                    handleAttachedPTYEvent(event)
+                    if isClosed { return }
+                }
+                if !pendingInputBeforeAttach.isEmpty {
+                    let pendingInput = pendingInputBeforeAttach
+                    pendingInputBeforeAttach.removeAll(keepingCapacity: false)
+                    forwardInput(pendingInput)
+                }
+                if clientInputDidComplete, clientHasExited() {
+                    close(detach: true)
+                }
+            } catch {
+                closeWithBridgeError(Self.userFacingBridgeErrorMessage(error))
+            }
+        }
+
+        private func armHandshakeTimeout() {
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self, !self.isClosed, !self.isAttached else { return }
+                self.close(detach: false)
+            }
+            handshakeTimeoutWorkItem = workItem
+            queue.asyncAfter(deadline: .now() + Self.handshakeTimeout, execute: workItem)
+        }
+
+        private func bufferInputUntilAttach(_ data: Data) {
+            guard !data.isEmpty else { return }
+            guard pendingInputBeforeAttach.count <= Self.maxPendingInputBytes - data.count else {
+                close(detach: false)
+                return
+            }
+            pendingInputBeforeAttach.append(data)
+        }
+
+        private func forwardInput(_ data: Data) {
+            guard !data.isEmpty else { return }
+            guard let remoteAttachment else {
+                close(detach: true)
+                return
+            }
+            guard pendingInputWrites < Self.maxPendingInputWrites,
+                  pendingInputBytes <= Self.maxPendingInputBytes - data.count else {
+                close(detach: true)
+                return
+            }
+            pendingInputWrites += 1
+            pendingInputBytes += data.count
+            let currentSessionID = sessionID
+            rpcQueue.async { [weak self, data, remoteAttachment] in
+                guard let self else { return }
+                let shouldWrite = self.queue.sync { !self.isClosed }
+                guard shouldWrite else {
+                    self.queue.async {
+                        self.handleInputWriteFinished(bytes: data.count, error: nil)
+                    }
+                    return
+                }
+                var writeError: Error?
+                do {
+                    try self.rpcClient.writePTY(
+                        sessionID: currentSessionID,
+                        attachmentID: remoteAttachment.attachmentID,
+                        attachmentToken: remoteAttachment.token,
+                        data: data
+                    )
+                } catch {
+                    writeError = error
+                }
+                self.queue.async {
+                    self.handleInputWriteFinished(bytes: data.count, error: writeError)
+                }
+            }
+        }
+
+        private func handleInputWriteFinished(bytes: Int, error: Error?) {
+            pendingInputWrites = max(0, pendingInputWrites - 1)
+            pendingInputBytes = max(0, pendingInputBytes - bytes)
+            if error != nil {
+                close(detach: true)
+            }
+        }
+
+        private func detachRemoteAttachment(_ attachment: WorkspaceRemotePTYBridgeAttachment) {
+            rpcQueue.async { [rpcClient, sessionID] in
+                rpcClient.detachPTY(
+                    sessionID: sessionID,
+                    attachmentID: attachment.attachmentID,
+                    attachmentToken: attachment.token
+                )
+            }
+        }
+
+        private func handlePTYEvent(_ event: WorkspaceRemotePTYBridgeEvent) {
+            guard !isClosed else { return }
+            guard !isAttaching else {
+                bufferPTYEventUntilReady(event)
+                return
+            }
+            handleAttachedPTYEvent(event)
+        }
+
+        private func bufferPTYEventUntilReady(_ event: WorkspaceRemotePTYBridgeEvent) {
+            switch event {
+            case .ready:
+                return
+            case .data(let data):
+                guard !data.isEmpty else { return }
+                guard pendingPTYEventsBeforeReady.count < Self.maxPendingOutputSends,
+                      pendingPTYEventBytesBeforeReady <= Self.maxPendingOutputBytes - data.count else {
+                    close(detach: true)
+                    return
+                }
+                pendingPTYEventBytesBeforeReady += data.count
+                pendingPTYEventsBeforeReady.append(event)
+            case .exit, .error:
+                guard pendingPTYEventsBeforeReady.count < Self.maxPendingOutputSends else {
+                    close(detach: true)
+                    return
+                }
+                pendingPTYEventsBeforeReady.append(event)
+            }
+        }
+
+        private func handleAttachedPTYEvent(_ event: WorkspaceRemotePTYBridgeEvent) {
+            guard !isClosed else { return }
+            switch event {
+            case .ready:
+                return
+            case .data(let data):
+                guard !data.isEmpty else { return }
+                sendBufferedOutput(data, detachOnOverflow: true)
+            case .exit, .error:
+                closeAfterOutputFlush(detach: false, gracefulOutputClose: true)
+            }
+        }
+
+        private func sendBufferedOutput(_ data: Data, detachOnOverflow: Bool) {
+            guard !isClosed, !data.isEmpty else { return }
+            guard pendingOutputSends < Self.maxPendingOutputSends,
+                  pendingOutputBytes <= Self.maxPendingOutputBytes - data.count else {
+                close(detach: detachOnOverflow)
+                return
+            }
+
+            pendingOutputSends += 1
+            pendingOutputBytes += data.count
+            connection.send(content: data, completion: .contentProcessed { [weak self] error in
+                self?.queue.async {
+                    self?.handleOutputSendFinished(bytes: data.count, error: error)
+                }
+            })
+        }
+
+        private func handleOutputSendFinished(bytes: Int, error: NWError?) {
+            guard !isClosed else { return }
+            pendingOutputSends = max(0, pendingOutputSends - 1)
+            pendingOutputBytes = max(0, pendingOutputBytes - bytes)
+            if error != nil {
+                close(detach: true)
+                return
+            }
+            if let pendingClose = closeWhenOutputFlushes, pendingOutputSends == 0 {
+                close(
+                    detach: pendingClose.detach,
+                    gracefulOutputClose: pendingClose.gracefulOutputClose
+                )
+            }
+        }
+
+        private func closeAfterOutputFlush(detach: Bool, gracefulOutputClose: Bool = false) {
+            guard !isClosed else { return }
+            if pendingOutputSends == 0 {
+                close(detach: detach, gracefulOutputClose: gracefulOutputClose)
+                return
+            }
+            closeWhenOutputFlushes = (detach: detach, gracefulOutputClose: gracefulOutputClose)
+        }
+
+        private func sendBridgeStatus(_ payload: [String: Any]) {
+            guard !isClosed,
+                  let data = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
+                return
+            }
+            var line = data
+            line.append(0x0A)
+            sendBufferedOutput(line, detachOnOverflow: false)
+        }
+
+        private func closeWithBridgeError(_ message: String) {
+            guard !isClosed else { return }
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = trimmed.isEmpty ? "remote PTY attach failed" : trimmed
+            let payload: [String: Any] = ["type": "error", "message": detail]
+            guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
+                close(detach: false)
+                return
+            }
+            var line = data
+            line.append(0x0A)
+            isClosed = true
+            connection.send(content: line, completion: .contentProcessed { [weak self] _ in
+                guard let self else { return }
+                self.queue.async {
+                    self.connection.cancel()
+                    self.onClose()
+                }
+            })
+        }
+
+        private func close(detach: Bool, gracefulOutputClose: Bool = false) {
+            guard !isClosed else { return }
+            isClosed = true
+            handshakeTimeoutWorkItem?.cancel()
+            handshakeTimeoutWorkItem = nil
+            isAttaching = false
+            pendingInputBeforeAttach.removeAll(keepingCapacity: false)
+            pendingPTYEventsBeforeReady.removeAll(keepingCapacity: false)
+            pendingPTYEventBytesBeforeReady = 0
+            clientProcessExitSource?.cancel()
+            clientProcessExitSource = nil
+            if detach && isAttached, let remoteAttachment {
+                detachRemoteAttachment(remoteAttachment)
+            }
+            if gracefulOutputClose && !detach {
+                connection.send(
+                    content: nil,
+                    contentContext: .defaultMessage,
+                    isComplete: true,
+                    completion: .contentProcessed { [weak self] _ in
+                        guard let self else { return }
+                        self.queue.async {
+                            self.connection.cancel()
+                            self.onClose()
+                        }
+                    }
+                )
+                return
+            }
+            connection.cancel()
+            onClose()
+        }
+
+        private static func strictInt(_ value: Any?) -> Int? {
+            if let int = value as? Int { return int }
+            if let number = value as? NSNumber {
+                let double = number.doubleValue
+                guard double.rounded(.towardZero) == double else { return nil }
+                return number.intValue
+            }
+            return nil
+        }
+
+        private static func strictPositivePID(_ value: Any?) -> pid_t? {
+            guard let intValue = strictInt(value),
+                  intValue > 0,
+                  intValue <= Int(Int32.max) else {
+                return nil
+            }
+            return pid_t(intValue)
+        }
+
+        private func armClientProcessExitMonitor() {
+            clientProcessExitSource?.cancel()
+            clientProcessExitSource = nil
+            guard let clientPID, Self.processIsRunning(clientPID) else { return }
+            let source = DispatchSource.makeProcessSource(identifier: clientPID, eventMask: .exit, queue: queue)
+            source.setEventHandler { [weak self] in
+                self?.close(detach: true)
+            }
+            clientProcessExitSource = source
+            source.resume()
+        }
+
+        private func clientHasExited() -> Bool {
+            guard let clientPID else { return false }
+            return !Self.processIsRunning(clientPID)
+        }
+
+        private static func processIsRunning(_ pid: pid_t) -> Bool {
+            guard pid > 0 else { return false }
+            if Darwin.kill(pid, 0) == 0 { return true }
+            return errno == EPERM
+        }
+
+        private static func userFacingBridgeErrorMessage(_ error: Error) -> String {
+            let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lowered = message.lowercased()
+            if lowered.contains("missing required capability") || lowered.contains("pty.session") {
+                return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+            }
+            if lowered.contains("pty_session_not_found") ||
+                (lowered.contains("persistent ssh pty session") && lowered.contains("not running")) ||
+                (lowered.contains("persistent pty session") && lowered.contains("not running")) {
+                return "persistent SSH PTY session is no longer running"
+            }
+            if lowered.contains("pty_input_queue_full") || lowered.contains("pty input queue is full") {
+                return "remote PTY input is temporarily backed up"
+            }
+            if lowered.contains("timed out") || lowered.contains("timeout") {
+                return "remote daemon did not respond in time"
+            }
+            return "remote PTY attach failed"
+        }
+    }
+
+    private let rpcClient: any WorkspaceRemotePTYBridgeRPCClient
+    private let sessionID: String
+    private let attachmentID: String
+    private let command: String?
+    private let requireExisting: Bool
+    private let token = UUID().uuidString.lowercased()
+    private let queue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.\(UUID().uuidString)", qos: .userInitiated)
+    private let onStop: () -> Void
+
+    private var listener: NWListener?
+    private var session: Session?
+    private var isStopped = false
+    private var unusedBridgeTimeoutWorkItem: DispatchWorkItem?
+
+    init(
+        rpcClient: any WorkspaceRemotePTYBridgeRPCClient,
+        sessionID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool,
+        onStop: @escaping () -> Void
+    ) {
+        self.rpcClient = rpcClient
+        self.sessionID = sessionID
+        self.attachmentID = attachmentID
+        self.command = command
+        self.requireExisting = requireExisting
+        self.onStop = onStop
+    }
+
+    func start() throws -> Endpoint {
+        let listener = try Self.makeLoopbackListener()
+        let readySemaphore = DispatchSemaphore(value: 0)
+        let stateLock = NSLock()
+        var capturedError: Error?
+        var boundPort: Int?
+
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.queue.async {
+                self?.acceptConnectionLocked(connection)
+            }
+        }
+        listener.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                stateLock.lock()
+                boundPort = listener.port.map { Int($0.rawValue) }
+                stateLock.unlock()
+                readySemaphore.signal()
+            case .failed(let error):
+                stateLock.lock()
+                capturedError = error
+                stateLock.unlock()
+                readySemaphore.signal()
+            default:
+                break
+            }
+        }
+        listener.start(queue: queue)
+
+        guard readySemaphore.wait(timeout: .now() + 5.0) == .success else {
+            listener.cancel()
+            throw NSError(domain: "cmux.remote.pty", code: 20, userInfo: [
+                NSLocalizedDescriptionKey: "timed out waiting for PTY bridge listener",
+            ])
+        }
+        stateLock.lock()
+        let startupError = capturedError
+        let startupPort = boundPort
+        stateLock.unlock()
+        if let startupError {
+            listener.cancel()
+            throw startupError
+        }
+        guard let startupPort, startupPort > 0 else {
+            listener.cancel()
+            throw NSError(domain: "cmux.remote.pty", code: 21, userInfo: [
+                NSLocalizedDescriptionKey: "failed to bind PTY bridge listener",
+            ])
+        }
+
+        self.listener = listener
+        queue.async { [weak self] in
+            self?.armUnusedBridgeTimeoutLocked()
+        }
+        return Endpoint(
+            host: "127.0.0.1",
+            port: startupPort,
+            token: token,
+            sessionID: sessionID,
+            attachmentID: attachmentID
+        )
+    }
+
+    func stop() {
+        queue.async {
+            self.stopLocked()
+        }
+    }
+
+    private func acceptConnectionLocked(_ connection: NWConnection) {
+        guard !isStopped, session == nil else {
+            connection.cancel()
+            return
+        }
+        unusedBridgeTimeoutWorkItem?.cancel()
+        unusedBridgeTimeoutWorkItem = nil
+        listener?.newConnectionHandler = nil
+        listener?.stateUpdateHandler = nil
+        listener?.cancel()
+        listener = nil
+
+        let session = Session(
+            connection: connection,
+            rpcClient: rpcClient,
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            command: command,
+            requireExisting: requireExisting,
+            token: token,
+            queue: queue
+        ) { [weak self] in
+            self?.stopLocked()
+        }
+        self.session = session
+        session.start()
+    }
+
+    private func armUnusedBridgeTimeoutLocked() {
+        guard !isStopped, listener != nil, session == nil else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.stopLocked()
+        }
+        unusedBridgeTimeoutWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + Self.unusedBridgeTimeout, execute: workItem)
+    }
+
+    private func stopLocked() {
+        guard !isStopped else { return }
+        isStopped = true
+        unusedBridgeTimeoutWorkItem?.cancel()
+        unusedBridgeTimeoutWorkItem = nil
+        listener?.newConnectionHandler = nil
+        listener?.stateUpdateHandler = nil
+        listener?.cancel()
+        listener = nil
+        let activeSession = session
+        session = nil
+        activeSession?.stop()
+        onStop()
+    }
+
+    private static func makeLoopbackListener() throws -> NWListener {
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcpOptions)
+        parameters.allowLocalEndpointReuse = true
+        parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host("127.0.0.1"), port: .any)
+        return try NWListener(using: parameters)
+    }
+}
+
 final class WorkspaceRemoteSessionController {
 #if DEBUG
     // XCTest seam: tests assign this before starting a controller and clear it
@@ -4353,6 +5546,15 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
+    private struct PendingPTYBridgeStart {
+        let sessionID: String
+        let attachmentID: String
+        let command: String?
+        let requireExisting: Bool
+        let isCancelled: () -> Bool
+        let completion: (Result<WorkspaceRemotePTYBridgeServer.Endpoint, Error>) -> Void
+    }
+
     private var isStopping = false
     private var proxyLease: WorkspaceRemoteProxyBroker.Lease?
     private var proxyEndpoint: BrowserProxyEndpoint?
@@ -4385,6 +5587,7 @@ final class WorkspaceRemoteSessionController {
     private var reconnectWorkItem: DispatchWorkItem?
     private var heartbeatCount: Int = 0
     private var connectionAttemptStartedAt: Date?
+    private var pendingPTYBridgeStarts: [UUID: PendingPTYBridgeStart] = [:]
 
     private static let reverseRelayStartupGracePeriod: TimeInterval = 0.5
 
@@ -4411,6 +5614,289 @@ final class WorkspaceRemoteSessionController {
         }
         queue.async { [self] in
             stopAllLocked()
+        }
+    }
+
+    func listPTYSessions(timeout: TimeInterval = 8.0) throws -> [[String: Any]] {
+        try runOnControllerQueue(timeout: timeout) {
+            guard self.daemonReady, self.proxyLease != nil else {
+                throw NSError(domain: "cmux.remote.pty", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon is not ready",
+                ])
+            }
+            return try WorkspaceRemoteProxyBroker.shared.listPTY(configuration: self.configuration)
+        }
+    }
+
+    func closePTYSession(sessionID: String, timeout: TimeInterval = 8.0) throws {
+        try runOnControllerQueue(timeout: timeout) {
+            guard self.daemonReady, self.proxyLease != nil else {
+                throw NSError(domain: "cmux.remote.pty", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon is not ready",
+                ])
+            }
+            try WorkspaceRemoteProxyBroker.shared.closePTY(configuration: self.configuration, sessionID: sessionID)
+        }
+    }
+
+    func startPTYBridge(
+        sessionID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool,
+        waitForReady: Bool = false,
+        timeout: TimeInterval = 8.0
+    ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
+        if waitForReady {
+            return try startPTYBridgeWhenReady(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting,
+                timeout: timeout
+            )
+        }
+        return try runOnControllerQueue(timeout: timeout) {
+            try self.startPTYBridgeLocked(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting
+            )
+        }
+    }
+
+    private func startPTYBridgeWhenReady(
+        sessionID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool,
+        timeout: TimeInterval
+    ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return try startPTYBridgeLocked(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting
+            )
+        }
+
+        let waiterID = UUID()
+        let semaphore = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var captured: Result<WorkspaceRemotePTYBridgeServer.Endpoint, Error>?
+        let isCancelled: () -> Bool = {
+            lock.lock()
+            let completed = captured != nil
+            lock.unlock()
+            return completed
+        }
+        let complete: (Result<WorkspaceRemotePTYBridgeServer.Endpoint, Error>) -> Void = { result in
+            lock.lock()
+            if captured == nil {
+                captured = result
+                semaphore.signal()
+            }
+            lock.unlock()
+        }
+
+        queue.async { [weak self] in
+            guard let self else {
+                complete(.failure(NSError(domain: "cmux.remote.pty", code: 7, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon is not ready",
+                ])))
+                return
+            }
+            guard !self.isStopping else {
+                complete(.failure(NSError(domain: "cmux.remote.pty", code: 7, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon is not ready",
+                ])))
+                return
+            }
+            if self.canStartPTYBridgeLocked {
+                complete(Result {
+                    try self.startPTYBridgeLocked(
+                        sessionID: sessionID,
+                        attachmentID: attachmentID,
+                        command: command,
+                        requireExisting: requireExisting
+                    )
+                })
+                return
+            }
+            guard !isCancelled() else { return }
+            self.pendingPTYBridgeStarts[waiterID] = PendingPTYBridgeStart(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting,
+                isCancelled: isCancelled,
+                completion: complete
+            )
+        }
+
+        guard semaphore.wait(timeout: .now() + timeout) == .success else {
+            let timeoutError = NSError(domain: "cmux.remote.pty", code: 8, userInfo: [
+                NSLocalizedDescriptionKey: "timed out waiting for remote PTY operation",
+            ])
+            lock.lock()
+            if captured == nil {
+                captured = .failure(timeoutError)
+            }
+            lock.unlock()
+            queue.async { [weak self] in
+                _ = self?.pendingPTYBridgeStarts.removeValue(forKey: waiterID)
+            }
+            throw timeoutError
+        }
+
+        lock.lock()
+        let result = captured
+        lock.unlock()
+        switch result {
+        case .success(let endpoint):
+            return endpoint
+        case .failure(let error):
+            throw error
+        case nil:
+            throw NSError(domain: "cmux.remote.pty", code: 9, userInfo: [
+                NSLocalizedDescriptionKey: "remote PTY operation returned no result",
+            ])
+        }
+    }
+
+    private var canStartPTYBridgeLocked: Bool {
+        daemonReady && proxyLease != nil && proxyEndpoint != nil
+    }
+
+    private func startPTYBridgeLocked(
+        sessionID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool
+    ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
+        guard canStartPTYBridgeLocked else {
+            throw NSError(domain: "cmux.remote.pty", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon is not ready",
+            ])
+        }
+        return try WorkspaceRemoteProxyBroker.shared.startPTYBridge(
+            configuration: configuration,
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            command: command,
+            requireExisting: requireExisting
+        )
+    }
+
+    private func fulfillPendingPTYBridgeStartsLocked() {
+        guard canStartPTYBridgeLocked, !pendingPTYBridgeStarts.isEmpty else { return }
+        let pending = pendingPTYBridgeStarts
+        pendingPTYBridgeStarts.removeAll(keepingCapacity: false)
+        for request in pending.values {
+            guard !request.isCancelled() else { continue }
+            request.completion(Result {
+                try startPTYBridgeLocked(
+                    sessionID: request.sessionID,
+                    attachmentID: request.attachmentID,
+                    command: request.command,
+                    requireExisting: request.requireExisting
+                )
+            })
+        }
+    }
+
+    private func failPendingPTYBridgeStartsLocked(_ message: String) {
+        guard !pendingPTYBridgeStarts.isEmpty else { return }
+        let pending = pendingPTYBridgeStarts
+        pendingPTYBridgeStarts.removeAll(keepingCapacity: false)
+        let error = NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
+            NSLocalizedDescriptionKey: message,
+        ])
+        for request in pending.values {
+            request.completion(.failure(error))
+        }
+    }
+
+    func resizePTY(
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String,
+        cols: Int,
+        rows: Int,
+        timeout: TimeInterval = 8.0
+    ) throws {
+        try runOnControllerQueue(timeout: timeout) {
+            guard self.daemonReady, self.proxyLease != nil else {
+                throw NSError(domain: "cmux.remote.pty", code: 6, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon is not ready",
+                ])
+            }
+            try WorkspaceRemoteProxyBroker.shared.resizePTY(
+                configuration: self.configuration,
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken,
+                cols: cols,
+                rows: rows
+            )
+        }
+    }
+
+    func detachPTYSession(
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String,
+        timeout: TimeInterval = 8.0
+    ) throws {
+        try runOnControllerQueue(timeout: timeout) {
+            guard self.daemonReady, self.proxyLease != nil else {
+                throw NSError(domain: "cmux.remote.pty", code: 7, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon is not ready",
+                ])
+            }
+            try WorkspaceRemoteProxyBroker.shared.detachPTY(
+                configuration: self.configuration,
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken
+            )
+        }
+    }
+
+    private func runOnControllerQueue<T>(timeout: TimeInterval, _ body: @escaping () throws -> T) throws -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return try body()
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var captured: Result<T, Error>?
+        queue.async {
+            let result = Result { try body() }
+            lock.lock()
+            captured = result
+            lock.unlock()
+            semaphore.signal()
+        }
+        guard semaphore.wait(timeout: .now() + timeout) == .success else {
+            throw NSError(domain: "cmux.remote.pty", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "timed out waiting for remote PTY operation",
+            ])
+        }
+        lock.lock()
+        let result = captured
+        lock.unlock()
+        switch result {
+        case .success(let value):
+            return value
+        case .failure(let error):
+            throw error
+        case nil:
+            throw NSError(domain: "cmux.remote.pty", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: "remote PTY operation returned no result",
+            ])
         }
     }
 
@@ -4492,6 +5978,7 @@ final class WorkspaceRemoteSessionController {
         bootstrapRemoteTTYRetryWorkItem = nil
         bootstrapRemoteTTYFetchInFlight = false
         bootstrapRemoteTTYRetryCount = 0
+        failPendingPTYBridgeStartsLocked("remote daemon is not ready")
 
         proxyLease?.release()
         proxyLease = nil
@@ -4535,6 +6022,7 @@ final class WorkspaceRemoteSessionController {
         publishState(connectionState, detail: connectDetail)
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
+            let requiredCapabilities = requiredDaemonCapabilities
             let hello: DaemonHello
             if configuration.skipDaemonBootstrap {
                 // Cloud-VM path: cmuxd-remote is pre-baked in the image and exposed via
@@ -4544,11 +6032,19 @@ final class WorkspaceRemoteSessionController {
                 hello = Self.bakedVMDaemonHello()
                 debugLog("remote.bootstrap.skipped reason=vm-baked remotePath=\(hello.remotePath)")
             } else {
-                hello = try bootstrapDaemonLocked()
+                hello = try bootstrapDaemonLocked(requiredCapabilities: requiredCapabilities)
             }
-            guard hello.capabilities.contains(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability) else {
+            let preflightRequiredCapabilities = configuration.skipDaemonBootstrap
+                ? bakedDaemonPreflightRequiredCapabilities
+                : requiredCapabilities
+            let missingCapabilities = Self.missingRequiredCapabilities(
+                preflightRequiredCapabilities,
+                in: hello.capabilities
+            )
+            guard missingCapabilities.isEmpty else {
                 throw NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon missing required capability \(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability)",
+                    NSLocalizedDescriptionKey: remoteDaemonMissingRequiredCapabilitiesMessage(missingCapabilities),
+                    NSDebugDescriptionErrorKey: "remote daemon missing required capability \(missingCapabilities.joined(separator: ","))",
                 ])
             }
             daemonReady = true
@@ -4590,7 +6086,7 @@ final class WorkspaceRemoteSessionController {
             daemonRemotePath = nil
             let retrySchedule = scheduleReconnectLocked(baseDelay: 4.0)
             let retrySuffix = Self.retrySuffix(retry: retrySchedule.retry, delay: retrySchedule.delay)
-            let detail = "Remote daemon bootstrap failed: \(error.localizedDescription)\(retrySuffix)"
+            let detail = "Remote daemon bootstrap failed: \(Self.userFacingRemoteDaemonBootstrapErrorMessage(error))\(retrySuffix)"
             publishDaemonStatus(.error, detail: detail)
             publishState(.error, detail: detail)
         }
@@ -4832,10 +6328,12 @@ final class WorkspaceRemoteSessionController {
             reconnectRetryCount = 0
             guard proxyEndpoint != endpoint else {
                 recordHeartbeatActivityLocked()
+                fulfillPendingPTYBridgeStartsLocked()
                 return
             }
             proxyEndpoint = endpoint
             publishProxyEndpoint(endpoint)
+            fulfillPendingPTYBridgeStartsLocked()
             updateRemotePortPollingStateLocked()
             publishPortsSnapshotLocked()
             publishState(
@@ -4860,6 +6358,7 @@ final class WorkspaceRemoteSessionController {
             publishProxyEndpoint(nil)
             publishPortsSnapshotLocked()
             publishState(.error, detail: "Remote proxy to \(configuration.displayTarget) unavailable: \(detail)")
+            failPendingPTYBridgeStartsLocked("remote daemon is not ready")
             guard Self.shouldEscalateProxyErrorToBootstrap(detail) else { return }
 
             proxyLease?.release()
@@ -5107,6 +6606,34 @@ final class WorkspaceRemoteSessionController {
     private static let bootstrapRemoteTTYRetryDelay: TimeInterval = 0.5
     private static let bootstrapRemoteTTYRetryLimit = 8
 
+    private var requiredDaemonCapabilities: [String] {
+        WorkspaceRemoteDaemonRPCClient.requiredCapabilities(for: configuration)
+    }
+
+    private var bakedDaemonPreflightRequiredCapabilities: [String] {
+        requiredDaemonCapabilities.filter {
+            $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability &&
+                $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability
+        }
+    }
+
+    private static func missingRequiredCapabilities(_ required: [String], in capabilities: [String]) -> [String] {
+        WorkspaceRemoteDaemonRPCClient.missingRequiredCapabilities(required, in: capabilities)
+    }
+
+    static func userFacingRemoteDaemonBootstrapErrorMessage(_ error: Error) -> String {
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = message.lowercased()
+        if lowered.contains("missing required capability") ||
+            lowered.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability) ||
+            lowered.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability) {
+            return remoteDaemonMissingRequiredCapabilitiesMessage([
+                WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability,
+            ])
+        }
+        return message.isEmpty ? "remote daemon bootstrap failed" : message
+    }
+
     private func sshCommonArguments(batchMode: Bool) -> [String] {
         let effectiveSSHOptions: [String] = {
             if batchMode {
@@ -5339,7 +6866,7 @@ final class WorkspaceRemoteSessionController {
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
 
-    private func bootstrapDaemonLocked() throws -> DaemonHello {
+    private func bootstrapDaemonLocked(requiredCapabilities: [String]) throws -> DaemonHello {
         debugLog("remote.bootstrap.begin \(debugConfigSummary())")
         let version = Self.remoteDaemonVersion()
         let bootstrapState = try probeRemoteBootstrapStateLocked(version: version)
@@ -5382,8 +6909,12 @@ final class WorkspaceRemoteSessionController {
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: remoteLocation)
             hello = try helloRemoteDaemonLocked(remotePath: remotePath)
         }
-        if hadExistingBinary, !hello.capabilities.contains(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability) {
-            debugLog("remote.bootstrap.capabilityMissing remotePath=\(remotePath) capabilities=\(hello.capabilities.joined(separator: ","))")
+        let missingCapabilities = Self.missingRequiredCapabilities(requiredCapabilities, in: hello.capabilities)
+        if hadExistingBinary, !missingCapabilities.isEmpty {
+            debugLog(
+                "remote.bootstrap.capabilityMissing remotePath=\(remotePath) " +
+                "missing=\(missingCapabilities.joined(separator: ",")) capabilities=\(hello.capabilities.joined(separator: ","))"
+            )
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: remoteLocation)
             hello = try helloRemoteDaemonLocked(remotePath: remotePath)
@@ -7707,6 +9238,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
     /// Display target of the remote workspace that just disconnected. Set right before
     /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
@@ -9560,6 +11092,7 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        remotePTYSessionIDsByPanelId = remotePTYSessionIDsByPanelId.filter { validSurfaceIds.contains($0.key) }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
@@ -9841,10 +11374,79 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionController?.updateRemotePortScanTTYs(surfaceTTYNames)
     }
 
+    func remotePTYSessionControllerForSocketCommand() -> WorkspaceRemoteSessionController? {
+        remoteSessionController
+    }
+
     func kickRemotePortScan(panelId: UUID, reason: WorkspaceRemoteSessionController.PortScanKickReason = .command) {
         guard isRemoteWorkspace else { return }
         syncRemotePortScanTTYs()
         remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
+    }
+
+    func listRemotePTYSessions() throws -> [[String: Any]] {
+        guard let controller = remoteSessionController else {
+            throw NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
+                NSLocalizedDescriptionKey: "remote connection is not active",
+            ])
+        }
+        return try controller.listPTYSessions()
+    }
+
+    func closeRemotePTYSession(sessionID: String) throws {
+        guard let controller = remoteSessionController else {
+            throw NSError(domain: "cmux.remote.pty", code: 11, userInfo: [
+                NSLocalizedDescriptionKey: "remote connection is not active",
+            ])
+        }
+        try controller.closePTYSession(sessionID: sessionID)
+    }
+
+    func startRemotePTYBridge(
+        sessionID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool
+    ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
+        guard let controller = remoteSessionController else {
+            throw NSError(domain: "cmux.remote.pty", code: 12, userInfo: [
+                NSLocalizedDescriptionKey: "remote connection is not active",
+            ])
+        }
+        return try controller.startPTYBridge(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            command: command,
+            requireExisting: requireExisting
+        )
+    }
+
+    func resizeRemotePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
+        guard let controller = remoteSessionController else {
+            throw NSError(domain: "cmux.remote.pty", code: 13, userInfo: [
+                NSLocalizedDescriptionKey: "remote connection is not active",
+            ])
+        }
+        try controller.resizePTY(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            attachmentToken: attachmentToken,
+            cols: cols,
+            rows: rows
+        )
+    }
+
+    func detachRemotePTYAttachment(sessionID: String, attachmentID: String, attachmentToken: String) throws {
+        guard let controller = remoteSessionController else {
+            throw NSError(domain: "cmux.remote.pty", code: 14, userInfo: [
+                NSLocalizedDescriptionKey: "remote connection is not active",
+            ])
+        }
+        try controller.detachPTYSession(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            attachmentToken: attachmentToken
+        )
     }
 
     func remoteStatusPayload() -> [String: Any] {
@@ -9922,7 +11524,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
+        defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
+        let previousConfiguration = remoteConfiguration
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+        if previousConfiguration != nil, previousConfiguration != configuration {
+            remotePTYSessionIDsByPanelId.removeAll()
+        }
         remoteConfiguration = configuration
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         clearRemoteDetectedSurfacePorts()
@@ -10010,6 +11617,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false) {
+        defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let shouldCleanupControlMaster =
             clearConfiguration
             && !isDetachingCloseTransaction
@@ -10022,6 +11630,7 @@ final class Workspace: Identifiable, ObservableObject {
         previousController?.stop()
         pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
+        remotePTYSessionIDsByPanelId.removeAll()
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
@@ -10056,6 +11665,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func clearRemoteConfigurationIfWorkspaceBecameLocal() {
         guard !isDetachingCloseTransaction, panels.isEmpty, remoteConfiguration != nil else { return }
+        if remoteConfiguration?.preserveAfterTerminalExit == true {
+            return
+        }
         disconnectRemoteConnection(clearConfiguration: true)
     }
 
@@ -10088,8 +11700,84 @@ final class Workspace: Identifiable, ObservableObject {
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
 
+    private func normalizedRemotePTYSessionID(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func remotePTYSessionIDForSnapshot(panelId: UUID) -> String? {
+        guard remoteConfiguration?.preserveAfterTerminalExit == true,
+              activeRemoteTerminalSurfaceIds.contains(panelId) else {
+            return nil
+        }
+        return normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId])
+            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+    }
+
+    nonisolated static func defaultSSHPTYSessionID(workspaceId: UUID, panelId: UUID) -> String {
+        "ssh-\(workspaceId.uuidString)-\(panelId.uuidString)"
+    }
+
+    nonisolated static func sshPTYAttachStartupCommand(sessionID: String) -> String {
+        SSHPTYAttachStartupCommandBuilder.command(sessionID: sessionID)
+    }
+
+    private func remotePTYAttachStartupCommand(sessionID: String) -> String {
+        guard let remoteConfiguration,
+              remoteConfiguration.preserveAfterTerminalExit,
+              let foregroundAuthToken = remoteConfiguration.foregroundAuthToken else {
+            return Self.sshPTYAttachStartupCommand(sessionID: sessionID)
+        }
+        let foregroundAuth = SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
+            destination: remoteConfiguration.destination,
+            port: remoteConfiguration.port,
+            identityFile: remoteConfiguration.identityFile,
+            sshOptions: remoteConfiguration.sshOptions,
+            token: foregroundAuthToken
+        )
+        return SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: sessionID,
+            foregroundAuth: foregroundAuth
+        )
+    }
+
+    func discardRemotePTYSessionID(panelId: UUID) {
+        remotePTYSessionIDsByPanelId.removeValue(forKey: panelId)
+    }
+
+    func remotePTYSessionIDMatches(panelId: UUID, sessionID: String?) -> Bool {
+        guard activeRemoteTerminalSurfaceIds.contains(panelId),
+              let normalizedSessionID = normalizedRemotePTYSessionID(sessionID) else {
+            return false
+        }
+        let expectedSessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId])
+            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+        return normalizedSessionID == expectedSessionID
+    }
+
+    @discardableResult
+    func markRemotePTYAttachEnded(surfaceId: UUID, sessionID: String) -> (clearedRemotePTYSession: Bool, untrackedRemoteTerminal: Bool) {
+        let normalizedSessionID = normalizedRemotePTYSessionID(sessionID)
+        let expectedSessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[surfaceId])
+            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: surfaceId)
+        guard let normalizedSessionID, normalizedSessionID == expectedSessionID else {
+            return (false, false)
+        }
+
+        let wasTracked = activeRemoteTerminalSurfaceIds.contains(surfaceId)
+        remotePTYSessionIDsByPanelId.removeValue(forKey: surfaceId)
+        untrackRemoteTerminalSurface(surfaceId)
+        return (true, wasTracked)
+    }
+
     private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {
         guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
+        if remoteConfiguration?.preserveAfterTerminalExit == true {
+            return
+        }
         let hasBrowserPanels = panels.values.contains { $0 is BrowserPanel }
         if !hasBrowserPanels {
             if remoteConnectionState == .error ||
@@ -10210,7 +11898,8 @@ final class Workspace: Identifiable, ObservableObject {
         // away through `untrackRemoteTerminalSurface` → `disconnectRemoteConnection`.
         // The banner only matters if we end up demoting this workspace to local, so
         // `createReplacementTerminalPanel` consumes and clears the value.
-        if let displayTarget = remoteConfiguration?.displayTarget {
+        if remoteConfiguration?.preserveAfterTerminalExit != true,
+           let displayTarget = remoteConfiguration?.displayTarget {
             pendingReplacementBannerRemoteTarget = displayTarget
         }
         pendingRemoteTerminalChildExitSurfaceIds.insert(surfaceId)
@@ -10644,7 +12333,8 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -10730,7 +12420,12 @@ final class Workspace: Identifiable, ObservableObject {
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        if remoteTerminalStartupCommand != nil {
+        let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
+        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        if let normalizedRemotePTYSessionID {
+            remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
+        }
+        if tracksRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -10764,8 +12459,9 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            if remoteTerminalStartupCommand != nil {
+            if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
@@ -10828,7 +12524,8 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
-        startupEnvironment: [String: String] = [:]
+        startupEnvironment: [String: String] = [:],
+        remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -10863,7 +12560,12 @@ final class Workspace: Identifiable, ObservableObject {
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        if remoteTerminalStartupCommand != nil {
+        let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
+        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        if let normalizedRemotePTYSessionID {
+            remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
+        }
+        if tracksRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -10879,7 +12581,8 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
-            if remoteTerminalStartupCommand != nil {
+            remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
+            if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
@@ -12183,9 +13886,13 @@ final class Workspace: Identifiable, ObservableObject {
            panelSubscriptions[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)
         }
-        let didAdoptWorkspaceRemoteTracking =
-            detached.isRemoteTerminal
-            && detached.remoteRelayPort == remoteConfiguration?.relayPort
+        let didAdoptWorkspaceRemoteTracking = shouldAdoptDetachedWorkspaceRemoteTracking(detached)
+        if didAdoptWorkspaceRemoteTracking,
+           let remotePTYSessionID = normalizedRemotePTYSessionID(detached.remotePTYSessionID) {
+            remotePTYSessionIDsByPanelId[detached.panelId] = remotePTYSessionID
+        } else {
+            remotePTYSessionIDsByPanelId.removeValue(forKey: detached.panelId)
+        }
         if didAdoptWorkspaceRemoteTracking {
             trackRemoteTerminalSurface(detached.panelId)
         }
@@ -12224,6 +13931,18 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         return detached.panelId
+    }
+
+    private func shouldAdoptDetachedWorkspaceRemoteTracking(_ detached: DetachedSurfaceTransfer) -> Bool {
+        guard detached.isRemoteTerminal else { return false }
+        if detached.sourceWorkspaceId == id { return true }
+        guard let detachedRelayPort = detached.remoteRelayPort,
+              detachedRelayPort > 0,
+              let currentRelayPort = remoteConfiguration?.relayPort,
+              currentRelayPort > 0 else {
+            return false
+        }
+        return detachedRelayPort == currentRelayPort
     }
     // MARK: - Focus Management
 
@@ -14646,6 +16365,7 @@ extension Workspace: BonsplitDelegate {
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
                     ? remoteConfiguration?.relayPort
                     : nil,
+                remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 remoteCleanupConfiguration: transferredRemoteCleanupConfiguration
             )
         } else {

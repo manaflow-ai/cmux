@@ -1572,10 +1572,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let buildFlavor = BuildFlavor.current
+        let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
+        let confirmQuitMode = QuitWarningSettings.confirmQuitMode()
+
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
             fields: [
-                "taggedDev": SocketControlSettings.isTaggedDevBuild() ? "1" : "0",
+                "buildFlavor": buildFlavor.rawValue,
+                "confirmQuitMode": confirmQuitMode.rawValue,
+                "hasDirtyWorkspaces": hasDirtyWorkspaces ? "1" : "0",
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
                 "quitWarningEnabled": QuitWarningSettings.isEnabled() ? "1" : "0"
             ]
@@ -1584,10 +1590,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
-        // or disabled the setting, skip the check to avoid a second alert.
-        if !QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: isQuitWarningConfirmed) {
+        // or policy skips the warning, avoid a second alert.
+        if !QuitWarningSettings.shouldShowConfirmation(
+            isQuitWarningConfirmed: isQuitWarningConfirmed,
+            hasDirtyWorkspaces: hasDirtyWorkspaces,
+            buildFlavor: buildFlavor
+        ) {
             closeAllWebInspectorsBeforeAppTeardown()
-            let reason = isQuitWarningConfirmed ? "confirmed" : "warningDisabled"
+            let reason: String
+            if isQuitWarningConfirmed {
+                reason = "confirmed"
+            } else if buildFlavor == .dev {
+                reason = "devBuild"
+            } else {
+                reason = "policy"
+            }
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
             return .terminateNow
         }
@@ -1623,6 +1640,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
+    }
+
+    private func hasQuitConfirmationDirtyWorkspaces() -> Bool {
+        var visitedManagers = Set<ObjectIdentifier>()
+
+        func managerHasDirtyWorkspace(_ manager: TabManager?) -> Bool {
+            guard let manager else { return false }
+            let managerId = ObjectIdentifier(manager)
+            guard visitedManagers.insert(managerId).inserted else { return false }
+            return manager.tabs.contains(where: { $0.needsConfirmClose() })
+        }
+
+        for context in mainWindowContexts.values {
+            if managerHasDirtyWorkspace(context.tabManager) {
+                return true
+            }
+        }
+
+        if managerHasDirtyWorkspace(tabManager) {
+            return true
+        }
+
+        for route in recoverableMainWindowRoutes() {
+            if managerHasDirtyWorkspace(route.tabManager) {
+                return true
+            }
+        }
+        return false
     }
 
     @discardableResult
@@ -5033,7 +5078,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func locateSurface(surfaceId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager)? {
         for ctx in mainWindowContexts.values {
             for ws in ctx.tabManager.tabs {
-                if ws.panels[surfaceId] != nil {
+                if ws.panels[surfaceId] != nil, ws.surfaceIdFromPanelId(surfaceId) != nil {
                     return (ctx.windowId, ws.id, ctx.tabManager)
                 }
             }
@@ -5041,7 +5086,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for route in recoverableMainWindowRoutes() {
             guard let manager = route.tabManager else { continue }
             for ws in manager.tabs {
-                if ws.panels[surfaceId] != nil {
+                if ws.panels[surfaceId] != nil, ws.surfaceIdFromPanelId(surfaceId) != nil {
                     return (route.windowId, ws.id, manager)
                 }
             }
@@ -5058,25 +5103,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId),
            let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
-           workspace.panels[panelId] != nil {
+           workspace.panels[panelId] != nil,
+           workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, manager)
         }
 
         if let located = locateSurface(surfaceId: panelId),
            let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-           workspace.panels[panelId] != nil {
+           workspace.panels[panelId] != nil,
+           workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, located.tabManager)
         }
 
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId) ?? tabManager,
            let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
-           workspace.panels[panelId] != nil {
+           workspace.panels[panelId] != nil,
+           workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, manager)
         }
 
         if let manager = tabManager,
-           let workspace = manager.tabs.first(where: { $0.panels[panelId] != nil }) {
+           let workspace = manager.tabs.first(where: {
+               $0.panels[panelId] != nil && $0.surfaceIdFromPanelId(panelId) != nil
+           }) {
             return (workspace, manager)
         }
 
@@ -11431,7 +11481,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleQuitShortcutWarning() -> Bool {
-        if !QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false) {
+        if !QuitWarningSettings.shouldShowConfirmation(
+            isQuitWarningConfirmed: false,
+            hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
+            buildFlavor: .current
+        ) {
             NSApp.terminate(nil)
             return true
         }

@@ -490,6 +490,10 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar."
+        },
+        "app": {
+          "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
+          "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın."
         }
       }
     },

@@ -591,6 +591,10 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+        },
+        "app": {
+          "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
+          "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
         }
       }
     },

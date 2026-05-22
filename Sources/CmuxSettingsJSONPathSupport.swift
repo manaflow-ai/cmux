@@ -63,6 +63,7 @@ extension CmuxSettingsFileStore {
         "app.iMessageMode",
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
+        "app.confirmQuit",
         "app.warnBeforeQuit",
         "app.warnBeforeClosingTab",
         "app.renameSelectsExistingName",
