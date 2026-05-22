@@ -402,15 +402,13 @@ def sanitize_content(content: dict[str, Any]) -> dict[str, Any]:
 
 
 def has_request_response_body(entry: dict[str, Any]) -> bool:
+    request_post_data = entry.get("request", {}).get("postData") or {}
+    response_content = entry.get("response", {}).get("content") or {}
     request_text = (
-        entry.get("request", {})
-        .get("postData", {})
-        .get("text", "")
+        request_post_data.get("text", "")
     )
     response_text = (
-        entry.get("response", {})
-        .get("content", {})
-        .get("text", "")
+        response_content.get("text", "")
     )
     return bool(request_text) and bool(response_text)
 
@@ -429,10 +427,9 @@ def websocket_message_text(entry: dict[str, Any], direction: str | None = None) 
 
 
 def response_payload_text(entry: dict[str, Any]) -> str:
+    response_content = entry.get("response", {}).get("content") or {}
     response_text = (
-        entry.get("response", {})
-        .get("content", {})
-        .get("text", "")
+        response_content.get("text", "")
     )
     return f"{response_text}\n{websocket_message_text(entry, direction='receive')}"
 
