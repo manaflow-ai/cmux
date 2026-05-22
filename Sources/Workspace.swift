@@ -7434,6 +7434,8 @@ final class Workspace: Identifiable, ObservableObject {
     @MainActor private static var warmTerminalPoolOwnerWorkspaceId: UUID?
     @MainActor private static var warmTerminalPoolStartupSignature: TerminalWarmPtyPoolStartupSignature?
     @MainActor private static var warmTerminalPoolContext: ghostty_surface_context_e?
+    @MainActor private static var warmTerminalPoolActivatingPanelId: UUID?
+    @MainActor private static var warmTerminalPoolActivatingWorkspaceId: UUID?
     @MainActor private static var warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
     @MainActor private static var warmTerminalPoolSettingsObserver: NSObjectProtocol?
 
@@ -10470,6 +10472,8 @@ final class Workspace: Identifiable, ObservableObject {
         warmTerminalPoolOwnerWorkspaceId = nil
         warmTerminalPoolStartupSignature = nil
         warmTerminalPoolContext = nil
+        warmTerminalPoolActivatingPanelId = nil
+        warmTerminalPoolActivatingWorkspaceId = nil
         warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
         guard let panel else { return }
 #if DEBUG
@@ -10512,8 +10516,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor private func isWarmTerminalPoolPanel(_ panelId: UUID) -> Bool {
-        Self.warmTerminalPoolOwnerWorkspaceId == id &&
-            Self.warmTerminalPoolPanel?.id == panelId
+        if Self.warmTerminalPoolOwnerWorkspaceId == id,
+           Self.warmTerminalPoolPanel?.id == panelId {
+            return true
+        }
+        return Self.warmTerminalPoolActivatingWorkspaceId == id &&
+            Self.warmTerminalPoolActivatingPanelId == panelId
     }
 
     @MainActor private func updateWarmTerminalBufferedMetadata(
@@ -10574,11 +10582,19 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor private static func clearWarmTerminalBufferedMetadata(panelId: UUID) {
+        if warmTerminalPoolActivatingPanelId == panelId {
+            warmTerminalPoolActivatingPanelId = nil
+            warmTerminalPoolActivatingWorkspaceId = nil
+        }
         guard warmTerminalPoolBufferedMetadata.panelId == panelId else { return }
         warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
     }
 
     @MainActor private func applyBufferedWarmTerminalMetadataIfNeeded(to panel: TerminalPanel) {
+        if Self.warmTerminalPoolActivatingPanelId == panel.id {
+            Self.warmTerminalPoolActivatingPanelId = nil
+            Self.warmTerminalPoolActivatingWorkspaceId = nil
+        }
         let metadata = Self.warmTerminalPoolBufferedMetadata
         guard metadata.panelId == panel.id else { return }
         Self.warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
@@ -10830,6 +10846,8 @@ final class Workspace: Identifiable, ObservableObject {
         Self.warmTerminalPoolOwnerWorkspaceId = nil
         Self.warmTerminalPoolStartupSignature = nil
         Self.warmTerminalPoolContext = nil
+        Self.warmTerminalPoolActivatingPanelId = panel.id
+        Self.warmTerminalPoolActivatingWorkspaceId = id
         panel.updateWorkspaceId(id)
         configureTerminalPanel(panel)
         prepareWarmTerminalPanelForUse(
