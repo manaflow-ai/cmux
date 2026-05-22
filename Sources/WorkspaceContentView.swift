@@ -392,6 +392,119 @@ private final class CanvasDragRegistrationView: NSView {
     }
 }
 
+private enum WorkspaceCanvasActionHitRegionRegistry {
+    private struct Entry {
+        weak var view: NSView?
+        var windowID: ObjectIdentifier
+        var frameInWindow: CGRect
+        var hitSlop: CGFloat
+    }
+
+    private static var entries: [ObjectIdentifier: Entry] = [:]
+
+    static func update(view: NSView, window: NSWindow, frameInWindow: CGRect, hitSlop: CGFloat) {
+        guard frameInWindow.origin.x.isFinite,
+              frameInWindow.origin.y.isFinite,
+              frameInWindow.size.width.isFinite,
+              frameInWindow.size.height.isFinite,
+              frameInWindow.width > 1,
+              frameInWindow.height > 1 else {
+            remove(view: view)
+            return
+        }
+        entries[ObjectIdentifier(view)] = Entry(
+            view: view,
+            windowID: ObjectIdentifier(window),
+            frameInWindow: frameInWindow,
+            hitSlop: max(0, hitSlop)
+        )
+    }
+
+    static func remove(view: NSView) {
+        entries.removeValue(forKey: ObjectIdentifier(view))
+    }
+
+    static func hit(pointInWindow: NSPoint, in window: NSWindow) -> Bool {
+        pruneReleasedViews()
+        let windowID = ObjectIdentifier(window)
+        return entries.values.contains { entry in
+            entry.windowID == windowID
+                && entry.frameInWindow.insetBy(dx: -entry.hitSlop, dy: -entry.hitSlop).contains(pointInWindow)
+        }
+    }
+
+    private static func pruneReleasedViews() {
+        entries = entries.filter { $0.value.view != nil }
+    }
+}
+
+private struct CanvasActionHitRegionLayer: NSViewRepresentable {
+    var hitSlop: CGFloat = 4
+
+    func makeNSView(context: Context) -> CanvasActionHitRegionView {
+        let view = CanvasActionHitRegionView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasActionHitRegionView, context: Context) {
+        nsView.hitSlop = hitSlop
+        nsView.updateRegistration()
+    }
+
+    static func dismantleNSView(_ nsView: CanvasActionHitRegionView, coordinator: ()) {
+        WorkspaceCanvasActionHitRegionRegistry.remove(view: nsView)
+    }
+}
+
+private final class CanvasActionHitRegionView: NSView {
+    var hitSlop: CGFloat = 4
+
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateRegistration()
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        updateRegistration()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateRegistration()
+    }
+
+    override func layout() {
+        super.layout()
+        updateRegistration()
+    }
+
+    func updateRegistration() {
+        guard let window else {
+            WorkspaceCanvasActionHitRegionRegistry.remove(view: self)
+            return
+        }
+        WorkspaceCanvasActionHitRegionRegistry.update(
+            view: self,
+            window: window,
+            frameInWindow: convert(bounds, to: nil),
+            hitSlop: hitSlop
+        )
+    }
+
+    deinit {
+        WorkspaceCanvasActionHitRegionRegistry.remove(view: self)
+    }
+}
+
 private struct CanvasDragEventMonitorLayer: NSViewRepresentable {
     var onDragChanged: (LayoutItemID, CGSize) -> Void
     var onDragEnded: (LayoutItemID) -> Void
@@ -473,6 +586,9 @@ private final class CanvasDragEventMonitorView: NSView {
         case .leftMouseDown:
             pendingDrag = nil
             activeDrag = nil
+            guard !WorkspaceCanvasActionHitRegionRegistry.hit(pointInWindow: event.locationInWindow, in: window) else {
+                return event
+            }
             guard !WorkspaceCanvasResizeHitRegionRegistry.isPointerResizeActive(in: window),
                   WorkspaceCanvasResizeHitRegionRegistry.hit(pointInWindow: event.locationInWindow, in: window) == nil,
                   let itemID = WorkspaceCanvasDragHitRegionRegistry.hit(
@@ -938,6 +1054,9 @@ private final class CanvasResizeEventMonitorView: NSView {
 
         switch event.type {
         case .leftMouseDown:
+            guard !WorkspaceCanvasActionHitRegionRegistry.hit(pointInWindow: event.locationInWindow, in: window) else {
+                return event
+            }
             guard let hit = WorkspaceCanvasResizeHitRegionRegistry.hit(
                 pointInWindow: event.locationInWindow,
                 in: window
@@ -1820,7 +1939,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     private let canvasPadding: CGFloat = 24
     private let canvasResizeEdgeHitSize: CGFloat = 8
     private let canvasResizeCornerHitSize: CGFloat = 44
-    private let canvasHeaderActionHitWidth: CGFloat = 56
+    private let canvasHeaderActionHitWidth: CGFloat = 104
     private let minimumFreeformCardWidth: CGFloat = 240
     private let minimumFreeformCardHeight: CGFloat = 170
 
@@ -2293,7 +2412,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
             Spacer(minLength: 0)
 
-            canvasPaneSplitButtons(item: item, paneID: paneID)
+            canvasPaneHeaderControls(item: item, selected: selected, paneID: paneID)
         }
         .frame(height: 20)
         .padding(.leading, 6)
@@ -2305,44 +2424,63 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         }
     }
 
-    private func canvasPaneSplitButtons(item: CanvasItem, paneID: PaneID?) -> some View {
-        HStack(spacing: 2) {
-            canvasPaneSplitButton(
+    private func canvasPaneHeaderControls(item: CanvasItem, selected: SurfaceTab?, paneID: PaneID?) -> some View {
+        HStack(spacing: 1) {
+            canvasPaneActionButton(
+                systemName: "terminal",
+                label: String(localized: "workspace.tooltip.newTerminal", defaultValue: "New Terminal"),
+                item: item,
+                paneID: paneID,
+                accessibilityID: "WorkspaceCanvasNewTerminal"
+            ) {
+                createCanvasTerminalPane(item: item, paneID: paneID)
+            }
+            canvasPaneActionButton(
+                systemName: "globe",
+                label: String(localized: "workspace.tooltip.newBrowser", defaultValue: "New Browser"),
+                item: item,
+                paneID: paneID,
+                accessibilityID: "WorkspaceCanvasNewBrowser"
+            ) {
+                createCanvasBrowserPane(item: item, selected: selected, paneID: paneID)
+            }
+            canvasPaneActionButton(
                 systemName: "rectangle.split.2x1",
                 label: String(localized: "workspace.tooltip.splitRight", defaultValue: "Split Right"),
                 item: item,
                 paneID: paneID,
-                orientation: .horizontal,
                 accessibilityID: "WorkspaceCanvasSplitRight"
-            )
-            canvasPaneSplitButton(
+            ) {
+                splitCanvasPane(item: item, paneID: paneID, orientation: .horizontal)
+            }
+            canvasPaneActionButton(
                 systemName: "rectangle.split.1x2",
                 label: String(localized: "workspace.tooltip.splitDown", defaultValue: "Split Down"),
                 item: item,
                 paneID: paneID,
-                orientation: .vertical,
                 accessibilityID: "WorkspaceCanvasSplitDown"
-            )
+            ) {
+                splitCanvasPane(item: item, paneID: paneID, orientation: .vertical)
+            }
+        }
+        .background {
+            CanvasActionHitRegionLayer(hitSlop: 8)
+                .allowsHitTesting(false)
         }
     }
 
-    private func canvasPaneSplitButton(
+    private func canvasPaneActionButton(
         systemName: String,
         label: String,
         item: CanvasItem,
         paneID: PaneID?,
-        orientation: LayoutOrientation,
-        accessibilityID: String
+        accessibilityID: String,
+        action: @escaping () -> Void
     ) -> some View {
-        Button {
-            focusCanvasHeader(item: item, paneID: paneID)
-            guard let paneID else { return }
-            controller.splitPane(paneID, orientation: orientation)
-            WorkspaceCanvasSurfaceMountManager.synchronizeAll()
-        } label: {
+        Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 10, weight: .medium))
-                .frame(width: 20, height: 18)
+                .frame(width: 22, height: 18)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -2351,6 +2489,120 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         .help(label)
         .accessibilityLabel(label)
         .accessibilityIdentifier("\(accessibilityID).\(paneID?.id.uuidString ?? item.id.description)")
+    }
+
+    private func splitCanvasPane(item: CanvasItem, paneID: PaneID?, orientation: LayoutOrientation) {
+        focusCanvasHeader(item: item, paneID: paneID)
+        guard let paneID else { return }
+        guard let panel = workspace.splitPaneWithNewTerminal(
+            targetPane: paneID,
+            orientation: orientation,
+            insertFirst: false,
+            workingDirectory: nil,
+            initialInput: nil
+        ) else { return }
+        placeCreatedCanvasPane(from: item, panelID: panel.id, orientation: orientation)
+        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+    }
+
+    private func createCanvasTerminalPane(item: CanvasItem, paneID: PaneID?) {
+        splitCanvasPane(item: item, paneID: paneID, orientation: .horizontal)
+    }
+
+    private func createCanvasBrowserPane(item: CanvasItem, selected: SurfaceTab?, paneID: PaneID?) {
+        focusCanvasHeader(item: item, paneID: paneID)
+        guard let sourcePanelID = selected.flatMap({ workspace.panelIdFromSurfaceId($0.id) }) else {
+            return
+        }
+        guard let panel = workspace.newBrowserSplit(
+            from: sourcePanelID,
+            orientation: .horizontal,
+            insertFirst: false,
+            focus: true
+        ) else { return }
+        placeCreatedCanvasPane(from: item, panelID: panel.id, orientation: .horizontal)
+        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+    }
+
+    private func placeCreatedCanvasPane(from sourceItem: CanvasItem, panelID: UUID, orientation: LayoutOrientation) {
+        guard let newPaneID = workspace.paneId(forPanelId: panelID),
+              let newItem = controller.canvasItem(forPane: newPaneID) else {
+            return
+        }
+        let sourceFrame = sourceItem.frame
+        let gap = 16.0
+        var newFrame: PixelRect
+        switch orientation {
+        case .horizontal:
+            newFrame = PixelRect(
+                x: sourceFrame.x + sourceFrame.width + gap,
+                y: sourceFrame.y,
+                width: sourceFrame.width,
+                height: sourceFrame.height
+            )
+        case .vertical:
+            newFrame = PixelRect(
+                x: sourceFrame.x,
+                y: sourceFrame.y + sourceFrame.height + gap,
+                width: sourceFrame.width,
+                height: sourceFrame.height
+            )
+        }
+        newFrame = firstAvailableCanvasFrame(
+            startingAt: newFrame,
+            steppingFrom: sourceFrame,
+            orientation: orientation,
+            excluding: newItem.id,
+            gap: gap
+        )
+        controller.moveCanvasItem(newItem.id, to: newFrame)
+        _ = controller.focusCanvasItem(newItem.id)
+    }
+
+    private func firstAvailableCanvasFrame(
+        startingAt frame: PixelRect,
+        steppingFrom sourceFrame: PixelRect,
+        orientation: LayoutOrientation,
+        excluding itemID: LayoutItemID,
+        gap: Double
+    ) -> PixelRect {
+        let occupiedFrames = controller.canvasSnapshot().items
+            .filter { $0.id != itemID }
+            .map(\.frame)
+        guard !occupiedFrames.isEmpty else { return frame }
+
+        var candidate = frame
+        let attempts = max(16, occupiedFrames.count + 8)
+        for _ in 0..<attempts {
+            if !occupiedFrames.contains(where: { canvasFramesOverlap(candidate, $0) }) {
+                return candidate
+            }
+            switch orientation {
+            case .horizontal:
+                candidate = PixelRect(
+                    x: candidate.x + sourceFrame.width + gap,
+                    y: frame.y,
+                    width: frame.width,
+                    height: frame.height
+                )
+            case .vertical:
+                candidate = PixelRect(
+                    x: frame.x,
+                    y: candidate.y + sourceFrame.height + gap,
+                    width: frame.width,
+                    height: frame.height
+                )
+            }
+        }
+        return candidate
+    }
+
+    private func canvasFramesOverlap(_ lhs: PixelRect, _ rhs: PixelRect) -> Bool {
+        let epsilon = 0.5
+        return lhs.x < rhs.x + rhs.width - epsilon
+            && lhs.x + lhs.width > rhs.x + epsilon
+            && lhs.y < rhs.y + rhs.height - epsilon
+            && lhs.y + lhs.height > rhs.y + epsilon
     }
 
     private func focusCanvasHeader(item: CanvasItem, paneID: PaneID?) {
@@ -2389,6 +2641,10 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         .buttonStyle(.plain)
         .foregroundStyle(selected ? canvasForegroundColor.opacity(0.84) : canvasForegroundColor.opacity(0.56))
         .disabled(paneID == nil)
+        .background {
+            CanvasActionHitRegionLayer(hitSlop: 4)
+                .allowsHitTesting(false)
+        }
         .accessibilityIdentifier("WorkspaceCanvasTabChip.\(paneID?.id.uuidString ?? item.id.description).\(tab.id.uuid.uuidString)")
     }
 
