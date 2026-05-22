@@ -310,6 +310,9 @@
       "agentResumeTitle": "Agent session resume",
       "agentResumeDesc": "Supported AI coding agents can resume when cmux has captured the agent's native session ID. Install hooks after installing the agent CLI so the agent binary is on PATH:",
       "setupBehavior": "Running cmux hooks setup installs every supported integration it can find and prints a summary for skipped agents. Use an agent name when you only want one integration.",
+      "surfaceBindingsTitle": "Custom surface resume commands",
+      "surfaceBindingsDesc": "Advanced users and integrations can bind any terminal surface to a restart command. cmux stores public CLI and socket-created bindings for inspection and manual restore unless you approve a signed command prefix.",
+      "surfaceBindingsNote": "Review or edit approved prefixes in Settings > Terminal > Resume Commands. cmux only auto-runs resume bindings it marks trusted, such as live process-detected tmux bindings or user-approved prefixes. cmux still does not checkpoint arbitrary process memory. Sensitive environment keys such as tokens, passwords, secrets, and API keys are dropped before a resume binding is stored. Approved prefixes are also bound to the working directory and exact environment values when present.",
       "supportedTitle": "Supported agents",
       "agentHeader": "Agent",
       "binaryHeader": "Binary",
@@ -422,7 +425,12 @@
       "settingsFileDesc": "cmux.json stores cmux-owned app settings, shortcuts, actions, commands, and workspace layouts.",
       "settingsFilePrecedence": "Shortcuts defined in cmux.json override the in-app Settings value. Managed shortcuts stay visible in Settings but become read-only there.",
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
-      "exampleConfig": "Example config"
+      "exampleConfig": "Example config",
+      "schemaDescriptions": {
+        "automation": {
+          "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+        }
+      }
     },
     "customCommands": {
       "title": "Custom Commands",

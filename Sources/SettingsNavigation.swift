@@ -86,7 +86,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .app:
             return "\(title) appearance language workspace notifications menu bar telemetry"
         case .terminal:
-            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev toggle"
+            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev commands approvals prefixes toggle"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -319,6 +319,7 @@ enum SettingsSearchIndex {
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
+        setting(.terminal, "resume-commands", String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"), "surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
         setting(.sidebarAppearance, "show-workspace-description", String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), "workspace description notes markdown"),
@@ -326,6 +327,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"),
         setting(.sidebarAppearance, "show-branch-directory", String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), "git cwd path"),
         setting(.sidebarAppearance, "show-pull-requests", String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), "review pr mr link"),
+        setting(.sidebarAppearance, "watch-git-status", String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar"), "git status branch watcher index lock"),
         setting(.sidebarAppearance, "make-pr-clickable", String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), "pull requests pull request pr mr review clickable links select workspace row"),
         setting(.sidebarAppearance, "open-pr-links", String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"), "pull request link browser"),
         setting(.sidebarAppearance, "open-port-links", String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"), "port link browser"),
@@ -339,6 +341,8 @@ enum SettingsSearchIndex {
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
+        setting(.automation, "ripgrep-path", String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), "custom ripgrep rg executable find search nix"),
+        setting(.automation, "subagent-notifications", String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), "nested child agent codex claude hooks notifications"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
         setting(.automation, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),
         setting(.automation, "port-base", String(localized: "settings.automation.portBase", defaultValue: "Port Base"), "CMUX_PORT start"),
@@ -414,6 +418,7 @@ enum SettingsSearchIndex {
         "sidebar.showNotificationMessage": settingID(for: .sidebarAppearance, idSuffix: "show-notification-message"),
         "sidebar.showBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "show-branch-directory"),
         "sidebar.showPullRequests": settingID(for: .sidebarAppearance, idSuffix: "show-pull-requests"),
+        "sidebar.watchGitStatus": settingID(for: .sidebarAppearance, idSuffix: "watch-git-status"),
         "sidebar.makePullRequestsClickable": settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"),
         "sidebar.openPullRequestLinksInCmuxBrowser": settingID(for: .sidebarAppearance, idSuffix: "open-pr-links"),
         "sidebar.openPortLinksInCmuxBrowser": settingID(for: .sidebarAppearance, idSuffix: "open-port-links"),
@@ -432,6 +437,8 @@ enum SettingsSearchIndex {
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
         "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
+        "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
+        "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
         "automation.geminiIntegration": settingID(for: .automation, idSuffix: "gemini"),
         "automation.portBase": settingID(for: .automation, idSuffix: "port-base"),
