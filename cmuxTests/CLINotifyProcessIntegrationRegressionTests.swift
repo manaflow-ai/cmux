@@ -239,46 +239,60 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(prompt.timedOut, prompt.stderr)
         XCTAssertEqual(prompt.status, 0, prompt.stderr)
 
-        let cases: [(payload: String, subtitle: String, bodyFragment: String)] = [
+        let cases: [(payload: String, titleFragment: String, subtitle: String, bodyFragment: String)] = [
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","message":"grep error.log"}"#,
+                "Claude Workspace - Claude waiting",
                 "Permission request",
                 "grep error.log"
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Bash","message":"grep error.log"}"#,
+                "Claude Workspace - Claude waiting",
                 "Tool approval",
                 "grep error.log"
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Permission request: run grep error.log"}"#,
+                "Claude Workspace - Claude waiting",
                 "Permission request",
                 "Permission request: run grep error.log"
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Approval needed to run grep error.log"}"#,
+                "Claude Workspace - Claude waiting",
                 "Tool approval",
                 "Approval needed to run grep error.log"
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Edit","notification_type":"approval","message":"Approve Edit to update Sources/AppDelegate.swift"}"#,
+                "Claude Workspace - Claude waiting",
                 "Tool approval",
                 "Approve Edit to update Sources/AppDelegate.swift"
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude failed to parse the tool result"}"#,
+                "Claude Workspace - Claude waiting",
                 "Error",
                 "Claude failed to parse the tool result"
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","type":"error","message":"failed while waiting for tool output"}"#,
+                "Claude Workspace - Claude waiting",
                 "Error",
                 "failed while waiting for tool output"
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","message":"Claude is waiting for your next prompt"}"#,
+                "Claude Workspace - Claude waiting",
                 "Idle prompt",
                 "Claude is waiting for your next prompt"
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Task completed"}"#,
+                "Claude Workspace",
+                "Completed",
+                "Task completed"
             ),
         ]
 
@@ -295,7 +309,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             let notifyCommands = Array(context.state.commands.dropFirst(commandStart))
                 .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
             let command = try XCTUnwrap(notifyCommands.last)
-            XCTAssertTrue(command.contains("Claude Workspace - Claude waiting|\(testCase.subtitle)|"), command)
+            XCTAssertTrue(command.contains("\(testCase.titleFragment)|\(testCase.subtitle)|"), command)
             XCTAssertTrue(command.contains(testCase.bodyFragment), command)
 
             let workspaceListRequests = Array(context.state.commands.dropFirst(commandStart)).compactMap { command -> [String: Any]? in

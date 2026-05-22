@@ -18980,9 +18980,26 @@ struct CMUXCLI {
         surfaceId: String,
         client: SocketClient
     ) throws -> String {
-        let title = claudeWaitingNotificationTitle(workspaceId: workspaceId, client: client)
+        let title = claudeNotificationTitle(summary: summary, workspaceId: workspaceId, client: client)
         let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
         return try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+    }
+
+    private func claudeNotificationTitle(
+        summary: (subtitle: String, body: String),
+        workspaceId: String,
+        client: SocketClient
+    ) -> String {
+        guard isClaudeCompletionSubtitle(summary.subtitle) else {
+            return claudeWaitingNotificationTitle(workspaceId: workspaceId, client: client)
+        }
+        return claudeWorkspaceTitle(workspaceId: workspaceId, client: client)
+            ?? String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code")
+    }
+
+    private func isClaudeCompletionSubtitle(_ subtitle: String) -> Bool {
+        subtitle == String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed")
+            || subtitle == String(localized: "agent.claude.completion.subtitle.completed", defaultValue: "Completed")
     }
 
     private func shouldIgnoreClaudeHookTeardownError(_ error: Error) -> Bool {
@@ -20819,7 +20836,10 @@ struct CMUXCLI {
     }
 
     private func summarizeClaudeHookNotification(parsedInput: ClaudeHookParsedInput) -> (subtitle: String, body: String) {
-        summarizeClaudeHookWaitingRequest(parsedInput: parsedInput, defaultReason: nil)
+        if let completion = summarizeClaudeHookCompletionNotification(parsedInput: parsedInput) {
+            return completion
+        }
+        return summarizeClaudeHookWaitingRequest(parsedInput: parsedInput, defaultReason: nil)
     }
 
     private func summarizeClaudeHookWaitingRequest(
@@ -20851,6 +20871,59 @@ struct CMUXCLI {
         let reason = (classifiedReason == .idlePrompt ? defaultReason : nil) ?? classifiedReason
         let body = message.map(normalizedSingleLine).flatMap { $0.isEmpty ? nil : $0 } ?? reason.fallbackBody
         return (subtitle: reason.subtitle, body: truncate(body, maxLength: 140))
+    }
+
+    private func summarizeClaudeHookCompletionNotification(
+        parsedInput: ClaudeHookParsedInput
+    ) -> (subtitle: String, body: String)? {
+        let signal: String
+        let message: String
+        if let object = parsedInput.object {
+            signal = claudeHookSignal(object)
+            message = claudeHookMessage(object).map(normalizedSingleLine) ?? ""
+        } else {
+            message = parsedInput.rawFallback.map(normalizedSingleLine) ?? ""
+            signal = message
+        }
+
+        let metadata = signal.lowercased()
+        let messageText = message.lowercased()
+        guard !metadata.contains("permissionrequest"),
+              !metadata.contains("permission request"),
+              !metadata.contains("permission_prompt"),
+              !metadata.contains("permission"),
+              !metadata.contains("approve"),
+              !metadata.contains("approval"),
+              !metadata.contains("error"),
+              !metadata.contains("failed"),
+              !metadata.contains("failure"),
+              !metadata.contains("exception"),
+              !messageText.contains("permissionrequest"),
+              !messageText.contains("permission request"),
+              !messageText.contains("permission_prompt"),
+              !messageText.contains("permission"),
+              !messageText.contains("approve"),
+              !messageText.contains("approval"),
+              !messageText.contains("failed"),
+              !messageText.contains("failure"),
+              !messageText.contains("exception"),
+              !messageText.contains("error:"),
+              !messageText.contains("error occurred"),
+              !messageText.contains("reported an error"),
+              !messageText.contains("encountered an error"),
+              !messageText.hasPrefix("error ") else {
+            return nil
+        }
+        guard containsCompletionCue("\(metadata) \(messageText)") else {
+            return nil
+        }
+        let body = message.isEmpty
+            ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed")
+            : message
+        return (
+            subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
+            body: truncate(body, maxLength: 140)
+        )
     }
 
     private func claudeHookEventName(_ object: [String: Any]) -> String? {
