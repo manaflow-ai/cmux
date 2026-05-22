@@ -112,6 +112,8 @@ class TerminalController {
     private nonisolated(unsafe) var socketPathMonitorSource: DispatchSourceFileSystemObject?
     private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
+    private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
+    private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     private var tabManager: TabManager?
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
     private nonisolated let myPid = getpid()
@@ -5573,6 +5575,7 @@ class TerminalController {
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+            v2NotifyRemotePTYControllerAvailabilityChanged()
 
             let windowId = v2ResolveWindowId(tabManager: owner)
             result = .ok([
@@ -5657,6 +5660,7 @@ class TerminalController {
             }
 
             workspace.reconnectRemoteConnection()
+            v2NotifyRemotePTYControllerAvailabilityChanged()
             let windowId = v2ResolveWindowId(tabManager: owner)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -5696,6 +5700,7 @@ class TerminalController {
             }
 
             workspace.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
+            v2NotifyRemotePTYControllerAvailabilityChanged()
             let windowId = v2ResolveWindowId(tabManager: owner)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -5854,6 +5859,55 @@ class TerminalController {
             )
         }
         return (target, nil)
+    }
+
+    private nonisolated func v2NotifyRemotePTYControllerAvailabilityChanged() {
+        remotePTYControllerAvailabilityCondition.lock()
+        remotePTYControllerAvailabilityGeneration &+= 1
+        remotePTYControllerAvailabilityCondition.broadcast()
+        remotePTYControllerAvailabilityCondition.unlock()
+    }
+
+    private nonisolated func v2ResolveRemotePTYTargetWaitingForController(
+        params: [String: Any],
+        requestedWorkspaceId: UUID?,
+        preferredSurfaceId: UUID?,
+        deadline: Date
+    ) -> (target: RemotePTYSocketTarget?, error: V2CallResult?) {
+        var observedGeneration: UInt64?
+
+        while true {
+            let resolved = v2ResolveRemotePTYTarget(
+                params: params,
+                requestedWorkspaceId: requestedWorkspaceId,
+                preferredSurfaceId: preferredSurfaceId
+            )
+            if let error = resolved.error {
+                return (nil, error)
+            }
+            guard let target = resolved.target else {
+                return resolved
+            }
+            if target.controller != nil || Date() >= deadline {
+                return (target, nil)
+            }
+
+            remotePTYControllerAvailabilityCondition.lock()
+            let currentGeneration = remotePTYControllerAvailabilityGeneration
+            guard let previousGeneration = observedGeneration else {
+                observedGeneration = currentGeneration
+                remotePTYControllerAvailabilityCondition.unlock()
+                continue
+            }
+            if previousGeneration != currentGeneration {
+                observedGeneration = currentGeneration
+                remotePTYControllerAvailabilityCondition.unlock()
+                continue
+            }
+            _ = remotePTYControllerAvailabilityCondition.wait(until: deadline)
+            observedGeneration = remotePTYControllerAvailabilityGeneration
+            remotePTYControllerAvailabilityCondition.unlock()
+        }
     }
 
     private nonisolated func v2RemotePTYWorkspaceData(workspaceId: UUID) -> [String: Any] {
@@ -6048,11 +6102,19 @@ class TerminalController {
         if let error = surfaceSelection.error { return error }
         let preferredSurfaceId = surfaceSelection.surfaceId ?? UUID(uuidString: attachmentID)
 
-        let resolved = v2ResolveRemotePTYTarget(
-            params: params,
-            requestedWorkspaceId: workspaceSelection.workspaceId,
-            preferredSurfaceId: preferredSurfaceId
-        )
+        let deadline = Date().addingTimeInterval(waitForReady ? 90.0 : 8.0)
+        let resolved = waitForReady
+            ? v2ResolveRemotePTYTargetWaitingForController(
+                params: params,
+                requestedWorkspaceId: workspaceSelection.workspaceId,
+                preferredSurfaceId: preferredSurfaceId,
+                deadline: deadline
+            )
+            : v2ResolveRemotePTYTarget(
+                params: params,
+                requestedWorkspaceId: workspaceSelection.workspaceId,
+                preferredSurfaceId: preferredSurfaceId
+            )
         if let error = resolved.error { return error }
         guard let target = resolved.target else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -6073,7 +6135,7 @@ class TerminalController {
                 command: command?.isEmpty == true ? nil : command,
                 requireExisting: requireExisting,
                 waitForReady: waitForReady,
-                timeout: waitForReady ? 90.0 : 8.0
+                timeout: max(0.1, deadline.timeIntervalSinceNow)
             )
             var payload = v2RemotePTYTargetPayload(target)
             payload["host"] = endpoint.host
