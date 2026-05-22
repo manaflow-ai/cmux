@@ -6,6 +6,132 @@ import StackAuth
 
 private let mobileHostLog = Logger(subsystem: "dev.cmux", category: "mobile-host")
 
+private final class MobileHostConnectionRegistry: @unchecked Sendable {
+    static let shared = MobileHostConnectionRegistry()
+
+    private let lock = NSLock()
+    private var connections: [UUID: MobileHostConnection] = [:]
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return connections.count
+    }
+
+    func insert(_ connection: MobileHostConnection, id: UUID, limit: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard connections.count < limit else {
+            return false
+        }
+        connections[id] = connection
+        return true
+    }
+
+    func remove(id: UUID) {
+        lock.lock()
+        connections.removeValue(forKey: id)
+        lock.unlock()
+    }
+
+    func removeAll() -> [MobileHostConnection] {
+        lock.lock()
+        let values = Array(connections.values)
+        connections.removeAll()
+        lock.unlock()
+        return values
+    }
+}
+
+private enum MobileHostPublicStatusCache {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var routes: [CmxAttachRoute] = []
+
+    static func update(routes nextRoutes: [CmxAttachRoute]) {
+        lock.lock()
+        routes = nextRoutes
+        lock.unlock()
+    }
+
+    static func result() -> MobileHostRPCResult {
+        lock.lock()
+        let cachedRoutes = routes
+        lock.unlock()
+        return .ok([
+            "routes": cachedRoutes.map(\.mobileHostJSONObject),
+            "snapshot_fidelity": "plain_text"
+        ])
+    }
+}
+
+enum MobileHostRequestActivity {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var activeRequestCount = 0
+    private nonisolated(unsafe) static var activeConnectionCount = 0
+    private nonisolated(unsafe) static var lastActivityUptime: TimeInterval = 0
+
+    static var hasActiveRequest: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return activeRequestCount > 0 || activeConnectionCount > 0
+    }
+
+    static func hasRecentActivity(within interval: TimeInterval) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeRequestCount == 0, activeConnectionCount == 0 else { return true }
+        guard lastActivityUptime > 0 else { return false }
+        return ProcessInfo.processInfo.systemUptime - lastActivityUptime < interval
+    }
+
+    static func quietDelay(for interval: TimeInterval) -> TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeRequestCount == 0, activeConnectionCount == 0 else { return interval }
+        guard lastActivityUptime > 0 else { return 0 }
+        let elapsed = ProcessInfo.processInfo.systemUptime - lastActivityUptime
+        return max(0, interval - elapsed)
+    }
+
+    static func beginConnection() {
+        lock.lock()
+        lastActivityUptime = ProcessInfo.processInfo.systemUptime
+        activeConnectionCount += 1
+        lock.unlock()
+    }
+
+    static func endConnection() {
+        lock.lock()
+        activeConnectionCount = max(0, activeConnectionCount - 1)
+        lastActivityUptime = ProcessInfo.processInfo.systemUptime
+        lock.unlock()
+    }
+
+    static func beginRequest() {
+        lock.lock()
+        lastActivityUptime = ProcessInfo.processInfo.systemUptime
+        activeRequestCount += 1
+        lock.unlock()
+    }
+
+    static func endRequest() {
+        lock.lock()
+        activeRequestCount = max(0, activeRequestCount - 1)
+        lastActivityUptime = ProcessInfo.processInfo.systemUptime
+        lock.unlock()
+    }
+
+    #if DEBUG
+    static func resetForTesting() {
+        lock.lock()
+        activeRequestCount = 0
+        activeConnectionCount = 0
+        lastActivityUptime = 0
+        lock.unlock()
+    }
+    #endif
+}
+
 struct MobileHostServiceStatus {
     let isRunning: Bool
     let port: Int?
@@ -28,7 +154,7 @@ struct MobileHostServiceStatus {
 final class MobileHostService {
     static let shared = MobileHostService()
     static let preferredPort = CmxMobileDefaults.defaultHostPort
-    private static let maximumActiveConnectionCount = 10
+    nonisolated private static let maximumActiveConnectionCount = 10
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()
@@ -56,7 +182,9 @@ final class MobileHostService {
 
     private func startListener(usePreferredPort: Bool) {
         do {
-            let parameters = NWParameters.tcp
+            let tcpOptions = NWProtocolTCP.Options()
+            tcpOptions.noDelay = true
+            let parameters = NWParameters(tls: nil, tcp: tcpOptions)
             let nextListener = try makeListener(parameters: parameters, usePreferredPort: usePreferredPort)
             let generation = UUID()
             listenerGeneration = generation
@@ -66,9 +194,8 @@ final class MobileHostService {
                 }
             }
             nextListener.newConnectionHandler = { connection in
-                Task { @MainActor in
-                    MobileHostService.shared.accept(connection, generation: generation)
-                }
+                MobileHostRequestActivity.beginConnection()
+                Self.acceptConnectionOffMain(connection)
             }
             listener = nextListener
             listenerUsesEphemeralFallback = !usePreferredPort
@@ -103,8 +230,12 @@ final class MobileHostService {
         for connection in activeConnections.values {
             Task { await connection.close(reason: "service stopped") }
         }
+        for connection in MobileHostConnectionRegistry.shared.removeAll() {
+            Task { await connection.close(reason: "service stopped") }
+        }
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
+        MobileHostPublicStatusCache.update(routes: [])
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
     }
 
@@ -114,7 +245,7 @@ final class MobileHostService {
             isRunning: listener != nil && listenerPort != nil,
             port: listenerPort,
             routes: routes,
-            activeConnectionCount: activeConnections.count,
+            activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: lastErrorDescription
         )
     }
@@ -130,7 +261,7 @@ final class MobileHostService {
             isRunning: listener != nil && listenerPort != nil,
             port: listenerPort,
             routes: routes,
-            activeConnectionCount: activeConnections.count,
+            activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: lastErrorDescription
         )
     }
@@ -141,6 +272,49 @@ final class MobileHostService {
             "routes": status.routes.map(\.mobileHostJSONObject),
             "snapshot_fidelity": "plain_text"
         ])
+    }
+
+    nonisolated private static func acceptConnectionOffMain(_ connection: NWConnection) {
+        let id = UUID()
+        let session = MobileHostConnection(
+            id: id,
+            connection: connection,
+            authorizeRequest: { request in
+                if !Self.requiresAuthorization(method: request.method) {
+                    return nil
+                }
+                return await MobileHostService.shared.authorizationError(for: request)
+            },
+            onAuthorizedRequest: { request in
+                guard let clientID = Self.clientID(from: request.params) else {
+                    return
+                }
+                await MobileHostService.shared.recordClientID(clientID, for: id)
+            },
+            handleRequest: { request in
+                if request.method == "mobile.host.status" {
+                    return MobileHostPublicStatusCache.result()
+                }
+                return await TerminalController.shared.mobileHostHandleRPC(request)
+            },
+            onClose: { id in
+                MobileHostConnectionRegistry.shared.remove(id: id)
+                await MobileHostService.shared.removeConnection(id: id)
+            }
+        )
+        guard MobileHostConnectionRegistry.shared.insert(
+            session,
+            id: id,
+            limit: Self.maximumActiveConnectionCount
+        ) else {
+            mobileHostLog.error("mobile host rejected connection because active connection limit was reached")
+            connection.cancel()
+            MobileHostRequestActivity.endConnection()
+            return
+        }
+        Task.detached(priority: .userInitiated) {
+            await session.start()
+        }
     }
 
     func createAttachTicket(
@@ -201,11 +375,13 @@ final class MobileHostService {
     private func accept(_ connection: NWConnection, generation: UUID) {
         guard listener != nil, generation == listenerGeneration else {
             connection.cancel()
+            MobileHostRequestActivity.endConnection()
             return
         }
         guard activeConnections.count < Self.maximumActiveConnectionCount else {
             mobileHostLog.error("mobile host rejected connection because active connection limit was reached")
             connection.cancel()
+            MobileHostRequestActivity.endConnection()
             return
         }
 
@@ -236,8 +412,10 @@ final class MobileHostService {
     }
 
     private func removeConnection(id: UUID) {
+        MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
         clientIDsByConnectionID.removeValue(forKey: id)
+        MobileHostRequestActivity.endConnection()
     }
 
     private func recordClientID(_ clientID: String, for connectionID: UUID) {
@@ -281,7 +459,7 @@ final class MobileHostService {
         }
         #endif
         do {
-            try await MobileHostStackAuthVerifier.shared.verify(auth: request.auth)
+            try await Self.verifyStackAuthOffMainActor(auth: request.auth)
             return nil
         } catch {
             mobileHostLog.error("mobile host authorization failed method=\(request.method, privacy: .public) error=\(String(describing: error), privacy: .public)")
@@ -290,6 +468,12 @@ final class MobileHostService {
                 message: "Mobile sync authorization failed."
             ))
         }
+    }
+
+    private nonisolated static func verifyStackAuthOffMainActor(auth: MobileHostRPCAuth?) async throws {
+        try await Task.detached(priority: .utility) {
+            try await MobileHostStackAuthVerifier.shared.verify(auth: auth)
+        }.value
     }
 
     private static func ticketAuthorizationError(
@@ -309,6 +493,8 @@ final class MobileHostService {
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
+            return nil
+        case "workspace.create":
             return nil
         case "mobile.terminal.create", "terminal.create":
             return nil
@@ -365,7 +551,7 @@ final class MobileHostService {
         let hasConflict: Bool
     }
 
-    private static func requiresAuthorization(method: String) -> Bool {
+    nonisolated private static func requiresAuthorization(method: String) -> Bool {
         switch method {
         case "mobile.host.status":
             return false
@@ -384,9 +570,15 @@ final class MobileHostService {
             listenerPort = listener?.port.map { Int($0.rawValue) }
             lastErrorDescription = nil
             routeResolver.refreshTailscaleRoutes()
+            if let listenerPort {
+                MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: listenerPort).routes)
+            } else {
+                MobileHostPublicStatusCache.update(routes: [])
+            }
             mobileHostLog.info("mobile host listener ready on port \(self.listenerPort ?? 0)")
         case let .failed(error):
             lastErrorDescription = String(describing: error)
+            MobileHostPublicStatusCache.update(routes: [])
             mobileHostLog.error("mobile host listener failed: \(String(describing: error), privacy: .public)")
             let shouldRetryWithEphemeralPort = !listenerUsesEphemeralFallback
             listener?.stateUpdateHandler = nil
@@ -405,8 +597,10 @@ final class MobileHostService {
             listener = nil
             listenerUsesEphemeralFallback = false
             listenerPort = nil
+            MobileHostPublicStatusCache.update(routes: [])
         case .setup, .waiting:
             listenerPort = nil
+            MobileHostPublicStatusCache.update(routes: [])
         @unknown default:
             break
         }
@@ -421,6 +615,7 @@ extension MobileHostService {
         listenerPort = nil
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
+        MobileHostRequestActivity.resetForTesting()
     }
 
     func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
@@ -813,6 +1008,15 @@ actor MobileHostConnection {
     private func respond(to frame: Data) async {
         switch MobileHostRPCEnvelope.decodeRequest(frame) {
         case let .success(request):
+            let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
+            if tracksInteractiveActivity {
+                MobileHostRequestActivity.beginRequest()
+            }
+            defer {
+                if tracksInteractiveActivity {
+                    MobileHostRequestActivity.endRequest()
+                }
+            }
             if let error = await authorizeRequest(request) {
                 _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
                 return
@@ -824,6 +1028,10 @@ actor MobileHostConnection {
             _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
             close(reason: "invalid rpc envelope")
         }
+    }
+
+    private static func isInteractiveMobileRequest(_ method: String) -> Bool {
+        true
     }
 
     private func sendResponse(_ response: Data) async -> Bool {

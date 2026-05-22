@@ -1126,6 +1126,8 @@ class TabManager: ObservableObject {
     private nonisolated static let workspacePullRequestGlobalBackoffInterval: TimeInterval = 5 * 60
     private nonisolated static let workspacePullRequestPollJitterFraction = 0.10
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
+    private nonisolated static let mobileHostBackgroundWorkDeferralInterval: TimeInterval = 2.0
+    private nonisolated static let mobileHostBackgroundWorkQuietInterval: TimeInterval = 60.0
     private nonisolated static let mergedPullRequestBadgeStaleAfter: TimeInterval = 14 * 24 * 60 * 60
     @Published var selectedTabId: UUID? {
         willSet {
@@ -1192,6 +1194,7 @@ class TabManager: ObservableObject {
                         tabId: selectedTabId,
                         context: notificationDismissalContext
                     )
+                    self.scheduleWorkspaceGitMetadataRefreshForSelectedWorkspace(reason: "workspaceSelected")
                 }
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
@@ -1398,6 +1401,27 @@ class TabManager: ObservableObject {
             repeating: .never,
             leeway: .milliseconds(250)
         )
+    }
+
+    private func deferWorkspacePullRequestRefreshForMobileHost() {
+        workspacePullRequestPollTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "mobileHostDeferred")
+            }
+        }
+        let quietDelay = MobileHostRequestActivity.quietDelay(
+            for: Self.mobileHostBackgroundWorkQuietInterval
+        )
+        timer.schedule(
+            deadline: .now() + max(Self.mobileHostBackgroundWorkDeferralInterval, quietDelay),
+            repeating: .never,
+            leeway: .milliseconds(250)
+        )
+        timer.resume()
+        workspacePullRequestPollTimer = timer
     }
 
     private func updateWorkspaceGitMetadataFallbackTimer() {
@@ -1622,6 +1646,10 @@ class TabManager: ObservableObject {
         reason: String,
         allowCachedResultsOverride: Bool? = nil
     ) {
+        guard !MobileHostRequestActivity.hasRecentActivity(within: Self.mobileHostBackgroundWorkQuietInterval) else {
+            deferWorkspacePullRequestRefreshForMobileHost()
+            return
+        }
         guard sidebarGitMetadataWatchEnabled else {
             resetWorkspacePullRequestRefreshState()
             clearAllWorkspaceSidebarGitMetadata()
@@ -1870,6 +1898,15 @@ class TabManager: ObservableObject {
         now: Date,
         reason: String
     ) {
+        guard !MobileHostRequestActivity.hasRecentActivity(within: Self.mobileHostBackgroundWorkQuietInterval) else {
+            workspacePullRequestRefreshTask = nil
+            for key in requestedKeys {
+                workspacePullRequestProbeStateByKey[key] = .idle
+                workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.mobileHostBackgroundWorkQuietInterval)
+            }
+            deferWorkspacePullRequestRefreshForMobileHost()
+            return
+        }
         for (repoSlug, repoResult) in repoResults {
             guard case .success(let cacheEntry, let usedCache, _) = repoResult,
                   !usedCache else {
@@ -2166,6 +2203,7 @@ class TabManager: ObservableObject {
             "periodicPoll",
             "selectedPeriodicPoll",
             "timer",
+            "mobileHostDeferred",
         ]
         return periodicPrefixes.contains { prefix in
             reason == prefix || reason.hasPrefix("\(prefix).")
@@ -2352,6 +2390,13 @@ class TabManager: ObservableObject {
         panelId: UUID,
         reason: String = "initial"
     ) {
+#if DEBUG
+        didScheduleInitialWorkspaceGitMetadataRefreshForTesting(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: reason
+        )
+#endif
         guard let workspace = tabs.first(where: { $0.id == workspaceId }),
               !workspace.isRemoteWorkspace else {
             return
@@ -2362,6 +2407,21 @@ class TabManager: ObservableObject {
             reason: reason,
             delays: Self.initialWorkspaceGitProbeDelays
         )
+    }
+
+    private func scheduleWorkspaceGitMetadataRefreshForSelectedWorkspace(reason: String) {
+        guard let selectedTabId,
+              let workspace = tabs.first(where: { $0.id == selectedTabId }),
+              !workspace.isRemoteWorkspace else {
+            return
+        }
+        for terminalPanel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
+            scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: workspace.id,
+                panelId: terminalPanel.id,
+                reason: reason
+            )
+        }
     }
 
     private func scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -2555,6 +2615,14 @@ class TabManager: ObservableObject {
     func didCaptureWorkspaceCreationSnapshot() {}
 
 #if DEBUG
+    func didScheduleInitialWorkspaceGitMetadataRefreshForTesting(
+        workspaceId: UUID,
+        panelId: UUID,
+        reason: String
+    ) {}
+#endif
+
+#if DEBUG
     func maybeMutateSelectionDuringWorkspaceCreationForDev(
         snapshot: WorkspaceCreationSnapshot
     ) {
@@ -2590,7 +2658,8 @@ class TabManager: ObservableObject {
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        autoRefreshMetadata: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -2659,7 +2728,7 @@ class TabManager: ObservableObject {
                 updatedTabs.append(newWorkspace)
             }
             tabs = updatedTabs
-            if let terminalPanel = newWorkspace.focusedTerminalPanel {
+            if autoRefreshMetadata, let terminalPanel = newWorkspace.focusedTerminalPanel {
                 scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: newWorkspace.id,
                     panelId: terminalPanel.id
@@ -2821,6 +2890,20 @@ class TabManager: ObservableObject {
         expectedDirectory: String,
         isLastAttempt: Bool
     ) {
+        guard !MobileHostRequestActivity.hasRecentActivity(within: Self.mobileHostBackgroundWorkQuietInterval) else {
+            workspaceGitProbeStateByKey[probeKey] = .idle
+            scheduleWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: probeKey.workspaceId,
+                panelId: probeKey.panelId,
+                reason: "mobileHostDeferred",
+                delays: [max(
+                    Self.mobileHostBackgroundWorkDeferralInterval,
+                    MobileHostRequestActivity.quietDelay(for: Self.mobileHostBackgroundWorkQuietInterval)
+                )]
+            )
+            return
+        }
+
         switch workspaceGitProbeStateByKey[probeKey] ?? .idle {
         case .idle:
             workspaceGitProbeStateByKey[probeKey] = .inFlight(rerunPending: false)
@@ -2919,6 +3002,21 @@ class TabManager: ObservableObject {
             if case .inFlight = workspaceGitProbeStateByKey[probeKey] { return true }
             return false
         }()
+        guard wasInFlight else { return }
+        guard !MobileHostRequestActivity.hasRecentActivity(within: Self.mobileHostBackgroundWorkQuietInterval) else {
+            workspaceGitProbeStateByKey[probeKey] = .idle
+            scheduleWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: probeKey.workspaceId,
+                panelId: probeKey.panelId,
+                reason: "mobileHostDeferred",
+                delays: [max(
+                    Self.mobileHostBackgroundWorkDeferralInterval,
+                    MobileHostRequestActivity.quietDelay(for: Self.mobileHostBackgroundWorkQuietInterval)
+                )]
+            )
+            return
+        }
+
         let resolvedPullRequest: SidebarPullRequestState? = {
             guard case .resolved(let pullRequest) = snapshot.pullRequest else { return nil }
             return pullRequest
@@ -2950,7 +3048,6 @@ class TabManager: ObservableObject {
             }
         }
 
-        guard wasInFlight else { return }
         guard let workspace = tabs.first(where: { $0.id == probeKey.workspaceId }) else {
             clearWorkspaceGitProbe(probeKey)
             didClearProbe = true
@@ -3927,9 +4024,7 @@ class TabManager: ObservableObject {
             let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
             let mode = readBigEndianUInt32(bytes, at: offset + 24)
             let size = readBigEndianUInt32(bytes, at: offset + 36)
-            let objectID = bytes[(offset + 40)..<(offset + 60)].map {
-                String(format: "%02x", $0)
-            }.joined()
+            let objectID = gitHexString(bytes[(offset + 40)..<(offset + 60)])
             let flags = readBigEndianUInt16(bytes, at: offset + 60)
             let pathLength = Int(flags & 0x0fff)
             let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
@@ -3997,7 +4092,7 @@ class TabManager: ObservableObject {
             }
         }
 
-        let checksum = bytes[(bytes.count - 20)..<bytes.count].map { String(format: "%02x", $0) }.joined()
+        let checksum = gitHexString(bytes[(bytes.count - 20)..<bytes.count])
         return GitIndexSnapshot(
             entries: entries,
             signature: checksum,
@@ -4098,7 +4193,18 @@ class TabManager: ObservableObject {
         guard let data = try? Data(contentsOf: indexURL), data.count >= 20 else {
             return nil
         }
-        return data.suffix(20).map { String(format: "%02x", $0) }.joined()
+        return gitHexString(data.suffix(20))
+    }
+
+    private nonisolated static func gitHexString<S: Sequence>(_ bytes: S) -> String where S.Element == UInt8 {
+        let hexTable = Array("0123456789abcdef".utf8)
+        var output: [UInt8] = []
+        output.reserveCapacity(40)
+        for byte in bytes {
+            output.append(hexTable[Int(byte >> 4)])
+            output.append(hexTable[Int(byte & 0x0f)])
+        }
+        return String(decoding: output, as: UTF8.self)
     }
 
     private nonisolated static func readGitIndexV4PathStripLength(
@@ -9395,15 +9501,7 @@ extension TabManager {
         for workspace in previousTabs {
             releaseRestoredAwayWorkspace(workspace)
         }
-        for workspace in newTabs {
-            let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
-            for terminalPanel in terminalPanels {
-                scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
-                    workspaceId: workspace.id,
-                    panelId: terminalPanel.id
-                )
-            }
-        }
+        scheduleWorkspaceGitMetadataRefreshForSelectedWorkspace(reason: "restore")
 
         if let selectedTabId {
             NotificationCenter.default.post(

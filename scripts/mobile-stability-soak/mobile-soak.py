@@ -583,6 +583,7 @@ def check_color_probe(ticket, terminal_id, iteration):
 
 
 def wait_for_terminal_text(ticket, terminal_id, expected):
+    started_at = time.monotonic()
     attempts = max(1, terminal_output_attempts)
     last_snapshot = None
     last_text = ""
@@ -601,7 +602,12 @@ def wait_for_terminal_text(ticket, terminal_id, expected):
         last_text = text
         compact_text = re.sub(r"\s+", "", text)
         if expected in text or compact_expected in compact_text:
-            return
+            return {
+                "attempts": attempt,
+                "latency_ms": round((time.monotonic() - started_at) * 1000, 1),
+                "fidelity": refreshed.get("fidelity", "unknown"),
+                "summary": snapshot_summary(refreshed),
+            }
         if attempt < attempts:
             time.sleep(terminal_output_retry_seconds)
     detail = ""
@@ -690,7 +696,15 @@ def main():
                         f"iteration={iterations} queued={1 if input_result.get('queued') else 0} "
                         f"marker={unique} chars={len(command)}"
                     )
-                    wait_for_terminal_text(ticket, terminal_id, unique)
+                    output_result = wait_for_terminal_text(ticket, terminal_id, unique)
+                    log(
+                        "input_visible "
+                        f"iteration={iterations} marker={unique} "
+                        f"latency_ms={output_result['latency_ms']} "
+                        f"attempts={output_result['attempts']} "
+                        f"fidelity={output_result['fidelity']} "
+                        f"grid={output_result['summary']['grid']['columns']}x{output_result['summary']['grid']['rows']}"
+                    )
 
             if iterations == 1 or (color_probe_interval > 0 and iterations % color_probe_interval == 0):
                 check_color_probe(ticket, terminal_id, iterations)

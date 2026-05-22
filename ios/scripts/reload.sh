@@ -223,22 +223,31 @@ for device in data.get("result", {}).get("devices", []):
     if connection.get("pairingState") != "paired":
         continue
 
-    identifier = device.get("identifier") or hardware.get("udid")
-    destination_id = str(hardware.get("udid") or identifier or "")
+    coredevice_id = str(device.get("identifier") or "")
+    hardware_udid = str(hardware.get("udid") or "")
+    identifier = coredevice_id or hardware_udid
+    destination_id = identifier
     if not destination_id:
         continue
 
     name = properties.get("name") or destination_id
     ids = {
-        str(identifier or ""),
-        destination_id,
+        coredevice_id,
+        hardware_udid,
         str(hardware.get("serialNumber") or ""),
         str(hardware.get("ecid") or ""),
     }
     boot_state = str(properties.get("bootState") or "")
+    transport = str(connection.get("transportType") or "")
+    tunnel_state = str(connection.get("tunnelState") or "")
+    has_modern_coredevice_status = bool(properties.get("developerModeStatus"))
     available = (
         boot_state.lower() == "booted"
-        and connection.get("tunnelState") != "unavailable"
+        or (
+            transport == "localNetwork"
+            and tunnel_state != "unavailable"
+            and has_modern_coredevice_status
+        )
     )
     devices.append({
         "identifier": destination_id,

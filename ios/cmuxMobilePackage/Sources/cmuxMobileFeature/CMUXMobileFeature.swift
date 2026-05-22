@@ -1427,6 +1427,7 @@ struct MobilePairingScannerSheet: View {
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     #if os(iOS)
@@ -1477,6 +1478,16 @@ struct WorkspaceShellView: View {
             }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
+            if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+                currentPath: compactNavigationPath,
+                selectedWorkspaceID: selectedWorkspaceID,
+                existingWorkspaceIDs: pendingCompactCreateNavigationWorkspaceIDs
+            ) {
+                pendingCompactCreateNavigationWorkspaceIDs = nil
+                compactNavigationPath = createdPath
+                autoOpenSelectedWorkspaceForSoakIfNeeded()
+                return
+            }
             compactNavigationPath = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
                 currentPath: compactNavigationPath,
                 selectedWorkspaceID: selectedWorkspaceID
@@ -1524,6 +1535,7 @@ struct WorkspaceShellView: View {
     }
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
+        pendingCompactCreateNavigationWorkspaceIDs = nil
         store.selectedWorkspaceID = id
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
@@ -1531,9 +1543,16 @@ struct WorkspaceShellView: View {
     }
 
     private func createWorkspaceInCompactStack() {
+        let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
+        pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         store.createWorkspace()
-        if let selectedWorkspaceID = store.selectedWorkspaceID {
-            compactNavigationPath = [selectedWorkspaceID]
+        if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+            currentPath: compactNavigationPath,
+            selectedWorkspaceID: store.selectedWorkspaceID,
+            existingWorkspaceIDs: existingWorkspaceIDs
+        ) {
+            pendingCompactCreateNavigationWorkspaceIDs = nil
+            compactNavigationPath = createdPath
         }
     }
 
@@ -1574,6 +1593,22 @@ enum WorkspaceShellCompactNavigationPolicy {
         }
         guard let selectedWorkspaceID else {
             return []
+        }
+        guard currentPath.last != selectedWorkspaceID else {
+            return currentPath
+        }
+        return [selectedWorkspaceID]
+    }
+
+    static func pathForCreatedWorkspaceSelection<ID: Hashable>(
+        currentPath: [ID],
+        selectedWorkspaceID: ID?,
+        existingWorkspaceIDs: Set<ID>?
+    ) -> [ID]? {
+        guard let existingWorkspaceIDs,
+              let selectedWorkspaceID,
+              !existingWorkspaceIDs.contains(selectedWorkspaceID) else {
+            return nil
         }
         guard currentPath.last != selectedWorkspaceID else {
             return currentPath
@@ -1965,7 +2000,8 @@ struct WorkspaceDetailView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItemGroup(placement: .topBarTrailing) {
-                terminalToolbarButtons
+                newWorkspaceToolbarButton
+                terminalPickerToolbarButton
             }
             #else
             ToolbarItem {
@@ -2062,21 +2098,31 @@ struct WorkspaceDetailView: View {
 
     @ViewBuilder
     private var terminalToolbarButtons: some View {
+        newWorkspaceToolbarButton
+        terminalPickerToolbarButton
+    }
+
+    private var newWorkspaceToolbarButton: some View {
         Button(action: createWorkspaceFromToolbar) {
-            Image(systemName: "plus.square.on.square")
+            Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
+                .labelStyle(.iconOnly)
         }
         .foregroundStyle(TerminalPalette.foreground)
-        .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
+    }
 
+    private var terminalPickerToolbarButton: some View {
         Button {
             dismissTerminalKeyboardForChrome()
             isTerminalPickerPresented = true
         } label: {
-            Image(systemName: "terminal")
+            Label(
+                selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
+                systemImage: "terminal"
+            )
+            .labelStyle(.iconOnly)
         }
         .foregroundStyle(TerminalPalette.foreground)
-        .accessibilityLabel(selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
         .popover(isPresented: $isTerminalPickerPresented, arrowEdge: .top) {
@@ -2112,6 +2158,16 @@ struct WorkspaceDetailView: View {
             Divider()
                 .padding(.vertical, 4)
 
+            Button(action: createWorkspaceFromTerminalPicker) {
+                Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
+
             Button(action: createTerminalFromToolbar) {
                 Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2128,6 +2184,12 @@ struct WorkspaceDetailView: View {
 
     private func createWorkspaceFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        createWorkspace()
+    }
+
+    private func createWorkspaceFromTerminalPicker() {
+        dismissTerminalKeyboardForChrome()
+        isTerminalPickerPresented = false
         createWorkspace()
     }
 

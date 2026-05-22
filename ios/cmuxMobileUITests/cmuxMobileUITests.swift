@@ -75,14 +75,18 @@ final class cmuxMobileUITests: XCTestCase {
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
 
+        let workspaceStart = Date()
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
         assertTerminalRow(1, label: "workspace: Workspace 3", in: app)
         assertTerminalRow(2, label: "terminal: Terminal 1", in: app)
+        XCTAssertLessThan(Date().timeIntervalSince(workspaceStart), 2.0)
 
+        let terminalStart = Date()
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
         assertTerminalRow(1, label: "workspace: Workspace 3", in: app)
         assertTerminalRow(2, label: "terminal: Terminal 2", in: app)
+        XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 2.0)
     }
 
     @MainActor

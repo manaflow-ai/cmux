@@ -93,10 +93,13 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             throw CmxNetworkByteTransportError.invalidPort(port)
         }
 
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcpOptions)
         connection = NWConnection(
             host: NWEndpoint.Host(normalizedHost),
             port: nwPort,
-            using: .tcp
+            using: parameters
         )
         callbackQueue = DispatchQueue(
             label: "dev.cmux.mobile.network-byte-transport.\(UUID().uuidString)"

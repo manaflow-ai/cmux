@@ -101,7 +101,7 @@ class TerminalController {
     private static let mobileTerminalSnapshotCacheTTL: TimeInterval = 0.35
     private static let mobileTerminalSnapshotViewportChurnCacheTTL: TimeInterval = 1.0
     private static let mobileTerminalVTExportMinimumInterval: TimeInterval = 0.1
-    private static let mobileTerminalSnapshotMaximumScrollbackRows = 120
+    private static let mobileTerminalSnapshotMaximumScrollbackRows = 0
     private static let mobileTerminalSnapshotFrameSafetyBudget = MobileSyncFrameCodec.defaultMaximumFrameByteCount / 2
     private static let mobileTerminalSnapshotEstimatedCellByteCount = 128
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
@@ -4965,6 +4965,8 @@ class TerminalController {
 
         var newId: UUID?
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+        let shouldEagerLoadTerminal = v2Bool(params, "eager_load_terminal") ?? !shouldFocus
+        let shouldAutoRefreshMetadata = v2Bool(params, "auto_refresh_metadata") ?? true
         v2MainSync {
             let ws = tabManager.addWorkspace(
                 title: title,
@@ -4972,7 +4974,8 @@ class TerminalController {
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
                 select: shouldFocus,
-                eagerLoadTerminal: !shouldFocus
+                eagerLoadTerminal: shouldEagerLoadTerminal,
+                autoRefreshMetadata: shouldAutoRefreshMetadata
             )
             ws.setCustomDescription(description)
             if let layoutNode {
@@ -8117,12 +8120,15 @@ class TerminalController {
         lineLimit: Int,
         now: Date
     ) -> MobileTerminalSnapshotText? {
-        if shouldAttemptMobileTerminalVTExport(surfaceID: terminalPanel.id, now: now),
-           let vtText = readTerminalTextFromVTExportForSnapshot(
-               terminalPanel: terminalPanel,
-               lineLimit: lineLimit
-           ) {
-            return MobileTerminalSnapshotText(text: tailTerminalLines(vtText, maxLines: lineLimit), fidelity: "ansi_vt")
+        let attemptedVTExport = shouldAttemptMobileTerminalVTExport(surfaceID: terminalPanel.id, now: now)
+        if attemptedVTExport {
+            if let vtText = readTerminalTextFromVTExportForSnapshot(
+                terminalPanel: terminalPanel,
+                lineLimit: lineLimit
+            ) {
+                return MobileTerminalSnapshotText(text: tailTerminalLines(vtText, maxLines: lineLimit), fidelity: "ansi_vt")
+            }
+            mobileTerminalVTExportLastAttemptBySurfaceID[terminalPanel.id] = nil
         }
 
         guard let plainText = readPlainTerminalTextForSnapshot(
@@ -19234,10 +19240,7 @@ class TerminalController {
         }
 
         let workspaces = visibleWorkspaces.enumerated().map { _, workspace in
-            let terminals = orderedPanels(in: workspace).compactMap { panel -> [String: Any]? in
-                guard let terminal = panel as? TerminalPanel else {
-                    return nil
-                }
+            let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
                 if let requestedTerminalID, terminal.id != requestedTerminalID {
                     return nil
                 }
@@ -19408,10 +19411,15 @@ class TerminalController {
         }
         var createParams = params
         createParams["focus"] = false
+        createParams["eager_load_terminal"] = false
+        createParams["auto_refresh_metadata"] = false
         let createResult = v2WorkspaceCreate(params: createParams, tabManager: tabManager)
         switch createResult {
         case let .ok(payload):
             let createdWorkspaceID = (payload as? [String: Any])?["workspace_id"] as? String
+            if let createdWorkspaceID {
+                createParams["workspace_id"] = createdWorkspaceID
+            }
             return v2MobileWorkspaceList(
                 params: createParams,
                 tabManager: tabManager,
@@ -19435,10 +19443,14 @@ class TerminalController {
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return .err(code: "not_found", message: "Pane not found", data: nil)
         }
-        guard let terminal = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+        guard let terminal = workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            autoRefreshMetadata: false,
+            preserveFocusWhenUnfocused: false
+        ) else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }
-        terminal.surface.requestBackgroundSurfaceStartIfNeeded()
         return v2MobileWorkspaceList(
             params: params,
             tabManager: tabManager,
@@ -19718,13 +19730,15 @@ class TerminalController {
             if let viewportFit = mobileViewportFitPayload(params: params, terminalPanel: terminalPanel) {
                 payload["viewport_fit"] = viewportFit
             }
-            mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id] = MobileTerminalSnapshotCacheEntry(
-                columns: columns,
-                rows: rows,
-                maxScrollbackRows: safeMaxScrollbackRows,
-                createdAt: now,
-                payload: payload
-            )
+            if viewportText.fidelity != "plain_text" {
+                mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id] = MobileTerminalSnapshotCacheEntry(
+                    columns: columns,
+                    rows: rows,
+                    maxScrollbackRows: safeMaxScrollbackRows,
+                    createdAt: now,
+                    payload: payload
+                )
+            }
             return .ok(payload)
         } catch {
             return .err(code: "internal_error", message: "Failed to build terminal snapshot", data: nil)
@@ -19913,12 +19927,23 @@ class TerminalController {
             surfaceId = requestedSurfaceId
         } else if requireTerminal {
             surfaceId = workspace.focusedTerminalPanel?.id
-                ?? orderedPanels(in: workspace).compactMap { ($0 as? TerminalPanel)?.id }.first
+                ?? mobileTerminalPanels(in: workspace).first?.id
         } else {
             surfaceId = nil
         }
 
         return (tabManager, workspace, surfaceId)
+    }
+
+    private func mobileTerminalPanels(in workspace: Workspace) -> [TerminalPanel] {
+        let focusedPanelID = workspace.focusedPanelId
+        return workspace.panels.values
+            .compactMap { $0 as? TerminalPanel }
+            .sorted { lhs, rhs in
+                if lhs.id == focusedPanelID { return true }
+                if rhs.id == focusedPanelID { return false }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
     }
 
     private func mobileJSONObject<T: Encodable>(_ value: T) throws -> Any {

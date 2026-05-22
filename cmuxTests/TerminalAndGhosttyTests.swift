@@ -977,6 +977,24 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 
 @MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
+#if DEBUG
+    private final class RecordingMobileTabManager: TabManager {
+        private(set) var scheduledMetadataRefreshes: [(workspaceId: UUID, panelId: UUID, reason: String)] = []
+
+        override func didScheduleInitialWorkspaceGitMetadataRefreshForTesting(
+            workspaceId: UUID,
+            panelId: UUID,
+            reason: String
+        ) {
+            scheduledMetadataRefreshes.append((workspaceId, panelId, reason))
+        }
+
+        func clearScheduledMetadataRefreshesForTesting() {
+            scheduledMetadataRefreshes.removeAll()
+        }
+    }
+#endif
+
     func testPlainSurfaceDoesNotStartRuntimeBeforeWindowAttachmentOrInput() {
         let panel = TerminalPanel(workspaceId: UUID())
 
@@ -1573,7 +1591,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertTrue(topLevelRoutes.allSatisfy { $0["id"] as? String == "debug_loopback" })
     }
 
-    func testMobileTerminalCreateStartsTerminalBeforeReturningWorkspaceList() async throws {
+    func testMobileTerminalCreateReturnsBeforeStartingGhostty() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
         TerminalController.shared.setActiveTabManager(manager)
@@ -1599,20 +1617,18 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             XCTFail("Expected created terminal in mobile workspace list payload")
             return
         }
-        let startQueuedBeforeReturn = terminalPanel.surface.debugBackgroundSurfaceStartQueuedForTesting()
         defer {
             terminalPanel.surface.teardownSurface()
         }
 
-        for _ in 0..<50 where terminalPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0 {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        }
-
-        XCTAssertTrue(
-            startQueuedBeforeReturn ||
-                terminalPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 ||
-                terminalPanel.surface.surface != nil,
-            "A terminal created from mobile must start in the background so snapshots can become ready without selecting it on macOS."
+        XCTAssertFalse(
+            terminalPanel.surface.debugBackgroundSurfaceStartQueuedForTesting(),
+            "Mobile terminal creation must return the new terminal ID without waiting on hidden Ghostty startup."
+        )
+        XCTAssertEqual(
+            terminalPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
+            0,
+            "The first mobile snapshot request owns lazy startup so terminal.create remains a fast metadata-only operation."
         )
     }
 
@@ -1651,6 +1667,92 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             "A mobile snapshot of a lazy terminal must request background startup before returning not_ready."
         )
     }
+
+#if DEBUG
+    func testMobileWorkspaceCreateSkipsHiddenMacSideWorkAndReturnsCreatedScopeOnly() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = RecordingMobileTabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        manager.clearScheduledMetadataRefreshesForTesting()
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "workspace-create",
+                method: "workspace.create",
+                params: ["title": "Created From iOS"],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let createdWorkspaceID = payload["created_workspace_id"] as? String,
+              let createdUUID = UUID(uuidString: createdWorkspaceID),
+              let workspaces = payload["workspaces"] as? [[String: Any]] else {
+            XCTFail("Expected mobile workspace.create to return the created workspace payload")
+            return
+        }
+
+        XCTAssertEqual(manager.selectedWorkspace?.id, selectedWorkspace.id)
+        XCTAssertEqual(workspaces.count, 1)
+        XCTAssertEqual(workspaces.first?["id"] as? String, createdWorkspaceID)
+        XCTAssertTrue(manager.tabs.contains { $0.id == createdUUID })
+        XCTAssertTrue(
+            manager.scheduledMetadataRefreshes.isEmpty,
+            "Mobile background workspace creation should not schedule sidebar metadata probes on the macOS main path."
+        )
+    }
+
+    func testMobileTerminalCreateSkipsHiddenMacSideWorkAndKeepsMacSelection() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = RecordingMobileTabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let mobileWorkspace = manager.addWorkspace(
+            title: "Mobile Hidden Workspace",
+            select: false,
+            eagerLoadTerminal: false,
+            autoRefreshMetadata: false
+        )
+        manager.clearScheduledMetadataRefreshesForTesting()
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-create",
+                method: "terminal.create",
+                params: ["workspace_id": mobileWorkspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let createdTerminalID = payload["created_terminal_id"] as? String,
+              let createdTerminalUUID = UUID(uuidString: createdTerminalID),
+              let workspaces = payload["workspaces"] as? [[String: Any]] else {
+            XCTFail("Expected mobile terminal.create to return the created terminal payload")
+            return
+        }
+
+        XCTAssertEqual(manager.selectedWorkspace?.id, selectedWorkspace.id)
+        XCTAssertNotNil(mobileWorkspace.terminalPanel(for: createdTerminalUUID))
+        XCTAssertEqual(workspaces.count, 1)
+        XCTAssertEqual(workspaces.first?["id"] as? String, mobileWorkspace.id.uuidString)
+        XCTAssertTrue(
+            manager.scheduledMetadataRefreshes.isEmpty,
+            "Mobile background terminal creation should not schedule sidebar metadata probes on the macOS main path."
+        )
+    }
+#endif
 
     private func waitForMobileHostRoutesForTesting() async -> Bool {
         for _ in 0..<200 {
