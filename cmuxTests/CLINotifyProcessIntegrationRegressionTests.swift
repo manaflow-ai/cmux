@@ -569,6 +569,81 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testGenericAgentTurnIdsStayNestedAcrossTurnChanges() throws {
+        let context = try makeClaudeHookContext(name: "generic-turn-stack")
+        defer { context.cleanup() }
+
+        let sessionId = "generic-turn-stack-session"
+        let launchEnvironment = agentLaunchEnvironment(context: context, kind: "gemini", executable: "/usr/local/bin/gemini")
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let parentPrompt = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"BeforeAgent","prompt":"parent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"BeforeAgent","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { (self.jsonObject($0)?["method"] as? String)?.hasPrefix("surface.resume.") == true },
+            "A generic nested turn_id prompt must not replace the parent resume binding, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status gemini Running ") },
+            "A generic nested turn_id prompt must not rewrite parent Running status, saw \(childPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status gemini ") },
+            "A generic nested turn_id Stop must not notify or mark the parent idle, saw \(childStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Gemini|") },
+            "The generic parent Stop must still notify after its nested child, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status gemini ") && $0.contains(" Idle ") },
+            "The generic parent Stop must still mark Gemini idle, saw \(parentStopCommands)"
+        )
+    }
+
     func testCodexStopAfterInterruptedPriorTurnStillNotifies() throws {
         let context = try makeClaudeHookContext(name: "codex-interrupted-turn-depth")
         defer { context.cleanup() }
@@ -1138,12 +1213,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testCodexDepthOnlyTerminalPriorTurnResetsForCurrentNotification() throws {
-        let context = try makeClaudeHookContext(name: "codex-depth-only-terminal-reset")
+    func testCodexDepthOnlyTerminalHistoryDoesNotResetUnknownActiveDepth() throws {
+        let context = try makeClaudeHookContext(name: "codex-depth-only-terminal-history")
         defer { context.cleanup() }
 
-        let sessionId = "depth-only-terminal-reset-session"
-        let transcriptURL = context.root.appendingPathComponent("codex-depth-only-terminal-reset.jsonl")
+        let sessionId = "depth-only-terminal-history-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-depth-only-terminal-history.jsonl")
         try [
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-parent-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-child-turn"}}"#,
@@ -1174,28 +1249,38 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
         startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
 
-        let currentPrompt = runCodexHook(
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"child"}"#,
             extraEnvironment: launchEnvironment
         )
-        XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
-        XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { (self.jsonObject($0)?["method"] as? String)?.hasPrefix("surface.resume.") == true },
+            "Terminal history alone must not make unknown depth-only active prompts look finished, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "Terminal history alone must not let the child rewrite parent Running status, saw \(childPromptCommands)"
+        )
 
-        let currentStopStart = context.state.commands.count
-        let currentStop = runCodexHook(
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
             extraEnvironment: launchEnvironment
         )
-        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
-        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
-        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
-        XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
-            "A terminal prior depth-only turn must reset so the current top-level Stop notifies, saw \(currentStopCommands)"
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Terminal history alone must not let a child Stop notify while unknown depth remains, saw \(childStopCommands)"
         )
     }
 
@@ -4815,15 +4900,25 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String) -> [String: String] {
+        agentLaunchEnvironment(
+            context: context,
+            kind: "codex",
+            executable: "/usr/local/bin/codex",
+            arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"]
+        )
+    }
+
+    private func agentLaunchEnvironment(
+        context: ClaudeHookContext,
+        kind: String,
+        executable: String,
+        arguments: [String]? = nil
+    ) -> [String: String] {
         [
-            "CMUX_AGENT_LAUNCH_KIND": "codex",
-            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/codex",
+            "CMUX_AGENT_LAUNCH_KIND": kind,
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": executable,
             "CMUX_AGENT_LAUNCH_CWD": context.root.path,
-            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
-                "/usr/local/bin/codex",
-                "--model",
-                "gpt-5.4",
-            ]),
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(arguments ?? [executable]),
         ]
     }
 
@@ -4847,6 +4942,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
+        runAgentHook(
+            context: context,
+            agent: "codex",
+            subcommand: subcommand,
+            standardInput: standardInput,
+            extraEnvironment: extraEnvironment
+        )
+    }
+
+    private func runAgentHook(
+        context: ClaudeHookContext,
+        agent: String,
+        subcommand: String,
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
         var environment = [
             "HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -4861,7 +4972,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         return runProcess(
             executablePath: context.cliPath,
-            arguments: ["hooks", "codex", subcommand],
+            arguments: ["hooks", agent, subcommand],
             environment: environment,
             standardInput: standardInput,
             timeout: 5
