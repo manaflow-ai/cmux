@@ -54,6 +54,25 @@ extension CMUXCLI {
         }
     }
 
+    func isMemoryTelemetryInvocation(command: String, args: [String]) -> Bool {
+        switch command {
+        case "memory-snapshot", "memory-list", "memory-top", "memory-trim":
+            return true
+        case "memory":
+            let rawSubcommand = args.first?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            switch rawSubcommand {
+            case "snapshot", "snap", "list", "ls", "top", "trim":
+                return true
+            default:
+                return false
+            }
+        default:
+            return false
+        }
+    }
+
     func parseMemorySubcommand(command: String, args: [String]) throws -> (MemorySubcommand, [String]) {
         switch command {
         case "memory-snapshot":
