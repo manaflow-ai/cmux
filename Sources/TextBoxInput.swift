@@ -1734,6 +1734,7 @@ enum TextBoxSubmit {
     private struct ClaudeImageSlot {
         let characterOffset: Int
         let attachment: TextBoxAttachment
+        let pastePath: String
     }
 
     private struct ClaudeImagePlan {
@@ -1882,10 +1883,11 @@ enum TextBoxSubmit {
                 if attachmentNeedsBoundarySpace {
                     appendPastedText(" ")
                 }
-                if attachment.isImage {
+                if attachment.isImage,
+                   let pastePath = claudeImagePastePath(for: attachment) {
                     events.append(.captureClaudeImageTokenBaseline)
                     events.append(.captureClipboardReadBaseline)
-                    events.append(.pasteFilePath(attachment.submissionPath))
+                    events.append(.pasteFilePath(pastePath))
                     events.append(.waitForClipboardRead)
                     events.append(.waitForClaudeImageToken(attachment.submissionText))
                     attachmentNeedsBoundarySpace = true
@@ -1929,11 +1931,13 @@ enum TextBoxSubmit {
             case .attachment(let attachment):
                 guard !attachment.submissionText.isEmpty else { continue }
                 appendBoundarySpaceIfNeeded()
-                if attachment.isImage {
+                if attachment.isImage,
+                   let pastePath = claudeImagePastePath(for: attachment) {
                     slots.append(
                         ClaudeImageSlot(
                             characterOffset: baseText.count,
-                            attachment: attachment
+                            attachment: attachment,
+                            pastePath: pastePath
                         )
                     )
                     attachmentNeedsBoundarySpace = true
@@ -1972,7 +1976,7 @@ enum TextBoxSubmit {
             )
             cursorOffset = slot.characterOffset
             events.append(.captureClaudeImageTokenBaseline)
-            events.append(.pasteFilePath(slot.attachment.submissionPath))
+            events.append(.pasteFilePath(slot.pastePath))
             events.append(.waitForClaudeImageToken(slot.attachment.submissionText))
         }
 
@@ -1983,6 +1987,12 @@ enum TextBoxSubmit {
         )
         events.append(.namedKey(submitKey))
         return events
+    }
+
+    private static func claudeImagePastePath(for attachment: TextBoxAttachment) -> String? {
+        guard attachment.isImage else { return nil }
+        guard let localPath = attachment.localURL?.standardizedFileURL.path else { return nil }
+        return attachment.submissionPath == localPath ? attachment.submissionPath : localPath
     }
 
     private static func appendCursorMoveEvents(
@@ -2306,8 +2316,12 @@ private final class TextBoxSubmitEventRunner {
             var index = 0
             while index < queuedSurfaceOrder.count {
                 let surfaceKey = queuedSurfaceOrder[index]
-                guard activeRunIDBySurface[surfaceKey] == nil,
-                      var queuedRuns = queuedRunsBySurface[surfaceKey],
+                if activeRunIDBySurface[surfaceKey] != nil {
+                    index += 1
+                    continue
+                }
+
+                guard var queuedRuns = queuedRunsBySurface[surfaceKey],
                       let nextRun = queuedRuns.first else {
                     queuedRunsBySurface[surfaceKey] = nil
                     queuedSurfaceOrder.remove(at: index)
@@ -3460,6 +3474,8 @@ final class TextBoxInputTextView: NSTextView {
     private var mentionCompletionPopover: NSPopover?
     private var mentionCompletionControllerStorage: TextBoxMentionCompletionController?
     private var pendingUndoableAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
+    private var pendingAutomaticAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
+    private var suppressAutomaticAttachmentFileCleanup = false
     private var mentionCompletionController: TextBoxMentionCompletionController {
         if let mentionCompletionControllerStorage {
             return mentionCompletionControllerStorage
@@ -3540,6 +3556,25 @@ final class TextBoxInputTextView: NSTextView {
         super.paste(sender)
     }
 
+    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else {
+            return false
+        }
+        queueAutomaticAttachmentFileCleanup(in: affectedCharRange)
+        return true
+    }
+
+    override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        queueAutomaticAttachmentFileCleanup(in: replacementRange)
+        super.insertText(insertString, replacementRange: replacementRange)
+        flushAutomaticAttachmentFileCleanup()
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        flushAutomaticAttachmentFileCleanup()
+    }
+
     override func copy(_ sender: Any?) {
         if copySelectedAttachments(to: .general) {
             return
@@ -3576,6 +3611,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func prepareForSubmit() {
+        flushAutomaticAttachmentFileCleanup()
         discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
 
@@ -4869,6 +4905,8 @@ final class TextBoxInputTextView: NSTextView {
         }
 
         let removedAttachments = inlineAttachments(in: range)
+        suppressAutomaticAttachmentFileCleanup = true
+        defer { suppressAutomaticAttachmentFileCleanup = false }
         insertText("", replacementRange: range)
         if cleanupAttachmentFiles {
             cleanupRemovedAttachmentFiles(removedAttachments)
@@ -4892,6 +4930,24 @@ final class TextBoxInputTextView: NSTextView {
             result.append(attachment.textBoxAttachment)
         }
         return result
+    }
+
+    private func queueAutomaticAttachmentFileCleanup(in range: NSRange) {
+        guard !suppressAutomaticAttachmentFileCleanup else { return }
+        let removedAttachments = inlineAttachments(in: range)
+        guard !removedAttachments.isEmpty else { return }
+        for attachment in removedAttachments {
+            guard attachment.cleanupLocalURLWhenDisposed,
+                  let localURL = attachment.localURL else { continue }
+            pendingAutomaticAttachmentFileCleanup[Self.attachmentCleanupKey(for: localURL)] = attachment
+        }
+    }
+
+    private func flushAutomaticAttachmentFileCleanup() {
+        guard !pendingAutomaticAttachmentFileCleanup.isEmpty else { return }
+        let attachments = Array(pendingAutomaticAttachmentFileCleanup.values)
+        pendingAutomaticAttachmentFileCleanup.removeAll(keepingCapacity: true)
+        cleanupRemovedAttachmentFiles(attachments)
     }
 
     private func installAttachmentKeyDownMonitorIfNeeded() {
@@ -5097,6 +5153,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func discardUndoHistoryAndCleanupPendingAttachmentFiles() {
+        flushAutomaticAttachmentFileCleanup()
         undoManager?.removeAllActions()
         removeActiveAttachmentsFromPendingCleanup()
         cleanupPendingUndoableAttachmentFiles()

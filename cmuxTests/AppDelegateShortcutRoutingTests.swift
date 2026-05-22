@@ -6908,6 +6908,44 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testTextBoxSubmitUsesLocalPreviewPathForClaudeRemoteImage() throws {
+        let previewURL = try makeTemporaryPNGFile(named: "moon.png")
+        let remotePath = "/tmp/cmux-upload/moon.png"
+        let attachment = TextBoxAttachment(
+            localURL: previewURL,
+            submissionText: TextBoxAttachment.submissionText(forPath: remotePath),
+            submissionPath: remotePath,
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        let events = TextBoxSubmit.dispatchEvents(
+            for: [.text("what is "), .attachment(attachment), .text("now")],
+            terminalAgentContext: "Claude Code"
+        )
+
+        XCTAssertEqual(
+            events.compactMap { event -> String? in
+                if case .pasteFilePath(let path) = event { return path }
+                return nil
+            },
+            [previewURL.path]
+        )
+        XCTAssertTrue(events.contains(.waitForClaudeImageToken(attachment.submissionText)))
+        XCTAssertFalse(events.contains(.pasteFilePath(remotePath)))
+        XCTAssertEqual(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(attachment)],
+                terminalAgentContext: "Claude Code",
+                completionContext: TextBoxSubmit.CompletionContext(
+                    confirmedClaudeImageSubmissionTexts: [
+                        attachment.submissionText: 1
+                    ]
+                )
+            ).map(\.displayName),
+            ["moon.png"]
+        )
+    }
+
     func testTextBoxSubmitVisibleWaitAcceptsMultilinePromptRendering() {
         let baseline = """
         > how are you [Image #3]
@@ -7128,6 +7166,58 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertEqual(secondSurface.sentText, ["second"])
             XCTAssertEqual(completions, ["first", "second"])
             XCTAssertEqual(pasteboard.string(forType: .string), "user clipboard")
+        }
+#else
+        throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
+#endif
+    }
+
+    func testTextBoxSubmitKeepsQueuedRunForStillActiveSurfaceWhenAnotherSurfaceFinishes() throws {
+#if DEBUG
+        try withPreservedGeneralPasteboard {
+            let activeSurface = FakeTextBoxSubmitSurface()
+            let finishingSurface = FakeTextBoxSubmitSurface()
+            TextBoxSubmit.debugWaitTimeoutSecondsOverride = 10
+            defer { TextBoxSubmit.debugWaitTimeoutSecondsOverride = nil }
+            let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+            var completions: [String] = []
+
+            TextBoxSubmit.debugRunDispatchEvents(
+                [
+                    .captureClipboardReadBaseline,
+                    .pasteFilePath(imageURL.path),
+                    .waitForClipboardRead,
+                    .pasteText("active-first")
+                ],
+                via: activeSurface
+            ) { _ in
+                completions.append("active-first")
+            }
+            TextBoxSubmit.debugRunDispatchEvents(
+                [.pasteText("active-second")],
+                via: activeSurface
+            ) { _ in
+                completions.append("active-second")
+            }
+            TextBoxSubmit.debugRunDispatchEvents(
+                [.pasteText("finishing")],
+                via: finishingSurface
+            ) { _ in
+                completions.append("finishing")
+            }
+
+            waitFor(timeout: 1.0, until: { completions == ["finishing"] })
+            XCTAssertEqual(finishingSurface.sentText, ["finishing"])
+            XCTAssertEqual(activeSurface.sentText, [])
+            XCTAssertEqual(activeSurface.sentKeys, ["paste_from_clipboard"])
+
+            activeSurface.completeClipboardRead()
+            waitFor(timeout: 1.0, until: {
+                completions == ["finishing", "active-first", "active-second"]
+            })
+
+            XCTAssertEqual(activeSurface.sentText, ["active-first", "active-second"])
+            XCTAssertEqual(completions, ["finishing", "active-first", "active-second"])
         }
 #else
         throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
@@ -7662,6 +7752,53 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertTrue(textView.inlineAttachments().isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
+    }
+
+    func testTextBoxTypingOverSelectedAttachmentCleansDisposableFile() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        addTeardownBlock {
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+        }
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.allowsUndo = false
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        scrollView.documentView = textView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 30),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = scrollView
+        window.makeFirstResponder(textView)
+        Self.retainedTextBoxUndoWindows.append(window)
+        textView.installDebugInlineFixture(attachment, beforeText: "hello ", afterText: " world")
+        _ = textView.debugInteract(action: "select_first_attachment")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryURL.path))
+        guard let keyEvent = makeKeyDownEvent(
+            key: "x",
+            modifiers: [],
+            keyCode: UInt16(kVK_ANSI_X),
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct key event")
+            return
+        }
+        textView.keyDown(with: keyEvent)
+
+        XCTAssertTrue(textView.inlineAttachments().isEmpty)
+        XCTAssertEqual(textView.plainText(), "hello x world")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryURL.path))
     }
 
     func testTextBoxKeyboardDeleteTextSelectionAfterAttachmentKeepsAttachment() {
