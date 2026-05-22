@@ -114,9 +114,13 @@ private extension NSImage {
 
     /// Returns a template image without mutating shared cached AppKit images.
     func sessionIndexTemplateCopy() -> NSImage {
-        let image = (copy() as? NSImage)
-            ?? tiffRepresentation.flatMap(NSImage.init(data:))
-            ?? sessionIndexRasterizedCopy()
+        let image: NSImage
+        if let copiedImage = copy() as? NSImage, copiedImage !== self {
+            image = copiedImage
+        } else {
+            image = tiffRepresentation.flatMap(NSImage.init(data:))
+                ?? sessionIndexRasterizedCopy()
+        }
         image.isTemplate = true
         return image
     }
