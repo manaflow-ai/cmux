@@ -881,6 +881,19 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    func hasPendingNotification(sessionId: String, within interval: TimeInterval = 30) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            guard let record = state.sessions[normalized],
+                  record.pendingNotificationFingerprint != nil else {
+                return false
+            }
+            guard let startedAt = record.pendingNotificationStartedAt else { return true }
+            return Date().timeIntervalSince1970 - startedAt <= interval
+        }
+    }
+
     func clearPendingNotification(sessionId: String) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -2277,7 +2290,7 @@ struct CMUXCLI {
             if event == "permissionrequest" || metadata.contains("permissionrequest") {
                 return .permissionRequest
             }
-            if event == "pretooluse", !tool.isEmpty {
+            if (event == "pretooluse" || metadata.contains("pretooluse")), !tool.isEmpty {
                 return .toolApproval
             }
             if metadata.contains("permission_prompt") || metadata.contains("permission request") || metadata.contains("permission") {
@@ -18727,12 +18740,30 @@ struct CMUXCLI {
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
-            let response = try sendClaudeWaitingNotification(
-                summary: summary,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                client: client
-            )
+            let response: String
+            if isGenericClaudeWaitingBody(summary.body), let sessionId = parsedInput.sessionId {
+                guard let sentResponse = try sendClaudeWaitingNotificationIfCurrent(
+                    summary: summary,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    client: client,
+                    isCurrent: {
+                        (try? sessionStore.hasPendingNotification(sessionId: sessionId)) != true
+                    }
+                ) else {
+                    telemetry.breadcrumb("claude-hook.notification.pending-specific-prompt")
+                    print("OK")
+                    return
+                }
+                response = sentResponse
+            } else {
+                response = try sendClaudeWaitingNotification(
+                    summary: summary,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    client: client
+                )
+            }
             markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
             print(response)
 
