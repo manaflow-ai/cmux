@@ -1579,6 +1579,50 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexStopWithMissedPromptSubmitClearsTerminalStaleTurn() throws {
+        let context = try makeClaudeHookContext(name: "codex-missed-prompt-stale-turn")
+        defer { context.cleanup() }
+
+        let sessionId = "missed-prompt-stale-turn-session"
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-missed-prompt-stale-turn.jsonl",
+            turnId: "old-turn",
+            eventType: "turn_aborted"
+        )
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let oldPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
+        XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
+
+        let currentStopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A Stop after a missed prompt-submit must clear terminal stale turns and notify, saw \(currentStopCommands)"
+        )
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "A Stop after a missed prompt-submit must mark Codex idle, saw \(currentStopCommands)"
+        )
+    }
+
     func testCodexStopWithUnseenTurnIdNotSuppressedAtIdleDepth() throws {
         let context = try makeClaudeHookContext(name: "codex-unseen-turn-stop")
         defer { context.cleanup() }
