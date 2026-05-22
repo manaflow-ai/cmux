@@ -5663,7 +5663,7 @@ struct CMUXCLI {
 
         let payload = try client.sendV2(method: "workspace.reorder", params: params)
         let summary = dryRun
-            ? reorderPlanLines(payload, idFormat: idFormat).joined(separator: "\n")
+            ? reorderResultLines(payload, idFormat: idFormat, dryRun: true).joined(separator: "\n")
             : "OK workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown") window=\(formatHandle(payload, kind: "window", idFormat: idFormat) ?? "unknown") index=\(payload["index"] ?? "?")"
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
@@ -5699,22 +5699,28 @@ struct CMUXCLI {
         if let windowHandle {
             params["window_id"] = windowHandle
         }
-        if hasFlag(commandArgs, name: "--dry-run") {
+        let dryRun = hasFlag(commandArgs, name: "--dry-run")
+        if dryRun {
             params["dry_run"] = true
         }
 
         let payload = try client.sendV2(method: "workspace.reorder_many", params: params)
-        let summary = reorderPlanLines(payload, idFormat: idFormat).joined(separator: "\n")
+        let summary = reorderResultLines(payload, idFormat: idFormat, dryRun: dryRun).joined(separator: "\n")
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
 
-    private func reorderPlanLines(_ payload: [String: Any], idFormat: CLIIDFormat) -> [String] {
+    private func reorderResultLines(
+        _ payload: [String: Any],
+        idFormat: CLIIDFormat,
+        dryRun: Bool
+    ) -> [String] {
         let planItems = payload["plan"] as? [[String: Any]] ?? [payload]
+        let prefix = dryRun ? "OK plan" : "OK"
         return planItems.map { item in
             let workspace = formatHandle(item, kind: "workspace", idFormat: idFormat) ?? "unknown"
             let window = formatHandle(item, kind: "window", idFormat: idFormat) ?? "unknown"
             let index = item["to_index"] ?? item["index"] ?? "?"
-            return "OK plan workspace=\(workspace) window=\(window) index=\(index)"
+            return "\(prefix) workspace=\(workspace) window=\(window) index=\(index)"
         }
     }
 
@@ -10764,8 +10770,9 @@ struct CMUXCLI {
             Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]
 
             Reorder workspaces within a window as one atomic batch. The comma-separated
-            order is the final leading order; unmentioned workspaces keep their relative
-            order after the listed workspaces.
+            order is the final leading order inside the pinned and unpinned groups;
+            unmentioned workspaces keep their relative order after listed peers in the
+            same group.
 
             Flags:
               --order <refs>                Comma-separated workspace refs to place first

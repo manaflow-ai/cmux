@@ -5399,8 +5399,7 @@ class TabManager: ObservableObject {
             return .failure(.workspaceNotFound(workspaceId))
         }
 
-        let orderedSet = Set(orderedWorkspaceIds)
-        let finalIds = orderedWorkspaceIds + tabs.map(\.id).filter { !orderedSet.contains($0) }
+        let finalIds = batchWorkspaceReorderFinalIds(orderedWorkspaceIds: orderedWorkspaceIds)
         let finalIndexes = Dictionary(uniqueKeysWithValues: finalIds.enumerated().map { ($0.element, $0.offset) })
 
         let plan = orderedWorkspaceIds.map { workspaceId in
@@ -5427,11 +5426,25 @@ class TabManager: ObservableObject {
             .map(\.workspaceId)
         guard !movedWorkspaceIds.isEmpty else { return result }
 
-        let orderedSet = Set(orderedWorkspaceIds)
         let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        tabs = orderedWorkspaceIds.compactMap { workspacesById[$0] } + tabs.filter { !orderedSet.contains($0.id) }
+        let finalIds = batchWorkspaceReorderFinalIds(orderedWorkspaceIds: orderedWorkspaceIds)
+        tabs = finalIds.compactMap { workspacesById[$0] }
         postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
         return result
+    }
+
+    private func batchWorkspaceReorderFinalIds(orderedWorkspaceIds: [UUID]) -> [UUID] {
+        let orderedSet = Set(orderedWorkspaceIds)
+        let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let orderedPinnedIds = orderedWorkspaceIds.filter { workspacesById[$0]?.isPinned == true }
+        let orderedUnpinnedIds = orderedWorkspaceIds.filter { workspacesById[$0]?.isPinned == false }
+        let remainingPinnedIds = tabs
+            .map(\.id)
+            .filter { !orderedSet.contains($0) && workspacesById[$0]?.isPinned == true }
+        let remainingUnpinnedIds = tabs
+            .map(\.id)
+            .filter { !orderedSet.contains($0) && workspacesById[$0]?.isPinned == false }
+        return orderedPinnedIds + remainingPinnedIds + orderedUnpinnedIds + remainingUnpinnedIds
     }
 
     func setCustomTitle(tabId: UUID, title: String?) {

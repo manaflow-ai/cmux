@@ -5125,7 +5125,8 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let rawOrder = v2WorkspaceReorderManyOrder(params), !rawOrder.isEmpty else {
+        let rawOrder = v2WorkspaceReorderManyOrder(params)
+        guard !rawOrder.isEmpty else {
             return .err(
                 code: "invalid_params",
                 message: workspaceReorderManyMissingOrderMessage(),
@@ -5138,8 +5139,8 @@ class TerminalController {
         for raw in rawOrder {
             guard let workspaceId = v2UUIDAny(raw) else {
                 return .err(
-                    code: "not_found",
-                    message: workspaceReorderManyWorkspaceNotFoundMessage(),
+                    code: "invalid_params",
+                    message: workspaceReorderManyInvalidWorkspaceMessage(),
                     data: ["workspace": raw]
                 )
             }
@@ -5188,11 +5189,11 @@ class TerminalController {
         ])
     }
 
-    private func v2WorkspaceReorderManyOrder(_ params: [String: Any]) -> [String]? {
+    private func v2WorkspaceReorderManyOrder(_ params: [String: Any]) -> [String] {
         if let workspaceIds = v2StringArray(params, "workspace_ids") {
             return workspaceIds
         }
-        guard let order = v2String(params, "order") else { return nil }
+        guard let order = v2String(params, "order") else { return [] }
         return order
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -5231,6 +5232,13 @@ class TerminalController {
         String(
             localized: "socket.workspace.reorderMany.workspaceNotFound",
             defaultValue: "Workspace not found"
+        )
+    }
+
+    private func workspaceReorderManyInvalidWorkspaceMessage() -> String {
+        String(
+            localized: "socket.workspace.reorderMany.invalidWorkspace",
+            defaultValue: "Invalid workspace id or ref"
         )
     }
 
