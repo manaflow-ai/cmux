@@ -19485,7 +19485,7 @@ struct CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+            "tool_name", "toolName", "tool", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
@@ -19504,7 +19504,8 @@ struct CMUXCLI {
         if let toolInput = object["tool_input"] as? [String: Any] {
             var compactToolInput: [String: Any] = [:]
             for key in [
-                "file_path", "command", "pattern", "description", "query", "url", "path",
+                "tool_name", "toolName", "tool", "file_path", "command", "pattern", "description", "query", "url", "path",
+                "message", "body", "text", "prompt", "summary", "reason", "kind",
                 "plan", "planFilePath", "permission_prompt", "permissionPrompt",
             ] {
                 if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
@@ -19546,6 +19547,7 @@ struct CMUXCLI {
             guard let nested = object[key] as? [String: Any] else { continue }
             var compactNested: [String: Any] = [:]
             for nestedKey in [
+                "tool_name", "toolName", "tool", "event", "event_name", "hook_event_name", "hookEventName",
                 "type", "kind", "reason", "title", "summary", "message", "body", "text", "prompt", "error", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
                 "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "permission_prompt", "permissionPrompt",
             ] {
@@ -19585,7 +19587,7 @@ struct CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source":
+        case "tool_name", "toolName", "tool", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source":
             return 80
         case "transcript_path", "transcriptPath":
             return 240

@@ -293,6 +293,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "grep error.log"
             ),
             (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_input":{"toolName":"Bash","prompt":"Allow Bash to run grep error.log?"}}"#,
+                "Claude Workspace - Claude waiting",
+                "Permission request",
+                "Allow Bash to run grep error.log?"
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_input":{"tool":"Bash","message":"grep error.log"}}"#,
+                "Claude Workspace - Claude waiting",
+                "Tool approval",
+                "grep error.log"
+            ),
+            (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Permission request: run grep error.log"}"#,
                 "Claude Workspace - Claude waiting",
                 "Permission request",
