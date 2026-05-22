@@ -7939,14 +7939,13 @@ struct CMUXCLI {
         }
 
         private func stopKeepalive() {
-            sendQueue.sync {
-                // `run()` exits synchronously through deferred teardown; this flush keeps
-                // timer and ping-timeout state from firing after the PTY frame unwinds.
-                keepaliveTimer?.cancel()
-                keepaliveTimer = nil
-                keepaliveTimeoutWorkItem?.cancel()
-                keepaliveTimeoutWorkItem = nil
-                keepaliveInFlight = false
+            sendQueue.async { [weak self] in
+                guard let self else { return }
+                self.keepaliveTimer?.cancel()
+                self.keepaliveTimer = nil
+                self.keepaliveTimeoutWorkItem?.cancel()
+                self.keepaliveTimeoutWorkItem = nil
+                self.keepaliveInFlight = false
             }
         }
 
