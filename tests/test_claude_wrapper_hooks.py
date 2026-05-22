@@ -503,7 +503,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PermissionRequest"}
+    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -549,6 +549,21 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     expect(
         any(h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' for h in permission_request_hooks),
         f"PermissionRequest hook should call hooks feed, got {permission_request_hooks}",
+        failures,
+    )
+    subagent_stop_hooks = hooks.get("SubagentStop", [{}])[0].get("hooks", [{}])
+    expect(
+        any(
+            h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude'
+            and h.get("async") is True
+            for h in subagent_stop_hooks
+        ),
+        f"SubagentStop hook should call hooks feed asynchronously, got {subagent_stop_hooks}",
+        failures,
+    )
+    expect(
+        not any("hooks claude stop" in h.get("command", "") for h in subagent_stop_hooks),
+        f"SubagentStop hook should not call the visible stop hook, got {subagent_stop_hooks}",
         failures,
     )
     # SessionEnd should have a short timeout (session is exiting)

@@ -462,6 +462,18 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "watchGitStatusInSidebar",
+                settingsKey: "sidebar.watchGitStatus",
+                title: {
+                    String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar")
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.watchGitStatus", "sidebar", "git", "status", "branch", "watcher", "index", "lock"],
+                defaultValue: SidebarWorkspaceDetailDefaults.watchGitStatus,
+                defaultsKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey,
+                isAvailable: sidebarDetailsAvailable
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "makeSidebarPullRequestsClickable",
                 settingsKey: "sidebar.makePullRequestsClickable",
                 title: {
@@ -590,6 +602,29 @@ enum CommandPaletteSettingsToggleCommands {
                 keywords: ["automation.claudeCodeIntegration", "claude", "code", "hooks", "agent", "integration"],
                 defaultValue: ClaudeCodeIntegrationSettings.defaultHooksEnabled,
                 defaultsKey: ClaudeCodeIntegrationSettings.hooksEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "suppressSubagentNotifications",
+                settingsKey: "automation.suppressSubagentNotifications",
+                title: {
+                    String(
+                        localized: "settings.automation.suppressSubagentNotifications",
+                        defaultValue: "Suppress Subagent Notifications"
+                    )
+                },
+                sectionTitle: automation,
+                keywords: [
+                    "automation.suppressSubagentNotifications",
+                    "subagent",
+                    "nested",
+                    "agent",
+                    "codex",
+                    "claude",
+                    "notifications",
+                    "hooks",
+                ],
+                defaultValue: AgentSubagentNotificationSettings.defaultSuppressNotifications,
+                defaultsKey: AgentSubagentNotificationSettings.suppressNotificationsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "cursorIntegration",
