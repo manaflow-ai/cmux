@@ -102,7 +102,7 @@ final class BrowserHiddenWebViewDiscardManager {
             return
         }
 
-        BrowserHiddenWebViewDiscardRegistry.shared.noteEligibleHidden(self)
+        BrowserHiddenWebViewDiscardRegistry.shared.noteEligibleHidden(self, hiddenAt: hiddenAt)
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + remaining)
@@ -229,24 +229,11 @@ private final class BrowserHiddenWebViewDiscardRegistry {
     private var sequence: UInt64 = 0
     private var enforcementScheduled = false
 
-    func noteEligibleHidden(_ manager: BrowserHiddenWebViewDiscardManager) {
-        guard BrowserHiddenWebViewDiscardPolicy.isEnabled else {
-            noteInactive(manager)
-            return
-        }
-        guard let delegate = manager.delegate else {
-            noteInactive(manager)
-            return
-        }
-        guard manager.blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else {
-            noteInactive(manager)
-            return
-        }
-
+    func noteEligibleHidden(_ manager: BrowserHiddenWebViewDiscardManager, hiddenAt: Date) {
         sequence &+= 1
         entries[ObjectIdentifier(manager)] = Entry(
             manager: manager,
-            hiddenAt: delegate.hiddenWebViewDiscardHiddenAt ?? Date(),
+            hiddenAt: hiddenAt,
             sequence: sequence
         )
         scheduleLimitEnforcement()
@@ -265,6 +252,7 @@ private final class BrowserHiddenWebViewDiscardRegistry {
     private func scheduleLimitEnforcement() {
         guard !enforcementScheduled else { return }
         enforcementScheduled = true
+        // Defer one main-actor turn so SwiftUI portal reparenting can settle before LRU eviction.
         Task { @MainActor [weak self] in
             self?.enforceLimit(reason: "lru_cap")
         }
