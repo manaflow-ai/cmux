@@ -2552,6 +2552,24 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         XCTAssertFalse(temporaryURL.lastPathComponent.contains(longName))
     }
 
+    func testRemotePreviewCacheURLRejectsDotBasenames() {
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@ubuntu-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: []
+        )
+        for remotePath in ["/home/dev/.", "/home/dev/.."] {
+            let source = RemoteFilePreviewSource(
+                connection: connection,
+                displayTarget: "dev@ubuntu-host",
+                remotePath: remotePath
+            )
+
+            XCTAssertEqual(RemoteFilePreviewMaterializer.cacheURL(for: source).lastPathComponent, "remote-file")
+        }
+    }
+
     func testRegistrySweepsExpiredDragEntries() {
         let start = Date(timeIntervalSince1970: 1_000)
         let oldID = FilePreviewDragRegistry.shared.register(

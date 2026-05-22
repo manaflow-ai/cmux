@@ -241,6 +241,44 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertTrue(transport.resolvedHomeConnections.isEmpty)
     }
 
+    func testRemoteHomeFailureDoesNotExposeRawTransportError() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .failure(NSError(
+            domain: "SSHTest",
+            code: 255,
+            userInfo: [NSLocalizedDescriptionKey: "Permission denied for /home/secret"]
+        )))
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@ubuntu-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: []
+        )
+
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: connection,
+                displayTarget: "dev@ubuntu-host",
+                preferredRootPath: nil,
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote home failure is surfaced") {
+            store.rootStatusMessage?.contains("Unable to resolve SSH home") == true
+        }
+
+        let message = try XCTUnwrap(store.rootStatusMessage)
+        XCTAssertTrue(message.contains("Unable to resolve SSH home"))
+        XCTAssertFalse(message.contains("Permission denied"))
+        XCTAssertFalse(message.contains("/home/secret"))
+        XCTAssertFalse(message.contains("255"))
+        XCTAssertFalse(message.hasSuffix(":"))
+    }
+
     func testSwitchingFromLocalToRemoteRepointsTreeToRemoteHome() async throws {
         let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
         transport.listings["/home/dev"] = .success([

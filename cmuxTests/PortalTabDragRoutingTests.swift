@@ -420,7 +420,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
         )
         let realTabTransfer = try XCTUnwrap(PaneDragTransfer.decode(from: realTabPasteboard))
 
-        XCTAssertFalse(realTabTransfer.isFilePreview)
+        XCTAssertFalse(realTabTransfer.isFilePreviewTransfer)
         XCTAssertEqual(realTabTransfer.kind, "filePreview")
 
         let syntheticTabId = UUID()
@@ -437,7 +437,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
         )
         let syntheticTransfer = try XCTUnwrap(PaneDragTransfer.decode(from: syntheticPasteboard))
 
-        XCTAssertTrue(syntheticTransfer.isFilePreview)
+        XCTAssertTrue(syntheticTransfer.isFilePreviewTransfer)
     }
 
     func testTerminalPaneDragTransferIgnoresStaleFilePreviewTransferWhenFreshBonsplitTransferExists() throws {
@@ -455,7 +455,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
         let transfer = try XCTUnwrap(PaneDragTransfer.decode(from: pasteboard))
 
         XCTAssertEqual(transfer.tabId, freshTabId)
-        XCTAssertFalse(transfer.isFilePreview)
+        XCTAssertFalse(transfer.isFilePreviewTransfer)
         XCTAssertEqual(transfer.kind, "terminal")
     }
 
