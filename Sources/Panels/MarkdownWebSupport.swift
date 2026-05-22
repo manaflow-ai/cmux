@@ -126,7 +126,8 @@ struct MarkdownRendererDiagnosticsSnapshot: Equatable {
             pushMarkdownCount +
             didFinishCount +
             webContentProcessTerminationCount +
-            navigationFailureCount
+            navigationFailureCount +
+            portalHideCount
     }
 
     func fields(prefix: String, includeExistingPanelFlickerSignalCount: Bool) -> [String: String] {

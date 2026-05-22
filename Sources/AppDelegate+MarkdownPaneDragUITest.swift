@@ -287,6 +287,7 @@ extension AppDelegate {
         if diagnostics.didFinishCount > 0 { reasons.append("didFinish") }
         if diagnostics.webContentProcessTerminationCount > 0 { reasons.append("webContentProcessTermination") }
         if diagnostics.navigationFailureCount > 0 { reasons.append("navigationFailure") }
+        if diagnostics.portalHideCount > 0 { reasons.append("portalHide") }
         return reasons
     }
 
