@@ -600,7 +600,7 @@ final class MobileHostService {
             listenerPort = listener?.port.map { Int($0.rawValue) }
             lastErrorDescription = nil
             if let listenerPort {
-                routeResolver.refreshTailscaleRoutes { [weak self] hosts in
+                routeResolver.refreshTailscaleRoutes(onResolvedHosts: { [weak self] hosts in
                     Task { @MainActor [weak self] in
                         self?.updatePublicStatusRoutes(
                             port: listenerPort,
@@ -608,7 +608,7 @@ final class MobileHostService {
                             tailscaleHosts: hosts
                         )
                     }
-                }
+                })
                 MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: listenerPort).routes)
             } else {
                 MobileHostPublicStatusCache.update(routes: [])

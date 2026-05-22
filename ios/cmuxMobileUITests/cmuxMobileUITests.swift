@@ -223,6 +223,7 @@ final class cmuxMobileUITests: XCTestCase {
         let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
         XCTAssertTrue(row.waitForExistence(timeout: 8))
         row.tap()
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
     }
 
     @MainActor
