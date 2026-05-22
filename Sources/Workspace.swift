@@ -7422,6 +7422,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private struct WarmTerminalPoolBufferedMetadata {
         var panelId: UUID?
+        var title: String?
         var directory: String?
         var didReportGitBranch = false
         var gitBranch: SidebarGitBranchState?
@@ -10533,6 +10534,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    @MainActor func bufferWarmTerminalTitleIfNeeded(panelId: UUID, title: String) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.title = title
+        }
+    }
+
     @MainActor func bufferWarmTerminalGitBranchIfNeeded(
         panelId: UUID,
         branch: String,
@@ -10575,6 +10582,10 @@ final class Workspace: Identifiable, ObservableObject {
         let metadata = Self.warmTerminalPoolBufferedMetadata
         guard metadata.panelId == panel.id else { return }
         Self.warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
+
+        if let title = metadata.title {
+            _ = updatePanelTitle(panelId: panel.id, title: title)
+        }
 
         if let directory = metadata.directory {
             if let owningTabManager {
