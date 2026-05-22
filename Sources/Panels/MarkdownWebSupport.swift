@@ -47,8 +47,6 @@ struct MarkdownRendererDiagnosticsSnapshot: Equatable {
 
     var existingPanelFlickerSignalCount: Int {
         makeNSViewCount +
-            reuseNSViewCount +
-            webViewCreateCount +
             webViewReattachCount +
             dismantleRetainedWebViewCount +
             loadShellCount +
