@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
@@ -2410,6 +2411,108 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    func testCapturedAgentNetworkSessionsReplayThroughHARFixture() throws {
+        let fixture = try loadAgentNetworkCaptureFixture()
+        XCTAssertEqual(fixture.version, 1)
+        XCTAssertEqual(fixture.captureSource, "real-cli-mitm-har")
+
+        let capturesByAgent = Dictionary(uniqueKeysWithValues: fixture.captures.map { ($0.agent, $0) })
+        XCTAssertEqual(Set(capturesByAgent.keys), ["claude", "codex", "opencode"])
+
+        let unavailableByAgent = Dictionary(uniqueKeysWithValues: fixture.unavailable.map { ($0.agent, $0.reason) })
+        XCTAssertEqual(unavailableByAgent["gemini"], "Gemini CLI opened an auth flow and produced no HAR entries with the current local configuration.")
+        XCTAssertEqual(unavailableByAgent["antigravity"], "No agy or antigravity executable was available on PATH.")
+
+        let fixtureText = try String(contentsOf: agentNetworkCaptureFixtureURL(), encoding: .utf8)
+        for forbidden in [
+            "Bearer ",
+            "sk-",
+            "session_token",
+            "/Users/lawrence",
+            "/var/folders",
+            "lawrence@",
+            "authorization",
+            "cookie",
+            "set-cookie",
+        ] {
+            XCTAssertFalse(
+                fixtureText.localizedCaseInsensitiveContains(forbidden),
+                "Sanitized network fixture must not contain \(forbidden)"
+            )
+        }
+
+        var replayResponses: [AgentNetworkReplayResponse] = []
+        for capture in fixture.captures {
+            XCTAssertEqual(capture.status, "captured", capture.name)
+            XCTAssertTrue(capture.markerObserved, capture.name)
+            XCTAssertGreaterThan(capture.durationMs, 0, capture.name)
+            XCTAssertEqual(capture.captureBackend, "mitmproxy-hardump", capture.name)
+            XCTAssertFalse(capture.cliVersion.isEmpty, capture.name)
+            XCTAssertFalse(capture.command.isEmpty, capture.name)
+
+            let entries = capture.har.log.entries
+            XCTAssertFalse(entries.isEmpty, capture.name)
+            XCTAssertTrue(
+                entries.contains { entry in
+                    !(entry.request.postData?.text ?? "").isEmpty
+                        && !(entry.response.content.text ?? "").isEmpty
+                },
+                "\(capture.name) must include captured request and response bodies"
+            )
+
+            for entry in entries {
+                let requestBody = entry.request.postData?.text ?? ""
+                let responseBody = entry.response.content.text ?? ""
+                XCTAssertFalse(requestBody.isEmpty, "\(capture.name) \(entry.request.url) missing request body")
+                XCTAssertFalse(responseBody.isEmpty, "\(capture.name) \(entry.request.url) missing response body")
+                XCTAssertGreaterThanOrEqual(entry.response.status, 200, "\(capture.name) \(entry.request.url)")
+                XCTAssertLessThan(entry.response.status, 600, "\(capture.name) \(entry.request.url)")
+                replayResponses.append(
+                    AgentNetworkReplayResponse(
+                        method: entry.request.method,
+                        url: entry.request.url,
+                        requestBody: Data(requestBody.utf8),
+                        responseStatus: entry.response.status,
+                        responseHeaders: entry.response.headers.reduce(into: [:]) { result, header in
+                            result[header.name] = header.value
+                        },
+                        responseBody: Data(responseBody.utf8)
+                    )
+                )
+            }
+        }
+
+        AgentNetworkReplayURLProtocol.install(responses: replayResponses)
+        defer { AgentNetworkReplayURLProtocol.reset() }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AgentNetworkReplayURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+
+        for replay in replayResponses {
+            let expectation = expectation(description: "replayed \(replay.method) \(replay.url)")
+            var request = URLRequest(url: try XCTUnwrap(URL(string: replay.url)))
+            request.httpMethod = replay.method
+            request.httpBody = replay.requestBody
+
+            let task = session.dataTask(with: request) { data, response, error in
+                defer { expectation.fulfill() }
+                XCTAssertNil(error)
+                let httpResponse = response as? HTTPURLResponse
+                XCTAssertEqual(httpResponse?.statusCode, replay.responseStatus)
+                XCTAssertEqual(data ?? Data(), replay.responseBody)
+            }
+            task.resume()
+            wait(for: [expectation], timeout: 3)
+        }
+
+        XCTAssertEqual(
+            AgentNetworkReplayURLProtocol.observedRequests(),
+            replayResponses.map { AgentNetworkObservedRequest(method: $0.method, url: $0.url, body: $0.requestBody) }
+        )
+    }
+
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook-\(scenario.agent)")
@@ -2495,6 +2598,82 @@ extension CLINotifyProcessIntegrationRegressionTests {
     private struct AgentHookTrajectoryReplayFixture: Decodable {
         let version: Int
         let trajectories: [AgentHookTrajectory]
+    }
+
+    private struct AgentNetworkCaptureFixture: Decodable {
+        let version: Int
+        let captureSource: String
+        let prompt: String
+        let captures: [AgentNetworkCapture]
+        let unavailable: [AgentNetworkUnavailable]
+    }
+
+    private struct AgentNetworkCapture: Decodable {
+        let name: String
+        let agent: String
+        let cliVersion: String
+        let command: [String]
+        let captureBackend: String
+        let status: String
+        let markerObserved: Bool
+        let durationMs: Int
+        let har: AgentNetworkHAR
+    }
+
+    private struct AgentNetworkUnavailable: Decodable {
+        let agent: String
+        let reason: String
+    }
+
+    private struct AgentNetworkHAR: Decodable {
+        let log: AgentNetworkHARLog
+    }
+
+    private struct AgentNetworkHARLog: Decodable {
+        let version: String
+        let creator: AgentNetworkHARCreator
+        let entries: [AgentNetworkHAREntry]
+    }
+
+    private struct AgentNetworkHARCreator: Decodable {
+        let name: String
+        let version: String
+    }
+
+    private struct AgentNetworkHAREntry: Decodable {
+        let startedDateTime: String
+        let time: Double
+        let request: AgentNetworkHARRequest
+        let response: AgentNetworkHARResponse
+    }
+
+    private struct AgentNetworkHARRequest: Decodable {
+        let method: String
+        let url: String
+        let headers: [AgentNetworkHARHeader]
+        let postData: AgentNetworkHARPostData?
+    }
+
+    private struct AgentNetworkHARPostData: Decodable {
+        let mimeType: String?
+        let text: String
+    }
+
+    private struct AgentNetworkHARResponse: Decodable {
+        let status: Int
+        let statusText: String
+        let headers: [AgentNetworkHARHeader]
+        let content: AgentNetworkHARContent
+    }
+
+    private struct AgentNetworkHARContent: Decodable {
+        let mimeType: String?
+        let text: String?
+    }
+
+    private struct AgentNetworkHARHeader: Decodable {
+        let name: String
+        let value: String
     }
 
     private struct AgentHookTrajectory: Decodable {
@@ -2609,6 +2788,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return try JSONDecoder().decode(
             AgentHookTrajectoryReplayFixture.self,
             from: Data(contentsOf: fixtureURL)
+        )
+    }
+
+    private func agentNetworkCaptureFixtureURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures", isDirectory: true)
+            .appendingPathComponent("AgentNetworkCaptures.json", isDirectory: false)
+    }
+
+    private func loadAgentNetworkCaptureFixture() throws -> AgentNetworkCaptureFixture {
+        try JSONDecoder().decode(
+            AgentNetworkCaptureFixture.self,
+            from: Data(contentsOf: agentNetworkCaptureFixtureURL())
         )
     }
 
@@ -2727,5 +2920,126 @@ extension CLINotifyProcessIntegrationRegressionTests {
             result = result.replacingOccurrences(of: placeholder, with: replacement)
         }
         return result
+    }
+}
+
+private struct AgentNetworkReplayResponse: Equatable {
+    let method: String
+    let url: String
+    let requestBody: Data
+    let responseStatus: Int
+    let responseHeaders: [String: String]
+    let responseBody: Data
+}
+
+private struct AgentNetworkObservedRequest: Equatable {
+    let method: String
+    let url: String
+    let body: Data
+}
+
+private final class AgentNetworkReplayURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var responses: [String: AgentNetworkReplayResponse] = [:]
+    private static var observed: [AgentNetworkObservedRequest] = []
+
+    static func install(responses newResponses: [AgentNetworkReplayResponse]) {
+        lock.lock()
+        responses = Dictionary(uniqueKeysWithValues: newResponses.map { (key(method: $0.method, url: $0.url), $0) })
+        observed = []
+        lock.unlock()
+    }
+
+    static func reset() {
+        lock.lock()
+        responses = [:]
+        observed = []
+        lock.unlock()
+    }
+
+    static func observedRequests() -> [AgentNetworkObservedRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return observed
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        guard let method = request.httpMethod, let url = request.url?.absoluteString else {
+            return false
+        }
+        lock.lock()
+        let canReplay = responses[key(method: method, url: url)] != nil
+        lock.unlock()
+        return canReplay
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let method = request.httpMethod,
+              let url = request.url?.absoluteString
+        else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+
+        let body = Self.bodyData(from: request)
+        Self.lock.lock()
+        let response = Self.responses[Self.key(method: method, url: url)]
+        Self.observed.append(AgentNetworkObservedRequest(method: method, url: url, body: body))
+        Self.lock.unlock()
+
+        guard let response else {
+            client?.urlProtocol(self, didFailWithError: URLError(.resourceUnavailable))
+            return
+        }
+        guard body == response.requestBody else {
+            client?.urlProtocol(self, didFailWithError: URLError(.cannotDecodeContentData))
+            return
+        }
+        guard let httpResponse = HTTPURLResponse(
+            url: request.url ?? URL(fileURLWithPath: "/"),
+            statusCode: response.responseStatus,
+            httpVersion: "HTTP/1.1",
+            headerFields: response.responseHeaders
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        client?.urlProtocol(self, didReceive: httpResponse, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: response.responseBody)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    private static func key(method: String, url: String) -> String {
+        "\(method.uppercased())\n\(url)"
+    }
+
+    private static func bodyData(from request: URLRequest) -> Data {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            return Data()
+        }
+        stream.open()
+        defer { stream.close() }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count > 0 {
+                data.append(buffer, count: count)
+            } else {
+                break
+            }
+        }
+        return data
     }
 }
