@@ -188,6 +188,114 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeAskUserQuestionNotificationUsesWorkspaceReasonAndPrompt() throws {
+        let context = try makeClaudeHookContext(name: "claude-question-notification")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-question-session"
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let preToolUse = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which workspace should I inspect before continuing?","options":[{"label":"Current"},{"label":"New"}]}]}}"#
+        )
+        XCTAssertFalse(preToolUse.timedOut, preToolUse.stderr)
+        XCTAssertEqual(preToolUse.status, 0, preToolUse.stderr)
+
+        let commandStart = context.state.commands.count
+        let notification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+
+        let notifyCommands = Array(context.state.commands.dropFirst(commandStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let command = try XCTUnwrap(notifyCommands.last)
+        XCTAssertTrue(command.contains("Claude Workspace - Claude waiting|Question|"), command)
+        XCTAssertTrue(command.contains("Which workspace should I inspect before continuing?"), command)
+        XCTAssertTrue(command.contains("[Current] [New]"), command)
+    }
+
+    func testClaudeNotificationClassifiesToolApprovalErrorAndIdlePrompt() throws {
+        let context = try makeClaudeHookContext(name: "claude-notification-classification")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-classification-session"
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let cases: [(payload: String, subtitle: String, bodyFragment: String)] = [
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Edit","notification_type":"approval","message":"Approve Edit to update Sources/AppDelegate.swift"}"#,
+                "Tool approval",
+                "Approve Edit to update Sources/AppDelegate.swift"
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude failed to parse the tool result"}"#,
+                "Error",
+                "Claude failed to parse the tool result"
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","message":"Claude is waiting for your next prompt"}"#,
+                "Idle prompt",
+                "Claude is waiting for your next prompt"
+            ),
+        ]
+
+        for testCase in cases {
+            let commandStart = context.state.commands.count
+            let result = runClaudeHook(
+                context: context,
+                arguments: ["hooks", "claude", "notification"],
+                standardInput: testCase.payload
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+
+            let notifyCommands = Array(context.state.commands.dropFirst(commandStart))
+                .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+            let command = try XCTUnwrap(notifyCommands.last)
+            XCTAssertTrue(command.contains("Claude Workspace - Claude waiting|\(testCase.subtitle)|"), command)
+            XCTAssertTrue(command.contains(testCase.bodyFragment), command)
+        }
+    }
+
+    func testClaudePermissionRequestPostsTargetedPromptNotification() throws {
+        let context = try makeClaudeHookContext(name: "claude-permission-notification")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-permission-session"
+        let commandStart = context.state.commands.count
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"git status --short","allowedPrompts":[{"prompt":"Allow Bash to run git status --short?"}]}}"#
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let notifyCommands = Array(context.state.commands.dropFirst(commandStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let command = try XCTUnwrap(notifyCommands.last)
+        XCTAssertTrue(command.contains("Claude Workspace - Claude waiting|Permission request|"), command)
+        XCTAssertTrue(command.contains("Allow Bash to run git status --short?"), command)
+    }
+
     func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {
         let context = try makeClaudeHookContext(name: "claude-resume-env-redaction")
         defer { context.cleanup() }
@@ -4092,6 +4200,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         switch method {
         case "surface.list":
             return surfaceListResponse(id: id, surfaceId: context.surfaceId)
+        case "workspace.list":
+            return workspaceListResponse(id: id, workspaceId: context.workspaceId)
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
         case "surface.resume.set":
@@ -4135,6 +4245,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             switch method {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "workspace.list":
+                return self.workspaceListResponse(id: id, workspaceId: context.workspaceId)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             case "surface.resume.clear":
