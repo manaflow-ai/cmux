@@ -37,6 +37,18 @@ private final class RemoteMaterializationCancellationProbe: @unchecked Sendable 
     }
 }
 
+private final class RemoteMaterializationAttemptCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    func next() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        value += 1
+        return value
+    }
+}
+
 private final class RejectingFilePreviewCreateTabDelegate: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         false
@@ -320,6 +332,47 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertTrue(workspace.panels.values.allSatisfy { !($0 is FilePreviewPanel) })
     }
 
+    func testRejectedRegisteredFilePreviewDropKeepsRegistryEntry() throws {
+        FilePreviewDragRegistry.shared.discardAll()
+        defer { FilePreviewDragRegistry.shared.discardAll() }
+
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let rejectingDelegate = RejectingFilePreviewCreateTabDelegate()
+        workspace.bonsplitController.delegate = rejectingDelegate
+
+        let dragID = FilePreviewDragRegistry.shared.register(
+            FilePreviewDragEntry(filePath: "/tmp/retry-after-rejected-drop.txt", displayTitle: "retry.txt")
+        )
+
+        let handled = workspace.handleRegisteredFilePreviewDrop(
+            id: dragID,
+            destination: .insert(targetPane: paneId, targetIndex: nil)
+        )
+
+        XCTAssertFalse(handled)
+        XCTAssertTrue(FilePreviewDragRegistry.shared.contains(id: dragID))
+    }
+
+    func testSuccessfulRegisteredFilePreviewDropDiscardsRegistryEntry() throws {
+        FilePreviewDragRegistry.shared.discardAll()
+        defer { FilePreviewDragRegistry.shared.discardAll() }
+
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let dragID = FilePreviewDragRegistry.shared.register(
+            FilePreviewDragEntry(filePath: "/tmp/successful-drop.txt", displayTitle: "successful-drop.txt")
+        )
+
+        let handled = workspace.handleRegisteredFilePreviewDrop(
+            id: dragID,
+            destination: .insert(targetPane: paneId, targetIndex: nil)
+        )
+
+        XCTAssertTrue(handled)
+        XCTAssertFalse(FilePreviewDragRegistry.shared.contains(id: dragID))
+    }
+
     func testRejectedFilePreviewSplitCancelsRemoteMaterialization() throws {
         let workspace = Workspace()
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
@@ -343,6 +396,66 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertNil(created)
         wait(for: [probe.started, probe.cancelled], timeout: 2.0)
         XCTAssertTrue(workspace.panels.values.allSatisfy { !($0 is FilePreviewPanel) })
+    }
+
+    func testReusingFailedRemotePreviewRetriesMaterialization() async throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let source = remotePreviewSource(remotePath: "/tmp/retry-preview.txt")
+        let entry = FilePreviewDragEntry(
+            filePath: RemoteFilePreviewMaterializer.cacheURL(for: source).path,
+            displayTitle: "retry-preview.txt",
+            displayPath: source.displayPath,
+            remoteSource: source,
+            textInsertionPath: source.remotePath
+        )
+        let attempts = RemoteMaterializationAttemptCounter()
+        let firstAttempt = expectation(description: "first materialization attempt")
+        let secondAttempt = expectation(description: "second materialization attempt")
+
+        FilePreviewPanel.remoteMaterializerForTesting = { _, destinationURL in
+            switch attempts.next() {
+            case 1:
+                firstAttempt.fulfill()
+                throw RemoteFilePreviewMaterializerError.materializationFailed
+            default:
+                secondAttempt.fulfill()
+                try FileManager.default.createDirectory(
+                    at: destinationURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try "downloaded".write(to: destinationURL, atomically: true, encoding: .utf8)
+                return destinationURL
+            }
+        }
+        defer {
+            FilePreviewPanel.remoteMaterializerForTesting = nil
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: entry.filePath).deletingLastPathComponent())
+        }
+
+        let opened = workspace.openFileSurfaces(
+            inPane: paneId,
+            entries: [entry],
+            focus: false
+        )
+        let panel = try XCTUnwrap(opened.first as? FilePreviewPanel)
+        await fulfillment(of: [firstAttempt], timeout: 2.0)
+        await waitUntil("remote preview failed") {
+            panel.isFileUnavailable && !panel.isLoadingRemoteFile
+        }
+
+        let reopened = workspace.openFileSurfaces(
+            inPane: paneId,
+            entries: [entry],
+            focus: false,
+            reuseExisting: true
+        )
+
+        XCTAssertTrue((reopened.first as? FilePreviewPanel) === panel)
+        await fulfillment(of: [secondAttempt], timeout: 2.0)
+        await waitUntil("remote preview retried") {
+            !panel.isFileUnavailable && !panel.isLoadingRemoteFile
+        }
     }
 
     private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
@@ -416,6 +529,22 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         }
         if panel.isSaving {
             XCTFail("Timed out waiting for panel save", file: file, line: line)
+        }
+    }
+
+    private func waitUntil(
+        _ description: String,
+        timeout: TimeInterval = 2.0,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        condition: @escaping @MainActor () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            await Task.yield()
+        }
+        if !condition() {
+            XCTFail("Timed out waiting for \(description)", file: file, line: line)
         }
     }
 }

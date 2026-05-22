@@ -1052,6 +1052,19 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         return true
     }
 
+    func retryRemoteMaterializationIfNeeded() {
+        guard let remoteSource,
+              !isLoadingRemoteFile else {
+            return
+        }
+        guard isFileUnavailable
+              || remoteFileError != nil
+              || !FileManager.default.fileExists(atPath: filePath) else {
+            return
+        }
+        startRemoteMaterialization(remoteSource)
+    }
+
     func retryPendingFocus() {
         focusCoordinator.fulfillPendingFocusIfNeeded()
     }

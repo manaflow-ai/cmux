@@ -11245,6 +11245,9 @@ final class Workspace: Identifiable, ObservableObject {
                 if focus {
                     focusPanel(existingId)
                 }
+                if remoteSource != nil {
+                    preview.retryRemoteMaterializationIfNeeded()
+                }
                 return preview
             }
         }
@@ -13644,6 +13647,18 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func handleRegisteredFilePreviewDrop(
+        id: UUID,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        guard let entry = FilePreviewDragRegistry.shared.entry(id: id) else { return false }
+        let handled = handleFilePreviewDrop(entry: entry, destination: destination)
+        if handled {
+            FilePreviewDragRegistry.shared.discard(id: id)
+        }
+        return handled
+    }
+
     func handleExternalFileDrop(_ request: BonsplitController.ExternalFileDropRequest) -> Bool {
         let entries = request.urls
             .filter(\.isFileURL)
@@ -13923,8 +13938,8 @@ final class Workspace: Identifiable, ObservableObject {
         if let entry = SessionDragRegistry.shared.consume(id: request.tabId.uuid) {
             return handleSessionDrop(entry: entry, destination: request.destination)
         }
-        if let entry = FilePreviewDragRegistry.shared.consume(id: request.tabId.uuid) {
-            return handleFilePreviewDrop(entry: entry, destination: request.destination)
+        if FilePreviewDragRegistry.shared.contains(id: request.tabId.uuid) {
+            return handleRegisteredFilePreviewDrop(id: request.tabId.uuid, destination: request.destination)
         }
 
         guard let app = AppDelegate.shared else { return false }

@@ -144,7 +144,7 @@ final class PaneDropTargetView: NSView {
                 ? fileDropZone(for: sender)
                 : resolvedZone(for: sender, transfer: transfer, context: dropContext, workspace: workspace)
             if transfer.isFilePreviewTransfer {
-                guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId) else {
+                guard let entry = FilePreviewDragRegistry.shared.entry(id: transfer.tabId) else {
 #if DEBUG
                     cmuxDebugLog(
                         "terminal.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
@@ -160,6 +160,9 @@ final class PaneDropTargetView: NSView {
                         zone: zone
                     )
                 )
+                if handled {
+                    FilePreviewDragRegistry.shared.discard(id: transfer.tabId)
+                }
 #if DEBUG
                 cmuxDebugLog(
                     "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
