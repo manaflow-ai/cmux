@@ -3009,7 +3009,7 @@ class TabManager: ObservableObject {
     // depth rarely exceeds a few dozen) so we never loop unbounded even if a
     // future Foundation change reintroduces the macOS 14/15 "URL never
     // converges at root" behavior. See https://github.com/manaflow-ai/cmux/issues/4529.
-    static let gitProbeMaxAncestorAscent = 4096
+    nonisolated static let gitProbeMaxAncestorAscent = 4096
 
     /// Pure step function: compute the parent directory URL to visit next
     /// while walking up looking for a `.git` entry. Returns nil at the
