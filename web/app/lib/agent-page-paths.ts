@@ -32,6 +32,9 @@ const englishOnlyPages = [
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/blog", title: "Blog" },
+  { path: "/blog/passkey-auth", title: "Passkey auth in the cmux browser" },
+  { path: "/blog/task-manager", title: "Task Manager in cmux" },
+  { path: "/blog/session-restore", title: "Session restore in cmux" },
   { path: "/blog/cmux-ssh", title: "cmux SSH" },
   {
     path: "/blog/cmux-claude-teams",

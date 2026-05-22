@@ -1,5 +1,21 @@
 export const blogPosts = [
   {
+    slug: "passkey-auth",
+    key: "passkeyAuth",
+    title: "Passkey auth in the cmux browser",
+    date: "2026-05-22",
+    summary:
+      "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
+  },
+  {
+    slug: "task-manager",
+    key: "taskManager",
+    title: "Task Manager in cmux",
+    date: "2026-05-22",
+    summary:
+      "Use cmux top or Task Manager from the command palette to see CPU and RAM usage for your coding agents.",
+  },
+  {
     slug: "session-restore",
     key: "sessionRestore",
     title: "Session restore in cmux",

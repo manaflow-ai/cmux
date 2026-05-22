@@ -17,11 +17,17 @@ export async function generateMetadata({
     keywords: [
       "cmux",
       "session restore",
+      "restore terminal after crash",
+      "terminal crash recovery",
       "terminal",
       "macOS",
       "Claude Code",
       "Codex",
       "OpenCode",
+      "opencode",
+      "Gemini CLI",
+      "Antigravity CLI",
+      "Grok Build CLI",
       "AI coding agents",
     ],
     openGraph: {
@@ -29,6 +35,7 @@ export async function generateMetadata({
       description: t("metaDescription"),
       type: "article",
       publishedTime: "2026-05-13T00:00:00Z",
+      modifiedTime: "2026-05-22T00:00:00Z",
     },
     twitter: {
       card: "summary_large_image",
@@ -61,6 +68,7 @@ export default function SessionRestoreBlogPage() {
 
       <p className="mt-6">{t("p1")}</p>
       <p>{t("p2")}</p>
+      <p>{t("seoP")}</p>
 
       <h2>{t("baselineTitle")}</h2>
       <p>{t("baselineP")}</p>
