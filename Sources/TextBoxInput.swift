@@ -1964,17 +1964,6 @@ enum TextBoxSubmit {
         case waitForClaudeImageToken(String)
     }
 
-    private struct ClaudeImageSlot {
-        let characterOffset: Int
-        let attachment: TextBoxAttachment
-        let pastePath: String
-    }
-
-    private struct ClaudeImagePlan {
-        let baseText: String
-        let slots: [ClaudeImageSlot]
-    }
-
     static func submittedPasteText(for text: String) -> String? {
         let trimmedForEnabledState = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedForEnabledState.isEmpty else { return nil }
@@ -2161,107 +2150,10 @@ enum TextBoxSubmit {
         return String(visibleLine.suffix(visibleTextWaitMaxCharacters))
     }
 
-    private static func claudeImagePlan(from parts: [TextBoxSubmissionPart]) -> ClaudeImagePlan? {
-        var baseText = ""
-        var slots: [ClaudeImageSlot] = []
-        var attachmentNeedsBoundarySpace = false
-
-        func appendBoundarySpaceIfNeeded() {
-            if attachmentNeedsBoundarySpace,
-               baseText.last?.isWhitespace != true {
-                baseText += " "
-            }
-            attachmentNeedsBoundarySpace = false
-        }
-
-        for part in parts {
-            switch part {
-            case .text(let text):
-                guard !text.isEmpty else { continue }
-                if attachmentNeedsBoundarySpace,
-                   text.first?.isWhitespace != true {
-                    baseText += " "
-                }
-                baseText += text
-                attachmentNeedsBoundarySpace = false
-            case .attachment(let attachment):
-                guard !attachment.submissionText.isEmpty else { continue }
-                appendBoundarySpaceIfNeeded()
-                if attachment.isImage,
-                   let pastePath = claudeImagePastePath(for: attachment) {
-                    slots.append(
-                        ClaudeImageSlot(
-                            characterOffset: baseText.count,
-                            attachment: attachment,
-                            pastePath: pastePath
-                        )
-                    )
-                    attachmentNeedsBoundarySpace = true
-                } else {
-                    baseText += attachment.submissionText
-                    attachmentNeedsBoundarySpace = baseText.last?.isWhitespace != true
-                }
-            }
-        }
-
-        if attachmentNeedsBoundarySpace {
-            baseText += " "
-        }
-
-        guard !slots.isEmpty else { return nil }
-        return ClaudeImagePlan(baseText: baseText, slots: slots)
-    }
-
-    private static func claudeImageDispatchEvents(
-        plan: ClaudeImagePlan,
-        submitKey: String
-    ) -> [DispatchEvent] {
-        var events: [DispatchEvent] = []
-        if !plan.baseText.isEmpty {
-            events.append(.captureVisibleTextBaseline)
-            events.append(.pasteText(plan.baseText))
-            events.append(.waitForVisibleText(plan.baseText))
-        }
-
-        var cursorOffset = plan.baseText.count
-        for slot in plan.slots {
-            appendCursorMoveEvents(
-                from: cursorOffset,
-                to: slot.characterOffset,
-                events: &events
-            )
-            cursorOffset = slot.characterOffset
-            events.append(.captureClaudeImageTokenBaseline)
-            events.append(.pasteFilePath(slot.pastePath))
-            events.append(.waitForClaudeImageToken(slot.attachment.submissionText))
-        }
-
-        appendCursorMoveEvents(
-            from: cursorOffset,
-            to: plan.baseText.count,
-            events: &events
-        )
-        events.append(.namedKey(submitKey))
-        return events
-    }
-
     private static func claudeImagePastePath(for attachment: TextBoxAttachment) -> String? {
         guard attachment.isImage else { return nil }
         guard let localPath = attachment.localURL?.standardizedFileURL.path else { return nil }
         return attachment.submissionPath == localPath ? attachment.submissionPath : localPath
-    }
-
-    private static func appendCursorMoveEvents(
-        from sourceOffset: Int,
-        to destinationOffset: Int,
-        events: inout [DispatchEvent]
-    ) {
-        let delta = destinationOffset - sourceOffset
-        if delta > 0 {
-            events.append(.namedKeyRepeat(TextBoxTerminalKey.arrowRight.rawValue, delta))
-        } else if delta < 0 {
-            events.append(.namedKeyRepeat(TextBoxTerminalKey.arrowLeft.rawValue, -delta))
-        }
     }
 
     private static func trimBoundaryNewlines(from parts: [TextBoxSubmissionPart]) -> [TextBoxSubmissionPart] {

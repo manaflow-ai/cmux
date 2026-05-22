@@ -7455,6 +7455,43 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testTextBoxClaudeImageSubmissionDoesNotUseCursorOffsetsForWideCharacters() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "wide.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        let events = TextBoxSubmit.dispatchEvents(
+            for: [
+                .text("分析🙂 "),
+                .attachment(attachment),
+                .text(" これは?")
+            ],
+            terminalAgentContext: "Claude Code"
+        )
+
+        XCTAssertFalse(events.contains(.namedKeyRepeat(TextBoxTerminalKey.arrowLeft.rawValue, 1)))
+        XCTAssertFalse(events.contains(.namedKeyRepeat(TextBoxTerminalKey.arrowRight.rawValue, 1)))
+        XCTAssertEqual(
+            events,
+            [
+                .captureVisibleTextBaseline,
+                .pasteText("分析🙂 "),
+                .waitForVisibleText("分析🙂 "),
+                .captureClaudeImageTokenBaseline,
+                .captureClipboardReadBaseline,
+                .pasteFilePath(imageURL.path),
+                .waitForClipboardRead,
+                .waitForClaudeImageToken(attachment.submissionText),
+                .captureVisibleTextBaseline,
+                .pasteText(" これは?"),
+                .waitForVisibleText(" これは?"),
+                .namedKey(TextBoxTerminalKey.returnKey.rawValue)
+            ]
+        )
+    }
+
     func testTextBoxSubmissionPreservesNonBMPUnicode() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "hello 🙂 world"
