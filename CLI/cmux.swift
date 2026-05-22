@@ -638,6 +638,7 @@ private final class ClaudeHookSessionStore {
         lastBody: String? = nil,
         lastNotificationStatus: AgentHookNotificationStatus? = nil,
         updateLastNotificationStatus: Bool = false,
+        emittedNotificationFingerprint: String? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         markActive: Bool = false,
@@ -684,6 +685,10 @@ private final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
+            if let fingerprint = normalizeOptional(emittedNotificationFingerprint) {
+                record.lastEmittedNotificationFingerprint = fingerprint
+                record.lastEmittedNotificationAt = now
+            }
             state.sessions[normalized] = record
             if markActive, let normalizedWorkspace = normalizeOptional(workspaceId) {
                 state.activeSessionsByWorkspace[normalizedWorkspace] = ClaudeHookActiveSessionRecord(
@@ -18678,6 +18683,7 @@ struct CMUXCLI {
                 parsedInput: parsedInput,
                 defaultReason: .permissionRequest
             )
+            let notificationFingerprint = claudeWaitingNotificationFingerprint(summary)
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -18686,7 +18692,8 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     lastSubtitle: summary.subtitle,
-                    lastBody: summary.body
+                    lastBody: summary.body,
+                    emittedNotificationFingerprint: notificationFingerprint
                 )
             }
             _ = try? setClaudeStatus(
@@ -18703,7 +18710,6 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 client: client
             )
-            markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
             print(response)
 
         case "session-end":
@@ -21102,15 +21108,25 @@ struct CMUXCLI {
     }
 
     private func isGenericClaudeWaitingBody(_ body: String) -> Bool {
-        let normalized = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return false }
-        let genericBodies = [
+        let key = genericClaudeWaitingBodyKey(body)
+        guard !key.isEmpty else { return false }
+        let genericBodies = Set([
             "Claude needs your input",
+            "Claude Code needs your input",
+            "Claude needs your attention",
             "Claude is waiting for your input",
             "Claude Code needs your attention",
             ClaudeWaitingNotificationReason.idlePrompt.fallbackBody,
-        ].map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-        return genericBodies.contains(normalized.lowercased())
+        ].map(genericClaudeWaitingBodyKey))
+        return genericBodies.contains(key)
+    }
+
+    private func genericClaudeWaitingBodyKey(_ body: String) -> String {
+        let normalized = normalizedSingleLine(body).lowercased()
+        let folded = normalized.unicodeScalars.map { scalar -> String in
+            CharacterSet.alphanumerics.contains(scalar) ? String(scalar) : " "
+        }.joined()
+        return folded.split(whereSeparator: { $0 == " " }).joined(separator: " ")
     }
 
     private func summarizeAgentHookNotification(

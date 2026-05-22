@@ -245,7 +245,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let secondNotification = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "notification"],
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude needs your attention."}"#
         )
         XCTAssertFalse(secondNotification.timedOut, secondNotification.stderr)
         XCTAssertEqual(secondNotification.status, 0, secondNotification.stderr)
@@ -399,7 +399,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let raceNotification = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "notification"],
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your input."}"#
         )
         XCTAssertFalse(raceNotification.timedOut, raceNotification.stderr)
         XCTAssertEqual(raceNotification.status, 0, raceNotification.stderr)
