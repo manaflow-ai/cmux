@@ -7,6 +7,7 @@ import Combine
 import CoreText
 import Darwin
 import Carbon.HIToolbox
+import os
 import Sentry
 import Bonsplit
 import CMUXAgentLaunch
@@ -1683,6 +1684,10 @@ class GhosttyApp {
     static let shared = GhosttyApp()
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let fallbackAppearanceConfig = GhosttyConfig()
+    private static let initializationLogger = Logger(
+        subsystem: releaseBundleIdentifier,
+        category: "ghostty.initialization"
+    )
     // SAFETY: Ghostty C callbacks can run while GhosttyApp.shared is still initializing.
     // cmux owns one process-lifetime GhosttyApp, so the registry avoids singleton re-entry
     // without adding a teardown path for a ghostty_app_t that is never freed/recreated.
@@ -2021,9 +2026,9 @@ class GhosttyApp {
         data: [String: Any] = [:]
     ) {
         if data.isEmpty {
-            NSLog("[Ghostty] %@", message)
+            initializationLogger.error("\(message, privacy: .public)")
         } else {
-            NSLog("[Ghostty] %@ %@", message, String(describing: data))
+            initializationLogger.error("\(message, privacy: .public) \(String(describing: data), privacy: .public)")
         }
         sentryCaptureError(
             message,

@@ -383,11 +383,11 @@ final class TerminalPanel: Panel, ObservableObject {
               isTextBoxActive,
               let textBoxInputView,
               let window = textBoxInputView.window else { return }
+        guard window.makeFirstResponder(textBoxInputView) else { return }
         shouldFocusTextBoxWhenAvailable = false
         textBoxInputFocusIntent = .textBox
         surface.setFocus(false)
         hostedView.setActive(false)
-        window.makeFirstResponder(textBoxInputView)
         if shouldOpenTextBoxFilePickerWhenAvailable {
             shouldOpenTextBoxFilePickerWhenAvailable = false
             textBoxInputView.openFilePicker()
