@@ -425,6 +425,42 @@ private func gitIndexUInt32Field<T: BinaryInteger>(_ value: T) -> UInt32 {
     UInt32(truncatingIfNeeded: UInt64(truncatingIfNeeded: value))
 }
 
+final class GitRepositorySearchRootStopTests: XCTestCase {
+    func testRootParentVariantsStopRepositorySearch() {
+        let rootURL = URL(fileURLWithPath: "/")
+
+        XCTAssertTrue(
+            TabManager.shouldStopGitRepositorySearch(
+                currentURL: rootURL,
+                parentURL: URL(fileURLWithPath: "/")
+            )
+        )
+        XCTAssertTrue(
+            TabManager.shouldStopGitRepositorySearch(
+                currentURL: rootURL,
+                parentURL: URL(fileURLWithPath: "/..")
+            ),
+            "Older Foundation versions can report /.. as the parent of /; repository search must still stop at root."
+        )
+        XCTAssertTrue(
+            TabManager.shouldStopGitRepositorySearch(
+                currentURL: URL(fileURLWithPath: "/.."),
+                parentURL: URL(fileURLWithPath: "/../..")
+            ),
+            "Repository search should also stop if an older Foundation URL has already escaped above root."
+        )
+    }
+
+    func testNonRootParentDoesNotStopRepositorySearch() {
+        XCTAssertFalse(
+            TabManager.shouldStopGitRepositorySearch(
+                currentURL: URL(fileURLWithPath: "/tmp/cmux-4520-nongit"),
+                parentURL: URL(fileURLWithPath: "/tmp")
+            )
+        )
+    }
+}
+
 @MainActor
 final class WorkspacePullRequestSidebarTests: XCTestCase {
     func testSidebarPullRequestsIgnoreStaleWorkspaceLevelCacheWithoutPanelState() throws {
