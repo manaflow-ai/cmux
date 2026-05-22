@@ -727,18 +727,20 @@ private final class ClaudeHookSessionStore {
                     return true
                 }
                 markPromptTurnTerminal(normalizedTurnId, on: &record)
-                if totalDepthBeforeStop > 0 {
-                    let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
-                    if depthAfterTurnStop == 0 {
-                        record.activePromptDepth = nil
-                    } else {
-                        record.activePromptDepth = depthAfterTurnStop
-                    }
-                    record.activePromptTurnId = nil
-                    record.activePromptTurnIds = nil
+                if totalDepthBeforeStop == 0 {
                     state.sessions[normalized] = record
-                    return totalDepthBeforeStop > 1
+                    return false
                 }
+                let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
+                if depthAfterTurnStop == 0 {
+                    record.activePromptDepth = nil
+                } else {
+                    record.activePromptDepth = depthAfterTurnStop
+                }
+                record.activePromptTurnId = nil
+                record.activePromptTurnIds = nil
+                state.sessions[normalized] = record
+                return totalDepthBeforeStop > 1
             }
             if depthAfterStop == 0 {
                 record.activePromptDepth = nil
