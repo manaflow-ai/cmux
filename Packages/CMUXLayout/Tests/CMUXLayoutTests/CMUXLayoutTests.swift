@@ -3911,7 +3911,12 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(presentation.nativeContentSize, CGSize(width: 1_000, height: 700))
         XCTAssertEqual(presentation.nativeContentOrigin, .zero)
         XCTAssertEqual(presentation.visualContentSize, CGSize(width: 400, height: 300))
+        XCTAssertEqual(presentation.visibleContentSize, CGSize(width: 400, height: 300))
         XCTAssertEqual(presentation.visibleNativeContentSize, CGSize(width: 1_000, height: 750))
+        XCTAssertEqual(
+            presentation.visibleNativeContentRect,
+            CGRect(x: 0, y: 0, width: 1_000, height: 750)
+        )
         XCTAssertEqual(presentation.horizontalScale, 0.4, accuracy: 0.0001)
         XCTAssertEqual(presentation.verticalScale, 300.0 / 700.0, accuracy: 0.0001)
     }
@@ -3926,10 +3931,14 @@ final class CMUXLayoutTests: XCTestCase {
         let clipped = presentation.clipped(to: CGRect(x: 180, y: 90, width: 420, height: 260))
 
         XCTAssertNotNil(clipped)
-        XCTAssertEqual(clipped!.frameInWindow, CGRect(x: 180, y: 90, width: 420, height: 260))
+        XCTAssertEqual(clipped!.frameInWindow, CGRect(x: 100, y: 50, width: 800, height: 500))
+        XCTAssertEqual(clipped!.visibleFrameInWindow, CGRect(x: 180, y: 90, width: 420, height: 260))
         XCTAssertEqual(clipped!.nativeContentSize, CGSize(width: 1_600, height: 1_000))
         XCTAssertEqual(clipped!.nativeContentOrigin, CGPoint(x: 160, y: 80))
+        XCTAssertEqual(clipped!.visualContentSize, CGSize(width: 800, height: 500))
+        XCTAssertEqual(clipped!.visibleContentSize, CGSize(width: 420, height: 260))
         XCTAssertEqual(clipped!.visibleNativeContentSize, CGSize(width: 840, height: 520))
+        XCTAssertEqual(clipped!.visibleNativeContentRect, CGRect(x: 160, y: 80, width: 840, height: 520))
         XCTAssertEqual(clipped!.scale, 0.5, accuracy: 0.0001)
     }
 

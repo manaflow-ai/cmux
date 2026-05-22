@@ -37,6 +37,14 @@ struct PixelRect: Codable {
     var height: Double
 }
 
+struct PanelGeometry {
+    var viewFrame: PixelRect
+    var portalFrameInWindow: PixelRect?
+    var portalContainerBounds: PixelRect?
+    var nativeFrameInContainer: PixelRect?
+    var nativeBounds: PixelRect?
+}
+
 struct PixelSize {
     var width: Int
     var height: Int
@@ -205,6 +213,19 @@ func jsonDouble(_ value: Any?) -> Double? {
     if let int = value as? Int { return Double(int) }
     if let number = value as? NSNumber { return number.doubleValue }
     return nil
+}
+
+func pixelRect(_ object: Any?) -> PixelRect? {
+    guard let frame = object as? [String: Any],
+          let x = jsonDouble(frame["x"]),
+          let y = jsonDouble(frame["y"]),
+          let width = jsonDouble(frame["width"]),
+          let height = jsonDouble(frame["height"]),
+          width > 1,
+          height > 1 else {
+        return nil
+    }
+    return PixelRect(x: x, y: y, width: width, height: height)
 }
 
 func screenshot(label: String) throws -> URL {
@@ -422,7 +443,7 @@ func resizeFocusedCanvasItem(
     _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewportSize)
 }
 
-func selectedPanelViewFrame() throws -> PixelRect {
+func selectedPanelGeometry() throws -> PanelGeometry {
     let object = try cliJSON(["rpc", "debug.layout", "{}"])
     guard let layout = object["layout"] as? [String: Any],
           let panels = layout["selectedPanels"] as? [[String: Any]],
@@ -431,19 +452,23 @@ func selectedPanelViewFrame() throws -> PixelRect {
     }
 
     for key in ["portalFrameInWindow", "viewFrame"] {
-        guard let frame = panel[key] as? [String: Any],
-              let x = jsonDouble(frame["x"]),
-              let y = jsonDouble(frame["y"]),
-              let width = jsonDouble(frame["width"]),
-              let height = jsonDouble(frame["height"]),
-              width > 1,
-              height > 1 else {
+        guard let frame = pixelRect(panel[key]) else {
             continue
         }
-        return PixelRect(x: x, y: y, width: width, height: height)
+        return PanelGeometry(
+            viewFrame: frame,
+            portalFrameInWindow: pixelRect(panel["portalFrameInWindow"]),
+            portalContainerBounds: pixelRect(panel["portalContainerBounds"]),
+            nativeFrameInContainer: pixelRect(panel["nativeFrameInContainer"]),
+            nativeBounds: pixelRect(panel["nativeBounds"])
+        )
     }
 
     throw ProbeError(message: "Could not read selected panel portal/view frame from debug.layout: \(object)")
+}
+
+func selectedPanelViewFrame() throws -> PixelRect {
+    try selectedPanelGeometry().viewFrame
 }
 
 func assertBorderMatchesNativeView(
@@ -476,6 +501,45 @@ func assertPan(surface: String, marker: String, before: PixelBounds, after: Pixe
           abs(after.width - before.width) <= sizeTolerance,
           abs(after.height - before.height) <= sizeTolerance else {
         throw ProbeError(message: "\(surface) \(marker) pan mismatch. expected=(\(dx),\(dy)) actual=(\(actualDX),\(actualDY)) before=\(before) after=\(after)")
+    }
+}
+
+func nativeSizeForClipInvariant(surface: String, geometry: PanelGeometry) throws -> PixelRect {
+    if surface.hasPrefix("browser"), let nativeFrame = geometry.nativeFrameInContainer {
+        return nativeFrame
+    }
+    if let nativeBounds = geometry.nativeBounds {
+        return nativeBounds
+    }
+    if let nativeFrame = geometry.nativeFrameInContainer {
+        return nativeFrame
+    }
+    throw ProbeError(message: "\(surface) debug.layout did not include native portal geometry: \(geometry)")
+}
+
+func assertViewportClipPreservesNativeSize(
+    surface: String,
+    before: PanelGeometry,
+    after: PanelGeometry
+) throws {
+    let beforeNative = try nativeSizeForClipInvariant(surface: surface, geometry: before)
+    let afterNative = try nativeSizeForClipInvariant(surface: surface, geometry: after)
+    let tolerance = 4.0
+    let widthDelta = abs(afterNative.width - beforeNative.width)
+    let heightDelta = abs(afterNative.height - beforeNative.height)
+    guard widthDelta <= tolerance, heightDelta <= tolerance else {
+        throw ProbeError(message: "\(surface) native surface resized while viewport clipped. before=\(beforeNative) after=\(afterNative) deltas=(\(widthDelta),\(heightDelta))")
+    }
+
+    guard let beforePortal = before.portalFrameInWindow,
+          let afterPortal = after.portalFrameInWindow else {
+        throw ProbeError(message: "\(surface) missing portal frame while checking viewport clip. before=\(before) after=\(after)")
+    }
+    let clippedEnough =
+        afterPortal.width <= beforePortal.width - 40 ||
+        afterPortal.height <= beforePortal.height - 40
+    guard clippedEnough else {
+        throw ProbeError(message: "\(surface) did not move far enough out of viewport to prove clipping. beforePortal=\(beforePortal) afterPortal=\(afterPortal)")
     }
 }
 
@@ -608,6 +672,18 @@ func runSurface(
             dy: edgePanDY
         )
     }
+
+    _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewport)
+    Thread.sleep(forTimeInterval: 0.12)
+    let clipBaseline = try selectedPanelGeometry()
+    try panCanvas(workspace: workspace, viewportSize: viewport, dx: -360, dy: 0)
+    Thread.sleep(forTimeInterval: 0.12)
+    let clippedGeometry = try selectedPanelGeometry()
+    try assertViewportClipPreservesNativeSize(
+        surface: surface,
+        before: clipBaseline,
+        after: clippedGeometry
+    )
 
     _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewport)
     Thread.sleep(forTimeInterval: 0.12)

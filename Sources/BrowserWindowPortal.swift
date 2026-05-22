@@ -1987,7 +1987,7 @@ final class WindowBrowserSlotView: NSView {
         // WebKit-managed split frame when docked DevTools siblings are present.
         webView.translatesAutoresizingMaskIntoConstraints = true
         webView.autoresizingMask = desiredAutoresizingMask
-        if !hasCompanionWKSubviews {
+        if !hasCompanionWKSubviews && !preservesHostedWebViewNativeBounds {
             webView.frame = bounds
         }
         needsLayout = true
@@ -1999,7 +1999,7 @@ final class WindowBrowserSlotView: NSView {
         preservesHostedWebViewNativeBounds = preserves
         guard let hostedWebView, hostedWebView.superview === self else { return }
         hostedWebView.autoresizingMask = preserves ? [] : [.width, .height]
-        if !Self.hasWebKitCompanionSubview(in: self, primaryWebView: hostedWebView) {
+        if !preserves && !Self.hasWebKitCompanionSubview(in: self, primaryWebView: hostedWebView) {
             hostedWebView.frame = bounds
         }
         needsLayout = true
@@ -3184,6 +3184,7 @@ final class WindowBrowserPortal: NSObject {
         for webViewId in webViewIds {
             guard var presentation = canvasSurfacePresentationsByWebViewId[webViewId] else { continue }
             presentation.frameInWindow = presentation.frameInWindow.offsetBy(dx: dx, dy: dy)
+            presentation.visibleFrameInWindow = presentation.visibleFrameInWindow.offsetBy(dx: dx, dy: dy)
             canvasSurfacePresentationsByWebViewId[webViewId] = presentation
             synchronizeWebView(withId: webViewId, source: "canvasTranslate")
         }
@@ -3734,7 +3735,8 @@ final class WindowBrowserPortal: NSObject {
             return overrideFrame
         }()
         let frameInWindow = canvasSurfacePresentation?.frameInWindow ?? storedCanvasSurfacePresentation?.frameInWindow ?? interactiveFrameInWindow ?? anchorFrameInWindow
-        let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
+        let visibleFrameInWindow = canvasSurfacePresentation?.visibleFrameInWindow ?? frameInWindow
+        let frameInHostRaw = hostView.convert(visibleFrameInWindow, from: nil)
         let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
         let hostBounds = hostView.bounds
         let hasFiniteHostBounds =

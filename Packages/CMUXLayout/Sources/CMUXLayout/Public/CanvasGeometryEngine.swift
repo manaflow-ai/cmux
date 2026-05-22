@@ -243,6 +243,7 @@ public struct CanvasContentBounds: Sendable, Equatable {
 
 public struct CanvasSurfacePresentation: Sendable, Equatable {
     public var frameInWindow: CGRect
+    public var visibleFrameInWindow: CGRect
     public var nativeContentSize: CGSize
     public var nativeContentOrigin: CGPoint
     public var scale: CGFloat
@@ -251,9 +252,17 @@ public struct CanvasSurfacePresentation: Sendable, Equatable {
         frameInWindow: CGRect,
         nativeContentSize: CGSize,
         scale: CGFloat,
-        nativeContentOrigin: CGPoint = .zero
+        nativeContentOrigin: CGPoint = .zero,
+        visibleFrameInWindow: CGRect? = nil
     ) {
         self.frameInWindow = frameInWindow
+        let visibleFrameInWindow = visibleFrameInWindow ?? frameInWindow
+        self.visibleFrameInWindow = CGRect(
+            x: visibleFrameInWindow.origin.x.isFinite ? visibleFrameInWindow.origin.x : 0,
+            y: visibleFrameInWindow.origin.y.isFinite ? visibleFrameInWindow.origin.y : 0,
+            width: max(1, visibleFrameInWindow.size.width.isFinite ? visibleFrameInWindow.size.width : 1),
+            height: max(1, visibleFrameInWindow.size.height.isFinite ? visibleFrameInWindow.size.height : 1)
+        )
         self.nativeContentSize = CGSize(
             width: max(1, nativeContentSize.width),
             height: max(1, nativeContentSize.height)
@@ -272,11 +281,22 @@ public struct CanvasSurfacePresentation: Sendable, Equatable {
         )
     }
 
+    public var visibleContentSize: CGSize {
+        CGSize(
+            width: max(1, visibleFrameInWindow.width),
+            height: max(1, visibleFrameInWindow.height)
+        )
+    }
+
     public var visibleNativeContentSize: CGSize {
         CGSize(
-            width: max(1, frameInWindow.width / scale),
-            height: max(1, frameInWindow.height / scale)
+            width: max(1, visibleFrameInWindow.width / scale),
+            height: max(1, visibleFrameInWindow.height / scale)
         )
+    }
+
+    public var visibleNativeContentRect: CGRect {
+        CGRect(origin: nativeContentOrigin, size: visibleNativeContentSize)
     }
 
     public var horizontalScale: CGFloat {
@@ -307,13 +327,14 @@ public struct CanvasSurfacePresentation: Sendable, Equatable {
         }
 
         return CanvasSurfacePresentation(
-            frameInWindow: clippedFrame,
+            frameInWindow: frameInWindow,
             nativeContentSize: nativeContentSize,
             scale: scale,
             nativeContentOrigin: CGPoint(
                 x: nativeContentOrigin.x + ((clippedFrame.minX - frameInWindow.minX) / scale),
                 y: nativeContentOrigin.y + ((clippedFrame.minY - frameInWindow.minY) / scale)
-            )
+            ),
+            visibleFrameInWindow: clippedFrame
         )
     }
 }

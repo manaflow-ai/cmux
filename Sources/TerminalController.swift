@@ -16276,6 +16276,9 @@ class TerminalController {
         let hidden: Bool?
         let viewFrame: PixelRect?
         let portalFrameInWindow: PixelRect?
+        let portalContainerBounds: PixelRect?
+        let nativeFrameInContainer: PixelRect?
+        let nativeBounds: PixelRect?
         let splitViews: [LayoutDebugSplitView]?
     }
 
@@ -16420,6 +16423,9 @@ class TerminalController {
                         hidden: nil,
                         viewFrame: nil,
                         portalFrameInWindow: nil,
+                        portalContainerBounds: nil,
+                        nativeFrameInContainer: nil,
+                        nativeBounds: nil,
                         splitViews: nil
                     )
                 }
@@ -16436,13 +16442,22 @@ class TerminalController {
                         hidden: nil,
                         viewFrame: nil,
                         portalFrameInWindow: nil,
+                        portalContainerBounds: nil,
+                        nativeFrameInContainer: nil,
+                        nativeBounds: nil,
                         splitViews: nil
                     )
                 }
 
                 if let tp = panel as? TerminalPanel {
                     let viewRect = windowFrame(for: tp.hostedView).map { PixelRect(from: $0) }
-                    let portalFrame = usablePixelFrame(tp.hostedView.debugPortalFrameInWindow)
+                    let terminalSnapshot = TerminalWindowPortalRegistry.debugSnapshot(for: tp.hostedView)
+                    let portalFrame = terminalSnapshot.flatMap { snapshot in
+                        snapshot.containerHidden ? nil : usablePixelFrame(snapshot.frameInWindow)
+                    } ?? usablePixelFrame(tp.hostedView.debugPortalFrameInWindow)
+                    let portalContainerBounds = terminalSnapshot.map { PixelRect(from: $0.containerBounds) }
+                    let nativeFrame = terminalSnapshot.map { PixelRect(from: $0.hostedFrame) } ?? PixelRect(from: tp.hostedView.frame)
+                    let nativeBounds = terminalSnapshot.map { PixelRect(from: $0.hostedBounds) } ?? PixelRect(from: tp.hostedView.bounds)
                     let splitViews = splitViewInfos(for: tp.hostedView)
                     return LayoutDebugSelectedPanel(
                         paneId: paneIdStr,
@@ -16454,15 +16469,22 @@ class TerminalController {
                         hidden: isHiddenOrAncestorHidden(tp.hostedView),
                         viewFrame: viewRect,
                         portalFrameInWindow: portalFrame,
+                        portalContainerBounds: portalContainerBounds,
+                        nativeFrameInContainer: nativeFrame,
+                        nativeBounds: nativeBounds,
                         splitViews: splitViews
                     )
                 }
 
                 if let bp = panel as? BrowserPanel {
                     let viewRect = windowFrame(for: bp.webView).map { PixelRect(from: $0) }
-                    let portalFrame = BrowserWindowPortalRegistry.debugSnapshot(for: bp.webView).flatMap { snapshot in
+                    let browserSnapshot = BrowserWindowPortalRegistry.debugSnapshot(for: bp.webView)
+                    let portalFrame = browserSnapshot.flatMap { snapshot in
                         snapshot.containerHidden ? nil : usablePixelFrame(snapshot.frameInWindow)
                     }
+                    let portalContainerBounds = browserSnapshot.map { PixelRect(from: $0.containerBounds) }
+                    let nativeFrame = browserSnapshot.map { PixelRect(from: $0.webViewFrame) }
+                    let nativeBounds = PixelRect(from: bp.webView.bounds)
                     let splitViews = splitViewInfos(for: bp.webView)
                     return LayoutDebugSelectedPanel(
                         paneId: paneIdStr,
@@ -16474,6 +16496,9 @@ class TerminalController {
                         hidden: isHiddenOrAncestorHidden(bp.webView),
                         viewFrame: viewRect,
                         portalFrameInWindow: portalFrame,
+                        portalContainerBounds: portalContainerBounds,
+                        nativeFrameInContainer: nativeFrame,
+                        nativeBounds: nativeBounds,
                         splitViews: splitViews
                     )
                 }
@@ -16488,6 +16513,9 @@ class TerminalController {
                     hidden: nil,
                     viewFrame: nil,
                     portalFrameInWindow: nil,
+                    portalContainerBounds: nil,
+                    nativeFrameInContainer: nil,
+                    nativeBounds: nil,
                     splitViews: nil
                 )
             }
