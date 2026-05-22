@@ -3016,11 +3016,24 @@ class TabManager: ObservableObject {
     /// filesystem root. Exposed for unit tests; the `parentResolver` injection
     /// point lets a test emulate the macOS 14/15 `URL.deletingLastPathComponent`
     /// behavior on a macOS-26 CI runner.
+    ///
+    /// `standardizedFileURL` is load-bearing: on macOS 14 and 15
+    /// `URL(fileURLWithPath: "/").deletingLastPathComponent()` returns
+    /// `URL("/..")` rather than `URL("/")`, and iterating that operation
+    /// without standardization grows the path string forever (`/..`,
+    /// `/../..`, `/../../..`, …). The walk never converged, the
+    /// `Task.detached(priority: .utility)` git probe spun at 200 % CPU,
+    /// and the surrounding autorelease pool retained the per-iteration
+    /// `NSURL`/`NSString` allocations — adding up to tens of GB of RSS
+    /// within minutes. Apple silently fixed the underlying Foundation
+    /// behavior in macOS 26. Standardizing here collapses `/..` back to
+    /// `/` so the path-equal stop condition fires on every macOS.
+    /// https://github.com/manaflow-ai/cmux/issues/4529
     nonisolated static func gitProbeNextAncestor(
         _ current: URL,
         parentResolver: (URL) -> URL = { $0.deletingLastPathComponent() }
     ) -> URL? {
-        let parent = parentResolver(current)
+        let parent = parentResolver(current).standardizedFileURL
         if parent.path == current.path {
             return nil
         }
