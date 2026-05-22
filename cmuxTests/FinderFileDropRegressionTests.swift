@@ -373,6 +373,89 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testMarkdownPortalBlocksUnderlyingEditorTextDropFallback() throws {
+        let defaults = UserDefaults.standard
+        let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+        defaults.set(FileDropDefaultBehavior.text.rawValue, forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+        defer {
+            if let savedDefaultBehavior {
+                defaults.set(savedDefaultBehavior, forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+            } else {
+                defaults.removeObject(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 360, height: 240))
+        root.autoresizingMask = [.width, .height]
+        window.contentView = root
+
+        let markdownAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 260, height: 160))
+        root.addSubview(markdownAnchor)
+
+        let obscuredEditor = NSTextView(frame: markdownAnchor.frame)
+        obscuredEditor.isEditable = true
+        obscuredEditor.string = "underlying editor"
+        root.addSubview(obscuredEditor)
+
+        let overlay = FileDropOverlayView(frame: root.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        root.addSubview(overlay)
+
+        let webView = WKWebView(frame: markdownAnchor.bounds, configuration: WKWebViewConfiguration())
+        BrowserWindowPortalRegistry.bind(webView: webView, to: markdownAnchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.updatePaneDropContext(
+            for: webView,
+            context: BrowserPaneDropContext(
+                workspaceId: UUID(),
+                panelId: UUID(),
+                paneId: PaneID(id: UUID()),
+                allowsHostedWebViewTextDrop: false
+            )
+        )
+        BrowserWindowPortalRegistry.synchronizeForAnchor(markdownAnchor)
+        root.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let dropPoint = markdownAnchor.convert(
+            NSPoint(x: markdownAnchor.bounds.midX, y: markdownAnchor.bounds.midY),
+            to: nil
+        )
+        XCTAssertTrue(
+            BrowserWindowPortalRegistry.webViewAtWindowPoint(dropPoint, in: window) === webView,
+            "The markdown portal must be the top visible portal at the drop point."
+        )
+        XCTAssertNil(
+            overlay.textDropDestinationKindUnderPoint(dropPoint),
+            "A markdown portal must stop text-drop hit testing before the overlay falls back to an obscured editor."
+        )
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.markdown-pane.editor-fallback.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/dropped.md") as NSURL]))
+        let dragInfo = MockDraggingInfo(window: window, location: dropPoint, pasteboard: pasteboard)
+
+        XCTAssertFalse(
+            overlay.shouldRouteFileDropToTextDestination(dragInfo),
+            "The Shift alternate hint should stay hidden over markdown previews even when an editable view sits underneath the portal."
+        )
+        XCTAssertFalse(
+            overlay.performFileDropAsText(dragInfo),
+            "The blocked portal should also prevent the fallback performer from inserting text into the obscured editor."
+        )
+        XCTAssertEqual(obscuredEditor.string, "underlying editor")
+    }
+
     func testMarkdownPortalWebViewDoesNotFallbackToTextDropUnderGlass() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
