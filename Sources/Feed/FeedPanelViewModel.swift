@@ -57,6 +57,9 @@ struct FeedHistoryLoadMoreRow: View {
     let isLoading: Bool
     let action: () -> Void
 
+    @State private var isVisible = false
+    @State private var didAutoRequestLoad = false
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
@@ -75,6 +78,14 @@ struct FeedHistoryLoadMoreRow: View {
         }
         .buttonStyle(.plain)
         .disabled(isLoading)
+        .onAppear {
+            isVisible = true
+            requestLoadIfVisible()
+        }
+        .onDisappear {
+            isVisible = false
+            didAutoRequestLoad = false
+        }
     }
 
     private var label: String {
@@ -84,4 +95,9 @@ struct FeedHistoryLoadMoreRow: View {
         return String(localized: "feed.history.loadOlder", defaultValue: "Load older activity")
     }
 
+    private func requestLoadIfVisible() {
+        guard isVisible, !isLoading, !didAutoRequestLoad else { return }
+        didAutoRequestLoad = true
+        action()
+    }
 }

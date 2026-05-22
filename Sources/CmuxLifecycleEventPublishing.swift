@@ -208,6 +208,8 @@ extension Workspace {
             return "terminal"
         case .browser:
             return "browser"
+        case .extensionPane:
+            return "extension"
         case .markdown:
             return "markdown"
         case .filePreview:

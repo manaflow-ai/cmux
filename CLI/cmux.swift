@@ -3692,14 +3692,17 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let direction = optionValue(commandArgs, name: "--direction") ?? "right"
             let url = optionValue(commandArgs, name: "--url")
+            let bundle = optionValue(commandArgs, name: "--bundle")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = ["direction": direction]
+            try validateExtensionBundleOption(commandName: "new-pane", type: type, bundle: bundle)
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let bundle { params["bundle"] = resolvePath(bundle) }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
@@ -3709,8 +3712,10 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let paneRaw = optionValue(commandArgs, name: "--pane")
             let url = optionValue(commandArgs, name: "--url")
+            let bundle = optionValue(commandArgs, name: "--bundle")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = [:]
+            try validateExtensionBundleOption(commandName: "new-surface", type: type, bundle: bundle)
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
@@ -3719,6 +3724,7 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let bundle { params["bundle"] = resolvePath(bundle) }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
@@ -7347,7 +7353,8 @@ struct CMUXCLI {
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
             isShellSnippet: isShellSnippet,
-            controlPathPreflightShellFunction: controlPathPreflightShellFunction
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction,
+            removeWrittenScriptOnStart: true
         )
         return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
     }
@@ -7364,7 +7371,8 @@ struct CMUXCLI {
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
             isShellSnippet: isShellSnippet,
-            controlPathPreflightShellFunction: controlPathPreflightShellFunction
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction,
+            removeWrittenScriptOnStart: false
         )
         return reusableShellStartupCommand(
             scriptBody: script,
@@ -7377,7 +7385,8 @@ struct CMUXCLI {
         shellFeatures: String,
         remoteRelayPort: Int,
         isShellSnippet: Bool,
-        controlPathPreflightShellFunction: String?
+        controlPathPreflightShellFunction: String?,
+        removeWrittenScriptOnStart: Bool
     ) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
@@ -7393,8 +7402,10 @@ struct CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append(trimmedControlPathPreflight)
         }
+        if removeWrittenScriptOnStart {
+            scriptLines.append("rm -f -- \"$0\" 2>/dev/null || true")
+        }
         scriptLines += [
-            "rm -f -- \"$0\" 2>/dev/null || true",
             "CMUX_SSH_SESSION_ENDED=0",
             "CMUX_SSH_STARTUP_PID=$$",
             "export CMUX_SSH_STARTUP_PID",
@@ -11329,16 +11340,18 @@ struct CMUXCLI {
             Create a new pane in the workspace.
 
             Flags:
-              --type <terminal|browser>           Pane type (default: terminal)
+              --type <terminal|browser|extension> Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
               --workspace <id|ref|index>          Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>             Window context for workspace refs and indexes
               --url <url>                         URL for browser panes
+              --bundle <path>                     Required with --type extension; invalid for other pane types
               --focus <true|false>                Focus the new pane (default: false)
 
             Example:
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
+              cmux new-pane --type extension --bundle ~/.cmux/extensions/file-tree
             """
         case "new-surface":
             return """
@@ -11347,16 +11360,18 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser>   Surface type (default: terminal)
-              --pane <id|ref|index>       Target pane
-              --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
-              --window <id|ref|index>     Window context for workspace/pane refs and indexes
-              --url <url>                 URL for browser surfaces
-              --focus <true|false>        Focus the new surface (default: false)
+              --type <terminal|browser|extension> Surface type (default: terminal)
+              --pane <id|ref|index>                 Target pane
+              --workspace <id|ref|index>            Target workspace (default: $CMUX_WORKSPACE_ID)
+              --window <id|ref|index>               Window context for workspace/pane refs and indexes
+              --url <url>                           URL for browser surfaces
+              --bundle <path>                       Required with --type extension; invalid for other surface types
+              --focus <true|false>                  Focus the new surface (default: false)
 
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
+              cmux new-surface --type extension --pane pane:1 --bundle ~/.cmux/extensions/file-tree
             """
         case "close-surface":
             return """
@@ -12332,6 +12347,22 @@ struct CMUXCLI {
             }
         }
         return nil
+    }
+
+    private func validateExtensionBundleOption(commandName: String, type: String?, bundle: String?) throws {
+        let normalizedType = type?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        let isExtensionType = normalizedType == "extension" || normalizedType == "extensionpane"
+        let hasBundle = bundle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        if bundle != nil, !isExtensionType {
+            throw CLIError(message: "\(commandName): --bundle is only valid with --type extension")
+        }
+        if isExtensionType, !hasBundle {
+            throw CLIError(message: "\(commandName): --bundle is required with --type extension")
+        }
     }
 
     func hasFlag(_ args: [String], name: String) -> Bool {
@@ -28396,8 +28427,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
-          new-surface [--type <terminal|browser>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
+          new-pane [--type <terminal|browser|extension>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--bundle <path>] [--focus <true|false>]
+          new-surface [--type <terminal|browser|extension>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--bundle <path>] [--focus <true|false>]
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]

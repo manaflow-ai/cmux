@@ -1,7 +1,21 @@
 import SwiftUI
 
 struct BetaFeaturesSettingsView: View {
+    @Binding var feedEnabled: Bool
     @Binding var dockEnabled: Bool
+
+    private var feedSubtitle: String {
+        if feedEnabled {
+            return String(
+                localized: "settings.betaFeatures.feed.subtitleOn",
+                defaultValue: "Shows Feed in the right sidebar mode switcher for inline agent decisions."
+            )
+        }
+        return String(
+            localized: "settings.betaFeatures.feed.subtitleOff",
+            defaultValue: "Hides Feed from the right sidebar until you enable it here."
+        )
+    }
 
     private var dockSubtitle: String {
         if dockEnabled {
@@ -23,9 +37,26 @@ struct BetaFeaturesSettingsView: View {
             BetaFeaturesWarningNote(
                 String(
                     localized: "settings.betaFeatures.warning",
-                    defaultValue: "Dock is unstable and may change or break. Enable it only when you are testing it."
+                    defaultValue: "These features are unstable and may change or break. Enable them only when you are testing them."
                 )
             )
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"),
+                subtitle: feedSubtitle,
+                searchAnchorID: SettingsSearchIndex.settingID(for: .betaFeatures, idSuffix: "feed")
+            ) {
+                Toggle("", isOn: $feedEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsBetaFeedToggle")
+                    .accessibilityLabel(
+                        String(localized: "settings.betaFeatures.feed", defaultValue: "Feed")
+                    )
+            }
 
             SettingsCardDivider()
 

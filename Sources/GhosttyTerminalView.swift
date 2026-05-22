@@ -7972,7 +7972,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if let displayID = window?.screen?.displayID, displayID != 0 {
                 ghostty_surface_set_display_id(surface, displayID)
             }
-            terminalSurface?.forceRefresh(reason: "focus.firstResponder")
         }
         return result
     }
@@ -12494,7 +12493,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
-    /// SwiftUI reparenting (programmatic splits). Call clearSuppressReparentFocus() after layout settles.
+    /// SwiftUI reparenting (programmatic splits).
     func suppressReparentFocus() {
         surfaceView.suppressingReparentFocus = true
     }

@@ -183,9 +183,40 @@ extension TerminalController {
 
     func v2PanelType(_ params: [String: Any], _ key: String) -> PanelType? {
         guard let s = v2String(params, key) else { return nil }
-        let normalized = s.replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .lowercased()
-        return PanelType(rawValue: normalized)
+        return PanelType.userInputValue(s)
+    }
+
+    func v2ExtensionBundle(
+        params: [String: Any],
+        panelType: PanelType
+    ) -> (bundle: ExtensionBundleDescriptor?, error: V2CallResult?) {
+        guard panelType == .extensionPane else { return (nil, nil) }
+        if let resolvedBundle = params[Self.v2ResolvedExtensionBundleParamKey] as? ExtensionBundleDescriptor {
+            return (resolvedBundle, nil)
+        }
+        guard let bundlePath = v2OptionalTrimmedRawString(params, "bundle")
+            ?? v2OptionalTrimmedRawString(params, "bundle_path") else {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: ExtensionBundleResolveError.missingBundlePathMessage,
+                    data: nil
+                )
+            )
+        }
+
+        do {
+            return (try ExtensionBundleDescriptor.resolve(path: bundlePath), nil)
+        } catch {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: ExtensionBundleResolveError.userFacingMessage(for: error),
+                    data: ["reason": ExtensionBundleResolveError.bridgeReasonCode(for: error)]
+                )
+            )
+        }
     }
 }

@@ -330,6 +330,8 @@ final class PaneDropTargetView: NSView {
             return .terminal
         case .browser:
             return nil
+        case .extensionPane:
+            return nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel,
                   filePreviewPanel.previewMode == .text else {

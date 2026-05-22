@@ -7,7 +7,10 @@ struct CmuxEventSubscriptionSnapshot {
 }
 
 // Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
+// Handler callbacks are serialized on `deliveryQueue` and never invoked while holding `lock`.
 final class CmuxEventSubscription: @unchecked Sendable {
+    typealias EventHandler = ([String: Any]) -> Void
+
     let id: UUID
     let names: Set<String>
     let categories: Set<String>
@@ -15,7 +18,10 @@ final class CmuxEventSubscription: @unchecked Sendable {
 
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
+    private let deliveryQueue: DispatchQueue
     private var queue: [[String: Any]] = []
+    private var eventHandlers: [UUID: EventHandler] = [:]
+    private var deliveryScheduled = false
     private var closed = false
     private var closedReason: String?
 
@@ -24,6 +30,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
         self.names = names
         self.categories = categories
         self.maxPendingEvents = max(1, maxPendingEvents)
+        deliveryQueue = DispatchQueue(label: "com.cmux.event-subscription.delivery.\(id.uuidString)")
     }
 
     func accepts(_ event: [String: Any]) -> Bool {
@@ -59,11 +66,17 @@ final class CmuxEventSubscription: @unchecked Sendable {
             closed = true
             closedReason = "pending event buffer exceeded \(maxPendingEvents) events"
             queue.removeAll()
+            eventHandlers.removeAll()
             shouldSignal = true
             accepted = false
         } else {
             queue.append(event)
-            shouldSignal = true
+            if !eventHandlers.isEmpty {
+                scheduleDeliveryLocked()
+                shouldSignal = false
+            } else {
+                shouldSignal = true
+            }
             accepted = true
         }
         lock.unlock()
@@ -73,9 +86,30 @@ final class CmuxEventSubscription: @unchecked Sendable {
         return accepted
     }
 
+    func addEventHandler(_ handler: @escaping EventHandler) -> UUID? {
+        lock.lock()
+        guard !closed else {
+            lock.unlock()
+            return nil
+        }
+        let token = UUID()
+        eventHandlers[token] = handler
+        if !queue.isEmpty {
+            scheduleDeliveryLocked()
+        }
+        lock.unlock()
+        return token
+    }
+
+    func removeEventHandler(_ token: UUID) {
+        lock.lock()
+        eventHandlers.removeValue(forKey: token)
+        lock.unlock()
+    }
+
     func next(timeout: TimeInterval) -> [String: Any]? {
         lock.lock()
-        if !queue.isEmpty {
+        if eventHandlers.isEmpty, !queue.isEmpty {
             let event = queue.removeFirst()
             lock.unlock()
             return event
@@ -91,7 +125,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
 
         lock.lock()
         defer { lock.unlock() }
-        guard !queue.isEmpty else { return nil }
+        guard eventHandlers.isEmpty, !queue.isEmpty else { return nil }
         return queue.removeFirst()
     }
 
@@ -102,8 +136,35 @@ final class CmuxEventSubscription: @unchecked Sendable {
             closedReason = reason
         }
         queue.removeAll()
+        eventHandlers.removeAll()
         lock.unlock()
         semaphore.signal()
+    }
+
+    private func scheduleDeliveryLocked() {
+        guard !deliveryScheduled else { return }
+        deliveryScheduled = true
+        deliveryQueue.async { [weak self] in
+            self?.deliverQueuedEvents()
+        }
+    }
+
+    private func deliverQueuedEvents() {
+        while true {
+            lock.lock()
+            guard !closed, !eventHandlers.isEmpty, !queue.isEmpty else {
+                deliveryScheduled = false
+                lock.unlock()
+                return
+            }
+            let event = queue.removeFirst()
+            let handlers = Array(eventHandlers.values)
+            lock.unlock()
+
+            for handler in handlers {
+                handler(event)
+            }
+        }
     }
 }
 

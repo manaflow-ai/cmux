@@ -76,6 +76,39 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 
+    func testHandlerReceivesEventsQueuedBeforeRegistration() {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let snapshot = bus.subscribe(afterSequence: nil, names: [], categories: ["surface"])
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        bus.publish(name: "surface.created", category: "surface", source: "test")
+
+        let delivered = expectation(description: "queued event delivered to handler")
+        let receivedNamesLock = NSLock()
+        var receivedNames: [String] = []
+        let token = snapshot.subscription.addEventHandler { event in
+            if let name = event["name"] as? String {
+                receivedNamesLock.lock()
+                receivedNames.append(name)
+                receivedNamesLock.unlock()
+                delivered.fulfill()
+            }
+        }
+        defer {
+            if let token {
+                snapshot.subscription.removeEventHandler(token)
+            }
+        }
+
+        XCTAssertNotNil(token)
+        wait(for: [delivered], timeout: 1)
+        receivedNamesLock.lock()
+        let deliveredNames = receivedNames
+        receivedNamesLock.unlock()
+        XCTAssertEqual(deliveredNames, ["surface.created"])
+        XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
+    }
+
     func testSlowSubscriptionClosesWhenPendingQueueIsFull() {
         let bus = CmuxEventBus(retainedEventLimit: 8, maxPendingEventsPerSubscription: 2)
         let snapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])

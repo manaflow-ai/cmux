@@ -1264,6 +1264,9 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
 }
+struct SessionExtensionPanelSnapshot: Codable, Sendable {
+    var bundlePath: String
+}
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
@@ -1351,6 +1354,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var ttyName: String?
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
+    var extensionPanel: SessionExtensionPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?

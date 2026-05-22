@@ -6,6 +6,7 @@ import AppKit
 public enum PanelType: String, Codable, Sendable {
     case terminal
     case browser
+    case extensionPane = "extension"
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
@@ -34,6 +35,22 @@ public enum PanelType: String, Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
+    }
+
+    public static func userInputValue(_ rawValue: String) -> PanelType? {
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        switch normalized {
+        case "extensionpane":
+            return .extensionPane
+        case "rightsidebartool":
+            return .rightSidebarTool
+        default:
+            return PanelType(rawValue: normalized)
+        }
     }
 }
 
