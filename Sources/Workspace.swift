@@ -7420,9 +7420,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// a panel is explicitly re-zoomed by the user.
     var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
 
-    private static var warmTerminalPoolPanel: TerminalPanel?
-    private static var warmTerminalPoolOwnerWorkspaceId: UUID?
-    private static var warmTerminalPoolSettingsObserver: NSObjectProtocol?
+    @MainActor private static var warmTerminalPoolPanel: TerminalPanel?
+    @MainActor private static var warmTerminalPoolOwnerWorkspaceId: UUID?
+    @MainActor private static var warmTerminalPoolSettingsObserver: NSObjectProtocol?
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
@@ -10430,17 +10430,16 @@ final class Workspace: Identifiable, ObservableObject {
             GhosttyApp.shared.app != nil
     }
 
-    private static func installWarmTerminalPoolSettingsObserverIfNeeded() {
+    @MainActor private static func installWarmTerminalPoolSettingsObserverIfNeeded() {
         guard warmTerminalPoolSettingsObserver == nil else { return }
         warmTerminalPoolSettingsObserver = NotificationCenter.default.addObserver(
             forName: TerminalWarmPtyPoolSettings.didChangeNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            Task { @MainActor in
+        ) { [weak tabManager = AppDelegate.shared?.tabManager] _ in
+            Task { @MainActor [weak tabManager] in
                 if TerminalWarmPtyPoolSettings.isEnabled() {
-                    AppDelegate.shared?.tabManager?.selectedWorkspace?
-                        .refillWarmTerminalPoolIfNeeded(reason: "settings.enabled")
+                    tabManager?.selectedWorkspace?.refillWarmTerminalPoolIfNeeded(reason: "settings.enabled")
                 } else {
                     Self.discardWarmTerminalPool(reason: "settings.disabled")
                 }
@@ -10448,7 +10447,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private static func discardWarmTerminalPool(reason: String) {
+    @MainActor private static func discardWarmTerminalPool(reason: String) {
         guard let panel = warmTerminalPoolPanel else { return }
         warmTerminalPoolPanel = nil
         warmTerminalPoolOwnerWorkspaceId = nil
@@ -10537,8 +10536,8 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> Bool {
         guard TerminalWarmPtyPoolSettings.isEnabled() else { return false }
         guard remoteTerminalStartupCommand() == nil else { return false }
-        guard Self.normalizedWarmTerminalDirectory(initialCommand) == nil else { return false }
-        guard Self.normalizedWarmTerminalDirectory(tmuxStartCommand) == nil else { return false }
+        guard initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else { return false }
+        guard tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else { return false }
         guard initialInput?.isEmpty != false else { return false }
         guard startupEnvironment.isEmpty else { return false }
         guard configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
@@ -10562,6 +10561,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard let panel = Self.warmTerminalPoolPanel else { return nil }
         guard let liveSurface = panel.surface.liveSurfaceForGhosttyAccess(reason: "warmPool.take") else {
+            Self.discardWarmTerminalPool(reason: "take.surfaceUnavailable")
             return nil
         }
         guard !ghostty_surface_process_exited(liveSurface) else {

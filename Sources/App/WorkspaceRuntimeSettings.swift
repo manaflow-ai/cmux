@@ -133,16 +133,18 @@ enum TerminalWarmPtyPoolSettings {
         }
     }
 
+    @discardableResult
     static func reset(
         defaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default
-    ) {
+    ) -> Bool {
         let wasEnabled = isEnabled(defaults: defaults)
         defaults.removeObject(forKey: enabledKey)
         let isNowEnabled = isEnabled(defaults: defaults)
         if wasEnabled != isNowEnabled {
             notifyDidChange(notificationCenter: notificationCenter)
         }
+        return wasEnabled != isNowEnabled
     }
 
     static func notifyDidChange(notificationCenter: NotificationCenter = .default) {

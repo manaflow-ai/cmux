@@ -42,11 +42,17 @@ final class TerminalWarmPtyPoolSettingsTests: XCTestCase {
         )
         XCTAssertEqual(notificationCount, 1)
 
-        TerminalWarmPtyPoolSettings.reset(
+        XCTAssertTrue(TerminalWarmPtyPoolSettings.reset(
             defaults: defaults,
             notificationCenter: notificationCenter
-        )
+        ))
         XCTAssertTrue(TerminalWarmPtyPoolSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(notificationCount, 2)
+
+        XCTAssertFalse(TerminalWarmPtyPoolSettings.reset(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        ))
         XCTAssertEqual(notificationCount, 2)
     }
 }
