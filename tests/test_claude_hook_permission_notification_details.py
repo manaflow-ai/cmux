@@ -128,6 +128,18 @@ class CapturingSocketServer:
                         }
                     )
                 if method == "feed.push":
+                    event = request.get("params", {}).get("event", {})
+                    if event.get("_opencode_request_id") == "resolved-clear-stale":
+                        return json.dumps(
+                            {
+                                "id": request.get("id"),
+                                "ok": True,
+                                "result": {
+                                    "status": "resolved",
+                                    "decision": {"kind": "permission", "mode": "allow"},
+                                },
+                            }
+                        )
                     return json.dumps(
                         {
                             "id": request.get("id"),
@@ -335,6 +347,102 @@ def main() -> int:
                 print(f"actual={notify!r}")
                 print(f"commands={server.commands!r}")
                 return 1
+
+        direct_session_id = f"sess-{uuid.uuid4().hex}"
+        before_count = len([line for line in server.commands if line.startswith("notify_target_async ")])
+        direct_notification = {
+            "session_id": direct_session_id,
+            "hook_event_name": "Notification",
+            "message": "Claude needs your permission",
+            "tool_name": "Bash",
+            "tool_input": {"description": "Install test dependency"},
+        }
+        direct_proc = subprocess.run(
+            [cli_path, "--socket", server.socket_path, "claude-hook", "notification"],
+            input=json.dumps(direct_notification),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=8,
+            check=False,
+        )
+        if direct_proc.returncode != 0:
+            print("FAIL: direct generic notification failed")
+            print(f"stdout={direct_proc.stdout!r}")
+            print(f"stderr={direct_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+        notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
+        if len(notify_commands) <= before_count:
+            print("FAIL: expected notify_target_async command for direct generic notification")
+            print(f"commands={server.commands!r}")
+            return 1
+        expected_direct = (
+            f"notify_target_async {workspace_id} {surface_id} "
+            "Claude Code|Permission|Bash: Install test dependency"
+        )
+        if notify_commands[-1] != expected_direct:
+            print("FAIL: direct generic notification should include tool detail")
+            print(f"expected={expected_direct!r}")
+            print(f"actual={notify_commands[-1]!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        stale_session_id = f"sess-{uuid.uuid4().hex}"
+        stale_feed_payload = {
+            "session_id": stale_session_id,
+            "request_id": "resolved-clear-stale",
+            "hook_event_name": "PermissionRequest",
+            "cwd": os.getcwd(),
+            "tool_name": "Bash",
+            "tool_input": {"description": "Delete temporary credentials"},
+        }
+        stale_feed_proc = subprocess.run(
+            [cli_path, "--socket", server.socket_path, "hooks", "feed", "--source", "claude"],
+            input=json.dumps(stale_feed_payload),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=8,
+            check=False,
+        )
+        if stale_feed_proc.returncode != 0:
+            print("FAIL: resolved hooks feed failed for stale-clear case")
+            print(f"stdout={stale_feed_proc.stdout!r}")
+            print(f"stderr={stale_feed_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+        before_count = len([line for line in server.commands if line.startswith("notify_target_async ")])
+        stale_notification = {
+            "session_id": stale_session_id,
+            "hook_event_name": "Notification",
+            "message": "Claude needs your permission",
+        }
+        stale_proc = subprocess.run(
+            [cli_path, "--socket", server.socket_path, "claude-hook", "notification"],
+            input=json.dumps(stale_notification),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=8,
+            check=False,
+        )
+        if stale_proc.returncode != 0:
+            print("FAIL: stale-clear notification failed")
+            print(f"stdout={stale_proc.stdout!r}")
+            print(f"stderr={stale_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+        notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
+        if len(notify_commands) <= before_count:
+            print("FAIL: expected notify_target_async command for stale-clear notification")
+            print(f"commands={server.commands!r}")
+            return 1
+        if "Delete temporary credentials" in notify_commands[-1]:
+            print("FAIL: resolved permission detail should not be reused by later generic notification")
+            print(f"actual={notify_commands[-1]!r}")
+            print(f"commands={server.commands!r}")
+            return 1
 
     print("PASS: Claude notifications include permission, plan, question, and fallback details")
     return 0

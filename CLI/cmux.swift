@@ -790,6 +790,21 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    func clearPendingNotificationSummary(sessionId: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.lastNotificationStatus == .needsInput else { return }
+            let now = Date().timeIntervalSince1970
+            record.lastSubtitle = nil
+            record.lastBody = nil
+            record.lastNotificationStatus = nil
+            record.updatedAt = now
+            state.sessions[normalized] = record
+        }
+    }
+
     func recentlyEmittedNotification(
         sessionId: String,
         fingerprint: String,
@@ -18588,6 +18603,9 @@ struct CMUXCLI {
                 return
             }
 
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.clearPendingNotificationSummary(sessionId: sessionId)
+            }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
 
             let statusValue: String
@@ -20874,7 +20892,8 @@ struct CMUXCLI {
         let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
         let normalizedMessage = normalizedSingleLine(message)
         if isGenericClaudeNotificationBody(normalizedMessage),
-           let pendingSummary = summarizeClaudePendingNotification(object: object) {
+           let pendingSummary = summarizeClaudePendingNotification(object: object)
+                ?? summarizeClaudePermissionNotification(object: object) {
             return pendingSummary
         }
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
@@ -27187,6 +27206,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         let status = result["status"] as? String ?? "acknowledged"
+        if source == "claude",
+           ["PermissionRequest", "ExitPlanMode", "AskUserQuestion"].contains(hookEventName),
+           ["resolved", "timedOut", "timed_out"].contains(status) {
+            try? sessionStore.clearPendingNotificationSummary(sessionId: sessionId)
+        }
         if status == "resolved", let decision = result["decision"] as? [String: Any] {
             let out = Self.renderAgentDecision(
                 source: source,
