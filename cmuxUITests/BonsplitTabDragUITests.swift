@@ -918,12 +918,17 @@ final class MarkdownPaneDragUITests: XCTestCase {
         assertCounter(data, "primaryNavigationFailureCount", equals: 0)
         assertCounter(data, "primaryFlickerSignalCount", equals: 0)
 
+        assertCounter(data, "droppedMakeNSViewCount", equals: 1)
+        assertCounter(data, "droppedReuseNSViewCount", equals: 0)
         assertCounter(data, "droppedWebViewCreateCount", equals: 1)
+        assertCounter(data, "droppedWebViewReattachCount", equals: 0)
+        assertCounter(data, "droppedDismantleRetainedWebViewCount", equals: 0)
         assertCounter(data, "droppedLoadShellCount", equals: 1)
         assertCounter(data, "droppedDidFinishCount", equals: 1)
         assertCounter(data, "droppedPushMarkdownCount", equals: 1)
         assertCounter(data, "droppedWebContentProcessTerminationCount", equals: 0)
         assertCounter(data, "droppedNavigationFailureCount", equals: 0)
+        assertCounter(data, "droppedFlickerSignalCount", equals: 0)
 
         guard let paneCountBefore = intValue(data["paneCountBefore"]),
               let paneCountAfter = intValue(data["paneCountAfter"]),
