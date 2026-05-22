@@ -946,6 +946,64 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id), Set<UUID>())
     }
 
+    func testRemotePromptDoesNotStartLocalPullRequestProbe() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            if let previousWatchGitStatus {
+                defaults.set(previousWatchGitStatus, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+            } else {
+                defaults.removeObject(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+            }
+        }
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64018,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: "/home/demo/project"
+        )
+        manager.updateSurfaceGitBranch(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            branch: "feature/remote",
+            isDirty: false
+        )
+
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "feature/remote")
+
+        manager.updateSurfaceShellActivity(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            state: .promptIdle
+        )
+
+        XCTAssertTrue(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty)
+        XCTAssertTrue(manager.trackedWorkspacePullRequestProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty)
+    }
+
     func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
         let fileManager = FileManager.default
         let tempDir = fileManager.temporaryDirectory.appendingPathComponent(

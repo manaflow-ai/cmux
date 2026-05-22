@@ -1415,6 +1415,11 @@ class TabManager: ObservableObject {
         let activeProbeKeys = activeWorkspaceGitProbeKeys
 
         for workspace in tabs {
+            if workspace.isRemoteWorkspace {
+                clearWorkspaceGitProbes(workspaceId: workspace.id)
+                continue
+            }
+
             for panelId in trackedWorkspaceGitMetadataPollCandidatePanelIds(
                 in: workspace,
                 activeProbeKeys: activeProbeKeys
@@ -1602,7 +1607,7 @@ class TabManager: ObservableObject {
         var requestedKeys: [WorkspaceGitProbeKey] = []
         var validKeys: Set<WorkspaceGitProbeKey> = []
 
-        for workspace in tabs {
+        for workspace in tabs where !workspace.isRemoteWorkspace {
             for panelId in Set(workspace.panelGitBranches.keys).union(workspace.panelPullRequests.keys) {
                 let key = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
                 validKeys.insert(key)
@@ -1780,6 +1785,11 @@ class TabManager: ObservableObject {
             clearWorkspaceGitMetadata(for: key)
             return
         }
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }),
+              !workspace.isRemoteWorkspace else {
+            clearWorkspacePullRequestTracking(for: key)
+            return
+        }
         let shouldBypassRepoCache = !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
         if shouldBypassRepoCache, workspacePullRequestRefreshTask != nil {
             workspacePullRequestFollowUpShouldBypassRepoCache = true
@@ -1855,6 +1865,7 @@ class TabManager: ObservableObject {
             }
 
             guard let workspace = tabs.first(where: { $0.id == result.workspaceId }),
+                  !workspace.isRemoteWorkspace,
                   workspace.panels[result.panelId] != nil else {
                 clearWorkspacePullRequestTracking(for: key)
                 continue
@@ -2133,6 +2144,14 @@ class TabManager: ObservableObject {
         return Set(probeKeys.map(\.panelId))
     }
 
+    func trackedWorkspacePullRequestProbePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
+        let probeKeys = Set(workspacePullRequestProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestNextPollAtByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestLastTerminalStateRefreshAtByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestTransientFailureCountByKey.keys.filter { $0.workspaceId == workspaceId })
+        return Set(probeKeys.map(\.panelId))
+    }
+
     private func trackedWorkspaceGitMetadataPollCandidatePanelIds(
         in workspace: Workspace,
         activeProbeKeys: Set<WorkspaceGitProbeKey>
@@ -2234,8 +2253,14 @@ class TabManager: ObservableObject {
             clearWorkspaceGitMetadata(for: key)
             return
         }
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }),
-              workspace.panels[panelId] != nil,
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else {
+            return
+        }
+        guard !workspace.isRemoteWorkspace else {
+            clearWorkspaceLocalGitProbeTracking(for: key)
+            return
+        }
+        guard workspace.panels[panelId] != nil,
               let directory = gitProbeDirectory(for: workspace, panelId: panelId) else {
             return
         }
@@ -2680,6 +2705,12 @@ class TabManager: ObservableObject {
         expectedDirectory: String,
         isLastAttempt: Bool
     ) {
+        guard let workspace = tabs.first(where: { $0.id == probeKey.workspaceId }),
+              !workspace.isRemoteWorkspace else {
+            clearWorkspaceLocalGitProbeTracking(for: probeKey)
+            return
+        }
+
         switch workspaceGitProbeStateByKey[probeKey] ?? .idle {
         case .idle:
             workspaceGitProbeStateByKey[probeKey] = .inFlight(rerunPending: false)
@@ -2737,6 +2768,12 @@ class TabManager: ObservableObject {
         }
         workspace.clearPanelGitBranch(panelId: key.panelId)
         workspace.clearPanelPullRequest(panelId: key.panelId)
+    }
+
+    private func clearWorkspaceLocalGitProbeTracking(for key: WorkspaceGitProbeKey) {
+        clearWorkspaceGitProbe(key)
+        workspaceGitTrackedDirectoryByKey.removeValue(forKey: key)
+        updateWorkspaceGitMetadataFallbackTimer()
     }
 
     private func clearAllWorkspaceSidebarGitMetadata() {
@@ -2817,6 +2854,11 @@ class TabManager: ObservableObject {
         guard wasInFlight else { return }
         guard let workspace = tabs.first(where: { $0.id == probeKey.workspaceId }) else {
             clearWorkspaceGitProbe(probeKey)
+            didClearProbe = true
+            return
+        }
+        guard !workspace.isRemoteWorkspace else {
+            clearWorkspaceLocalGitProbeTracking(for: probeKey)
             didClearProbe = true
             return
         }
