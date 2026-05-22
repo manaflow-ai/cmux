@@ -12878,6 +12878,12 @@ struct CMUXCLI {
             } else {
                 print(renderMemoryTrimResult(result, idFormat: idFormat))
             }
+
+#if DEBUG
+        case .debugOpenRetry:
+            try runMemoryTelemetryOpenRetrySelfTest()
+            print("PASS: memory telemetry database retries initialization after migration failure")
+#endif
         }
     }
 

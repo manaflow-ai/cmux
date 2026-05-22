@@ -8,6 +8,9 @@ extension CMUXCLI {
         case list
         case top
         case trim
+#if DEBUG
+        case debugOpenRetry
+#endif
     }
 
     struct MemoryTopCommandOptions {
@@ -67,6 +70,10 @@ extension CMUXCLI {
             switch rawSubcommand {
             case "snapshot", "snap", "list", "ls", "top", "trim":
                 return true
+#if DEBUG
+            case "_test-open-retry":
+                return true
+#endif
             default:
                 return false
             }
@@ -103,6 +110,10 @@ extension CMUXCLI {
                 return (.top, rest)
             case "trim":
                 return (.trim, rest)
+#if DEBUG
+            case "_test-open-retry":
+                return (.debugOpenRetry, rest)
+#endif
             default:
                 throw CLIError(message: String(
                     format: String(

@@ -318,4 +318,87 @@ extension CMUXCLI {
         }
     }
 
+#if DEBUG
+    func runMemoryTelemetryOpenRetrySelfTest() throws {
+        let url = try memoryTelemetryDatabaseURL()
+        try executeMemoryTelemetrySelfTestSQL(
+            at: url,
+            [
+                "CREATE VIEW workspace_memory_samples AS SELECT 1 AS id"
+            ]
+        )
+
+        let database = MemoryTelemetryDatabase(url: url)
+        do {
+            try database.open()
+        } catch {
+            // Expected: the view blocks migration after sqlite3_open_v2 succeeds.
+        }
+
+        try executeMemoryTelemetrySelfTestSQL(
+            at: url,
+            [
+                "DROP VIEW workspace_memory_samples"
+            ]
+        )
+
+        try database.insert(
+            samples: [
+                MemoryWorkspaceSample(
+                    sampledAt: Date(),
+                    windowId: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+                    windowRef: "window:1",
+                    workspaceId: "88888888-8888-8888-8888-888888888888",
+                    workspaceRef: "workspace:8",
+                    workspaceTitle: "Retried Init Workspace",
+                    cpuPercent: 1.5,
+                    memoryPercent: 0.2,
+                    residentBytes: 2048,
+                    virtualBytes: 4096,
+                    processCount: 1,
+                    topProcessNames: ["codex"]
+                )
+            ],
+            retention: 3600
+        )
+    }
+
+    private func executeMemoryTelemetrySelfTestSQL(at url: URL, _ statements: [String]) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        var db: OpaquePointer?
+        let flags = SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
+        guard sqlite3_open_v2(url.path, &db, flags, nil) == SQLITE_OK, db != nil else {
+            if let db {
+                sqlite3_close(db)
+            }
+            throw CLIError(message: memoryTelemetrySelfTestErrorMessage)
+        }
+        defer {
+            sqlite3_close(db)
+        }
+
+        for statement in statements {
+            var errorMessage: UnsafeMutablePointer<CChar>?
+            let result = sqlite3_exec(db, statement, nil, nil, &errorMessage)
+            if let errorMessage {
+                sqlite3_free(errorMessage)
+            }
+            guard result == SQLITE_OK else {
+                throw CLIError(message: memoryTelemetrySelfTestErrorMessage)
+            }
+        }
+    }
+
+    private var memoryTelemetrySelfTestErrorMessage: String {
+        String(
+            localized: "cli.memory.error.telemetryUnavailable",
+            defaultValue: "Could not access memory telemetry. Try again, or run `cmux memory snapshot` after opening cmux to collect a fresh sample."
+        )
+    }
+#endif
+
 }
