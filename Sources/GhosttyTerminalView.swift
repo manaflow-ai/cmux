@@ -6448,8 +6448,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
 
-        guard !backgroundSurfaceStartQueued else { return }
-        backgroundSurfaceStartQueued = true
+        let shouldQueueStart = MainActor.assumeIsolated { () -> Bool in
+            guard self.liveSurfaceForGhosttyAccess(reason: "background-input.preflight") == nil else { return false }
+            guard self.allowsRuntimeSurfaceCreation() else { return false }
+            guard self.surface == nil else { return false }
+            guard !self.backgroundSurfaceStartQueued else { return false }
+            self.backgroundSurfaceStartQueued = true
+            return true
+        }
+        guard shouldQueueStart else { return }
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
