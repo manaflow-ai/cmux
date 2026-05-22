@@ -1184,6 +1184,7 @@ class TabManager: ObservableObject {
                 guard let self, self.selectionSideEffectsGeneration == generation else { return }
                 self.focusSelectedTabPanel(previousTabId: previousTabId)
                 self.updateWindowTitleForSelectedTab()
+                self.selectedWorkspace?.refillWarmTerminalPoolAfterWorkspaceSelection(reason: "workspace.selected")
                 if let selectedTabId = self.selectedTabId {
                     self.dismissFocusedPanelNotificationIfActive(
                         tabId: selectedTabId,

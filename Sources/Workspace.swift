@@ -10939,6 +10939,10 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     }
 
+    @MainActor func refillWarmTerminalPoolAfterWorkspaceSelection(reason: String) {
+        refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: reason)
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(

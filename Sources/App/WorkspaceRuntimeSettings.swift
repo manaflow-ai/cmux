@@ -327,6 +327,10 @@ struct TerminalWarmPtyPoolStartupSignature: Equatable {
             for file in [".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"] {
                 append((zdotdir as NSString).appendingPathComponent(file))
             }
+            let xdgZdotdir = (configHome as NSString).appendingPathComponent("zsh")
+            for file in [".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"] {
+                append((xdgZdotdir as NSString).appendingPathComponent(file))
+            }
 
         case "bash":
             for path in ["/etc/profile", "/etc/bashrc", "/etc/bash.bashrc"] {
