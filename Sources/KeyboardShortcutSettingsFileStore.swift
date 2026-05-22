@@ -64,6 +64,7 @@ final class CmuxSettingsFileStore {
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
+    private var activeLegacyDerivedManagedUserDefaultKeys: Set<String> = []
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var isApplyingManagedSettings = false
     private var deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
@@ -149,6 +150,7 @@ final class CmuxSettingsFileStore {
             shortcutsByAction = resolved.shortcuts
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
+            activeLegacyDerivedManagedUserDefaultKeys = resolved.legacyDerivedManagedUserDefaultKeys
             activeManagedCustomSettings = resolved.managedCustomSettings
             activeSourcePath = resolved.path
         }
@@ -224,6 +226,7 @@ final class CmuxSettingsFileStore {
                     path: activeSourcePath,
                     shortcuts: shortcutsByAction,
                     managedUserDefaults: activeManagedUserDefaults,
+                    legacyDerivedManagedUserDefaultKeys: activeLegacyDerivedManagedUserDefaultKeys,
                     managedCustomSettings: activeManagedCustomSettings
                 ),
                 importedManagedDefaults
@@ -421,8 +424,22 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["sendAnonymousTelemetry"]) {
             snapshot.managedUserDefaults[TelemetrySettings.sendAnonymousTelemetryKey] = .bool(value)
         }
+        var parsedConfirmQuitMode: QuitConfirmationMode?
+        if let raw = jsonString(section["confirmQuit"]) {
+            if let mode = QuitConfirmationMode(rawValue: raw) {
+                parsedConfirmQuitMode = mode
+                snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
+            } else {
+                logInvalid("app.confirmQuit", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonBool(section["warnBeforeQuit"]) {
             snapshot.managedUserDefaults[QuitWarningSettings.warnBeforeQuitKey] = .bool(value)
+            if parsedConfirmQuitMode == nil {
+                let mode: QuitConfirmationMode = value ? .always : .never
+                snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
+                snapshot.legacyDerivedManagedUserDefaultKeys.insert(QuitWarningSettings.confirmQuitKey)
+            }
         }
         if let value = jsonBool(section["warnBeforeClosingTab"]) {
             snapshot.managedUserDefaults[CloseTabWarningSettings.warnBeforeClosingTabKey] = .bool(value)
@@ -926,7 +943,9 @@ final class CmuxSettingsFileStore {
                     value,
                     for: defaultsKey,
                     importedDefault: importedManagedDefaults[defaultsKey],
-                    forceApply: changedManagedDefaultKeys.contains(defaultsKey)
+                    forceApply: changedManagedDefaultKeys.contains(defaultsKey),
+                    isDerivedFromLegacyWarnBeforeQuit: snapshot.legacyDerivedManagedUserDefaultKeys.contains(defaultsKey),
+                    importedLegacyWarnBeforeQuitDefault: importedManagedDefaults[QuitWarningSettings.warnBeforeQuitKey]
                 )
             )
         }
@@ -1103,7 +1122,9 @@ final class CmuxSettingsFileStore {
         _ value: ManagedSettingsValue,
         for defaultsKey: String,
         importedDefault: ManagedSettingsValue?,
-        forceApply: Bool
+        forceApply: Bool,
+        isDerivedFromLegacyWarnBeforeQuit: Bool = false,
+        importedLegacyWarnBeforeQuitDefault: ManagedSettingsValue? = nil
     ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
         guard shouldApplyManagedUserDefaultsValue(
@@ -1111,6 +1132,8 @@ final class CmuxSettingsFileStore {
             for: defaultsKey,
             importedDefault: importedDefault,
             forceApply: forceApply,
+            isDerivedFromLegacyWarnBeforeQuit: isDerivedFromLegacyWarnBeforeQuit,
+            importedLegacyWarnBeforeQuitDefault: importedLegacyWarnBeforeQuitDefault,
             defaults: defaults
         ) else {
             return ManagedDefaultBatchSideEffects()
@@ -1186,6 +1209,8 @@ final class CmuxSettingsFileStore {
         for defaultsKey: String,
         importedDefault: ManagedSettingsValue?,
         forceApply: Bool,
+        isDerivedFromLegacyWarnBeforeQuit: Bool,
+        importedLegacyWarnBeforeQuitDefault: ManagedSettingsValue?,
         defaults: UserDefaults
     ) -> Bool {
         guard !forceApply else { return true }
@@ -1198,7 +1223,11 @@ final class CmuxSettingsFileStore {
         ) else {
             return shouldApplyManagedUserDefaultsValueWhenCurrentIsMissing(
                 value,
-                importedDefault: importedDefault
+                for: defaultsKey,
+                importedDefault: importedDefault,
+                isDerivedFromLegacyWarnBeforeQuit: isDerivedFromLegacyWarnBeforeQuit,
+                importedLegacyWarnBeforeQuitDefault: importedLegacyWarnBeforeQuitDefault,
+                defaults: defaults
             )
         }
         return current == importedDefault
@@ -1206,8 +1235,19 @@ final class CmuxSettingsFileStore {
 
     private func shouldApplyManagedUserDefaultsValueWhenCurrentIsMissing(
         _ value: ManagedSettingsValue,
-        importedDefault: ManagedSettingsValue
+        for defaultsKey: String,
+        importedDefault: ManagedSettingsValue,
+        isDerivedFromLegacyWarnBeforeQuit: Bool,
+        importedLegacyWarnBeforeQuitDefault: ManagedSettingsValue?,
+        defaults: UserDefaults
     ) -> Bool {
+        if defaultsKey == QuitWarningSettings.confirmQuitKey,
+           isDerivedFromLegacyWarnBeforeQuit,
+           case .bool(let importedLegacyValue)? = importedLegacyWarnBeforeQuitDefault,
+           let currentLegacyValue = defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool,
+           currentLegacyValue != importedLegacyValue {
+            return false
+        }
         switch (value, importedDefault) {
         case (.nullableString, .nullableString(nil)):
             return true
@@ -1316,6 +1356,12 @@ final class CmuxSettingsFileStore {
            ) as? Bool {
             imported[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(legacyValue)
         }
+        if imported[QuitWarningSettings.confirmQuitKey] == nil,
+           case .bool(let importedLegacyValue)? = imported[QuitWarningSettings.warnBeforeQuitKey] {
+            imported[QuitWarningSettings.confirmQuitKey] = .string(
+                (importedLegacyValue ? QuitConfirmationMode.always : .never).rawValue
+            )
+        }
         return imported
     }
 
@@ -1396,6 +1442,7 @@ private struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
+    var legacyDerivedManagedUserDefaultKeys: Set<String> = []
     var managedCustomSettings = ManagedCustomSettings()
 
     mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
@@ -1409,6 +1456,9 @@ private struct ResolvedSettingsSnapshot {
         }
         for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
             managedUserDefaults[key] = value
+            if fallback.legacyDerivedManagedUserDefaultKeys.contains(key) {
+                legacyDerivedManagedUserDefaultKeys.insert(key)
+            }
         }
         managedCustomSettings.fillMissingSettings(from: fallback.managedCustomSettings)
     }

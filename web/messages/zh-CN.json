@@ -490,6 +490,10 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。"
+        },
+        "app": {
+          "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
+          "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。"
         }
       }
     },

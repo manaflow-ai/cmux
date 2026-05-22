@@ -490,6 +490,10 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "قم بإخفاء إشعارات الإكمال المرئية وتغييرات الحالة من وكلاء Codex أو Claude الفرعيين المتداخلين مع إبقاء أحداثهم في قياسات Feed."
+        },
+        "app": {
+          "confirmQuit": "يتحكم في وقت طلب cmux التأكيد قبل الإنهاء. تنتهي إصدارات DEV فوراً دائماً بغض النظر عن هذا الإعداد. يظل app.warnBeforeQuit القديم مقبولاً كخيار احتياطي منطقي.",
+          "warnBeforeQuit": "خيار منطقي قديم احتياطي لتأكيد الإنهاء. استخدم app.confirmQuit للإعدادات الجديدة."
         }
       }
     },
