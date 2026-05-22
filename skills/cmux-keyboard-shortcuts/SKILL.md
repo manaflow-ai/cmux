@@ -43,7 +43,7 @@ fi
 - Setting path: `shortcuts.bindings.<actionId>`.
 - Single stroke: `"cmd+b"`.
 - Chord: `["ctrl+b","c"]`. The first stroke needs a modifier unless the key is Space. The second stroke can be bare.
-- Unbind: `null`, `""`, `"none"`, `"clear"`, `"unbound"`, or `"disabled"`.
+- Unbind: prefer `null` for explicit unbinds. `""`, `"none"`, `"clear"`, `"unbound"`, and `"disabled"` are accepted aliases, but `null` is the clearest JSON value and matches the templates below.
 - `selectSurfaceByNumber` and `selectWorkspaceByNumber` must use a digit from 1 to 9. `cmd+1` means the full `cmd+1` through `cmd+9` family.
 - `showHideAllWindows` and `globalSearch` are system-wide shortcuts. They cannot be chords, require modifiers, and may be rejected by macOS if reserved.
 - Saving `cmux.json` live reloads. Do not tell the user to restart cmux.
@@ -134,13 +134,13 @@ For users who want fast pane movement without a prefix and do not want to depend
 
 ### Agent Triage
 
-For users who live in notifications and want unread handling on one key family.
+For users who live in notifications and want unread handling on one key family. This keeps toggle unread on `cmd+opt+u` so it can be combined with Vim Pane Navigation without colliding with `cmd+opt+j`.
 
 ```bash
 "$CMUX_SETTINGS" set shortcuts.bindings.showNotifications cmd+u
 "$CMUX_SETTINGS" set shortcuts.bindings.jumpToUnread cmd+j
 "$CMUX_SETTINGS" set shortcuts.bindings.markOldestUnreadAndJumpNext cmd+shift+j
-"$CMUX_SETTINGS" set shortcuts.bindings.toggleUnread cmd+opt+j
+"$CMUX_SETTINGS" set shortcuts.bindings.toggleUnread cmd+opt+u
 "$CMUX_SETTINGS" set shortcuts.bindings.triggerFlash cmd+shift+h
 "$CMUX_SETTINGS" set shortcuts.bindings.focusRightSidebar cmd+shift+e
 ```
