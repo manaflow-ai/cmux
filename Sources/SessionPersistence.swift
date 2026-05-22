@@ -1040,32 +1040,50 @@ enum SurfaceResumeApprovalStore {
     ) -> Bool {
         do {
             let rootLoadResult = loadCmuxSettingsRoot(fileURL: fileURL)
-            var root: [String: Any]
-            switch rootLoadResult {
-            case .missing:
-                root = [
-                    "$schema": CmuxSettingsFileStore.schemaURLString,
-                    "schemaVersion": CmuxSettingsFileStore.currentSchemaVersion,
-                ]
-            case .invalid:
-                return false
-            case .parsed(let parsedRoot):
-                root = parsedRoot
-            }
 
             let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let recordsData = try encoder.encode(records)
             let recordsValue = try JSONSerialization.jsonObject(with: recordsData, options: [])
-
-            var terminalSection = root[settingsTerminalSectionKey] as? [String: Any] ?? [:]
-            terminalSection[settingsRecordsKey] = recordsValue
-            root[settingsTerminalSectionKey] = terminalSection
-
-            guard JSONSerialization.isValidJSONObject(root) else {
+            guard let recordsJSON = String(data: recordsData, encoding: .utf8) else {
                 return false
             }
-            let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+
+            let data: Data
+            switch rootLoadResult {
+            case .missing:
+                let root: [String: Any] = [
+                    "$schema": CmuxSettingsFileStore.schemaURLString,
+                    "schemaVersion": CmuxSettingsFileStore.currentSchemaVersion,
+                    settingsTerminalSectionKey: [
+                        settingsRecordsKey: recordsValue,
+                    ],
+                ]
+                guard JSONSerialization.isValidJSONObject(root) else {
+                    return false
+                }
+                data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            case .invalid:
+                return false
+            case .parsed:
+                guard let existingData = fileManager.contents(atPath: fileURL.path),
+                      let source = String(data: existingData, encoding: .utf8),
+                      let updatedSource = JSONCObjectEditor.setNestedObjectProperty(
+                          parentKey: settingsTerminalSectionKey,
+                          childKey: settingsRecordsKey,
+                          childValueJSON: recordsJSON,
+                          in: source
+                      ) else {
+                    return false
+                }
+                let sanitized = try JSONCParser.preprocess(data: Data(updatedSource.utf8))
+                guard let root = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any],
+                      JSONSerialization.isValidJSONObject(root) else {
+                    return false
+                }
+                data = Data(updatedSource.utf8)
+            }
+
             try fileManager.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true

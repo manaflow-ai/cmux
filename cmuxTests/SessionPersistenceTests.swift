@@ -4244,8 +4244,10 @@ extension SessionPersistenceTests {
         try """
         {
           "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+          // keep root comment
           "schemaVersion": 1,
           "terminal": {
+            // keep terminal comment
             "showScrollBar": false
           }
         }
@@ -4274,6 +4276,9 @@ extension SessionPersistenceTests {
         let storedRecords = try XCTUnwrap(terminal["resumeCommands"] as? [[String: Any]])
         XCTAssertEqual(storedRecords.count, 1)
         XCTAssertEqual(storedRecords.first?["id"] as? String, record.id)
+        let updatedSettings = try String(contentsOf: settingsURL, encoding: .utf8)
+        XCTAssertTrue(updatedSettings.contains("// keep root comment"))
+        XCTAssertTrue(updatedSettings.contains("// keep terminal comment"))
 
         let validRecords = SurfaceResumeApprovalStore.validRecords(
             fileURL: settingsURL,
@@ -4291,10 +4296,8 @@ extension SessionPersistenceTests {
         try """
         {
           "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+          // keep migration comment
           "schemaVersion": 1,
-          "terminal": {
-            "showScrollBar": false
-          },
           "rightSidebar": {
             "width": 320
           }
@@ -4326,12 +4329,13 @@ extension SessionPersistenceTests {
 
         let root = try jsonObject(at: settingsURL)
         let terminal = try XCTUnwrap(root["terminal"] as? [String: Any])
-        XCTAssertEqual(terminal["showScrollBar"] as? Bool, false)
         let rightSidebar = try XCTUnwrap(root["rightSidebar"] as? [String: Any])
         XCTAssertEqual((rightSidebar["width"] as? NSNumber)?.intValue, 320)
         let storedRecords = try XCTUnwrap(terminal["resumeCommands"] as? [[String: Any]])
         XCTAssertEqual(storedRecords.count, 1)
         XCTAssertEqual(storedRecords.first?["id"] as? String, record.id)
+        let updatedSettings = try String(contentsOf: settingsURL, encoding: .utf8)
+        XCTAssertTrue(updatedSettings.contains("// keep migration comment"))
 
         let validRecords = SurfaceResumeApprovalStore.validRecords(
             fileURL: settingsURL,
@@ -4526,7 +4530,8 @@ extension SessionPersistenceTests {
 
     private func jsonObject(at url: URL) throws -> [String: Any] {
         let data = try Data(contentsOf: url)
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sanitized = try JSONCParser.preprocess(data: data)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
     }
 
     @MainActor
