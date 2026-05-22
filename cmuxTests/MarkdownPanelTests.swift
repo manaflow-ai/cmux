@@ -274,7 +274,10 @@ final class MarkdownPanelTests: XCTestCase {
 
     func testMarkdownRendererDismantleClearsPortalHostCallbacksOnly() {
         let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
         let hostView = MarkdownWebPortalHostView(frame: .zero)
+        coordinator.webView = webView
+        defer { coordinator.close() }
 
         hostView.onDidMoveToWindow = {}
         hostView.onGeometryChanged = {}
@@ -283,6 +286,24 @@ final class MarkdownPanelTests: XCTestCase {
 
         XCTAssertNil(hostView.onDidMoveToWindow)
         XCTAssertNil(hostView.onGeometryChanged)
+        XCTAssertEqual(coordinator.diagnosticsSnapshot.dismantleRetainedWebViewCount, 1)
+    }
+
+    func testMarkdownRendererPortalReattachDiagnosticIsLive() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        webView.onPortalRenderingStateReattached = { [weak coordinator] reason in
+            coordinator?.recordWebViewReattach(reason: reason)
+        }
+
+        XCTAssertEqual(coordinator.diagnosticsSnapshot.webViewReattachCount, 0)
+
+        webView.onPortalRenderingStateReattached?("unit-test")
+
+        XCTAssertEqual(coordinator.diagnosticsSnapshot.webViewReattachCount, 1)
     }
 
     func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {

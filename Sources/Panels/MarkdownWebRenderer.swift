@@ -38,7 +38,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         let reusedWebView = context.coordinator.webView != nil
         let webView = context.coordinator.webView ?? makeWebView(context: context)
 
-        webView.onPointerDown = onRequestPanelFocus
+        configureWebViewCallbacks(webView, coordinator: context.coordinator)
         applyBackground(to: webView)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
@@ -67,7 +67,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
         applyBackground(to: nsView)
         let webView = context.coordinator.ensureWebView(make: { makeWebView(context: context) })
-        webView.onPointerDown = onRequestPanelFocus
+        configureWebViewCallbacks(webView, coordinator: context.coordinator)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         applyBackground(to: webView)
@@ -84,6 +84,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: MarkdownWebPortalHostView, coordinator: Coordinator) {
+#if DEBUG
+        if coordinator.webView != nil {
+            coordinator.recordDismantleRetainedWebView()
+        }
+#endif
         nsView.onDidMoveToWindow = nil
         nsView.onGeometryChanged = nil
         // The WKWebView is panel-owned and portal-hosted. Do not detach it here:
@@ -114,6 +119,18 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         hostView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
     }
 
+    private func configureWebViewCallbacks(
+        _ webView: MarkdownWebView,
+        coordinator: Coordinator
+    ) {
+        webView.onPointerDown = onRequestPanelFocus
+#if DEBUG
+        webView.onPortalRenderingStateReattached = { [weak coordinator] reason in
+            coordinator?.recordWebViewReattach(reason: reason)
+        }
+#endif
+    }
+
     private func makeWebView(context: Context) -> MarkdownWebView {
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
@@ -130,7 +147,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             forURLScheme: Self.remoteImageURLScheme
         )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
-        webView.onPointerDown = onRequestPanelFocus
+        configureWebViewCallbacks(webView, coordinator: context.coordinator)
         webView.setValue(false, forKey: "drawsBackground")
         applyBackground(to: webView)
         webView.allowsBackForwardNavigationGestures = false
@@ -247,6 +264,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
+        func recordWebViewReattach(reason: String) {
+            recordDiagnosticsEvent("webViewReattach reason=\(reason)") { snapshot in
+                snapshot.webViewReattachCount += 1
+            }
+        }
+
         func recordPortalBind(reason: String, visibleInUI: Bool) {
             recordDiagnosticsEvent("portalBind reason=\(reason) visible=\(visibleInUI ? 1 : 0)") { snapshot in
                 snapshot.portalBindCount += 1
@@ -357,6 +380,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
+#if DEBUG
+                webView.onPortalRenderingStateReattached = nil
+#endif
             }
             self.webView = nil
             isLoaded = false

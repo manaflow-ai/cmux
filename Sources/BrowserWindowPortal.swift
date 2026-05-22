@@ -113,6 +113,9 @@ private extension WKWebView {
         guard browserPortalNeedsRenderingStateReattach else { return }
         guard window != nil else { return }
         browserPortalNeedsRenderingStateReattach = false
+#if DEBUG
+        (self as? MarkdownWebView)?.onPortalRenderingStateReattached?(reason)
+#endif
 
         let firedSelectors = [
             "viewDidUnhide",
