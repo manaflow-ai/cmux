@@ -195,7 +195,7 @@
     {
       "agent": "codex",
       "captureBackend": "mitmproxy-hardump",
-      "capturedAt": "2026-05-22T09:23:22.329453Z",
+      "capturedAt": "2026-05-22T09:33:38.585902Z",
       "cliVersion": "codex-cli 0.133.0",
       "command": [
         "codex",
@@ -207,7 +207,7 @@
         "--ephemeral",
         "Reply with exactly: cmux-network-capture-ok"
       ],
-      "durationMs": 6745,
+      "durationMs": 7367,
       "exitCode": 0,
       "har": {
         "log": {
@@ -222,134 +222,127 @@
                 {
                   "data": "{\"generate\":false,\"input\":[],\"instructions\":\"<redacted-provider-metadata>\",\"model\":\"gpt-5.5\",\"parallel_tool_calls\":true,\"service_tier\":\"priority\",\"store\":false,\"stream\":true,\"text\":{\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"type\":\"response.create\"}",
                   "opcode": 1,
-                  "time": 1779441797.100467,
+                  "time": 1779442412.31199,
                   "type": "send"
                 },
                 {
-                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779441797,\"error\":null,\"frequency_penalty\":0.0,\"generate\":false,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"service_tier\":\"auto\",\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":null,\"user\":null},\"sequence_number\":0,\"type\":\"response.created\"}",
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779442412,\"error\":null,\"frequency_penalty\":0.0,\"generate\":false,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"service_tier\":\"auto\",\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":null,\"user\":null},\"sequence_number\":0,\"type\":\"response.created\"}",
                   "opcode": 1,
-                  "time": 1779441797.4497302,
+                  "time": 1779442412.6147819,
                   "type": "receive"
                 },
                 {
-                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779441797,\"error\":null,\"frequency_penalty\":0.0,\"generate\":false,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"service_tier\":\"auto\",\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":null,\"user\":null},\"sequence_number\":1,\"type\":\"response.in_progress\"}",
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779442412,\"error\":null,\"frequency_penalty\":0.0,\"generate\":false,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"service_tier\":\"auto\",\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":null,\"user\":null},\"sequence_number\":1,\"type\":\"response.in_progress\"}",
                   "opcode": 1,
-                  "time": 1779441797.453538,
+                  "time": 1779442412.628394,
                   "type": "receive"
                 },
                 {
-                  "data": "{\"response\":{\"background\":false,\"completed_at\":1779441797,\"created_at\":1779441797,\"error\":null,\"frequency_penalty\":0.0,\"generate\":false,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"service_tier\":\"auto\",\"status\":\"completed\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":{\"input_tokens\":10187,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":10187},\"user\":null},\"sequence_number\":2,\"type\":\"response.completed\"}",
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":1779442412,\"created_at\":1779442412,\"error\":null,\"frequency_penalty\":0.0,\"generate\":false,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"service_tier\":\"auto\",\"status\":\"completed\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":{\"input_tokens\":10187,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":10187},\"user\":null},\"sequence_number\":2,\"type\":\"response.completed\"}",
                   "opcode": 1,
-                  "time": 1779441797.4789429,
+                  "time": 1779442412.640136,
                   "type": "receive"
                 },
                 {
-                  "_cmuxBodyTruncated": true,
-                  "data": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"You are Codex, a coding agent based on GPT-5. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.\\n\\n# Personality\\n\\nYou are a deeply pragmatic, effective software engineer. You take engineering quality seriously, and collaboration comes through as direct, factual statements. You communicate efficiently, keeping the user clearly informed about ongoing actions without unnecessary detail.\\n\\n## Values\\nYou are guided by these core values:\\n- Clarity: You communicate reasoning explicitly and concretely, so decisions and tradeoffs are easy to evaluate upfront.\\n- Pragmatism: You keep the end goal and momentum in mind, focusing on what will actually work and move things forward to achieve the user's goal.\\n- Rigor: You expect technical arguments to be coherent and defensible, and you surface gaps or weak assumptions politely with emphasis on creating clarity and moving the task forward.\\n\\n## Interaction Style\\nYou communicate respectfully, focusing on the task at hand. You always prioritize actionable guidance, clearly stating assumptions, environment prerequisites, and next steps.\\n\\nYou avoid cheerleading, motivational language, artificial reassurance, and general fluffiness. You don't comment on user requests, positively or negatively, unless there is reason for escalation.\\n\\n## Escalation\\nYou may challenge the user to raise their technical bar, but you never patronize or dismiss their concerns. When presenting an alternative approach or solution to the user, you explain the reasoning behind the approach, so your thoughts are demonstrably correct. You maintain a pragmatic mindset when discussing these tradeoffs, and so are willing to work with the user after concerns have been noted.\\n\\n\\n# General\\nYou bring a senior engineer\u2019s judgment to the work, but you let it arrive through attention rather than premature certainty. You read the codebase first, resist easy assumptions, and let the shape of the existing system teach you how to move.\\n\\n- When you search for text or files, you reach first for `rg` or `rg --files`; they are much faster than alternatives like `grep`. If `rg` is unavailable, you use the next best tool without fuss.\\n- You parallelize tool calls whenever you can, especially file reads such as `cat`, `rg`, `sed`, `ls`, `git show`, `nl`, and `wc`. You use `multi_tool_use.parallel` for that parallelism, and only that. Do not chain shell commands with separators like `echo \\\"====\\\";`; the output becomes noisy in a way that makes the user\u2019s side of the conversation worse.\\n\\n## Engineering judgment\\n\\nWhen the user leaves implementation details open, you choose conservatively and in sympathy with the codebase already in front of you:\\n\\n- You prefer the repo\u2019s existing patterns, frameworks, and local helper APIs over inventing a new style of abstraction.\\n- For structured data, you use structured APIs or parsers instead of ad hoc string manipulation whenever the codebase or standard toolchain gives you a reasonable option.\\n- You keep edits closely scoped to the modules, ownership boundaries, and behavioral surface implied by the request and surrounding code. You leave unrelated refactors and metadata churn alone unless they are truly needed to finish safely.\\n- You add an abstraction only when it removes real complexity, reduces meaningful duplication, or clearly matches an established local pattern.\\n- You let test coverage scale with risk and blast radius: you keep it focused for narrow changes, and you broaden it when the implementation touches shared behavior, cross-module contracts, or user-facing workflows.\\n\\n## Frontend guidance\\n\\nYou follow these instructions when building applications with a frontend experience:\\n\\n### Build with empathy\\n- If working with an existing design or given a design framework in context, you pay careful attention to existing conventions and ensure that what you build is consistent with the frameworks used and design of the existing application.\\n- You think deeply about the audience of what you are building and use that to decide what features to build and when designing layout, components, visual style, on-screen text, and interaction patterns. Using your application should feel rich and sophisticated.\\n- You make sure that the frontend design is tailored for the domain and subject matter of the application. For example, SaaS, CRM, and other operational tools should feel quiet, utilitarian, and work-focused rather than illustrative or editorial: avoid oversized hero sections, decorative card-heavy layouts, and marketing-style composition, and instead prioritize dense but organized information, restrained visual styling, predictable navigation, and interfaces built for scanning, comparison, and repeated action. A game can be more illustrative, expressive, animated, and playful.\\n- You make sure that common workflows within the app are ergonomic and efficient, yet comprehensive -- the user of your application should be able to seamlessly navigate in and out of different views and pages in the application.\\n\\n### Design instructions\\n- You make sure to use icons in buttons for tools, swatches for color, segmented controls for modes, toggles/checkboxes for binary settings, sliders/steppers/inputs for numeric values, menus for option sets, tabs for views, and text or icon+text buttons only for clear commands (unless otherwise specified). Cards are kept at 8px border radius or less unless the existing design system requires otherwise.\\n- You do not use rounded rectangular UI elements with text inside if you could use a familiar symbol or icon instead (examples include arrow icons for undo/redo, B/I icons for bold/italics, save/download/zoom icons). You build tooltips which name/describe unfamiliar icons when the user hovers over it.\\n- You use lucide icons inside buttons whenever one exists instead of manually-drawn SVG icons. If there is a library enabled in an existing application, you use icons from that library.\\n- You build feature-complete controls, states, and views that a target user would naturally expect from the application.\\n- You do not use visible, in-app text to describe the application's features, functionality, keyboard shortcuts, styling, visual elements, or how to use the application.\\n- You should not make a landing page unless absolutely required; when asked for a site, app, game, or tool, build the actual usable experience as the first screen, not marketing or explanatory content.\\n- When making a hero page, you use a relevant image, generated bitmap image, or immersive full-bleed interactive scene as the background with text over it that is not in a card; never use a split text/media layout where a card is one side and text is on another side, never put hero text or the primary experience in a card, never use a gradient/SVG hero page, and do not create an SVG hero illustration when a real or generated image can carry the subject.\\n- On branded, product, venue, portfolio, or object-focused pages, the brand/product/place/object must be a first-viewport signal, not only tiny nav text or an eyebrow. Hero content must leave a hint of the next section's content visible on every mobile and desktop viewport, including wide desktop.\\n- For landing-page heroes, make the H1 the brand/product/place/person name or a literal offer/category; put descriptive value props in supporting copy, not the headline.\\n- Websites and games must use visual assets. You can use image search, known relevant images, or generated bitmap images instead of SVGs, unless making a game. Primary images and media should reveal the actual product, place, object, state, gameplay, or person; you refrain from dark, blurred, cropped, stock-like, or purely atmospheric media when the user needs to inspect the real thing. For highly specific game assets you use custom SVG/Three.js/etc.\\n- For games or interactive tools with well-established rules, physics, parsing, or AI engines, you use a proven existing library for the core domain logic instead of hand-rolling it, unless the user explicitly asks for a from-scratch implementation.\\n- You use Three.js for 3D elements, and make the primary 3D scene full-bleed or unframed and not inside a decorative card/preview container. Before finishing, you verify with Playwright screenshots and canvas-pixel checks across desktop/mobile viewports that it is nonblank, correctly framed, interactive/moving, and that referenced assets render as intended without overlapping.\\n- You do not put UI cards inside other cards. Do not style page sections as floating cards. Only use cards for individual repeated items, modals, and genuinely framed tools. Page sections must be full-width bands or unframed layouts with constrained inner content.\\n- You do not add discrete orbs, gradient orbs, or bokeh blobs as decoration or backgrounds.\\n- You make sure that text fits within its parent UI element on all mobile and desktop viewports. Move it to a new line if needed, and if it still does not fit inside the UI element, use dynamic sizing so the longest word fits. Text must also not occlude preceding or subsequent content. Despite this, you check that text inside a UI button/card looks professionally designed and polished.\\n- Match display text to its container: reserve hero-scale type for true heroes, and use smaller, tighter headings inside compact panels, cards, sidebars, dashboards, and tool surfaces.\\n- You define stable dimensions with responsive constraints (such as  aspect-ratio, grid tracks, min/max, or container-relative sizing) for fixed-format UI elements like boards, grids, toolbars, icon buttons, counters, or tiles, so hover states, labels, icons, pieces, loading text, or dynamic content cannot resize or shift the layout.\\n- You do not scale font size with viewport width. Letter spacing must be 0, not negative.\\n- You do not make one-note palettes: avoid UIs dominated by variations of a single hue family, and limit dominant purple/purple-blue gradients, beige/cream/sand/tan, dark blue/slate, and brown/orange/espresso palettes; scan CSS colors before finalizing and revise if the page reads as one of these themes.\\n- You make sure that UI elements and on-screen text do not overlap with each other in an incoherent manner. This is extremely important as it leads to a jarring user experience.\\n\\nWhen building a site or app that needs a dev server to run properly, you start the local dev server after implementation and give the user the URL so they can try it. If there's already a server on that port, you use another one. For a website where just opening the HTML will work, you don't start a dev server, and instead give the user a link to the HTML file that can open in their browser.\\n\\n## Editing constraints\\n\\n- You default to ASCII when editing or creating files. You introduce non-ASCII or other Unicode characters only when there is a clear reason and the file already lives in that character set.\\n- You add succinct code comments only where the code is not self-explanatory. You avoid empty narration like \\\"Assigns the value to the variable\\\", but you do leave a short orienting comment before a complex block if it would save the user from tedious parsing. You use that tool sparingly.\\n- Use `apply_patch` for manual code edits. Do not create or edit files with `cat` or other shell write tricks. Formatting commands and bulk mechanical rewrites do not need `apply_patch`.\\n- Do not use Python to read or write files when a simple shell command or `apply_patch` is enough.\\n- You may be in a dirty git worktree.\\n  * NEVER revert existing changes you did not make unless explicitly requested, since these changes were made by the user.\\n  * If asked to make a commit or code edits and there are unrelated changes to your work or changes that you didn't make in those files, you don't revert those changes\n<cmux-truncated>",
+                  "data": "{\"input\":[{\"content\":[{\"text\":\"<redacted-runtime-instructions>\",\"type\":\"input_text\"},{\"text\":\"<redacted-runtime-instructions>\",\"type\":\"input_text\"},{\"text\":\"<redacted-runtime-instructions>\",\"type\":\"input_text\"}],\"role\":\"developer\",\"type\":\"message\"},{\"content\":[{\"text\":\"<redacted-local-instructions>\",\"type\":\"input_text\"},{\"text\":\"<redacted-runtime-instructions>\",\"type\":\"input_text\"}],\"role\":\"user\",\"type\":\"message\"},{\"content\":[{\"text\":\"Reply with exactly: cmux-network-capture-ok\",\"type\":\"input_text\"}],\"role\":\"user\",\"type\":\"message\"}],\"instructions\":\"<redacted-provider-metadata>\",\"model\":\"gpt-5.5\",\"parallel_tool_calls\":true,\"previous_response_id\":\"<redacted-id>\",\"service_tier\":\"priority\",\"store\":false,\"stream\":true,\"text\":{\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"type\":\"response.create\"}",
                   "opcode": 1,
-                  "time": 1779441798.731522,
+                  "time": 1779442414.525742,
                   "type": "send"
                 },
                 {
-                  "data": "{\"additional_rate_limits\":{\"GPT-5.3-Codex-Spark\":{\"allowed\":true,\"limit_reached\":false,\"primary\":{\"reset_after_seconds\":18000,\"reset_at\":1779459798,\"used_percent\":0,\"window_minutes\":300},\"secondary\":{\"reset_after_seconds\":604800,\"reset_at\":1780046598,\"used_percent\":0,\"window_minutes\":10080}}},\"code_review_rate_limits\":null,\"credits\":null,\"plan_type\":\"pro\",\"promo\":null,\"rate_limits\":{\"allowed\":true,\"limit_reached\":false,\"primary\":{\"reset_after_seconds\":15489,\"reset_at\":1779457287,\"used_percent\":57,\"window_minutes\":300},\"secondary\":{\"reset_after_seconds\":378620,\"reset_at\":1779820418,\"used_percent\":57,\"window_minutes\":10080}},\"type\":\"codex.rate_limits\"}",
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779442414,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":\"<redacted-id>\",\"service_tier\":\"auto\",\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":null,\"user\":null},\"sequence_number\":0,\"type\":\"response.created\"}",
                   "opcode": 1,
-                  "time": 1779441798.910997,
+                  "time": 1779442414.722795,
                   "type": "receive"
                 },
                 {
-                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779441798,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":\"<redacted-id>\",\"service_tier\":\"auto\",\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":null,\"user\":null},\"sequence_number\":0,\"type\":\"response.created\"}",
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779442414,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":\"<redacted-id>\",\"service_tier\":\"auto\",\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":null,\"user\":null},\"sequence_number\":1,\"type\":\"response.in_progress\"}",
                   "opcode": 1,
-                  "time": 1779441799.031668,
+                  "time": 1779442414.740532,
                   "type": "receive"
                 },
                 {
-                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779441798,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":\"<redacted-id>\",\"service_tier\":\"auto\",\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":null,\"user\":null},\"sequence_number\":1,\"type\":\"response.in_progress\"}",
+                  "data": "{\"item\":{\"id\":\"rs_0ddc1c97efeda46d016a1022efbed881988635c8884b07d038\",\"summary\":[],\"type\":\"reasoning\"},\"output_index\":0,\"sequence_number\":2,\"type\":\"response.output_item.added\"}",
                   "opcode": 1,
-                  "time": 1779441799.193888,
+                  "time": 1779442415.76208,
                   "type": "receive"
                 },
                 {
-                  "data": "{\"item\":{\"id\":\"rs_0e7587f30e9a1ef5016a102087b93881998565a8ab60e19fea\",\"summary\":[],\"type\":\"reasoning\"},\"output_index\":0,\"sequence_number\":2,\"type\":\"response.output_item.added\"}",
+                  "data": "{\"item\":{\"id\":\"rs_0ddc1c97efeda46d016a1022efbed881988635c8884b07d038\",\"summary\":[],\"type\":\"reasoning\"},\"output_index\":0,\"sequence_number\":3,\"type\":\"response.output_item.done\"}",
                   "opcode": 1,
-                  "time": 1779441799.7547321,
-                  "type": "receive"
-                },
-                {
-                  "data": "{\"item\":{\"id\":\"rs_0e7587f30e9a1ef5016a102087b93881998565a8ab60e19fea\",\"summary\":[],\"type\":\"reasoning\"},\"output_index\":0,\"sequence_number\":3,\"type\":\"response.output_item.done\"}",
-                  "opcode": 1,
-                  "time": 1779441800.052803,
+                  "time": 1779442416.292486,
                   "type": "receive"
                 },
                 {
                   "data": "{\"item\":{\"content\":[],\"id\":\"<redacted-id>\",\"phase\":\"final_answer\",\"role\":\"assistant\",\"status\":\"in_progress\",\"type\":\"message\"},\"output_index\":1,\"sequence_number\":4,\"type\":\"response.output_item.added\"}",
                   "opcode": 1,
-                  "time": 1779441800.053483,
+                  "time": 1779442416.2946858,
                   "type": "receive"
                 },
                 {
                   "data": "{\"content_index\":0,\"item_id\":\"<redacted-id>\",\"output_index\":1,\"part\":{\"annotations\":[],\"logprobs\":[],\"text\":\"\",\"type\":\"output_text\"},\"sequence_number\":5,\"type\":\"response.content_part.added\"}",
                   "opcode": 1,
-                  "time": 1779441800.053671,
+                  "time": 1779442416.295029,
                   "type": "receive"
                 },
                 {
                   "data": "{\"content_index\":0,\"delta\":\"cm\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":6,\"type\":\"response.output_text.delta\"}",
                   "opcode": 1,
-                  "time": 1779441800.0542111,
+                  "time": 1779442416.302433,
                   "type": "receive"
                 },
                 {
                   "data": "{\"content_index\":0,\"delta\":\"ux\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":7,\"type\":\"response.output_text.delta\"}",
                   "opcode": 1,
-                  "time": 1779441800.054469,
+                  "time": 1779442416.307723,
                   "type": "receive"
                 },
                 {
                   "data": "{\"content_index\":0,\"delta\":\"-network\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":8,\"type\":\"response.output_text.delta\"}",
                   "opcode": 1,
-                  "time": 1779441800.0548742,
+                  "time": 1779442416.311619,
                   "type": "receive"
                 },
                 {
                   "data": "{\"content_index\":0,\"delta\":\"-c\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":9,\"type\":\"response.output_text.delta\"}",
                   "opcode": 1,
-                  "time": 1779441800.055328,
+                  "time": 1779442416.311921,
                   "type": "receive"
                 },
                 {
                   "data": "{\"content_index\":0,\"delta\":\"apture\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":10,\"type\":\"response.output_text.delta\"}",
                   "opcode": 1,
-                  "time": 1779441800.085026,
+                  "time": 1779442416.3314319,
                   "type": "receive"
                 },
                 {
                   "data": "{\"content_index\":0,\"delta\":\"-ok\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":11,\"type\":\"response.output_text.delta\"}",
                   "opcode": 1,
-                  "time": 1779441800.089476,
+                  "time": 1779442416.346824,
                   "type": "receive"
                 },
                 {
                   "data": "{\"content_index\":0,\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":12,\"text\":\"cmux-network-capture-ok\",\"type\":\"response.output_text.done\"}",
                   "opcode": 1,
-                  "time": 1779441800.2386382,
+                  "time": 1779442416.5547872,
                   "type": "receive"
                 },
                 {
                   "data": "{\"content_index\":0,\"item_id\":\"<redacted-id>\",\"output_index\":1,\"part\":{\"annotations\":[],\"logprobs\":[],\"text\":\"cmux-network-capture-ok\",\"type\":\"output_text\"},\"sequence_number\":13,\"type\":\"response.content_part.done\"}",
                   "opcode": 1,
-                  "time": 1779441800.239072,
+                  "time": 1779442416.7360919,
                   "type": "receive"
                 },
                 {
                   "data": "{\"item\":{\"content\":[{\"annotations\":[],\"logprobs\":[],\"text\":\"cmux-network-capture-ok\",\"type\":\"output_text\"}],\"id\":\"<redacted-id>\",\"phase\":\"final_answer\",\"role\":\"assistant\",\"status\":\"completed\",\"type\":\"message\"},\"output_index\":1,\"sequence_number\":14,\"type\":\"response.output_item.done\"}",
                   "opcode": 1,
-                  "time": 1779441800.239394,
+                  "time": 1779442416.7363799,
                   "type": "receive"
                 },
                 {
-                  "data": "{\"response\":{\"background\":false,\"completed_at\":1779441800,\"created_at\":1779441798,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[{\"id\":\"rs_0e7587f30e9a1ef5016a102087b93881998565a8ab60e19fea\",\"summary\":[],\"type\":\"reasoning\"},{\"content\":[{\"annotations\":[],\"logprobs\":[],\"text\":\"cmux-network-capture-ok\",\"type\":\"output_text\"}],\"id\":\"<redacted-id>\",\"phase\":\"final_answer\",\"role\":\"assistant\",\"status\":\"completed\",\"type\":\"message\"}],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":\"<redacted-id>\",\"service_tier\":\"default\",\"status\":\"completed\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":{\"input_tokens\":17760,\"input_tokens_details\":{\"cached_tokens\":3456},\"output_tokens\":29,\"output_tokens_details\":{\"reasoning_tokens\":17},\"total_tokens\":17789},\"user\":null},\"sequence_number\":15,\"type\":\"response.completed\"}",
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":1779442416,\"created_at\":1779442414,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[{\"id\":\"rs_0ddc1c97efeda46d016a1022efbed881988635c8884b07d038\",\"summary\":[],\"type\":\"reasoning\"},{\"content\":[{\"annotations\":[],\"logprobs\":[],\"text\":\"cmux-network-capture-ok\",\"type\":\"output_text\"}],\"id\":\"<redacted-id>\",\"phase\":\"final_answer\",\"role\":\"assistant\",\"status\":\"completed\",\"type\":\"message\"}],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":\"<redacted-id>\",\"service_tier\":\"default\",\"status\":\"completed\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"tool_usage\":{\"image_gen\":{\"input_tokens\":0,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"image_tokens\":0,\"text_tokens\":0},\"total_tokens\":0},\"web_search\":{\"num_requests\":0}},\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"usage\":{\"input_tokens\":17760,\"input_tokens_details\":{\"cached_tokens\":4480},\"output_tokens\":38,\"output_tokens_details\":{\"reasoning_tokens\":26},\"total_tokens\":17798},\"user\":null},\"sequence_number\":15,\"type\":\"response.completed\"}",
                   "opcode": 1,
-                  "time": 1779441800.2440782,
+                  "time": 1779442416.739188,
                   "type": "receive"
                 }
               ],
@@ -389,16 +382,48 @@
                     "value": "Upgrade"
                   },
                   {
-                    "name": "X-Models-Etag",
-                    "value": "W/\"<redacted-hex>\""
-                  },
-                  {
-                    "name": "Server",
-                    "value": "cloudflare"
+                    "name": "Date",
+                    "value": "Fri, 22 May 2026 09:33:32 GMT"
                   },
                   {
                     "name": "Alt-Svc",
                     "value": "h3=\":443\"; ma=86400"
+                  },
+                  {
+                    "name": "X-Models-Etag",
+                    "value": "W/\"<redacted-hex>\""
+                  },
+                  {
+                    "name": "Cf-Cache-Status",
+                    "value": "DYNAMIC"
+                  },
+                  {
+                    "name": "Nel",
+                    "value": "{\"success_fraction\":0.01,\"report_to\":\"cf-nel\",\"max_age\":604800}"
+                  },
+                  {
+                    "name": "Cf-Ray",
+                    "value": "9ffad1e3ae96938c-SJC"
+                  },
+                  {
+                    "name": "Strict-Transport-Security",
+                    "value": "max-age=31536000; includeSubDomains; preload"
+                  },
+                  {
+                    "name": "Referrer-Policy",
+                    "value": "strict-origin-when-cross-origin"
+                  },
+                  {
+                    "name": "X-Content-Type-Options",
+                    "value": "nosniff"
+                  },
+                  {
+                    "name": "Report-To",
+                    "value": "{\"endpoints\":[{\"url\":\"https:\\/\\/a.nel.cloudflare.com\\/report\\/v4?s=vCWsqgdZV%2F2cCM18YFyQv6j1YWHr1q7efJ5mSkUTo%2Belb5QN7X4dy%2FjEXIx2z8aDIwR%2BBOIO8lksdHhU%2BnthDyOph4YgGUndsW1kTt33%2FmIWZqGCXOcOkHICFG%2BlmYmqdXIpD4Q27PtJ\"}],\"group\":\"cf-nel\",\"max_age\":604800}"
+                  },
+                  {
+                    "name": "Server",
+                    "value": "cloudflare"
                   },
                   {
                     "name": "X-Openai-Proxy-Wasm",
@@ -407,46 +432,14 @@
                   {
                     "name": "Cross-Origin-Opener-Policy",
                     "value": "same-origin-allow-popups"
-                  },
-                  {
-                    "name": "Strict-Transport-Security",
-                    "value": "max-age=31536000; includeSubDomains; preload"
-                  },
-                  {
-                    "name": "Nel",
-                    "value": "{\"success_fraction\":0.01,\"report_to\":\"cf-nel\",\"max_age\":604800}"
-                  },
-                  {
-                    "name": "Report-To",
-                    "value": "{\"endpoints\":[{\"url\":\"https:\\/\\/a.nel.cloudflare.com\\/report\\/v4?s=VEbst5%2BzoVUql77F3U96P1j1biZWJuJOmIM7XFlqTuqxrJY%2BNr%2FzX8eogXR5dN%2FUr9N77jYOa7WxF%2FT%2BBImzJO3rSFy6HdHriRWNG%2BNF78Oeaen4hKqu1d2QsihFVNsLVr0hVIscrMs1\"}],\"group\":\"cf-nel\",\"max_age\":604800}"
-                  },
-                  {
-                    "name": "X-Content-Type-Options",
-                    "value": "nosniff"
-                  },
-                  {
-                    "name": "Cf-Ray",
-                    "value": "9ffac2dec9541990-SJC"
-                  },
-                  {
-                    "name": "Date",
-                    "value": "Fri, 22 May 2026 09:23:17 GMT"
-                  },
-                  {
-                    "name": "Referrer-Policy",
-                    "value": "strict-origin-when-cross-origin"
-                  },
-                  {
-                    "name": "Cf-Cache-Status",
-                    "value": "DYNAMIC"
                   }
                 ],
                 "httpVersion": "HTTP/1.1",
                 "status": 101,
                 "statusText": "Switching Protocols"
               },
-              "startedDateTime": "2026-05-22T09:23:16.853916+00:00",
-              "time": 244.8873519897461
+              "startedDateTime": "2026-05-22T09:33:31.901168+00:00",
+              "time": 408.17713737487793
             }
           ],
           "version": "1.2"
@@ -607,7 +600,7 @@
       "status": "captured"
     }
   ],
-  "generatedAt": "2026-05-22T09:24:25.803197Z",
+  "generatedAt": "2026-05-22T09:33:38.635972Z",
   "prompt": "Reply with exactly: cmux-network-capture-ok",
   "unavailable": [
     {

@@ -2456,6 +2456,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "obfuscation",
             "system-reminder",
             "cmuxterm-hq/CLAUDE.md",
+            "AGENTS.md",
+            "You are Codex",
+            "# Personality",
             "<skills_instructions>",
             "<plugins_instructions>",
             "<permissions instructions>",
@@ -2468,6 +2471,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "x-codex-plan-type",
             "x-codex-credits",
             "used-percent",
+            "used_percent",
+            "rate_limits",
+            "plan_type",
+            "credits",
+            "reset_after_seconds",
+            "additional_rate_limits",
+            "code_review_rate_limits",
+            "promo",
             "billing",
             "cc_version",
             "cc_entrypoint",
@@ -2500,7 +2511,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let requestBody = entry.request.postData?.text ?? ""
                 let responseBody = entry.response.content.text ?? ""
                 let webSocketMessages = entry.webSocketMessages ?? []
-                let webSocketText = webSocketMessages.map { $0.data }.joined(separator: "\n")
+                let responseWebSocketText = webSocketMessages
+                    .filter { $0.type == "receive" }
+                    .map { $0.data }
+                    .joined(separator: "\n")
                 let hasHTTPBodies = !requestBody.isEmpty && !responseBody.isEmpty
                 let hasWebSocketFrames = !webSocketMessages.isEmpty
 
@@ -2535,7 +2549,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 }
 
                 responsePayloadText += responseBody
-                responsePayloadText += webSocketText
+                responsePayloadText += responseWebSocketText
             }
             XCTAssertTrue(
                 responsePayloadText.contains("cmux-network-capture-ok"),

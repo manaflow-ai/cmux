@@ -32,13 +32,19 @@ DEFAULT_OUTPUT = pathlib.Path("cmuxTests/Fixtures/AgentNetworkCaptures.json")
 CAPTURE_ROOT_REPLACEMENTS: set[str] = set()
 UTF8_MOJIBAKE_RE = re.compile(r"(?:[\u00C2\u00C3][\u0080-\u00BF]|\u00E2[\u0080-\u00BF]{2})")
 JSON_DROPPED_KEYS = {
+    "additional_rate_limits",
+    "code_review_rate_limits",
     "client_metadata",
+    "credits",
     "encrypted_content",
     "include",
     "metadata",
     "obfuscation",
+    "plan_type",
     "prompt_cache_key",
     "prompt_cache_retention",
+    "promo",
+    "rate_limits",
     "reasoning",
     "safety_identifier",
     "tools",
@@ -46,6 +52,9 @@ JSON_DROPPED_KEYS = {
 JSON_REDACTED_KEYS = {
     "instructions",
     "system",
+}
+JSON_DROPPED_WEBSOCKET_TYPES = {
+    "codex.rate_limits",
 }
 
 
@@ -231,6 +240,9 @@ def redact_json_value(value: Any) -> Any:
     if isinstance(value, list):
         return [redact_json_value(item) for item in value]
     if isinstance(value, str):
+        stripped = value.lstrip()
+        if stripped.startswith("# AGENTS.md instructions for ") or stripped.startswith("# CLAUDE.md instructions for "):
+            return "<redacted-local-instructions>"
         return sanitize_text(value)
     return value
 
@@ -355,12 +367,14 @@ def has_request_response_body(entry: dict[str, Any]) -> bool:
     return bool(request_text) and bool(response_text)
 
 
-def websocket_message_text(entry: dict[str, Any]) -> str:
+def websocket_message_text(entry: dict[str, Any], direction: str | None = None) -> str:
     messages = entry.get("_webSocketMessages", [])
     if not isinstance(messages, list):
         return ""
     parts: list[str] = []
     for message in messages:
+        if direction is not None and message.get("type") != direction:
+            continue
         if isinstance(message, dict) and isinstance(message.get("data"), str):
             parts.append(message["data"])
     return "\n".join(parts)
@@ -372,7 +386,7 @@ def response_payload_text(entry: dict[str, Any]) -> str:
         .get("content", {})
         .get("text", "")
     )
-    return f"{response_text}\n{websocket_message_text(entry)}"
+    return f"{response_text}\n{websocket_message_text(entry, direction='receive')}"
 
 
 def has_replayable_payload(entry: dict[str, Any]) -> bool:
@@ -400,6 +414,14 @@ def score_entry(agent: str, entry: dict[str, Any]) -> int:
     return score
 
 
+def should_drop_websocket_message(data: str) -> bool:
+    try:
+        parsed = json.loads(data)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(parsed, dict) and parsed.get("type") in JSON_DROPPED_WEBSOCKET_TYPES
+
+
 def sanitize_websocket_messages(entry: dict[str, Any]) -> list[dict[str, Any]]:
     messages = entry.get("_webSocketMessages", [])
     if not isinstance(messages, list):
@@ -410,6 +432,8 @@ def sanitize_websocket_messages(entry: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         data = message.get("data", "")
         if not isinstance(data, str):
+            continue
+        if should_drop_websocket_message(data):
             continue
         text, truncated = trim_text(sanitize_body_text(data))
         sanitized_message: dict[str, Any] = {
