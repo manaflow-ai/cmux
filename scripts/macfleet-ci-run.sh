@@ -204,7 +204,7 @@ ensure_checkout() {
     '+refs/heads/*:refs/remotes/origin/*' \
     '+refs/tags/*:refs/tags/*'
   if git rev-parse --verify --quiet "refs/remotes/origin/$ref^{commit}" >/dev/null; then
-    git checkout -B "ci-$ref" "origin/$ref"
+    git checkout --detach "refs/remotes/origin/$ref"
   else
     if ! git rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
       git -c fetch.recurseSubmodules=false fetch --depth=1 origin "$ref" || true

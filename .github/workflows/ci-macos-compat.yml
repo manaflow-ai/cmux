@@ -119,6 +119,17 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           XCODEBUILD_TEST_TIMEOUT_SECONDS="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-1200}"
+          run_in_new_session() {
+            /usr/bin/perl -MPOSIX=setsid -e 'setsid() or die "setsid: $!"; exec @ARGV or die "exec: $!"' -- "$@"
+          }
+          process_group_has_members() {
+            ps -axo pid=,pgid= | awk -v pgid="$1" '$2 == pgid { found=1 } END { exit found ? 0 : 1 }'
+          }
+          kill_process_group() {
+            local signal="$1"
+            local pgid="$2"
+            kill "-$signal" -- "-$pgid" >/dev/null 2>&1 || kill "-$signal" "$pgid" >/dev/null 2>&1 || true
+          }
           run_xcodebuild_with_timeout() {
             local timeout_seconds="$1"
             shift
@@ -126,15 +137,15 @@ jobs:
             timeout_marker="$(mktemp)"
             rm -f "$timeout_marker"
 
-            "$@" &
+            run_in_new_session "$@" &
             local pid=$!
+            local pgid="$pid"
             (
               sleep "$timeout_seconds"
-              if kill -0 "$pid" >/dev/null 2>&1; then
+              if process_group_has_members "$pgid"; then
                 echo "xcodebuild timed out after ${timeout_seconds}s" > "$timeout_marker"
-                kill "$pid" >/dev/null 2>&1 || true
-                sleep 5
-                kill -KILL "$pid" >/dev/null 2>&1 || true
+                kill_process_group TERM "$pgid"
+                kill_process_group KILL "$pgid"
               fi
             ) &
             local watcher=$!
