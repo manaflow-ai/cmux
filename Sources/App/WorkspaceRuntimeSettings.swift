@@ -165,9 +165,24 @@ struct TerminalWarmPtyPoolStartupSignature: Equatable {
         let linkDestination: String?
     }
 
+    struct ManagedEnvironmentFingerprint: Equatable {
+        let socketPath: String
+        let claudeConfigDirectory: String?
+        let claudeHooksEnabled: Bool
+        let customClaudePath: String?
+        let suppressSubagentNotifications: Bool
+        let cursorHooksEnabled: Bool
+        let geminiHooksEnabled: Bool
+        let shellIntegrationEnabled: Bool
+        let watchGitStatusEnabled: Bool
+        let ghosttyShellIntegrationMode: String
+        let ghosttyWorkingDirectory: String?
+    }
+
     let shellPath: String
     let shellName: String
     let environment: [String: String]
+    let managedEnvironment: ManagedEnvironmentFingerprint
     let files: [FileFingerprint]
 
     var supportsBourneWarmActivation: Bool {
@@ -181,11 +196,13 @@ struct TerminalWarmPtyPoolStartupSignature: Equatable {
 
     static func current(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        defaults: UserDefaults = .standard
     ) -> TerminalWarmPtyPoolStartupSignature {
         let shellPath = resolvedShellPath(environment: environment)
         let shellName = resolvedShellName(shellPath: shellPath)
         let trackedEnvironment = trackedEnvironment(environment)
+        let managedEnvironment = managedEnvironmentFingerprint(environment: environment, defaults: defaults)
         let home = homeDirectory(environment: environment)
         let candidatePaths = startupCandidatePaths(
             shellName: shellName,
@@ -201,6 +218,7 @@ struct TerminalWarmPtyPoolStartupSignature: Equatable {
             shellPath: shellPath,
             shellName: shellName,
             environment: trackedEnvironment,
+            managedEnvironment: managedEnvironment,
             files: fingerprints
         )
     }
@@ -225,6 +243,26 @@ struct TerminalWarmPtyPoolStartupSignature: Equatable {
             }
         }
         return result
+    }
+
+    private static func managedEnvironmentFingerprint(
+        environment: [String: String],
+        defaults: UserDefaults
+    ) -> ManagedEnvironmentFingerprint {
+        let shellIntegrationEnabled = defaults.object(forKey: "sidebarShellIntegration") as? Bool ?? true
+        return ManagedEnvironmentFingerprint(
+            socketPath: SocketControlSettings.socketPath(environment: environment),
+            claudeConfigDirectory: nonEmpty(environment["CLAUDE_CONFIG_DIR"]),
+            claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults),
+            customClaudePath: ClaudeCodeIntegrationSettings.customClaudePath(defaults: defaults),
+            suppressSubagentNotifications: AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults),
+            cursorHooksEnabled: CursorIntegrationSettings.hooksEnabled(defaults: defaults),
+            geminiHooksEnabled: GeminiIntegrationSettings.hooksEnabled(defaults: defaults),
+            shellIntegrationEnabled: shellIntegrationEnabled,
+            watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: defaults),
+            ghosttyShellIntegrationMode: GhosttyApp.shared.userGhosttyShellIntegrationMode,
+            ghosttyWorkingDirectory: nonEmpty(GhosttyConfig.load().workingDirectory)
+        )
     }
 
     private static func resolvedShellPath(environment: [String: String]) -> String {

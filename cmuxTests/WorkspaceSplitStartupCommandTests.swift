@@ -210,6 +210,39 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertTrue(input.contains("CMUX_PORT_RANGE='\(portValues.portRange)'"), input)
     }
 
+    func testWarmTerminalActivationUsesPortableCdSyntax() throws {
+        let workspaceId = try XCTUnwrap(UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
+        let input = try XCTUnwrap(Workspace.debugWarmTerminalActivationInputForTesting(
+            workspaceId: workspaceId,
+            portOrdinal: 0,
+            workingDirectory: "/tmp/cmux warm cwd",
+            shouldRefreshWorkspaceEnvironment: false
+        ))
+
+        XCTAssertTrue(input.contains("cd '/tmp/cmux warm cwd'"), input)
+        XCTAssertFalse(input.contains("cd --"), input)
+    }
+
+    func testWarmTerminalCrossWorkspaceTargetFallsBackToDefaultDirectory() throws {
+        let configuredDirectory = "/tmp/cmux-default-cwd-\(UUID().uuidString)"
+
+        XCTAssertEqual(
+            Workspace.debugWarmTerminalTargetDirectoryForTesting(
+                workingDirectory: nil,
+                configTemplateWorkingDirectory: configuredDirectory,
+                useDefaultWhenMissing: true
+            ),
+            configuredDirectory
+        )
+        XCTAssertNil(
+            Workspace.debugWarmTerminalTargetDirectoryForTesting(
+                workingDirectory: nil,
+                configTemplateWorkingDirectory: configuredDirectory,
+                useDefaultWhenMissing: false
+            )
+        )
+    }
+
     func testWarmTerminalStartupSignatureTracksZshStartupFileChanges() throws {
         let fileManager = FileManager.default
         let root = try makeTemporaryDirectory()
@@ -270,6 +303,45 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         )
         XCTAssertNotEqual(first, second)
         XCTAssertFalse(second.supportsBourneWarmActivation)
+    }
+
+    func testWarmTerminalStartupSignatureTracksManagedEnvironmentSettings() throws {
+        let fileManager = FileManager.default
+        let root = try makeTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        let defaultsName = "cmuxTests.warmPtyPool.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer {
+            defaults.removePersistentDomain(forName: defaultsName)
+        }
+
+        let environment = [
+            "HOME": home.path,
+            "SHELL": "/bin/zsh"
+        ]
+        let first = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager,
+            defaults: defaults
+        )
+
+        defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+        defaults.set("/opt/cmux/claude", forKey: ClaudeCodeIntegrationSettings.customClaudePathKey)
+        defaults.set(false, forKey: CursorIntegrationSettings.hooksEnabledKey)
+        defaults.set(false, forKey: GeminiIntegrationSettings.hooksEnabledKey)
+        defaults.set(false, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(false, forKey: "sidebarShellIntegration")
+
+        let second = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager,
+            defaults: defaults
+        )
+
+        XCTAssertNotEqual(first, second)
     }
 
     func testWarmTerminalStartupSignatureTracksUnknownShellGenericRc() throws {
