@@ -5468,10 +5468,10 @@ class TerminalController {
 
     private func v2WorkspaceLast(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "tab management is unavailable", data: nil)
+            return .err(code: "unavailable", message: workspaceHistoryTabManagementUnavailableMessage(), data: nil)
         }
 
-        var result: V2CallResult = .err(code: "not_found", message: "No previous workspace in history", data: nil)
+        var result: V2CallResult = .err(code: "not_found", message: workspaceHistoryPreviousNotFoundMessage(), data: nil)
         v2MainSync {
             guard let before = tabManager.selectedTabId else { return }
             if let windowId = v2ResolveWindowId(tabManager: tabManager) {
@@ -5493,10 +5493,10 @@ class TerminalController {
 
     private func v2WorkspaceLastForward(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "tab management is unavailable", data: nil)
+            return .err(code: "unavailable", message: workspaceHistoryTabManagementUnavailableMessage(), data: nil)
         }
 
-        var result: V2CallResult = .err(code: "not_found", message: "No next workspace in history", data: nil)
+        var result: V2CallResult = .err(code: "not_found", message: workspaceHistoryNextNotFoundMessage(), data: nil)
         v2MainSync {
             guard let before = tabManager.selectedTabId else { return }
             if let windowId = v2ResolveWindowId(tabManager: tabManager) {
@@ -5514,6 +5514,27 @@ class TerminalController {
             ])
         }
         return result
+    }
+
+    private func workspaceHistoryTabManagementUnavailableMessage() -> String {
+        String(
+            localized: "socket.workspace.history.tabManagementUnavailable",
+            defaultValue: "tab management is unavailable"
+        )
+    }
+
+    private func workspaceHistoryPreviousNotFoundMessage() -> String {
+        String(
+            localized: "socket.workspace.history.previousNotFound",
+            defaultValue: "No previous workspace in history"
+        )
+    }
+
+    private func workspaceHistoryNextNotFoundMessage() -> String {
+        String(
+            localized: "socket.workspace.history.nextNotFound",
+            defaultValue: "No next workspace in history"
+        )
     }
 
     private func v2WorkspaceEqualizeSplits(params: [String: Any]) -> V2CallResult {

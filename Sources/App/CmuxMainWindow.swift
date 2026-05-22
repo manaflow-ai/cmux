@@ -75,14 +75,17 @@ final class CmuxMainWindow: NSWindow {
                     super.sendEvent(event)
                     return
                 }
-                let appDelegate = MainActor.assumeIsolated { AppDelegate.shared }
+                let appDelegate = AppDelegate.shared
                 if let appDelegate,
                    let context = appDelegate.contextForMainTerminalWindow(self, reindex: false) {
+                    let isBack = event.buttonNumber == 3
+                    let canNavigate = isBack ? context.tabManager.canNavigateBack : context.tabManager.canNavigateForward
+                    guard canNavigate else { break }
 #if DEBUG
-                    let action = event.buttonNumber == 3 ? "navigateBack" : "navigateForward"
+                    let action = isBack ? "navigateBack" : "navigateForward"
                     cmuxDebugLog("window.mouse.backForward action=\(action) window=\(windowNumber)")
 #endif
-                    if event.buttonNumber == 3 {
+                    if isBack {
                         context.tabManager.navigateBack()
                     } else {
                         context.tabManager.navigateForward()
