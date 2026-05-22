@@ -1012,6 +1012,7 @@ final class SessionIndexStore: ObservableObject {
     nonisolated static func forEachJSONLine(
         url: URL,
         maxBytes: Int,
+        maxLines: Int? = nil,
         body: ([String: Any]) -> Bool
     ) {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return }
