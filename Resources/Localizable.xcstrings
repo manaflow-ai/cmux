@@ -91092,6 +91092,35 @@
         }
       }
     },
+    "remote.status.terminalDisconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote terminal session disconnected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートターミナルセッションが切断されました"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Remote terminal session disconnected"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Remote terminal session disconnected"
+          }
+        }
+      }
+    },
     "remote.status.error": {
       "extractionState": "manual",
       "localizations": {
@@ -91156,25 +91185,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH workspace"
+            "value": "Remote workspace"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH ワークスペース"
+            "value": "リモートワークスペース"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH робоча область"
+            "value": "Remote workspace"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 워크스페이스"
+            "value": "Remote workspace"
           }
         }
       }
@@ -91185,25 +91214,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH connected to %@"
+            "value": "Remote connected to %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH は %@ に接続済み"
+            "value": "リモートは %@ に接続済み"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH підключено до %@"
+            "value": "Remote connected to %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에 SSH 연결됨"
+            "value": "Remote connected to %@"
           }
         }
       }
@@ -91214,25 +91243,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH connecting to %@"
+            "value": "Remote connecting to %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH は %@ に接続中"
+            "value": "リモートは %@ に接続中"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH підключення до %@"
+            "value": "Remote connecting to %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에 SSH 연결 중"
+            "value": "Remote connecting to %@"
           }
         }
       }
@@ -91243,25 +91272,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH reconnecting to %@"
+            "value": "Remote reconnecting to %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH は %@ に再接続中"
+            "value": "リモートは %@ に再接続中"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH повторно підключається до %@"
+            "value": "Remote reconnecting to %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에 SSH 다시 연결 중"
+            "value": "Remote reconnecting to %@"
           }
         }
       }
@@ -91272,25 +91301,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH error for %@"
+            "value": "Remote error for %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の SSH エラー"
+            "value": "%@ のリモートエラー"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Помилка SSH для %@"
+            "value": "Remote error for %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에 대한 SSH 오류"
+            "value": "Remote error for %@"
           }
         }
       }
@@ -91301,25 +91330,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH error for %@: %@"
+            "value": "Remote error for %@: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の SSH エラー: %@"
+            "value": "%@ のリモートエラー: %@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Помилка SSH для %@: %@"
+            "value": "Remote error for %@: %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에 대한 SSH 오류: %@"
+            "value": "Remote error for %@: %@"
           }
         }
       }
@@ -91330,25 +91359,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH disconnected from %@"
+            "value": "Remote disconnected from %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH は %@ から切断済み"
+            "value": "リモートは %@ から切断済み"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH відключено від %@"
+            "value": "Remote disconnected from %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에서 SSH 연결 해제됨"
+            "value": "Remote disconnected from %@"
           }
         }
       }
@@ -114423,115 +114452,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] リモート SSH セッションが終了しました: %s"
+            "value": "[cmux] リモートセッションが切断されました: %s"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "de": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "es": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "it": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "da": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "th": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] remote ssh session ended: %s"
+            "value": "[cmux] remote session disconnected: %s"
           }
         }
       }
@@ -114542,115 +114571,234 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] ローカルシェルにフォールバックしました。元の cmux ssh または cmux vm attach コマンドで再接続してください。"
+            "value": "[cmux] Enter キーを押すと再接続します。それまではこのターミナルは切断されたままです。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "de": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "es": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "it": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "da": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "th": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "new",
-            "value": "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            "value": "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
+          }
+        }
+      }
+    },
+    "remote.disconnectBanner.reconnectUnavailableHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] サイドバーからこのワークスペースを再接続するか、元の cmux リモートコマンドをもう一度実行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
           }
         }
       }

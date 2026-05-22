@@ -7758,12 +7758,15 @@ struct CMUXCLI {
     }
 
     private final class VMPtyWebSocketBridge {
+        private static let keepaliveInterval: TimeInterval = 5.0
         private let config: VMPtyWebSocketConfig
         private let debugEvent: ((String) -> Void)?
         private let sendQueue = DispatchQueue(label: "com.cmux.vm-pty.websocket.send")
         private let stopLock = NSLock()
         private var stopped = false
         private var task: URLSessionWebSocketTask?
+        private var keepaliveTimer: DispatchSourceTimer?
+        private var keepaliveInFlight = false
 
         init(config: VMPtyWebSocketConfig, debugEvent: ((String) -> Void)? = nil) {
             self.config = config
@@ -7804,6 +7807,8 @@ struct CMUXCLI {
             defer { rawMode?.restore() }
             let resizeSource = startResizeSource()
             defer { resizeSource.cancel() }
+            startKeepalive()
+            defer { stopKeepalive() }
             startInputPump()
             try receiveOutputLoop(delegate: delegate)
         }
@@ -7914,6 +7919,57 @@ struct CMUXCLI {
                 throw error
             case nil:
                 return nil
+            }
+        }
+
+        private func startKeepalive() {
+            sendQueue.async { [weak self] in
+                guard let self else { return }
+                self.keepaliveTimer?.cancel()
+                self.keepaliveInFlight = false
+                let timer = DispatchSource.makeTimerSource(queue: self.sendQueue)
+                timer.schedule(deadline: .now() + Self.keepaliveInterval, repeating: Self.keepaliveInterval)
+                timer.setEventHandler { [weak self] in
+                    self?.sendKeepalive()
+                }
+                self.keepaliveTimer = timer
+                timer.resume()
+            }
+        }
+
+        private func stopKeepalive() {
+            sendQueue.sync {
+                keepaliveTimer?.cancel()
+                keepaliveTimer = nil
+                keepaliveInFlight = false
+            }
+        }
+
+        private func sendKeepalive() {
+            guard !isStopped, let task else {
+                keepaliveTimer?.cancel()
+                keepaliveTimer = nil
+                keepaliveInFlight = false
+                return
+            }
+            if keepaliveInFlight {
+                debugEvent?("websocket.keepalive.timeout")
+                markStopped()
+                task.cancel(with: .goingAway, reason: nil)
+                return
+            }
+
+            keepaliveInFlight = true
+            task.sendPing { [weak self] error in
+                self?.sendQueue.async {
+                    guard let self, !self.isStopped else { return }
+                    self.keepaliveInFlight = false
+                    if let error {
+                        self.debugEvent?("websocket.keepalive.failed")
+                        self.markStopped()
+                        self.task?.cancel(with: .goingAway, reason: Data(error.localizedDescription.utf8))
+                    }
+                }
             }
         }
 

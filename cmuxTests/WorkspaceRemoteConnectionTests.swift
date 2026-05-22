@@ -690,7 +690,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoteTerminalSessionEndRequestsControlMasterCleanupWhenWorkspaceDemotes() throws {
+    func testRemoteTerminalSessionEndRequestsControlMasterCleanupAndLeavesWorkspaceDisconnected() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -725,7 +725,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         wait(for: [cleanupRequested], timeout: 1.0)
 
-        XCTAssertFalse(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
         XCTAssertEqual(
             capturedArguments,
@@ -1108,7 +1110,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoteTerminalSessionEndSkipsControlMasterCleanupWhenBrowserPanelsKeepWorkspaceRemote() throws {
+    func testRemoteTerminalSessionEndDisconnectsWorkspaceWhenBrowserPanelsRemain() throws {
         let workspace = Workspace()
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let initialTerminalID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
@@ -1129,7 +1131,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
-        cleanupRequested.isInverted = true
 
         Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in
             cleanupRequested.fulfill()
@@ -1144,6 +1145,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         wait(for: [cleanupRequested], timeout: 1.0)
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
@@ -1759,6 +1762,50 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(
             ((workspace.remoteStatusPayload()["proxy"] as? [String: Any])?["state"] as? String),
             "unavailable"
+        )
+    }
+
+    @MainActor
+    func testWebSocketDaemonTransportErrorClearsConnectedSidebarState() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:issue-4509",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "cmux vm-pty-attach --id issue-4509",
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://vm.example.invalid/daemon",
+                headers: [:],
+                token: "token",
+                sessionId: "session",
+                expiresAtUnix: 4_102_444_800
+            ),
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to vm:issue-4509 via shared local proxy 127.0.0.1:59999",
+            target: "vm:issue-4509"
+        )
+
+        let proxyError = "Remote proxy to vm:issue-4509 unavailable: Remote daemon transport failed: daemon websocket keepalive timed out"
+        workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "vm:issue-4509")
+
+        XCTAssertEqual(workspace.remoteConnectionState, .error)
+        XCTAssertEqual(workspace.remoteConnectionDetail, proxyError)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(
+            ((workspace.remoteStatusPayload()["proxy"] as? [String: Any])?["state"] as? String),
+            "error"
         )
     }
 }
