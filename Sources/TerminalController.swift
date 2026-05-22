@@ -63,7 +63,7 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
     if lowered.contains("timed out") || lowered.contains("timeout") {
         return "remote daemon did not respond in time"
     }
-    return trimmed
+    return "remote PTY operation failed"
 }
 
 /// Unix socket-based controller for programmatic terminal control
@@ -6008,8 +6008,21 @@ class TerminalController {
         requestedWorkspaceId: UUID?,
         preferredSurfaceId: UUID? = nil
     ) -> (target: RemotePTYSocketTarget?, error: V2CallResult?) {
+        if v2HasNonNullParam(params, "allow_moved_surface"),
+           v2Bool(params, "allow_moved_surface") == nil {
+            return (
+                nil,
+                .err(code: "invalid_params", message: "Missing or invalid allow_moved_surface", data: nil)
+            )
+        }
+        let allowMovedSurface = v2Bool(params, "allow_moved_surface") ?? false
+        let requestedSessionID = v2RawString(params, "session_id").flatMap { raw -> String? in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
         var resolvedWorkspaceId: UUID?
         var target: RemotePTYSocketTarget?
+        var workspaceMismatchData: [String: Any]?
 
         v2MainSync {
             v2RefreshKnownRefs()
@@ -6044,6 +6057,24 @@ class TerminalController {
             guard let owner, let workspace else {
                 return
             }
+            if let requestedWorkspaceId,
+               workspace.id != requestedWorkspaceId {
+                let matchedMovedSurface = allowMovedSurface
+                    && preferredSurfaceId.map {
+                        workspace.remotePTYSessionIDMatches(panelId: $0, sessionID: requestedSessionID)
+                    } == true
+                guard matchedMovedSurface else {
+                    workspaceMismatchData = [
+                        "workspace_id": requestedWorkspaceId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: requestedWorkspaceId),
+                        "surface_id": v2OrNull(preferredSurfaceId?.uuidString),
+                        "surface_ref": v2Ref(kind: .surface, uuid: preferredSurfaceId),
+                        "resolved_workspace_id": workspace.id.uuidString,
+                        "resolved_workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    ]
+                    return
+                }
+            }
 
             let windowId = v2ResolveWindowId(tabManager: owner)
             target = RemotePTYSocketTarget(
@@ -6056,6 +6087,16 @@ class TerminalController {
             )
         }
 
+        if let workspaceMismatchData {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: "surface_id does not belong to workspace_id",
+                    data: workspaceMismatchData
+                )
+            )
+        }
         guard let resolvedWorkspaceId else {
             return (
                 nil,

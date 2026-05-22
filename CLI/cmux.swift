@@ -8749,6 +8749,8 @@ struct CMUXCLI {
             ]
             if let surfaceID {
                 params["surface_id"] = surfaceID
+                params["session_id"] = sessionID
+                params["allow_moved_surface"] = true
             }
             response = try client.sendV2(method: "workspace.remote.pty_sessions", params: params)
         } catch {
@@ -8812,6 +8814,7 @@ struct CMUXCLI {
         ]
         if let surfaceID {
             params["surface_id"] = surfaceID
+            params["allow_moved_surface"] = true
         }
         return params
     }
@@ -8825,9 +8828,11 @@ struct CMUXCLI {
 
     private func userFacingRemotePTYErrorMessage(_ message: String) -> String {
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "unknown error" }
+        guard !trimmed.isEmpty else { return "remote PTY operation failed" }
         let lowered = trimmed.lowercased()
-        if lowered.contains("missing required capability") || lowered.contains("pty.session") {
+        if lowered.contains("missing required capability") ||
+            lowered.contains("pty.session") ||
+            lowered.contains("method_not_found") {
             return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
         }
         if lowered.contains("pty_session_not_found") ||
@@ -8837,10 +8842,19 @@ struct CMUXCLI {
         if lowered.contains("pty_input_queue_full") || lowered.contains("pty input queue is full") {
             return "remote PTY input is temporarily backed up"
         }
+        if lowered.contains("remote connection is not active") {
+            return "remote connection is not active"
+        }
+        if lowered.contains("remote daemon is not ready") || lowered.contains("remote daemon tunnel is not ready") {
+            return "remote daemon is not ready"
+        }
+        if lowered.contains("missing workspace_id in ssh pty session list response") {
+            return "missing workspace_id in SSH PTY session list response"
+        }
         if lowered.contains("timed out") || lowered.contains("timeout") {
             return "remote daemon did not respond in time"
         }
-        return trimmed
+        return "remote PTY operation failed"
     }
 
     private func readSSHPTYBridgeReady(fd: Int32) throws -> String {
@@ -8910,6 +8924,7 @@ struct CMUXCLI {
             ]
             if let surfaceID {
                 params["surface_id"] = surfaceID
+                params["allow_moved_surface"] = true
             }
             _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
         }

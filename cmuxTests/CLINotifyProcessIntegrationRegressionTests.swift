@@ -2056,7 +2056,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("Closed 1 persisted SSH PTY session"), result.stdout)
         XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 1 persisted SSH PTY session"), result.stderr)
         XCTAssertTrue(result.stderr.contains(failedSessionId), result.stderr)
-        XCTAssertTrue(result.stderr.contains("remote_pty_error: close failed"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("remote PTY operation failed"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("close failed"), result.stderr)
     }
 
     func testSSHSessionCleanupAllWorkspacesReportsListErrors() throws {

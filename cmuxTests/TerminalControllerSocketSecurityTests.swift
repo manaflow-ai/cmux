@@ -242,6 +242,48 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(moved.destination.activeRemoteTerminalSessionCount, 0)
     }
 
+    func testRemotePTYRejectsWorkspaceSurfaceMismatchWithoutMovedSurfaceOptIn() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let socketPath = makeSocketPath("pty-mismatch")
+        let manager = TabManager()
+        let moved = try makeMovedRemotePTYSurface(in: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_resize",
+            params: [
+                "workspace_id": moved.source.id.uuidString,
+                "surface_id": moved.panel.id.uuidString,
+                "session_id": moved.sessionID,
+                "attachment_id": moved.panel.id.uuidString,
+                "attachment_token": "token",
+                "cols": 100,
+                "rows": 30,
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertEqual(error["message"] as? String, "surface_id does not belong to workspace_id")
+        let data = try XCTUnwrap(error["data"] as? [String: Any])
+        XCTAssertEqual(data["workspace_id"] as? String, moved.source.id.uuidString)
+        XCTAssertEqual(data["surface_id"] as? String, moved.panel.id.uuidString)
+        XCTAssertEqual(data["resolved_workspace_id"] as? String, moved.destination.id.uuidString)
+    }
+
     func testRemotePTYResizeRoutesMovedSurfaceToCurrentWorkspace() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -270,6 +312,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 "attachment_token": "token",
                 "cols": 100,
                 "rows": 30,
+                "allow_moved_surface": true,
             ],
             to: socketPath
         )
@@ -321,6 +364,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 "attachment_id": moved.panel.id.uuidString,
                 "command": "",
                 "require_existing": true,
+                "allow_moved_surface": true,
             ],
             to: socketPath
         )
