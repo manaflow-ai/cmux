@@ -3858,7 +3858,7 @@ class TerminalController {
         )
     }
 
-    private func v2SystemTree(params: [String: Any]) -> V2CallResult {
+    func v2SystemTree(params: [String: Any]) -> V2CallResult {
         let workspaceFilter = v2UUID(params, "workspace_id")
         if params["workspace_id"] != nil && workspaceFilter == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
