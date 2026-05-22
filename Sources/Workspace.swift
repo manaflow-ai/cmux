@@ -10286,7 +10286,7 @@ final class Workspace: Identifiable, ObservableObject {
         sidebarLogFlushCancellable = sidebarLogFlushSignal
             .throttle(for: Self.sidebarLogFlushDelay, scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     self?.flushPendingSidebarLogEntries()
                 }
             }
