@@ -555,6 +555,65 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexStopFromStaleOlderTurnDoesNotNotifyWhileNewerTurnIsActive() throws {
+        let context = try makeClaudeHookContext(name: "codex-stale-turn-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "stale-turn-stop-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let oldPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
+        XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
+
+        let currentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
+        XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
+
+        let staleStopStart = context.state.commands.count
+        let staleStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(staleStop.timedOut, staleStop.stderr)
+        XCTAssertEqual(staleStop.status, 0, staleStop.stderr)
+        let staleStopCommands = Array(context.state.commands.dropFirst(staleStopStart))
+
+        XCTAssertFalse(
+            staleStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A stale Stop from an older turn must not notify or mark the newer active turn idle, saw \(staleStopCommands)"
+        )
+
+        let currentStopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The current turn should still notify after a stale older Stop, saw \(currentStopCommands)"
+        )
+    }
+
     func testManagedCodexSubagentStopDoesNotReplaceResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "codex-managed-resume-guard")
         defer { context.cleanup() }
