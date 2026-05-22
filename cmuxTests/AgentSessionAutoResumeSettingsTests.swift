@@ -323,6 +323,51 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingAgentHookResumeBindingSurvivesEmptyScanWhileResumeStarts() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            XCTAssertTrue(
+                source.setSurfaceResumeBinding(
+                    SurfaceResumeBindingSnapshot(
+                        name: "Codex",
+                        kind: "codex",
+                        command: "codex resume pending-session",
+                        cwd: "/tmp/repo",
+                        checkpointId: "pending-session",
+                        source: "agent-hook",
+                        autoResume: true,
+                        updatedAt: 1_777_777_777
+                    ),
+                    panelId: sourcePanelId
+                )
+            )
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "pending-session",
+                    workingDirectory: "/tmp/repo"
+                ),
+                panelId: sourcePanelId
+            )
+            source.setRestoredAgentAutoResumePendingForTesting(true, panelId: sourcePanelId)
+
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty
+            )
+
+            XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.sessionId, "pending-session")
+            XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "pending-session")
+            XCTAssertEqual(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId)?.sessionId, "pending-session")
+            XCTAssertEqual(source.surfaceResumeBinding(panelId: sourcePanelId)?.checkpointId, "pending-session")
+        }
+    }
+
+    @MainActor
     func testDisabledAutoResumeDoesNotRunAgentHookResumeBinding() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
