@@ -1112,8 +1112,13 @@ final class MarkdownPanelTests: XCTestCase {
             )
         )
         let ipv6Request = try XCTUnwrap(String(data: ipv6RequestBytes, encoding: .utf8))
-        XCTAssertTrue(ipv6Request.contains("image/avif;q=0.9"))
-        XCTAssertTrue(ipv6Request.contains("image/svg+xml"))
+        let acceptLine = try XCTUnwrap(
+            ipv6Request.components(separatedBy: "\r\n").first { $0.hasPrefix("Accept: ") }
+        )
+        XCTAssertEqual(
+            acceptLine,
+            "Accept: image/png,image/jpeg,image/gif,image/webp,image/avif;q=0.9,image/svg+xml;q=0.9,*/*;q=0.1"
+        )
         XCTAssertTrue(ipv6Request.contains("\r\nHost: [2606:4700:4700::1111]\r\n"))
     }
 
