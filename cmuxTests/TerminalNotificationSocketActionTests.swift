@@ -137,7 +137,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
     }
 
     func testNotificationOpenFocusesDestinationAndMarksRead() async throws {
-        let fixture = try makeSocketFixture(name: "notif-open")
+        let fixture = try makeSocketFixture(name: "notif-open", registerWindowlessContext: true)
         defer { fixture.cleanup() }
 
         let targetWorkspace = fixture.manager.addWorkspace(title: "Open Target", select: false)
@@ -287,7 +287,11 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         }
     }
 
-    private func makeSocketFixture(name: String, includeWindow: Bool = false) throws -> SocketFixture {
+    private func makeSocketFixture(
+        name: String,
+        includeWindow: Bool = false,
+        registerWindowlessContext: Bool = false
+    ) throws -> SocketFixture {
         let socketPath = makeSocketPath(name)
         let store = TerminalNotificationStore.shared
         let previousShared = AppDelegate.shared
@@ -310,18 +314,22 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
 
         let windowId: UUID?
         let window: NSWindow?
-        if includeWindow {
+        if includeWindow || registerWindowlessContext {
             let registeredWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-            let testWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-                styleMask: [.titled],
-                backing: .buffered,
-                defer: false
-            )
-            testWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(registeredWindowId.uuidString)")
-            testWindow.makeKeyAndOrderFront(nil)
             windowId = registeredWindowId
-            window = testWindow
+            if includeWindow {
+                let testWindow = NSWindow(
+                    contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                    styleMask: [.titled],
+                    backing: .buffered,
+                    defer: false
+                )
+                testWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(registeredWindowId.uuidString)")
+                testWindow.makeKeyAndOrderFront(nil)
+                window = testWindow
+            } else {
+                window = nil
+            }
         } else {
             windowId = nil
             window = nil
