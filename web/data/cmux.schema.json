@@ -838,6 +838,7 @@
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
+              "copyRawText",
               "focusLeft",
               "focusRight",
               "focusUp",
