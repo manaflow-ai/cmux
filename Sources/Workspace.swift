@@ -13983,6 +13983,15 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
+    private func hideMarkdownPortalsForDeselectedTabs(inPane pane: PaneID, selectedTabId: TabID) {
+        for tab in bonsplitController.tabs(inPane: pane) {
+            guard tab.id != selectedTabId else { continue }
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let markdownPanel = panels[panelId] as? MarkdownPanel else { continue }
+            markdownPanel.rendererSession.hidePortal(reason: "tabDeselected")
+        }
+    }
+
     private func applyTabSelectionNow(
         tabId: TabID,
         inPane pane: PaneID,
@@ -14073,6 +14082,7 @@ extension Workspace: BonsplitDelegate {
         // affected by SwiftUI opacity. Without an explicit hide, the deselected browser's
         // portal layer can remain visible above the newly selected tab.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
+        hideMarkdownPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
 
         if let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(
