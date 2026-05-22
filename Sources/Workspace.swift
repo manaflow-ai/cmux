@@ -8273,6 +8273,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
+    private var portalPresentationVisibleInUI = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -12465,12 +12466,31 @@ final class Workspace: Identifiable, ObservableObject {
         let changed = portalRenderingEnabled != enabled
         portalRenderingEnabled = enabled
         if enabled {
-            if changed {
+            if changed && portalPresentationVisibleInUI {
                 beginEventDrivenLayoutFollowUp(
                     reason: reason,
                     includeGeometry: true
                 )
             }
+        } else {
+            clearLayoutFollowUp()
+            hideAllTerminalPortalViews()
+            hideAllBrowserPortalViews()
+            hideAllMarkdownPortalViews(reason: reason)
+        }
+    }
+
+    func setPortalPresentationVisibleInUI(_ visible: Bool, reason: String) {
+        let changed = portalPresentationVisibleInUI != visible
+        portalPresentationVisibleInUI = visible
+        guard changed else { return }
+
+        if visible {
+            guard portalRenderingEnabled else { return }
+            beginEventDrivenLayoutFollowUp(
+                reason: reason,
+                includeGeometry: true
+            )
         } else {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
@@ -12952,6 +12972,13 @@ final class Workspace: Identifiable, ObservableObject {
             hideAllMarkdownPortalViews(reason: "layoutFollowUp.portalRenderingDisabled")
             return
         }
+        guard portalPresentationVisibleInUI else {
+            clearLayoutFollowUp()
+            hideAllTerminalPortalViews()
+            hideAllBrowserPortalViews()
+            hideAllMarkdownPortalViews(reason: "layoutFollowUp.portalPresentationHidden")
+            return
+        }
         isAttemptingLayoutFollowUp = true
         defer { isAttemptingLayoutFollowUp = false }
 
@@ -13137,7 +13164,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
-        guard portalRenderingEnabled else { return [] }
+        guard portalRenderingEnabled, portalPresentationVisibleInUI else { return [] }
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
         var visiblePanelIds: Set<UUID> = []
 
