@@ -772,9 +772,7 @@ private final class ClaudeHookSessionStore {
             record.launchCommand = launchCommand
         }
         if let isRestorable {
-            // Preserve sticky true: a later isRestorable=false must not clear
-            // record.isRestorable=true from a transcript-backed event.
-            record.isRestorable = isRestorable || record.isRestorable == true
+            record.isRestorable = isRestorable
         }
         if let subtitle = normalizeOptional(lastSubtitle) {
             record.lastSubtitle = subtitle

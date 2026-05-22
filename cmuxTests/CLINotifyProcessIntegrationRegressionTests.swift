@@ -571,6 +571,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Parent Codex SessionStart should publish a parent resume binding, saw \(context.state.commands)"
         )
 
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        var seededState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var seededSessions = try XCTUnwrap(seededState["sessions"] as? [String: Any])
+        seededSessions[childSessionId] = [
+            "sessionId": childSessionId,
+            "workspaceId": context.workspaceId,
+            "surfaceId": context.surfaceId,
+            "cwd": context.root.path,
+            "isRestorable": true,
+            "updatedAt": Date().timeIntervalSince1970,
+        ]
+        seededState["sessions"] = seededSessions
+        try JSONSerialization.data(withJSONObject: seededState, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateURL, options: .atomic)
+
         let childStartIndex = context.state.commands.count
         let childStart = runCodexHook(
             context: context,
@@ -590,7 +605,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Spawned Codex subagent should not clear the parent resume binding, saw \(childCommands)"
         )
 
-        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
         let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
         let parent = try XCTUnwrap(savedSessions[parentSessionId] as? [String: Any])
