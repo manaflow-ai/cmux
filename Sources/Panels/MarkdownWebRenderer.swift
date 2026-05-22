@@ -89,9 +89,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: MarkdownWebPortalProbeView, coordinator: Coordinator) {
 #if DEBUG
-        if coordinator.shouldRecordDismantleRetainedWebView(for: nsView) {
-            coordinator.recordDismantleRetainedWebView()
-        }
+        coordinator.recordProbeDismantle()
 #endif
         coordinator.notePortalProbeDismantled(nsView)
         nsView.onDidMoveToWindow = nil
@@ -266,9 +264,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
-        func recordDismantleRetainedWebView() {
-            recordDiagnosticsEvent("dismantleRetainedWebView") { snapshot in
-                snapshot.dismantleRetainedWebViewCount += 1
+        func recordProbeDismantle() {
+            recordDiagnosticsEvent("probeDismantle") { snapshot in
+                snapshot.probeDismantleCount += 1
             }
         }
 
@@ -287,12 +285,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
-        func shouldRecordDismantleRetainedWebView(for probe: MarkdownWebPortalProbeView) -> Bool {
-            // Probe teardown is expected when Bonsplit rebuilds a pane wrapper.
-            // The retained WebView stays bound to the coordinator-owned anchor.
-            false
-        }
-
         private var debugFileName: String {
             let name = URL(fileURLWithPath: filePath).lastPathComponent
             return name.isEmpty ? "-" : name
@@ -308,7 +300,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     "file=\(debugFileName) make=\(diagnostics.makeNSViewCount) " +
                     "reuse=\(diagnostics.reuseNSViewCount) create=\(diagnostics.webViewCreateCount) " +
                     "reattach=\(diagnostics.webViewReattachCount) update=\(diagnostics.updateNSViewCount) " +
-                    "dismantleRetained=\(diagnostics.dismantleRetainedWebViewCount) " +
+                    "probeDismantle=\(diagnostics.probeDismantleCount) " +
                     "loadShell=\(diagnostics.loadShellCount) push=\(diagnostics.pushMarkdownCount) " +
                     "didFinish=\(diagnostics.didFinishCount) terminate=\(diagnostics.webContentProcessTerminationCount) " +
                     "navFail=\(diagnostics.navigationFailureCount) " +

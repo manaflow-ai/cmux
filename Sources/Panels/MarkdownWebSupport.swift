@@ -109,7 +109,7 @@ struct MarkdownRendererDiagnosticsSnapshot: Equatable {
     var webViewCreateCount: Int = 0
     var webViewReattachCount: Int = 0
     var updateNSViewCount: Int = 0
-    var dismantleRetainedWebViewCount: Int = 0
+    var probeDismantleCount: Int = 0
     var loadShellCount: Int = 0
     var pushMarkdownCount: Int = 0
     var didFinishCount: Int = 0
@@ -121,7 +121,6 @@ struct MarkdownRendererDiagnosticsSnapshot: Equatable {
     var existingPanelFlickerSignalCount: Int {
         webViewCreateCount +
             webViewReattachCount +
-            dismantleRetainedWebViewCount +
             loadShellCount +
             pushMarkdownCount +
             didFinishCount +
@@ -137,7 +136,7 @@ struct MarkdownRendererDiagnosticsSnapshot: Equatable {
             "\(prefix)WebViewCreateCount": String(webViewCreateCount),
             "\(prefix)WebViewReattachCount": String(webViewReattachCount),
             "\(prefix)UpdateNSViewCount": String(updateNSViewCount),
-            "\(prefix)DismantleRetainedWebViewCount": String(dismantleRetainedWebViewCount),
+            "\(prefix)ProbeDismantleCount": String(probeDismantleCount),
             "\(prefix)LoadShellCount": String(loadShellCount),
             "\(prefix)PushMarkdownCount": String(pushMarkdownCount),
             "\(prefix)DidFinishCount": String(didFinishCount),

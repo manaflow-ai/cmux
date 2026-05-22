@@ -290,9 +290,7 @@ private struct MarkdownWebPortalVisibilitySink: NSViewRepresentable {
         return NSView(frame: .zero)
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        session.hidePortal(reason: reason)
-    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 // MARK: - Toolbar

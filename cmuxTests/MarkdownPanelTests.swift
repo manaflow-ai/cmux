@@ -377,7 +377,7 @@ final class MarkdownPanelTests: XCTestCase {
 
         XCTAssertNil(hostView.onDidMoveToWindow)
         XCTAssertNil(hostView.onGeometryChanged)
-        XCTAssertEqual(coordinator.diagnosticsSnapshot.dismantleRetainedWebViewCount, 0)
+        XCTAssertEqual(coordinator.diagnosticsSnapshot.probeDismantleCount, 1)
     }
 
     func testMarkdownRendererKeepsStablePortalAnchorAfterProbeDismantle() {
@@ -421,7 +421,7 @@ final class MarkdownPanelTests: XCTestCase {
         MarkdownWebRenderer.dismantleNSView(currentProbe, coordinator: coordinator)
         let afterDismantle = coordinator.portalSnapshot()
 
-        XCTAssertEqual(coordinator.diagnosticsSnapshot.dismantleRetainedWebViewCount, 0)
+        XCTAssertEqual(coordinator.diagnosticsSnapshot.probeDismantleCount, 1)
         XCTAssertEqual(beforeDismantle?.visibleInUI, true)
         XCTAssertEqual(afterDismantle?.visibleInUI, true)
     }
@@ -662,7 +662,7 @@ final class MarkdownPanelTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(firstPanel.rendererSession.portalSnapshot())
         XCTAssertEqual(snapshot.visibleInUI, false)
-        XCTAssertEqual(firstPanel.rendererSession.diagnosticsSnapshot.dismantleRetainedWebViewCount, 0)
+        XCTAssertEqual(firstPanel.rendererSession.diagnosticsSnapshot.probeDismantleCount, 0)
     }
 
     func testMarkdownDetachedPanelLifecycleHidesPreservedPortalAnchor() throws {

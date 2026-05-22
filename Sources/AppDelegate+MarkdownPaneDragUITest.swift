@@ -281,7 +281,6 @@ extension AppDelegate {
         var reasons: [String] = []
         if diagnostics.webViewCreateCount > 0 { reasons.append("webViewCreate") }
         if diagnostics.webViewReattachCount > 0 { reasons.append("webViewReattach") }
-        if diagnostics.dismantleRetainedWebViewCount > 0 { reasons.append("dismantleRetainedWebView") }
         if diagnostics.loadShellCount > 0 { reasons.append("loadShell") }
         if diagnostics.pushMarkdownCount > 0 { reasons.append("pushMarkdown") }
         if diagnostics.didFinishCount > 0 { reasons.append("didFinish") }
