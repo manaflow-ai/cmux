@@ -18721,7 +18721,8 @@ struct CMUXCLI {
                 print("OK")
                 return
             }
-            if let sessionId = parsedInput.sessionId {
+            let isGenericWaitingNotification = isGenericClaudeWaitingBody(summary.body)
+            if !isGenericWaitingNotification, let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -18832,7 +18833,8 @@ struct CMUXCLI {
                 color: "#4C8DFF"
             )
             let response: String
-            if isGenericClaudeWaitingBody(summary.body), let sessionId = parsedInput.sessionId {
+            var shouldMarkNotificationSent = true
+            if isGenericWaitingNotification, let sessionId = parsedInput.sessionId {
                 guard let sentResponse = try sendClaudeWaitingNotificationIfCurrent(
                     summary: summary,
                     workspaceId: workspaceId,
@@ -18847,6 +18849,20 @@ struct CMUXCLI {
                     return
                 }
                 response = sentResponse
+                if (try? sessionStore.hasPendingNotification(sessionId: sessionId)) == true {
+                    shouldMarkNotificationSent = false
+                    telemetry.breadcrumb("claude-hook.notification.pending-specific-prompt-after-send")
+                } else {
+                    try? sessionStore.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body
+                    )
+                }
             } else {
                 response = try sendClaudeWaitingNotification(
                     summary: summary,
@@ -18855,7 +18871,9 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
+            if shouldMarkNotificationSent {
+                markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
+            }
             print(response)
 
         case "permission-request":

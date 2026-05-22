@@ -787,16 +787,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             responseOverride: { line in
                 guard let payload = self.jsonObject(line),
                       let id = payload["id"] as? String,
-                      payload["method"] as? String == "workspace.list" else {
+                      payload["method"] as? String == "surface.list" else {
                     return nil
                 }
-                try? self.saveClaudeHookPendingNotification(
-                    sessionId,
-                    context: context,
-                    subtitle: "Permission request",
-                    body: permissionBody
-                )
-                return self.workspaceListResponse(id: id, workspaceId: context.workspaceId)
+                let surfaceListRequestCount = context.state.commands.filter { command in
+                    guard let payload = self.jsonObject(command) else { return false }
+                    return payload["method"] as? String == "surface.list"
+                }.count
+                if surfaceListRequestCount >= 2 {
+                    try? self.saveClaudeHookPendingNotification(
+                        sessionId,
+                        context: context,
+                        subtitle: "Permission request",
+                        body: permissionBody
+                    )
+                }
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
             }
         )
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -811,6 +817,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
 
         let sessionAfterNotification = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(sessionAfterNotification["lastSubtitle"] as? String, "Permission request")
         XCTAssertEqual(sessionAfterNotification["lastBody"] as? String, permissionBody)
         XCTAssertEqual(sessionAfterNotification["pendingNotificationFingerprint"] as? String, "Permission request\n\(permissionBody)")
     }
