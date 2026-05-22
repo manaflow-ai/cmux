@@ -3817,6 +3817,138 @@ final class WorkspaceTeardownTests: XCTestCase {
     }
 }
 
+@MainActor
+final class WorkspaceInlineRenamePersistenceTests: XCTestCase {
+    func testExplicitWorkspaceRenameCanMatchCurrentTitle() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let currentTitle = workspace.title
+
+        XCTAssertNil(workspace.customTitle)
+
+        manager.setCustomTitle(tabId: workspace.id, title: currentTitle)
+
+        XCTAssertEqual(workspace.customTitle, currentTitle.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    func testExplicitPanelRenameCanMatchCurrentTitle() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let currentTitle = try XCTUnwrap(workspace.panelTitles[panelId] ?? workspace.panels[panelId]?.displayTitle)
+
+        XCTAssertNil(workspace.panelCustomTitles[panelId])
+
+        workspace.setPanelCustomTitle(panelId: panelId, title: currentTitle)
+
+        XCTAssertEqual(workspace.panelCustomTitles[panelId], currentTitle.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    func testInlinePanelRenameIgnoresUnchangedTitle() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: panelId))
+        let tab = try XCTUnwrap(
+            workspace.bonsplitController.tabs(inPane: paneId).first {
+                workspace.panelIdFromSurfaceId($0.id) == panelId
+            }
+        )
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didCommitInlineRename: tab.title,
+            initialTitle: tab.title,
+            for: tab,
+            inPane: paneId
+        )
+
+        XCTAssertNil(workspace.panelCustomTitles[panelId])
+    }
+
+    func testInlinePanelRenameIgnoresUnchangedInitialTitleAfterLiveTitleChanges() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: panelId))
+        let tab = try XCTUnwrap(
+            workspace.bonsplitController.tabs(inPane: paneId).first {
+                workspace.panelIdFromSurfaceId($0.id) == panelId
+            }
+        )
+        let initialTitle = tab.title
+
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: panelId, title: "Updated Live Title"))
+        let updatedTab = try XCTUnwrap(workspace.bonsplitController.tab(tab.id))
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didCommitInlineRename: initialTitle,
+            initialTitle: initialTitle,
+            for: updatedTab,
+            inPane: paneId
+        )
+
+        XCTAssertNil(workspace.panelCustomTitles[panelId])
+    }
+}
+
+final class SidebarWorkspaceDoubleClickRenamePolicyTests: XCTestCase {
+    func testAllowsNonInteractiveWorkspaceRowPoint() {
+        XCTAssertTrue(
+            SidebarWorkspaceDoubleClickRenamePolicy.shouldBeginRename(
+                at: CGPoint(x: 80, y: 44),
+                rowBounds: CGRect(x: 0, y: 0, width: 180, height: 72),
+                excludedRegions: [CGRect(x: 12, y: 52, width: 80, height: 14)],
+                inlineRenameActive: false
+            )
+        )
+    }
+
+    func testRejectsInteractiveRegionPoint() {
+        XCTAssertFalse(
+            SidebarWorkspaceDoubleClickRenamePolicy.shouldBeginRename(
+                at: CGPoint(x: 40, y: 58),
+                rowBounds: CGRect(x: 0, y: 0, width: 180, height: 72),
+                excludedRegions: [CGRect(x: 12, y: 52, width: 80, height: 14)],
+                inlineRenameActive: false
+            )
+        )
+    }
+
+    func testRejectsWhileInlineRenameIsActive() {
+        XCTAssertFalse(
+            SidebarWorkspaceDoubleClickRenamePolicy.shouldBeginRename(
+                at: CGPoint(x: 80, y: 44),
+                rowBounds: CGRect(x: 0, y: 0, width: 180, height: 72),
+                excludedRegions: [],
+                inlineRenameActive: true
+            )
+        )
+    }
+
+    func testPrimarySingleClickDoesNotBeginInlineRename() {
+        XCTAssertFalse(
+            SidebarWorkspaceDoubleClickRenamePolicy.shouldBeginRename(
+                clickCount: 1,
+                at: CGPoint(x: 80, y: 44),
+                rowBounds: CGRect(x: 0, y: 0, width: 180, height: 72),
+                excludedRegions: [],
+                inlineRenameActive: false
+            )
+        )
+    }
+
+    func testPrimaryDoubleClickBeginsRename() {
+        XCTAssertTrue(
+            SidebarWorkspaceDoubleClickRenamePolicy.shouldBeginRename(
+                clickCount: 2,
+                at: CGPoint(x: 80, y: 44),
+                rowBounds: CGRect(x: 0, y: 0, width: 180, height: 72),
+                excludedRegions: [],
+                inlineRenameActive: false
+            )
+        )
+    }
+}
+
 
 @MainActor
 final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {

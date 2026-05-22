@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import CoreGraphics
+import ImageIO
 
 final class BonsplitTabDragUITests: XCTestCase {
     private let launchTimeout: TimeInterval = 20.0
@@ -301,6 +302,266 @@ final class BonsplitTabDragUITests: XCTestCase {
                 return frame.width > initialFrame.width + 80 || frame.height > initialFrame.height + 80
             },
             "Expected titlebar double-click in minimal mode to zoom the window. initial=\(initialFrame) current=\(window.frame)"
+        )
+    }
+
+    func testDoubleClickingPaneTabRenamesInline() {
+        let (app, dataPath) = launchConfiguredApp()
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for pane tab double-click rename UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let renamedTitle = "Renamed Beta \(UUID().uuidString.prefix(4))"
+        let window = app.windows.element(boundBy: 0)
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let alphaTab = app.buttons[alphaTitle]
+        let betaTab = app.buttons[betaTitle]
+
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
+        XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
+        let alphaFrameBeforeRename = alphaTab.frame
+        let betaFrameBeforeRename = betaTab.frame
+        let beforeRenameScreenshot = window.screenshot()
+        addWindowScreenshot(named: "pane-tab-before-inline-rename", screenshot: beforeRenameScreenshot)
+
+        doubleClick(in: window, atAccessibilityPoint: CGPoint(x: betaTab.frame.midX, y: betaTab.frame.midY))
+
+        let dialog = app.dialogs["RenameTabDialog"].firstMatch
+        XCTAssertFalse(dialog.waitForExistence(timeout: 0.5), "Expected double-clicking a pane tab to avoid the Rename Tab dialog")
+
+        let nameField = app.textFields["paneTab.inlineRenameField"].firstMatch
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a pane tab to show an inline rename field")
+        let duringRenameScreenshot = window.screenshot()
+        addWindowScreenshot(named: "pane-tab-during-inline-rename", screenshot: duringRenameScreenshot)
+        XCTAssertVisibleHighlightCrop(
+            beforeRenameScreenshot,
+            comparedTo: duringRenameScreenshot,
+            cropInWindow: paneTabTitleCrop(for: betaFrameBeforeRename),
+            in: window,
+            minMeanLumaDiff: 1.0,
+            "Expected pane tab title pixels to show the full-selection highlight when inline editing starts"
+        )
+        XCTAssertStableFrame(
+            alphaTab.frame,
+            comparedTo: alphaFrameBeforeRename,
+            accuracy: 1.0,
+            "Expected neighboring pane tab geometry to stay stable while another tab is inline-renaming"
+        )
+        XCTAssertCenteredVertically(
+            nameField.frame,
+            in: betaFrameBeforeRename,
+            accuracy: 1.0,
+            "Expected pane tab inline editor to stay vertically centered in the original tab bounds"
+        )
+        XCTAssertGreaterThanOrEqual(
+            nameField.frame.minY,
+            betaFrameBeforeRename.minY - 1.0,
+            "Expected pane tab inline editor to stay inside the original tab bounds"
+        )
+        XCTAssertLessThanOrEqual(
+            nameField.frame.maxY,
+            betaFrameBeforeRename.maxY + 1.0,
+            "Expected pane tab inline editor to stay inside the original tab bounds"
+        )
+        XCTAssertLessThanOrEqual(
+            nameField.frame.height,
+            betaFrameBeforeRename.height + 1.0,
+            "Expected inline pane tab rename field not to exceed the original tab height"
+        )
+        app.typeText(renamedTitle)
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                (nameField.value as? String) == renamedTitle
+            },
+            "Expected selected pane tab title to be replaced before Return. value=\(String(describing: nameField.value))"
+        )
+        let afterTypingScreenshot = window.screenshot()
+        addWindowScreenshot(named: "pane-tab-after-typing-before-return", screenshot: afterTypingScreenshot)
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertFalse(
+            nameField.waitForExistence(timeout: 1.0),
+            "Expected Return to stop editing the pane tab inline editor"
+        )
+
+        let renamedTab = app.buttons[renamedTitle]
+        XCTAssertTrue(
+            renamedTab.waitForExistence(timeout: 5.0),
+            "Expected the renamed pane tab to be visible"
+        )
+        XCTAssertStableVerticalFrame(
+            renamedTab.frame,
+            comparedTo: betaFrameBeforeRename,
+            accuracy: 1.0,
+            "Expected Return commit not to move the renamed pane tab vertically"
+        )
+        let afterReturnScreenshot = window.screenshot()
+        addWindowScreenshot(named: "pane-tab-after-return-commit", screenshot: afterReturnScreenshot)
+        XCTAssertStableTitleVerticalCenter(
+            afterTypingScreenshot,
+            comparedTo: afterReturnScreenshot,
+            cropInWindow: paneTabTitleCrop(for: betaFrameBeforeRename),
+            in: window,
+            maxPixelDelta: 1.25,
+            "Expected pane tab title pixels not to shift vertically when Return commits inline rename"
+        )
+
+        let outsideCommitTitle = "Outside Commit \(UUID().uuidString.prefix(4))"
+        doubleClick(in: window, atAccessibilityPoint: CGPoint(x: renamedTab.frame.midX, y: renamedTab.frame.midY))
+        let secondNameField = app.textFields["paneTab.inlineRenameField"].firstMatch
+        XCTAssertTrue(secondNameField.waitForExistence(timeout: 3.0), "Expected double-clicking the renamed pane tab to show the inline rename field again")
+        app.typeText(outsideCommitTitle)
+        clickOutsideInlineEditor(in: window)
+
+        XCTAssertFalse(
+            secondNameField.waitForExistence(timeout: 1.0),
+            "Expected clicking outside the pane tab inline editor to stop editing"
+        )
+
+        XCTAssertTrue(
+            app.buttons[outsideCommitTitle].waitForExistence(timeout: 5.0),
+            "Expected the outside-click committed pane tab title to be visible"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) {
+                loadJSON(atPath: dataPath)?["trackedPaneTabTitles"]?.contains(outsideCommitTitle) == true
+            },
+            "Expected recorder state to include outside-click committed pane tab. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+    }
+
+    func testDoubleClickingSidebarWorkspaceRenamesInline() {
+        let (app, dataPath) = launchConfiguredApp()
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for sidebar workspace double-click rename UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let workspaceId = ready["workspaceId"] ?? ""
+        let renamedTitle = "Renamed Workspace \(UUID().uuidString.prefix(4))"
+        let window = app.windows.element(boundBy: 0)
+        let workspaceRow = app.descendants(matching: .any).matching(identifier: "sidebarWorkspace.\(workspaceId)").firstMatch
+
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 5.0), "Expected workspace row to exist")
+        let rowFrameBeforeRename = workspaceRow.frame
+        let beforeRenameScreenshot = window.screenshot()
+        addWindowScreenshot(named: "sidebar-before-inline-rename", screenshot: beforeRenameScreenshot)
+
+        doubleClick(in: window, atAccessibilityPoint: sidebarWorkspaceBodyClickPoint(for: rowFrameBeforeRename))
+
+        let dialog = app.dialogs["RenameWorkspaceDialog"].firstMatch
+        XCTAssertFalse(dialog.waitForExistence(timeout: 0.5), "Expected double-clicking a workspace row to avoid the Rename Workspace dialog")
+
+        let nameField = app.textFields["sidebar.workspace.inlineRenameField"].firstMatch
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a workspace row to show an inline rename field")
+        let duringRenameScreenshot = window.screenshot()
+        addWindowScreenshot(named: "sidebar-during-inline-rename", screenshot: duringRenameScreenshot)
+        XCTAssertVisibleHighlightCrop(
+            beforeRenameScreenshot,
+            comparedTo: duringRenameScreenshot,
+            cropInWindow: sidebarWorkspaceTitleCrop(for: rowFrameBeforeRename),
+            in: window,
+            minMeanLumaDiff: 1.0,
+            "Expected sidebar workspace title pixels to show the full-selection highlight when inline editing starts"
+        )
+        XCTAssertStableFrame(
+            workspaceRow.frame,
+            comparedTo: rowFrameBeforeRename,
+            accuracy: 1.0,
+            "Expected inline workspace rename not to change sidebar row geometry"
+        )
+        XCTAssertGreaterThanOrEqual(
+            nameField.frame.minY,
+            workspaceRow.frame.minY - 1.0,
+            "Expected sidebar inline editor to stay inside the original workspace row bounds"
+        )
+        XCTAssertLessThanOrEqual(
+            nameField.frame.maxY,
+            workspaceRow.frame.maxY + 1.0,
+            "Expected sidebar inline editor to stay inside the original workspace row bounds"
+        )
+        app.typeText(renamedTitle)
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                (nameField.value as? String) == renamedTitle
+            },
+            "Expected selected workspace title to be replaced before Return. value=\(String(describing: nameField.value))"
+        )
+        let afterTypingScreenshot = window.screenshot()
+        addWindowScreenshot(named: "sidebar-after-typing-before-return", screenshot: afterTypingScreenshot)
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertFalse(
+            nameField.waitForExistence(timeout: 1.0),
+            "Expected Return to stop editing the workspace inline editor"
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) {
+                workspaceRow.label.contains(renamedTitle)
+            },
+            "Expected the sidebar workspace row label to include the inline rename. label=\(workspaceRow.label)"
+        )
+        XCTAssertStableFrame(
+            workspaceRow.frame,
+            comparedTo: rowFrameBeforeRename,
+            accuracy: 1.0,
+            "Expected Return commit not to change sidebar row geometry"
+        )
+        let afterReturnScreenshot = window.screenshot()
+        addWindowScreenshot(named: "sidebar-after-return-commit", screenshot: afterReturnScreenshot)
+        XCTAssertStableTitleVerticalCenter(
+            afterTypingScreenshot,
+            comparedTo: afterReturnScreenshot,
+            cropInWindow: sidebarWorkspaceTitleCrop(for: rowFrameBeforeRename),
+            in: window,
+            maxPixelDelta: 1.25,
+            "Expected sidebar workspace title pixels not to shift vertically when Return commits inline rename"
+        )
+
+        let outsideCommitTitle = "Outside Workspace \(UUID().uuidString.prefix(4))"
+        doubleClick(in: window, atAccessibilityPoint: sidebarWorkspaceBodyClickPoint(for: workspaceRow.frame))
+        let secondNameField = app.textFields["sidebar.workspace.inlineRenameField"].firstMatch
+        XCTAssertTrue(secondNameField.waitForExistence(timeout: 3.0), "Expected double-clicking the renamed workspace row to show the inline rename field again")
+        app.typeText(outsideCommitTitle)
+        clickOutsideInlineEditor(in: window)
+
+        XCTAssertFalse(
+            secondNameField.waitForExistence(timeout: 1.0),
+            "Expected clicking outside the workspace inline editor to stop editing"
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) {
+                workspaceRow.label.contains(outsideCommitTitle)
+            },
+            "Expected the sidebar workspace row label to include the outside-click inline rename. label=\(workspaceRow.label)"
         )
     }
 
@@ -822,6 +1083,258 @@ final class BonsplitTabDragUITests: XCTestCase {
         return condition()
     }
 
+    private func addWindowScreenshot(named name: String, window: XCUIElement) {
+        addWindowScreenshot(named: name, screenshot: window.screenshot())
+    }
+
+    private func addWindowScreenshot(named name: String, screenshot: XCUIScreenshot) {
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func paneTabTitleCrop(for tabFrame: CGRect) -> CGRect {
+        CGRect(
+            x: tabFrame.minX + 22,
+            y: tabFrame.minY + 2,
+            width: max(1, tabFrame.width - 56),
+            height: max(1, tabFrame.height - 4)
+        )
+    }
+
+    private func sidebarWorkspaceTitleCrop(for rowFrame: CGRect) -> CGRect {
+        CGRect(
+            x: rowFrame.minX + 24,
+            y: rowFrame.minY + 2,
+            width: max(1, rowFrame.width - 32),
+            height: min(20, max(1, rowFrame.height - 4))
+        )
+    }
+
+    private func sidebarWorkspaceBodyClickPoint(for rowFrame: CGRect) -> CGPoint {
+        CGPoint(
+            x: rowFrame.midX,
+            y: min(rowFrame.maxY - 6, rowFrame.minY + 28)
+        )
+    }
+
+    private func XCTAssertVisibleHighlightCrop(
+        _ before: XCUIScreenshot,
+        comparedTo after: XCUIScreenshot,
+        cropInWindow crop: CGRect,
+        in window: XCUIElement,
+        minMeanLumaDiff: Double,
+        _ message: @autoclosure () -> String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let diff = meanAbsLumaDiff(
+            pngA: before.pngRepresentation,
+            pngB: after.pngRepresentation,
+            normalizedCrop: normalizedCrop(crop, in: window)
+        ) else {
+            XCTFail("Unable to compare inline rename screenshots", file: file, line: line)
+            return
+        }
+        XCTAssertGreaterThanOrEqual(
+            diff,
+            minMeanLumaDiff,
+            "\(message()) diff=\(String(format: "%.3f", diff)) crop=\(crop) window=\(window.frame)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func XCTAssertStableTitleVerticalCenter(
+        _ before: XCUIScreenshot,
+        comparedTo after: XCUIScreenshot,
+        cropInWindow crop: CGRect,
+        in window: XCUIElement,
+        maxPixelDelta: Double,
+        _ message: @autoclosure () -> String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let normalizedCrop = normalizedCrop(crop, in: window)
+        guard let beforeCenter = foregroundVerticalCenter(
+            png: before.pngRepresentation,
+            normalizedCrop: normalizedCrop
+        ), let afterCenter = foregroundVerticalCenter(
+            png: after.pngRepresentation,
+            normalizedCrop: normalizedCrop
+        ) else {
+            XCTFail("Unable to measure title foreground vertical center", file: file, line: line)
+            return
+        }
+
+        let delta = abs(beforeCenter - afterCenter)
+        XCTAssertLessThanOrEqual(
+            delta,
+            maxPixelDelta,
+            "\(message()) beforeCenter=\(String(format: "%.3f", beforeCenter)) afterCenter=\(String(format: "%.3f", afterCenter)) delta=\(String(format: "%.3f", delta)) crop=\(crop) window=\(window.frame)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func normalizedCrop(_ crop: CGRect, in window: XCUIElement) -> CGRect {
+        let windowFrame = window.frame
+        return CGRect(
+            x: (crop.minX - windowFrame.minX) / windowFrame.width,
+            y: (crop.minY - windowFrame.minY) / windowFrame.height,
+            width: crop.width / windowFrame.width,
+            height: crop.height / windowFrame.height
+        )
+    }
+
+    private func meanAbsLumaDiff(pngA: Data, pngB: Data, normalizedCrop: CGRect) -> Double? {
+        guard let imageA = cgImage(from: pngA),
+              let imageB = cgImage(from: pngB) else {
+            return nil
+        }
+        guard imageA.width == imageB.width, imageA.height == imageB.height else { return nil }
+        let width = imageA.width
+        let height = imageA.height
+        guard width > 0, height > 0 else { return nil }
+
+        let cropPx = CGRect(
+            x: max(0, min(CGFloat(width - 1), normalizedCrop.origin.x * CGFloat(width))),
+            y: max(0, min(CGFloat(height - 1), normalizedCrop.origin.y * CGFloat(height))),
+            width: max(1, min(CGFloat(width), normalizedCrop.width * CGFloat(width))),
+            height: max(1, min(CGFloat(height), normalizedCrop.height * CGFloat(height)))
+        ).integral
+
+        let x0 = Int(cropPx.minX)
+        let y0 = Int(cropPx.minY)
+        let x1 = Int(min(CGFloat(width), cropPx.maxX))
+        let y1 = Int(min(CGFloat(height), cropPx.maxY))
+        guard x1 > x0, y1 > y0 else { return nil }
+
+        guard let bufA = decodeRGBA(imageA), let bufB = decodeRGBA(imageB) else { return nil }
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+
+        let step = 2
+        var total = 0.0
+        var count = 0
+        for y in stride(from: y0, to: y1, by: step) {
+            let row = y * bytesPerRow
+            for x in stride(from: x0, to: x1, by: step) {
+                let i = row + x * bytesPerPixel
+                let ar = Double(bufA[i])
+                let ag = Double(bufA[i + 1])
+                let ab = Double(bufA[i + 2])
+                let br = Double(bufB[i])
+                let bg = Double(bufB[i + 1])
+                let bb = Double(bufB[i + 2])
+                let al = 0.2126 * ar + 0.7152 * ag + 0.0722 * ab
+                let bl = 0.2126 * br + 0.7152 * bg + 0.0722 * bb
+                total += abs(al - bl)
+                count += 1
+            }
+        }
+        return count > 0 ? total / Double(count) : nil
+    }
+
+    private func foregroundVerticalCenter(png: Data, normalizedCrop: CGRect) -> Double? {
+        guard let image = cgImage(from: png) else { return nil }
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0 else { return nil }
+
+        let cropPx = CGRect(
+            x: max(0, min(CGFloat(width - 1), normalizedCrop.origin.x * CGFloat(width))),
+            y: max(0, min(CGFloat(height - 1), normalizedCrop.origin.y * CGFloat(height))),
+            width: max(1, min(CGFloat(width), normalizedCrop.width * CGFloat(width))),
+            height: max(1, min(CGFloat(height), normalizedCrop.height * CGFloat(height)))
+        ).integral
+
+        let x0 = Int(cropPx.minX)
+        let y0 = Int(cropPx.minY)
+        let x1 = Int(min(CGFloat(width), cropPx.maxX))
+        let y1 = Int(min(CGFloat(height), cropPx.maxY))
+        guard x1 > x0, y1 > y0 else { return nil }
+
+        guard let buf = decodeRGBA(image) else { return nil }
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+
+        func luma(x: Int, y: Int) -> Double {
+            let i = y * bytesPerRow + x * bytesPerPixel
+            let r = Double(buf[i])
+            let g = Double(buf[i + 1])
+            let b = Double(buf[i + 2])
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b
+        }
+
+        var borderTotal = 0.0
+        var borderCount = 0
+        for x in x0..<x1 {
+            borderTotal += luma(x: x, y: y0)
+            borderTotal += luma(x: x, y: y1 - 1)
+            borderCount += 2
+        }
+        if y1 - y0 > 2 {
+            for y in (y0 + 1)..<(y1 - 1) {
+                borderTotal += luma(x: x0, y: y)
+                borderTotal += luma(x: x1 - 1, y: y)
+                borderCount += 2
+            }
+        }
+        guard borderCount > 0 else { return nil }
+        let backgroundLuma = borderTotal / Double(borderCount)
+
+        let minForegroundDistance = 18.0
+        var weightedY = 0.0
+        var totalWeight = 0.0
+        for y in y0..<y1 {
+            for x in x0..<x1 {
+                let distance = abs(luma(x: x, y: y) - backgroundLuma)
+                guard distance > minForegroundDistance else { continue }
+                let weight = distance - minForegroundDistance
+                weightedY += (Double(y - y0) + 0.5) * weight
+                totalWeight += weight
+            }
+        }
+
+        return totalWeight > 0 ? weightedY / totalWeight : nil
+    }
+
+    private func cgImage(from pngData: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(pngData as CFData, nil) else {
+            return nil
+        }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    private func decodeRGBA(_ image: CGImage) -> [UInt8]? {
+        let width = image.width
+        let height = image.height
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var buf = [UInt8](repeating: 0, count: height * bytesPerRow)
+
+        let ok = buf.withUnsafeMutableBytes { raw -> Bool in
+            guard let base = raw.baseAddress else { return false }
+            let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+            guard let ctx = CGContext(
+                data: base,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: bitmapInfo
+            ) else { return false }
+
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+
+        return ok ? buf : nil
+    }
+
     private func hover(in window: XCUIElement, at point: CGPoint) {
         let origin = window.coordinate(withNormalizedOffset: .zero)
         origin.withOffset(
@@ -845,10 +1358,54 @@ final class BonsplitTabDragUITests: XCTestCase {
                 dy: point.y - window.frame.minY
             )
         )
-        target.click()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.08))
-        target.click()
+        target.doubleClick()
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
+
+    private func clickOutsideInlineEditor(in window: XCUIElement) {
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.9)).click()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
+
+    private func XCTAssertCenteredVertically(
+        _ actual: CGRect,
+        in expected: CGRect,
+        accuracy: CGFloat,
+        _ message: @autoclosure () -> String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(actual.midY, expected.midY, accuracy: accuracy, message(), file: file, line: line)
+        let topMargin = actual.minY - expected.minY
+        let bottomMargin = expected.maxY - actual.maxY
+        XCTAssertEqual(topMargin, bottomMargin, accuracy: accuracy, message(), file: file, line: line)
+    }
+
+    private func XCTAssertStableVerticalFrame(
+        _ actual: CGRect,
+        comparedTo expected: CGRect,
+        accuracy: CGFloat,
+        _ message: @autoclosure () -> String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(actual.minY, expected.minY, accuracy: accuracy, message(), file: file, line: line)
+        XCTAssertEqual(actual.midY, expected.midY, accuracy: accuracy, message(), file: file, line: line)
+        XCTAssertEqual(actual.height, expected.height, accuracy: accuracy, message(), file: file, line: line)
+    }
+
+    private func XCTAssertStableFrame(
+        _ actual: CGRect,
+        comparedTo expected: CGRect,
+        accuracy: CGFloat,
+        _ message: @autoclosure () -> String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(actual.minX, expected.minX, accuracy: accuracy, message(), file: file, line: line)
+        XCTAssertEqual(actual.minY, expected.minY, accuracy: accuracy, message(), file: file, line: line)
+        XCTAssertEqual(actual.width, expected.width, accuracy: accuracy, message(), file: file, line: line)
+        XCTAssertEqual(actual.height, expected.height, accuracy: accuracy, message(), file: file, line: line)
     }
 
     private func dragTab(_ sourceTab: XCUIElement, before targetTab: XCUIElement) {

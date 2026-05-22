@@ -15089,6 +15089,7 @@ final class Workspace: Identifiable, ObservableObject {
         alert.addButton(withTitle: String(localized: "alert.renameTab.rename", defaultValue: "Rename"))
         alert.addButton(withTitle: String(localized: "alert.cancel", defaultValue: "Cancel"))
         let alertWindow = alert.window
+        alertWindow.setAccessibilityIdentifier("RenameTabDialog")
         alertWindow.initialFirstResponder = input
         DispatchQueue.main.async {
             alertWindow.makeFirstResponder(input)
@@ -16719,6 +16720,16 @@ extension Workspace: BonsplitDelegate {
         @unknown default:
             break
         }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didCommitInlineRename title: String, initialTitle: String, for tab: Bonsplit.Tab, inPane pane: PaneID) {
+        guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedInitialTitle = initialTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedTitle == trimmedInitialTitle {
+            return
+        }
+        setPanelCustomTitle(panelId: panelId, title: title)
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabMoveToDestination destinationId: String, for tab: Bonsplit.Tab, inPane pane: PaneID) {
