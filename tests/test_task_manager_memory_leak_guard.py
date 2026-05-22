@@ -71,7 +71,7 @@ class SocketClient:
                 sock.settimeout(remaining)
                 chunk = sock.recv(8192)
                 if not chunk:
-                    raise RuntimeError(f"socket closed while waiting for response to {line!r}")
+                    raise ConnectionError(f"socket closed while waiting for response to {line!r}")
                 data.extend(chunk)
         return data.split(b"\n", 1)[0].decode("utf-8", errors="replace").strip()
 
@@ -441,6 +441,10 @@ def run_guard(args: argparse.Namespace) -> int:
             return 1
         print(f"PASS: {trend.reason}")
         return 0
+    except Exception:
+        print("--- cmux debug log tail ---")
+        print(tail_file(Path(log_path)))
+        raise
     finally:
         write_artifacts(artifacts_dir, samples, trend)
         if proc.poll() is None:
@@ -449,7 +453,10 @@ def run_guard(args: argparse.Namespace) -> int:
                 proc.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                proc.wait(timeout=5.0)
+                try:
+                    proc.wait(timeout=5.0)
+                except subprocess.TimeoutExpired:
+                    print(f"WARN: cmux did not exit after SIGKILL, pid={proc.pid}")
         for path in (socket_path, cmuxd_socket):
             try:
                 os.unlink(path)
