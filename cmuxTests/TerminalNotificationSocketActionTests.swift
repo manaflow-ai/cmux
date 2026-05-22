@@ -259,7 +259,12 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             if let windowId {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             }
+            window?.contentView = nil
+            window?.orderOut(nil)
             window?.close()
+            for workspace in manager.tabs {
+                workspace.teardownAllPanels()
+            }
             for workspace in manager.tabs {
                 manager.closeWorkspace(workspace)
             }
@@ -271,6 +276,14 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             AppFocusState.overrideIsFocused = originalAppFocusOverride
             AppDelegate.shared = previousShared
             unlink(socketPath)
+            Self.drainAppHostTeardown()
+        }
+
+        @MainActor
+        private static func drainAppHostTeardown(turns: Int = 3) {
+            for _ in 0..<turns {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            }
         }
     }
 

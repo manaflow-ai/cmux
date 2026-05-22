@@ -3766,6 +3766,16 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         return window
     }
 
+    private func tearDownHostedTerminalPanel(_ panel: TerminalPanel, window: NSWindow) {
+        panel.close()
+        window.contentView = nil
+        window.orderOut(nil)
+        window.close()
+        for _ in 0..<3 {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+    }
+
     func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
         let workspace = Workspace()
         guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
@@ -3821,7 +3831,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         }
 
         let window = try hostTerminalPanelInWindow(sourcePanel)
-        defer { window.orderOut(nil) }
+        defer { tearDownHostedTerminalPanel(sourcePanel, window: window) }
 
         XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
 
@@ -3855,7 +3865,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         }
 
         let window = try hostTerminalPanelInWindow(sourcePanel)
-        defer { window.orderOut(nil) }
+        defer { tearDownHostedTerminalPanel(sourcePanel, window: window) }
 
         XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
 

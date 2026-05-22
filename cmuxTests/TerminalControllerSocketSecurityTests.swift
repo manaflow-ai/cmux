@@ -196,7 +196,10 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.contentView = nil
+            window.orderOut(nil)
             window.close()
+            drainAppHostTeardown()
         }
 
         fileExplorerState.setVisible(false)
@@ -306,6 +309,12 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #else
         throw XCTSkip("Right sidebar parser helper is debug-only.")
 #endif
+    }
+
+    private func drainAppHostTeardown(turns: Int = 3) {
+        for _ in 0..<turns {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
     }
 
     func testRightSidebarV1FocusPolicyIsCommandSpecific() throws {
