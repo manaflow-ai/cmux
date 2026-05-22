@@ -121,15 +121,19 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
 
         let didChangeWorkspace = currentWorkspaceId != state.workspaceId
         let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
-        if let previousFlashToken,
-           state.flashToken != previousFlashToken,
+        let didChangeFlashToken = previousFlashToken.map { state.flashToken != $0 } ?? false
+        if didChangeFlashToken,
            state.flashRect != nil {
             flashStartedAt = now()
         } else if didChangeWorkspace {
             flashStartedAt = nil
         }
         currentWorkspaceId = state.workspaceId
-        lastFlashTokenByWorkspaceId[state.workspaceId] = state.flashToken
+        if previousFlashToken == nil ||
+            !didChangeFlashToken ||
+            state.flashRect != nil {
+            lastFlashTokenByWorkspaceId[state.workspaceId] = state.flashToken
+        }
     }
 
     func clear() {
