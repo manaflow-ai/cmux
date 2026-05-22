@@ -9,7 +9,7 @@ on:
         type: string
 
 concurrency:
-  group: promote-release-candidate-${{ inputs.rc_tag }}
+  group: promote-release-candidate
   cancel-in-progress: false
 
 permissions:
@@ -159,6 +159,14 @@ jobs:
             remote-daemon-assets/cmuxd-remote-manifest.json
           )
 
+          EXISTING_STABLE_TAGS="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' || true)"
+          LATEST_STABLE_TAG="$(printf '%s\n%s\n' "$EXISTING_STABLE_TAGS" "$STABLE_TAG" | sed '/^$/d' | sort -V | tail -1)"
+          LATEST_FLAG=(--latest=false)
+          if [ "$LATEST_STABLE_TAG" = "$STABLE_TAG" ]; then
+            LATEST_FLAG=(--latest)
+          fi
+
           if gh release view "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$STABLE_TAG" "${FILES[@]}" \
               --repo "$GITHUB_REPOSITORY"
@@ -168,7 +176,7 @@ jobs:
               --target "$CANDIDATE_SHA" \
               --title "$STABLE_TAG" \
               --generate-notes \
-              --latest
+              "${LATEST_FLAG[@]}"
           fi
 
       - name: Upload stable appcast to R2
