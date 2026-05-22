@@ -52,9 +52,11 @@ final class BrowserHiddenWebViewDiscardManager {
         discardTimer != nil
     }
 
+    #if DEBUG
     static func enforceLiveHiddenLimitForTesting(reason: String = "test.lru_cap") {
         BrowserHiddenWebViewDiscardRegistry.shared.enforceLimitForTesting(reason: reason)
     }
+    #endif
 
     func blockers(for snapshot: BlockerSnapshot) -> [String] {
         var blockers: [String] = []
@@ -254,17 +256,17 @@ private final class BrowserHiddenWebViewDiscardRegistry {
         entries.removeValue(forKey: ObjectIdentifier(manager))
     }
 
+    #if DEBUG
     func enforceLimitForTesting(reason: String = "test.lru_cap") {
         enforceLimit(reason: reason)
     }
+    #endif
 
     private func scheduleLimitEnforcement() {
         guard !enforcementScheduled else { return }
         enforcementScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                self?.enforceLimit(reason: "lru_cap")
-            }
+        Task { @MainActor [weak self] in
+            self?.enforceLimit(reason: "lru_cap")
         }
     }
 

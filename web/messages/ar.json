@@ -304,6 +304,9 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "قم بإخفاء إشعارات الإكمال المرئية وتغييرات الحالة من وكلاء Codex أو Claude الفرعيين المتداخلين مع إبقاء أحداثهم في قياسات Feed."
+        },
+        "browser": {
+          "maxLiveHiddenWebViews": "الحد الأقصى لعدد WebViews المتصفح المخفية التي تبقى نشطة قبل إخراج WebViews المخفية الأقل نشاطا مؤخرا."
         }
       }
     },

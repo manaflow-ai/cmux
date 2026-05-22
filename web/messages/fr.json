@@ -304,6 +304,9 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "Masque les notifications visibles de fin et les changements d’état des agents enfants Codex ou Claude imbriqués, tout en conservant leurs événements dans la télémétrie Feed."
+        },
+        "browser": {
+          "maxLiveHiddenWebViews": "Nombre maximal de WebViews de navigateur masquées à garder actives avant d’évincer les WebViews masquées les moins récemment utilisées."
         }
       }
     },

@@ -304,6 +304,9 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "Suprime las notificaciones visibles de finalización y los cambios de estado de agentes secundarios anidados de Codex o Claude, manteniendo sus eventos en la telemetría de Feed."
+        },
+        "browser": {
+          "maxLiveHiddenWebViews": "Cantidad máxima de WebViews de navegador ocultas que se mantienen activas antes de descartar las ocultas menos usadas recientemente."
         }
       }
     },

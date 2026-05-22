@@ -304,6 +304,9 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri."
+        },
+        "browser": {
+          "maxLiveHiddenWebViews": "Maksimalt antall skjulte nettleser-WebViews som holdes aktive før de minst nylig aktive skjulte WebViewene forkastes."
         }
       }
     },

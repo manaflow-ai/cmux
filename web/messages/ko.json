@@ -304,6 +304,9 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "중첩된 Codex 또는 Claude 하위 에이전트의 표시되는 완료 알림과 상태 변경을 억제하면서 해당 이벤트는 Feed 텔레메트리에 유지합니다."
+        },
+        "browser": {
+          "maxLiveHiddenWebViews": "가장 오래 사용되지 않은 숨겨진 WebView를 제거하기 전에 활성 상태로 유지할 숨겨진 브라우저 WebView의 최대 개수입니다."
         }
       }
     },

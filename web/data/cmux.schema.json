@@ -735,6 +735,7 @@
           "minimum": 0,
           "maximum": 100,
           "default": 5,
+          "descriptionKey": "schemaDescriptions.browser.maxLiveHiddenWebViews",
           "description": "Maximum hidden browser WebViews to keep alive before evicting the least recently active hidden WebViews."
         },
         "openTerminalLinksInCmuxBrowser": {

@@ -304,6 +304,9 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar."
+        },
+        "browser": {
+          "maxLiveHiddenWebViews": "En son etkin olan gizli WebViewlar atılmadan önce canlı tutulacak gizli tarayıcı WebViewlarının en fazla sayısı."
         }
       }
     },

@@ -43,7 +43,6 @@ extension TerminalController {
         var live = 0
         var liveVisible = 0
         var liveHidden = 0
-        var hidden = 0
         var discarded = 0
         var newTab = 0
         var closing = 0
@@ -63,18 +62,15 @@ extension TerminalController {
                             let lifecycleVisible = (lifecycle["visible_in_ui"] as? Bool) == true
                             let state = v2TopString(lifecycle["state"])
                                 ?? v2TopString(surface["browser_webview_lifecycle_state"])
-                                ?? ""
-                            if lifecycleVisible || state == BrowserWebViewLifecycleState.liveVisible.rawValue {
-                                visible += 1
-                            }
+                                ?? (lifecycleVisible ? BrowserWebViewLifecycleState.liveVisible.rawValue : "")
                             switch state {
                             case BrowserWebViewLifecycleState.liveVisible.rawValue:
+                                visible += 1
                                 live += 1
                                 liveVisible += 1
                             case BrowserWebViewLifecycleState.liveHidden.rawValue:
                                 live += 1
                                 liveHidden += 1
-                                hidden += 1
                             case BrowserWebViewLifecycleState.discarded.rawValue:
                                 discarded += 1
                             case BrowserWebViewLifecycleState.newTab.rawValue:
@@ -94,7 +90,7 @@ extension TerminalController {
             "total": total,
             "visible": visible,
             "live": live,
-            "hidden": hidden,
+            "hidden": liveHidden,
             "discarded": discarded,
             "live_visible": liveVisible,
             "live_hidden": liveHidden,

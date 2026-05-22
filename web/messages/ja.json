@@ -362,6 +362,9 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。"
+        },
+        "browser": {
+          "maxLiveHiddenWebViews": "最も長く使われていない非表示の WebView を退避する前に、ライブのまま保持する非表示ブラウザ WebView の最大数です。"
         }
       }
     },

@@ -304,6 +304,9 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji."
+        },
+        "browser": {
+          "maxLiveHiddenWebViews": "Maksimalan broj skrivenih WebViewova preglednika koji ostaju aktivni prije izbacivanja najdavnije aktivnih skrivenih WebViewova."
         }
       }
     },

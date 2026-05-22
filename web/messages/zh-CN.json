@@ -304,6 +304,9 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。"
+        },
+        "browser": {
+          "maxLiveHiddenWebViews": "在逐出最近最少使用的隐藏 WebView 之前，保持活动状态的隐藏浏览器 WebView 最大数量。"
         }
       }
     },

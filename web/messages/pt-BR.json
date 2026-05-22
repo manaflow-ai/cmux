@@ -304,6 +304,9 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "Suprime notificações visíveis de conclusão e alterações de status de agentes filhos aninhados do Codex ou Claude, mantendo seus eventos na telemetria do Feed."
+        },
+        "browser": {
+          "maxLiveHiddenWebViews": "Número máximo de WebViews de navegador ocultas mantidas ativas antes de descartar as ocultas menos usadas recentemente."
         }
       }
     },
