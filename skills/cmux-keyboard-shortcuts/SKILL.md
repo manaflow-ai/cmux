@@ -46,6 +46,7 @@ fi
 - Unbind: prefer `null` for explicit unbinds. `""`, `"none"`, `"clear"`, `"unbound"`, and `"disabled"` are accepted aliases, but `null` is the clearest JSON value and matches the templates below.
 - `selectSurfaceByNumber` and `selectWorkspaceByNumber` must use a digit from 1 to 9. `cmd+1` means the full `cmd+1` through `cmd+9` family.
 - `showHideAllWindows` and `globalSearch` are system-wide shortcuts. They cannot be chords, require modifiers, and may be rejected by macOS if reserved.
+- `showHideAllWindows` also requires Settings > Global Hotkey > Enable System-Wide Hotkey. The binding can validate in `cmux.json` while the feature is disabled, so warn the user to enable that setting before reporting the shortcut as usable.
 - Saving `cmux.json` live reloads. Do not tell the user to restart cmux.
 
 ## Workflow
@@ -62,18 +63,22 @@ fi
    "$CMUX_SETTINGS" get shortcuts.bindings 2>/dev/null || printf '{}\n'
    "$CMUX_SETTINGS" validate
    ```
-3. Apply only the chosen action paths:
+3. Before applying a template, snapshot prior values for every action you will change. A path that is absent must revert with `unset`; a path with an existing custom value must revert with `set <same-json-value>`.
+   ```bash
+   "$CMUX_SETTINGS" get shortcuts.bindings.focusLeft 2>/dev/null || printf '<absent>\n'
+   ```
+4. Apply only the chosen action paths:
    ```bash
    "$CMUX_SETTINGS" set shortcuts.bindings.newSurface '["ctrl+b","c"]'
    "$CMUX_SETTINGS" set shortcuts.bindings.focusLeft cmd+opt+h
    "$CMUX_SETTINGS" set shortcuts.bindings.sendFeedback null
    "$CMUX_SETTINGS" validate
    ```
-4. Verify readback for changed actions:
+5. Verify readback for changed actions:
    ```bash
    "$CMUX_SETTINGS" get shortcuts.bindings.newSurface
    ```
-5. Finish with the template name, changed actions, and exact revert commands using `unset`.
+6. Finish with the template name, changed actions, and exact revert commands from the snapshot. Use `unset` only for actions that were absent before the template; use `set` to restore previous custom bindings.
 
 ## Preset Templates
 
