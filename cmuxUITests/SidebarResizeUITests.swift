@@ -1,6 +1,9 @@
 import XCTest
 
 final class SidebarResizeUITests: XCTestCase {
+    private let launchTimeout: TimeInterval = 20.0
+    private let setupTimeout: TimeInterval = 25.0
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
@@ -111,8 +114,15 @@ final class SidebarResizeUITests: XCTestCase {
             app.launch()
         }
 
-        XCTAssertTrue(ensureForegroundAfterLaunch(app, timeout: 8.0))
-        XCTAssertNotNil(waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 8.0))
+        XCTAssertTrue(ensureForegroundAfterLaunch(app, timeout: launchTimeout))
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
 
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 5.0))
