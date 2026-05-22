@@ -80,29 +80,42 @@ def wait_for_proxy(port: int, cert_path: pathlib.Path, deadline: float) -> bool:
 
 def sensitive_header(name: str) -> bool:
     lowered = name.lower()
-    needles = [
-        "authorization",
-        "cookie",
-        "token",
-        "secret",
-        "api-key",
-        "x-api-key",
-        "account",
-        "credit",
-        "limit",
-        "organization",
-        "plan",
-        "request-id",
-        "ratelimit",
-        "reset-at",
-        "reset-after",
-        "session",
-        "csrf",
-        "sentry",
-        "used-percent",
-        "datadog",
-    ]
-    return any(needle in lowered for needle in needles)
+    safe_names = {
+        "accept",
+        "accept-encoding",
+        "alt-svc",
+        "cache-control",
+        "cf-cache-status",
+        "cf-ray",
+        "connection",
+        "content-encoding",
+        "content-length",
+        "content-security-policy",
+        "content-type",
+        "cross-origin-opener-policy",
+        "date",
+        "expires",
+        "host",
+        "nel",
+        "originator",
+        "pragma",
+        "referrer-policy",
+        "report-to",
+        "server",
+        "strict-transport-security",
+        "transfer-encoding",
+        "user-agent",
+        "vary",
+        "x-app",
+        "x-content-type-options",
+        "x-models-etag",
+        "x-openai-proxy-wasm",
+        "anthropic-beta",
+        "anthropic-dangerous-direct-browser-access",
+        "anthropic-version",
+    }
+    safe_prefixes = ("x-stainless-",)
+    return lowered not in safe_names and not lowered.startswith(safe_prefixes)
 
 
 def sanitize_text(value: str) -> str:
@@ -118,6 +131,7 @@ def sanitize_text(value: str) -> str:
 
     patterns = [
         (r"/var/folders/[^\"'\s]+/cmux-agent-network-captures\.[^/\"'\s]+", "${CAPTURE_ROOT}"),
+        (r"x-anthropic-billing-header:[^\"\\n]+", "<redacted-provider-metadata>"),
         (r"Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer <redacted>"),
         (r"sk-[A-Za-z0-9_-]{12,}", "sk-<redacted>"),
         (r"sess-[A-Za-z0-9_-]{12,}", "sess-<redacted>"),
@@ -315,30 +329,43 @@ def capture_agent(
             *command[command.index("--mcp-config") + 2 :],
         ]
 
+    uvx = which("uvx")
+    if not uvx:
+        return None, {"agent": spec.agent, "reason": "mitm unavailable: uvx executable was not available on PATH."}
+
     mitm_stdout = (agent_dir / "mitm.out").open("wb")
     mitm_stderr = (agent_dir / "mitm.err").open("wb")
-    mitm = subprocess.Popen(
-        [
-            "uvx",
-            "--from",
-            "mitmproxy",
-            "mitmdump",
-            "--set",
-            f"confdir={confdir}",
-            "--listen-host",
-            "127.0.0.1",
-            "--listen-port",
-            str(port),
-            "--set",
-            f"hardump={har_path}",
-            "--set",
-            "termlog_verbosity=error",
-            "--set",
-            "flow_detail=0",
-        ],
-        stdout=mitm_stdout,
-        stderr=mitm_stderr,
-    )
+    mitm_cmd = [
+        uvx,
+        "--from",
+        "mitmproxy",
+        "mitmdump",
+        "--set",
+        f"confdir={confdir}",
+        "--listen-host",
+        "127.0.0.1",
+        "--listen-port",
+        str(port),
+        "--set",
+        f"hardump={har_path}",
+        "--set",
+        "termlog_verbosity=error",
+        "--set",
+        "flow_detail=0",
+    ]
+    try:
+        mitm = subprocess.Popen(mitm_cmd, stdout=mitm_stdout, stderr=mitm_stderr)
+    except OSError as exc:
+        mitm_stdout.close()
+        mitm_stderr.close()
+        return None, {
+            "agent": spec.agent,
+            "reason": (
+                "mitm unavailable: failed to launch uvx/mitmdump "
+                f"on port {port} with confdir {sanitize_text(str(confdir))} "
+                f"and HAR {sanitize_text(str(har_path))}: {type(exc).__name__}"
+            ),
+        }
 
     proxy_ready = wait_for_proxy(port, cert_path, time.time() + 60)
     env = os.environ.copy()

@@ -2445,6 +2445,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "x-codex-plan-type",
             "x-codex-credits",
             "used-percent",
+            "billing",
+            "quota",
+            "subscription",
         ] {
             XCTAssertFalse(
                 fixtureText.localizedCaseInsensitiveContains(forbidden),
@@ -2956,7 +2959,10 @@ private final class AgentNetworkReplayURLProtocol: URLProtocol {
 
     static func install(responses newResponses: [AgentNetworkReplayResponse]) {
         lock.lock()
-        responses = Dictionary(uniqueKeysWithValues: newResponses.map { (key(method: $0.method, url: $0.url), $0) })
+        responses = Dictionary(
+            newResponses.map { (key(method: $0.method, url: $0.url), $0) },
+            uniquingKeysWith: { _, new in new }
+        )
         observed = []
         lock.unlock()
     }
