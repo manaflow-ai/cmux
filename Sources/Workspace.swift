@@ -12050,9 +12050,8 @@ final class Workspace: Identifiable, ObservableObject {
         }
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: filePreviewPanel.id, kind: "file_preview", origin: "file_preview_split", focused: true)
 
-        controller.selectTab(newTab.id)
-        filePreviewPanel.focus()
         installFilePreviewPanelSubscription(filePreviewPanel)
+        focusPanel(filePreviewPanel.id)
         return filePreviewPanel
     }
 
@@ -14765,8 +14764,11 @@ final class Workspace: Identifiable, ObservableObject {
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: focus)
 
         if focus {
-            controller.selectTab(newTab.id)
-            newPanel.focus()
+            suppressReparentFocusUntilLayoutFollowUp(
+                previousHostedView,
+                reason: "workspace.targetTerminalSplitReparent"
+            )
+            focusPanel(newPanel.id, previousHostedView: previousHostedView)
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,

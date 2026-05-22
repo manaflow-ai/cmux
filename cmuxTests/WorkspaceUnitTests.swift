@@ -4140,6 +4140,39 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
     }
 
+    func testDockTargetTerminalSplitUpdatesWorkspaceFocus() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        _ = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+        workspace.focusPanel(mainPanelId)
+
+        let splitPanel = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: dockPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil,
+                focus: true
+            )
+        )
+        let splitTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(splitPanel.id))
+        let splitPaneId = try XCTUnwrap(workspace.paneId(forPanelId: splitPanel.id))
+
+        XCTAssertEqual(workspace.focusedPanelId, splitPanel.id)
+        XCTAssertEqual(dock.controller.focusedPaneId, splitPaneId)
+        XCTAssertEqual(dock.controller.selectedTab(inPane: splitPaneId)?.id, splitTabId)
+    }
+
     func testDockControllersReceiveAndInheritTabBarLeadingInset() {
         let workspace = Workspace()
         let existingDock = workspace.dockLayout.addDock(edge: .left)
@@ -4219,6 +4252,47 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
                 workspace.panelIdFromSurfaceId($0) == previewPanelId
             }
         )
+    }
+
+    func testDockTargetFilePreviewSplitUpdatesWorkspaceFocus() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-dock-preview-split-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("notes.txt")
+        try "dock file\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        _ = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+        workspace.focusPanel(mainPanelId)
+
+        let previewPanel = try XCTUnwrap(
+            workspace.splitPaneWithFilePreview(
+                targetPane: dockPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                filePath: fileURL.path
+            )
+        )
+        let previewTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(previewPanel.id))
+        let previewPaneId = try XCTUnwrap(workspace.paneId(forPanelId: previewPanel.id))
+
+        XCTAssertEqual(workspace.focusedPanelId, previewPanel.id)
+        XCTAssertEqual(dock.controller.focusedPaneId, previewPaneId)
+        XCTAssertEqual(dock.controller.selectedTab(inPane: previewPaneId)?.id, previewTabId)
     }
 
     func testDockControllerProvidesTabMoveDestinations() throws {
