@@ -49,7 +49,6 @@ write_dev_cli_shim() {
   local target_dir
   local tmp_target
   target_dir="$(dirname "$target")"
-  tmp_target="${target}.$$.tmp"
 
   if ! mkdir -p "$target_dir" 2>/dev/null; then
     echo "warning: skipping dev CLI shim; cannot create $target_dir" >&2
@@ -61,6 +60,10 @@ write_dev_cli_shim() {
   fi
   if [[ -e "$target" && ! -w "$target" ]]; then
     echo "warning: skipping dev CLI shim; target is not writable: $target" >&2
+    return 0
+  fi
+  if ! tmp_target="$(mktemp "${target_dir}/.cmux-dev-shim.XXXXXX" 2>/dev/null)"; then
+    echo "warning: skipping dev CLI shim; cannot allocate temp file in $target_dir" >&2
     return 0
   fi
 
@@ -605,6 +608,7 @@ lock_path = sys.argv[1]
 command = sys.argv[2:]
 wait_start = None
 child = None
+child_launching = False
 terminating_signal = None
 
 def forward_signal(signum, _frame):
@@ -612,6 +616,8 @@ def forward_signal(signum, _frame):
     terminating_signal = signum
     proc = child
     if proc is None:
+        if child_launching:
+            return
         raise SystemExit(128 + signum)
     if proc.poll() is None:
         try:
@@ -668,12 +674,21 @@ if wait_start is not None:
 
 build_start = time.monotonic()
 try:
+    child_launching = True
     child = subprocess.Popen(command, pass_fds=(fd,))
+    child_launching = False
+    if terminating_signal is not None and child.poll() is None:
+        try:
+            child.send_signal(terminating_signal)
+        except OSError:
+            pass
     returncode = child.wait()
 except KeyboardInterrupt:
     raise SystemExit(130)
 except OSError as exc:
     raise SystemExit(f"error: run xcodebuild: {exc}")
+finally:
+    child_launching = False
 
 elapsed = int(time.monotonic() - build_start)
 if returncode == 0 and terminating_signal is not None:
@@ -698,7 +713,6 @@ raise SystemExit(returncode)
 ' "$XCODEBUILD_LOCK" "${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"
 XCODEBUILD_QUEUE_BUILD_ELAPSED=$(( $(date +%s) - XCODEBUILD_QUEUE_BUILD_START_TIME ))
 echo "==> xcodebuild queue+build phase completed in ${XCODEBUILD_QUEUE_BUILD_ELAPSED}s"
-sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
 SEARCH_APP_NAME="$APP_NAME"
