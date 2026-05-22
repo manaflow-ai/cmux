@@ -720,7 +720,7 @@
         },
         "discardHiddenWebViews": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Allow hidden browser tabs to release page memory and restore when shown again."
         },
         "hiddenWebViewDiscardDelaySeconds": {
