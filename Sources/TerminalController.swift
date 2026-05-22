@@ -7451,6 +7451,12 @@ class TerminalController {
                         readiness.foregroundPID != nil &&
                         ttyName != nil
                     let shellActivity = ws.panelShellActivityStates[panel.id] ?? .unknown
+                    let headlessBootstrapWindow = terminalSurface.isHeadlessStartupWindow(hostedView.window)
+                    let visibleInUI = !headlessBootstrapWindow &&
+                        hostedView.window != nil &&
+                        hostedView.debugPortalVisibleInUI &&
+                        !hostedView.isHidden &&
+                        !hostedView.isHiddenOrHasHiddenAncestor
                     item["in_window"] = terminalSurface.isViewInWindow
                     item["hosted_view_in_window"] = hostedView.window != nil
                     item["runtime_surface_ready"] = readiness.runtimeSurfaceReady
@@ -7459,8 +7465,8 @@ class TerminalController {
                     item["foreground_pid"] = v2OrNull(readiness.foregroundPID)
                     item["tty"] = v2OrNull(ttyName)
                     item["shell_activity"] = shellActivity.rawValue
-                    item["visible_in_ui"] = hostedView.debugPortalVisibleInUI
-                    item["headless_bootstrap_window"] = terminalSurface.isHeadlessStartupWindow(hostedView.window)
+                    item["visible_in_ui"] = visibleInUI
+                    item["headless_bootstrap_window"] = headlessBootstrapWindow
                 } else if let bp = panel as? BrowserPanel {
                     item["in_window"] = bp.webView.window != nil
                     item["hosted_view_in_window"] = bp.webView.window != nil
