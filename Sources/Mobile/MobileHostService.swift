@@ -506,7 +506,6 @@ final class MobileHostService {
         default:
             return scopedTicketError
         }
-        return nil
     }
 
     static func debugTicketAuthorizationError(
