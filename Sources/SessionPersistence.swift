@@ -1398,10 +1398,14 @@ enum SessionTerminalScrollbackNormalizer {
 
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
-    private static let zshPromptSpMarkerPattern =
-        #"(?:\x1B\[[0-9;]*m)*\x1B\[(?:[0-9]*;)*0?7(?:;[0-9]*)*m%\x1B\[[0-9;]*m[ \t]*"#
-    private static let zshPromptSpRegex = CachedRegularExpression(
-        pattern: zshPromptSpMarkerPattern
+    private static let ansiSGRRunBeforePercentPattern =
+        #"((?:\x1B\[[0-9;]*m)+)%(\x1B\[[0-9;]*m[ \t]*)"#
+    private static let ansiSGRRunBeforePercentRegex = CachedRegularExpression(
+        pattern: ansiSGRRunBeforePercentPattern
+    )
+    private static let ansiSGRParametersPattern = #"\x1B\[([0-9;]*)m"#
+    private static let ansiSGRParametersRegex = CachedRegularExpression(
+        pattern: ansiSGRParametersPattern
     )
 
     static func snapshotText(_ scrollback: String?) -> String? {
@@ -1435,11 +1439,57 @@ enum SessionTerminalScrollbackNormalizer {
         guard text.contains("%"), text.contains("\(ansiEscape)[") else {
             return text
         }
-        return zshPromptSpRegex.value.stringByReplacingMatches(
+        var output = String()
+        var cursor = text.startIndex
+        ansiSGRRunBeforePercentRegex.value.enumerateMatches(
             in: text,
             range: NSRange(text.startIndex..<text.endIndex, in: text),
-            withTemplate: "\n"
-        )
+            options: []
+        ) { match, _, _ in
+            guard let match else { return }
+            let sgrRunRange = match.range(at: 1)
+            guard
+                let markerRange = Range(match.range, in: text),
+                let sgrRunTextRange = Range(sgrRunRange, in: text),
+                zshPromptSpMarkerSGRRunContainsInverseMarker(String(text[sgrRunTextRange]))
+            else {
+                return
+            }
+
+            output += String(text[cursor..<markerRange.lowerBound])
+            output += "\n"
+            cursor = markerRange.upperBound
+        }
+        output += String(text[cursor...])
+        return output
+    }
+
+    private static func zshPromptSpMarkerSGRRunContainsInverseMarker(_ sgrRun: String) -> Bool {
+        var finalParameters: String?
+        ansiSGRParametersRegex.value.enumerateMatches(
+            in: sgrRun,
+            range: NSRange(location: 0, length: (sgrRun as NSString).length),
+            options: []
+        ) { match, _, _ in
+            guard
+                let match,
+                match.numberOfRanges > 1,
+                match.range(at: 1).location != NSNotFound
+            else {
+                return
+            }
+            finalParameters = (sgrRun as NSString).substring(with: match.range(at: 1))
+        }
+
+        guard let finalParameters else { return false }
+        return finalParameters
+            .split(separator: ";", omittingEmptySubsequences: false)
+            .contains { parameter in
+                guard let value = Int(parameter.isEmpty ? "0" : String(parameter)) else {
+                    return false
+                }
+                return value == 7
+            }
     }
 }
 
