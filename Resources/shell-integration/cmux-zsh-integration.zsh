@@ -152,6 +152,17 @@ _cmux_restore_scrollback_once() {
 }
 _cmux_restore_scrollback_once
 
+_cmux_reset_terminal_keyboard_protocols() {
+    [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
+    # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
+    # prompt, return terminal input encoding to plain readline bytes.
+    printf '\033[>m\033[<8u'
+}
+
+_cmux_reset_kitty_keyboard_protocol() {
+    _cmux_reset_terminal_keyboard_protocols
+}
+
 _cmux_now() {
     print -r -- "${EPOCHSECONDS:-$SECONDS}"
 }
@@ -548,13 +559,6 @@ _cmux_report_shell_activity_state() {
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
     _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-}
-
-_cmux_reset_terminal_keyboard_protocols() {
-    [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
-    # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
-    # prompt, return terminal input encoding to plain readline bytes.
-    printf '\033[>m\033[<8u'
 }
 
 _cmux_ports_kick() {
@@ -1389,13 +1393,13 @@ _cmux_precmd() {
     fi
     _cmux_stop_git_head_watch
     _cmux_tmux_sync_cmux_environment
+    _cmux_reset_terminal_keyboard_protocols
 
     local cmux_has_unix_socket=0
     _cmux_socket_is_unix && cmux_has_unix_socket=1
     (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     if [[ -n "$CMUX_PANEL_ID" ]]; then
-        _cmux_reset_terminal_keyboard_protocols
         _cmux_report_shell_activity_state prompt
     fi
 

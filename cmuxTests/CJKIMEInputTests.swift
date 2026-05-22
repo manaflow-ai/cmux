@@ -1654,9 +1654,15 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             "-f",
             "-c",
             """
-            source \(shellSingleQuoted(integrationPath)) >/dev/null 2>&1 || true
+            if ! source \(shellSingleQuoted(integrationPath)) >/dev/null; then
+              print -u2 "failed to source cmux zsh integration"
+              exit 1
+            fi
             if (( $+functions[_cmux_reset_terminal_keyboard_protocols] )); then
               _cmux_reset_terminal_keyboard_protocols
+            else
+              print -u2 "_cmux_reset_terminal_keyboard_protocols is missing"
+              exit 2
             fi
             """
         ]
@@ -1664,12 +1670,41 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             "CMUX_TEST_FORCE_KEYBOARD_RESET": "1"
         ]
         let output = Pipe()
+        let standardError = Pipe()
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = standardError
 
         try process.run()
         process.waitUntilExit()
-        return output.fileHandleForReading.readDataToEndOfFile()
+        let outputData = output.fileHandleForReading.readDataToEndOfFile()
+        let errorData = standardError.fileHandleForReading.readDataToEndOfFile()
+        let outputText = String(decoding: outputData, as: UTF8.self)
+        let errorText = String(decoding: errorData, as: UTF8.self)
+
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "CJKIMEInputTests",
+                code: Int(process.terminationStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "cmux zsh keyboard reset helper failed with status \(process.terminationStatus); stdout=\(outputText.debugDescription) stderr=\(errorText.debugDescription)"
+                ]
+            )
+        }
+
+        let expected = Data("\u{1B}[>m\u{1B}[<8u".utf8)
+        guard outputData == expected else {
+            throw NSError(
+                domain: "CJKIMEInputTests",
+                code: 3,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "cmux zsh keyboard reset helper emitted \(outputData as NSData), expected \(expected as NSData); stdout=\(outputText.debugDescription) stderr=\(errorText.debugDescription)"
+                ]
+            )
+        }
+
+        return outputData
     }
 
     private func processTerminalOutput(_ data: Data, in terminal: HostedTerminalWindow) throws {
@@ -1679,6 +1714,28 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_process_output(runtimeSurface, baseAddress, UInt(rawBuffer.count))
         }
+    }
+
+    private func sendSyntheticText(_ text: String, in terminal: HostedTerminalWindow) -> Bool {
+        let keyCodes: [Character: UInt16] = [
+            "a": 0,
+            "c": 8,
+            "h": 4,
+            "r": 15,
+            "t": 17
+        ]
+
+        for character in text {
+            guard let keyCode = keyCodes[character] else { return false }
+            let string = String(character)
+            let sent = terminal.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+                characters: string,
+                charactersIgnoringModifiers: string,
+                keyCode: keyCode
+            )
+            guard sent else { return false }
+        }
+        return true
     }
 
     private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
@@ -1789,7 +1846,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         }
     }
 
-    func testStaleKittyKeyboardAfterClearHistoryDoesNotEncodePlainLetterAsCSIU() throws {
+    func testStaleKittyKeyboardAfterClearHistoryDoesNotEncodeTypedTextAsCSIU() throws {
         let captureReadyMarker = "CMUX_KBD_READY_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let captureMarker = "CMUX_KBD_HEX_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let scriptURL = FileManager.default.temporaryDirectory
@@ -1809,14 +1866,19 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         try:
             tty.setraw(fd)
             data = bytearray()
-            if select.select([sys.stdin], [], [], 2.0)[0]:
-                data.extend(os.read(fd, 1))
-                deadline = time.monotonic() + 1.0
-                idle_deadline = time.monotonic() + 0.35
-                while time.monotonic() < deadline and time.monotonic() < idle_deadline:
-                    if select.select([sys.stdin], [], [], 0.05)[0]:
-                        data.extend(os.read(fd, 64))
-                        idle_deadline = time.monotonic() + 0.35
+            deadline = time.monotonic() + 3.0
+            idle_deadline = None
+            while time.monotonic() < deadline:
+                timeout = 0.05
+                if idle_deadline is not None:
+                    timeout = max(0.0, min(timeout, idle_deadline - time.monotonic()))
+                if select.select([sys.stdin], [], [], timeout)[0]:
+                    data.extend(os.read(fd, 64))
+                    idle_deadline = time.monotonic() + 0.35
+                    if data == b"chart":
+                        break
+                elif idle_deadline is not None and time.monotonic() >= idle_deadline:
+                    break
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
@@ -1837,25 +1899,18 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         XCTAssertTrue(readyText.contains(captureReadyMarker), "Expected Kitty enable marker before clear-history")
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
-        let keyboardResetData = try cmuxZshTerminalKeyboardResetSequence()
-        XCTAssertEqual(
-            keyboardResetData,
-            Data("\u{1B}[>m\u{1B}[<8u".utf8),
-            "cmuxZshTerminalKeyboardResetSequence must reset modifyOtherKeys and Kitty keyboard state"
-        )
-        try processTerminalOutput(keyboardResetData, in: hostedTerminal)
-
         // Mirrors the surface.clear_history socket handler path: clear_screen binding, then refresh.
         XCTAssertTrue(hostedTerminal.surface.performBindingAction("clear_screen"))
         hostedTerminal.surface.forceRefresh(reason: "unit.clearHistory")
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
-        let sent = hostedTerminal.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
-            characters: "c",
-            charactersIgnoringModifiers: "c",
-            keyCode: 8
+        try processTerminalOutput(cmuxZshTerminalKeyboardResetSequence(), in: hostedTerminal)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        XCTAssertTrue(
+            sendSyntheticText("chart", in: hostedTerminal),
+            "Expected ordinary chart keyDown events to be dispatched through ghostty_surface_key"
         )
-        XCTAssertTrue(sent, "Expected ordinary c keyDown to be dispatched through ghostty_surface_key")
 
         let captureText = try waitForTerminalText(from: hostedTerminal, timeout: 5) {
             $0.contains(captureMarker)
@@ -1870,11 +1925,15 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
 
         XCTAssertEqual(
             String(capturedHex),
-            "63",
-            "A plain c at the shell prompt must write one ASCII byte to PTY input, not a Kitty CSI-u sequence"
+            "6368617274",
+            "Typing chart at a recovered shell prompt must write plain bytes, not Kitty CSI-u sequences"
         )
         XCTAssertFalse(
-            captureText.contains("c9;1:3u") || captureText.contains("99;1:3u"),
+            captureText.contains("c9;1:3u")
+                || captureText.contains("h04;1:3u")
+                || captureText.contains("a7;1:3u")
+                || captureText.contains("r14;1:3u")
+                || captureText.contains("t16;1:3u"),
             "CSI-u response bodies must not land in terminal output as printable text"
         )
     }

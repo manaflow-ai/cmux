@@ -847,6 +847,76 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNotNil(split["surface_id"] as? String)
     }
 
+    func testSurfaceSendTextAndKeyRejectDeadTerminalPane() throws {
+#if DEBUG
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let surfaceId = terminalPanel.id.uuidString
+        terminalPanel.surface.markChildProcessExitedForTesting(reason: "unit-test-child-exited")
+        let processExitedSocketError = "ERROR: \(String(localized: "socket.terminal.processExited", defaultValue: "The terminal session has ended; reopen it or create a new terminal session."))"
+        XCTAssertEqual(terminalPanel.surface.sendNamedKey("Return"), .processExited)
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("send chart"), processExitedSocketError)
+        XCTAssertEqual(
+            TerminalController.shared.handleSocketLine("send_surface \(surfaceId) chart"),
+            processExitedSocketError
+        )
+
+        let textEnvelope = try v2Envelope(
+            method: "surface.send_text",
+            params: [
+                "surface_id": surfaceId,
+                "text": "chart"
+            ]
+        ).envelope
+        XCTAssertEqual(textEnvelope["ok"] as? Bool, false)
+        let textError = try XCTUnwrap(textEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(textError["code"] as? String, "process_exited")
+        let textErrorData = try XCTUnwrap(textError["data"] as? [String: Any])
+        XCTAssertEqual(textErrorData["surface_id"] as? String, surfaceId)
+
+        let keyEnvelope = try v2Envelope(
+            method: "surface.send_key",
+            params: [
+                "surface_id": surfaceId,
+                "key": "Return"
+            ]
+        ).envelope
+        XCTAssertEqual(keyEnvelope["ok"] as? Bool, false)
+        let keyError = try XCTUnwrap(keyEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(keyError["code"] as? String, "process_exited")
+        let keyErrorData = try XCTUnwrap(keyError["data"] as? [String: Any])
+        XCTAssertEqual(keyErrorData["surface_id"] as? String, surfaceId)
+#else
+        throw XCTSkip("Dead terminal socket input rejection uses DEBUG-only lifecycle test hooks.")
+#endif
+    }
+
     func testIssue2907NoTargetCommandsPreferKeyRecoveredWindowOverRegisteredWindow() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

@@ -32,7 +32,9 @@ struct CmuxSurfaceConfigTemplate {
                 }
             }
         }
-        waitAfterCommand = cConfig.wait_after_command
+        // cmux owns terminal child-exit lifecycle and replacement UI. Never inherit
+        // Ghostty's wait-after-command flag, which intentionally retains exited PTYs.
+        waitAfterCommand = false
     }
 }
 
