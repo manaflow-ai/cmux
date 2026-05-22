@@ -5258,7 +5258,7 @@ class TerminalController {
 
     private func v2WorkspaceLast(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "tab management is unavailable", data: nil)
         }
 
         var result: V2CallResult = .err(code: "not_found", message: "No previous workspace in history", data: nil)
@@ -5283,7 +5283,7 @@ class TerminalController {
 
     private func v2WorkspaceLastForward(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "tab management is unavailable", data: nil)
         }
 
         var result: V2CallResult = .err(code: "not_found", message: "No next workspace in history", data: nil)
