@@ -305,6 +305,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "grep error.log"
             ),
             (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","data":{"hook_event_name":"PermissionRequest","tool_input":{"toolName":"Bash","prompt":"Allow Bash to run nested grep error.log?"}}}"#,
+                "Claude Workspace - Claude waiting",
+                "Permission request",
+                "Allow Bash to run nested grep error.log?"
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","data":{"hook_event_name":"PreToolUse","tool_input":{"tool":"Bash","message":"grep error.log"}}}"#,
+                "Claude Workspace - Claude waiting",
+                "Tool approval",
+                "grep error.log"
+            ),
+            (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Permission request: run grep error.log"}"#,
                 "Claude Workspace - Claude waiting",
                 "Permission request",
@@ -336,6 +348,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude failed to parse the tool result"}"#,
+                "Claude Workspace - Claude waiting",
+                "Error",
+                "Something went wrong. Try again from the Claude surface."
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude failed to parse the tool result","tool_name":"Bash","tool_input":{"command":"grep error.log"}}"#,
                 "Claude Workspace - Claude waiting",
                 "Error",
                 "Something went wrong. Try again from the Claude surface."
@@ -542,6 +560,89 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(genericAfterPromptCommand.contains("Claude Workspace - Claude waiting|Idle prompt|"), genericAfterPromptCommand)
         XCTAssertTrue(genericAfterPromptCommand.contains("Claude Code needs your input."), genericAfterPromptCommand)
         XCTAssertFalse(genericAfterPromptCommand.contains("Allow Bash to read grep error.log?"), genericAfterPromptCommand)
+    }
+
+    func testClaudePermissionRequestSkipsNotificationWhenPendingPromptWasCleared() throws {
+        let context = try makeClaudeHookContext(name: "claude-permission-cleared-before-send")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-permission-cleared-session"
+        let commandStart = context.state.commands.count
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"grep error.log","allowed_prompts":[{"prompt":"Allow Bash to inspect grep error.log?"}]}}"#,
+            responseOverride: { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      payload["method"] as? String == "workspace.list" else {
+                    return nil
+                }
+                try? self.clearClaudeHookPendingNotification(sessionId, context: context)
+                return self.workspaceListResponse(id: id, workspaceId: context.workspaceId)
+            }
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let notifyCommands = Array(context.state.commands.dropFirst(commandStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertTrue(notifyCommands.isEmpty, "Expected cleared pending permission prompt to suppress notification, saw \(notifyCommands)")
+
+        let sessionAfterPermission = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(sessionAfterPermission["pendingNotificationFingerprint"])
+        XCTAssertNil(sessionAfterPermission["lastEmittedNotificationFingerprint"])
+    }
+
+    func testClaudeNotificationRefreshesSessionBeforeGenericDedupe() throws {
+        let context = try makeClaudeHookContext(name: "claude-notification-refreshes-session")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-notification-refresh-session"
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let permissionBody = "Allow Bash to inspect grep error.log?"
+        let commandStart = context.state.commands.count
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#,
+            responseOverride: { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      payload["method"] as? String == "workspace.list" else {
+                    return nil
+                }
+                try? self.saveClaudeHookPendingNotification(
+                    sessionId,
+                    context: context,
+                    subtitle: "Permission request",
+                    body: permissionBody
+                )
+                return self.workspaceListResponse(id: id, workspaceId: context.workspaceId)
+            }
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let notifyCommands = Array(context.state.commands.dropFirst(commandStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertTrue(
+            notifyCommands.isEmpty,
+            "Expected refreshed pending permission prompt to dedupe the generic notification, saw \(notifyCommands)"
+        )
+
+        let sessionAfterNotification = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(sessionAfterNotification["lastBody"] as? String, permissionBody)
+        XCTAssertEqual(sessionAfterNotification["pendingNotificationFingerprint"] as? String, "Permission request\n\(permissionBody)")
     }
 
     func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {
@@ -4481,9 +4582,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         context: ClaudeHookContext,
         arguments: [String],
         standardInput: String,
-        extraEnvironment: [String: String] = [:]
+        extraEnvironment: [String: String] = [:],
+        responseOverride: (@Sendable (String) -> String?)? = nil
     ) -> ProcessRunResult {
         let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            if let response = responseOverride?(line) {
+                return response
+            }
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -4534,6 +4639,39 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+    }
+
+    private func clearClaudeHookPendingNotification(_ sessionId: String, context: ClaudeHookContext) throws {
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        var state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        var session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        session.removeValue(forKey: "pendingNotificationFingerprint")
+        session.removeValue(forKey: "pendingNotificationStartedAt")
+        sessions[sessionId] = session
+        state["sessions"] = sessions
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted]).write(to: stateURL, options: .atomic)
+    }
+
+    private func saveClaudeHookPendingNotification(
+        _ sessionId: String,
+        context: ClaudeHookContext,
+        subtitle: String,
+        body: String
+    ) throws {
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        var state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        var session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        let now = Date().timeIntervalSince1970
+        session["lastSubtitle"] = subtitle
+        session["lastBody"] = body
+        session["pendingNotificationFingerprint"] = "\(subtitle)\n\(body)"
+        session["pendingNotificationStartedAt"] = now
+        session["updatedAt"] = now
+        sessions[sessionId] = session
+        state["sessions"] = sessions
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted]).write(to: stateURL, options: .atomic)
     }
 
     func testBrowserImportDefaultsNonInteractiveInCodingAgent() throws {

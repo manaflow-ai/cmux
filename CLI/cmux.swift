@@ -870,6 +870,33 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    func hasPendingNotification(sessionId: String, fingerprint: String) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFingerprint.isEmpty else { return false }
+        return try withLockedState { state in
+            guard let record = state.sessions[normalized] else { return false }
+            return record.pendingNotificationFingerprint == normalizedFingerprint
+        }
+    }
+
+    func clearPendingNotification(sessionId: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.pendingNotificationFingerprint != nil else {
+                return
+            }
+            let now = Date().timeIntervalSince1970
+            record.pendingNotificationFingerprint = nil
+            record.pendingNotificationStartedAt = nil
+            record.updatedAt = now
+            state.sessions[normalized] = record
+        }
+    }
+
     func hasRunningSession(
         workspaceId: String,
         surfaceId: String?,
@@ -18655,11 +18682,12 @@ struct CMUXCLI {
                 print("OK")
                 return
             }
-            if let mappedSession,
-               let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
+            let latestMappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) } ?? mappedSession
+            if let latestMappedSession,
+               let savedBody = latestMappedSession.lastBody, !savedBody.isEmpty,
                isGenericClaudeWaitingBody(summary.body) {
                 summary = (
-                    subtitle: mappedSession.lastSubtitle ?? summary.subtitle,
+                    subtitle: latestMappedSession.lastSubtitle ?? summary.subtitle,
                     body: truncate(normalizedSingleLine(savedBody), maxLength: 140)
                 )
             } else if isGenericClaudeWaitingBody(summary.body) {
@@ -18667,7 +18695,7 @@ struct CMUXCLI {
             }
 
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                preferred: mappedSession?.surfaceId,
+                preferred: latestMappedSession?.surfaceId,
                 fallback: surfaceArg,
                 workspaceId: workspaceId,
                 client: client
@@ -18771,12 +18799,24 @@ struct CMUXCLI {
             )
             let response: String
             do {
-                response = try sendClaudeWaitingNotification(
+                guard let sentResponse = try sendClaudeWaitingNotificationIfCurrent(
                     summary: summary,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    client: client
-                )
+                    client: client,
+                    isCurrent: {
+                        guard let sessionId = parsedInput.sessionId else { return true }
+                        return (try? sessionStore.hasPendingNotification(
+                            sessionId: sessionId,
+                            fingerprint: notificationFingerprint
+                        )) == true
+                    }
+                ) else {
+                    telemetry.breadcrumb("claude-hook.permission-request.pending-cleared")
+                    print("OK")
+                    return
+                }
+                response = sentResponse
                 markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
             } catch {
                 if let sessionId = parsedInput.sessionId {
@@ -18922,6 +18962,9 @@ struct CMUXCLI {
                 return
             }
 
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.clearPendingNotification(sessionId: sessionId)
+            }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
 
             let statusValue: String
@@ -19158,6 +19201,19 @@ struct CMUXCLI {
     ) throws -> String {
         let title = claudeNotificationTitle(summary: summary, workspaceId: workspaceId, client: client)
         let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
+        return try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+    }
+
+    private func sendClaudeWaitingNotificationIfCurrent(
+        summary: (subtitle: String, body: String),
+        workspaceId: String,
+        surfaceId: String,
+        client: SocketClient,
+        isCurrent: () -> Bool
+    ) throws -> String? {
+        let title = claudeNotificationTitle(summary: summary, workspaceId: workspaceId, client: client)
+        let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
+        guard isCurrent() else { return nil }
         return try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
     }
 
@@ -19531,46 +19587,9 @@ struct CMUXCLI {
             compact["allowedPrompts"] = allowedPrompts
         }
 
-        if let toolInput = object["tool_input"] as? [String: Any] {
-            var compactToolInput: [String: Any] = [:]
-            for key in [
-                "tool_name", "toolName", "tool", "file_path", "command", "pattern", "description", "query", "url", "path",
-                "message", "body", "text", "prompt", "summary", "reason", "kind",
-                "plan", "planFilePath", "permission_prompt", "permissionPrompt",
-            ] {
-                if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
-                    compactToolInput[key] = value
-                }
-            }
-            if let allowedPrompts = compactClaudeAllowedPrompts(
-                toolInput["allowedPrompts"] ?? toolInput["allowed_prompts"]
-            ) {
-                compactToolInput["allowedPrompts"] = allowedPrompts
-            }
-            if let questions = toolInput["questions"] as? [[String: Any]] {
-                compactToolInput["questions"] = questions.prefix(1).map { question in
-                    var compactQuestion: [String: Any] = [:]
-                    if let value = compactClaudeHookStringValue(question["question"], maxLength: 180) {
-                        compactQuestion["question"] = value
-                    }
-                    if let value = compactClaudeHookStringValue(question["header"], maxLength: 80) {
-                        compactQuestion["header"] = value
-                    }
-                    if let options = question["options"] as? [[String: Any]] {
-                        let compactOptions: [[String: Any]] = options.compactMap { option in
-                            guard let label = compactClaudeHookStringValue(option["label"], maxLength: 60) else {
-                                return nil
-                            }
-                            return ["label": label] as [String: Any]
-                        }
-                        compactQuestion["options"] = compactOptions
-                    }
-                    return compactQuestion
-                }
-            }
-            if !compactToolInput.isEmpty {
-                compact["tool_input"] = compactToolInput
-            }
+        if let toolInput = object["tool_input"] as? [String: Any],
+           let compactToolInput = compactClaudeToolInput(toolInput) {
+            compact["tool_input"] = compactToolInput
         }
 
         for key in ["notification", "data"] {
@@ -19590,12 +19609,56 @@ struct CMUXCLI {
             ) {
                 compactNested["allowedPrompts"] = allowedPrompts
             }
+            if let toolInput = nested["tool_input"] as? [String: Any],
+               let compactToolInput = compactClaudeToolInput(toolInput) {
+                compactNested["tool_input"] = compactToolInput
+            }
             if !compactNested.isEmpty {
                 compact[key] = compactNested
             }
         }
 
         return compact
+    }
+
+    private func compactClaudeToolInput(_ toolInput: [String: Any]) -> [String: Any]? {
+        var compactToolInput: [String: Any] = [:]
+        for key in [
+            "tool_name", "toolName", "tool", "file_path", "command", "pattern", "description", "query", "url", "path",
+            "message", "body", "text", "prompt", "summary", "reason", "kind",
+            "plan", "planFilePath", "permission_prompt", "permissionPrompt",
+        ] {
+            if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
+                compactToolInput[key] = value
+            }
+        }
+        if let allowedPrompts = compactClaudeAllowedPrompts(
+            toolInput["allowedPrompts"] ?? toolInput["allowed_prompts"]
+        ) {
+            compactToolInput["allowedPrompts"] = allowedPrompts
+        }
+        if let questions = toolInput["questions"] as? [[String: Any]] {
+            compactToolInput["questions"] = questions.prefix(1).map { question in
+                var compactQuestion: [String: Any] = [:]
+                if let value = compactClaudeHookStringValue(question["question"], maxLength: 180) {
+                    compactQuestion["question"] = value
+                }
+                if let value = compactClaudeHookStringValue(question["header"], maxLength: 80) {
+                    compactQuestion["header"] = value
+                }
+                if let options = question["options"] as? [[String: Any]] {
+                    let compactOptions: [[String: Any]] = options.compactMap { option in
+                        guard let label = compactClaudeHookStringValue(option["label"], maxLength: 60) else {
+                            return nil
+                        }
+                        return ["label": label] as [String: Any]
+                    }
+                    compactQuestion["options"] = compactOptions
+                }
+                return compactQuestion
+            }
+        }
+        return compactToolInput.isEmpty ? nil : compactToolInput
     }
 
     private func compactClaudeAllowedPrompts(_ rawValue: Any?) -> [[String: String]]? {
@@ -21112,25 +21175,31 @@ struct CMUXCLI {
     private func claudeHookToolName(_ object: [String: Any]) -> String? {
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
         let toolInput = object["tool_input"] as? [String: Any] ?? [:]
+        let nestedToolInput = nested["tool_input"] as? [String: Any] ?? [:]
         return firstString(in: object, keys: ["tool_name", "toolName", "tool"])
             ?? firstString(in: nested, keys: ["tool_name", "toolName", "tool"])
             ?? firstString(in: toolInput, keys: ["tool_name", "toolName", "tool"])
+            ?? firstString(in: nestedToolInput, keys: ["tool_name", "toolName", "tool"])
     }
 
     private func claudeHookSignal(_ object: [String: Any]) -> String {
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
         let toolInput = object["tool_input"] as? [String: Any] ?? [:]
+        let nestedToolInput = nested["tool_input"] as? [String: Any] ?? [:]
         let hasPermissionPrompt =
             firstString(in: object, keys: ["permission_prompt", "permissionPrompt"]) != nil ||
             firstString(in: nested, keys: ["permission_prompt", "permissionPrompt"]) != nil ||
-            firstString(in: toolInput, keys: ["permission_prompt", "permissionPrompt"]) != nil
+            firstString(in: toolInput, keys: ["permission_prompt", "permissionPrompt"]) != nil ||
+            firstString(in: nestedToolInput, keys: ["permission_prompt", "permissionPrompt"]) != nil
         let signalParts = [
             claudeHookEventName(object),
             claudeHookToolName(object),
+            firstString(in: nested, keys: ["hook_event_name", "hookEventName", "event", "event_name", "type", "kind"]),
             firstString(in: object, keys: ["notification_type", "matcher", "reason", "permissionDecision", "permission_decision"]),
             firstString(in: nested, keys: ["notification_type", "matcher", "reason", "permissionDecision", "permission_decision"]),
             hasPermissionPrompt ? "permission_prompt" : nil,
             firstString(in: toolInput, keys: ["reason", "kind"]),
+            firstString(in: nestedToolInput, keys: ["reason", "kind"]),
         ]
         return signalParts.compactMap { $0 }.joined(separator: " ")
     }
@@ -21138,21 +21207,48 @@ struct CMUXCLI {
     private func claudeHookMessage(_ object: [String: Any]) -> String? {
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
         let toolInput = object["tool_input"] as? [String: Any] ?? [:]
-        let messageCandidates = [
-            describeAskUserQuestion(object),
-            describeClaudeAllowedPrompt(object),
-            describeClaudeAllowedPrompt(nested),
-            describeClaudeAllowedPrompt(toolInput),
+        let nestedToolInput = nested["tool_input"] as? [String: Any] ?? [:]
+        let eventName = claudeHookEventName(object)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let toolName = claudeHookToolName(object)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let signal = claudeHookSignal(object).lowercased()
+        let directMessageCandidates = [
             firstString(in: object, keys: ["permission_prompt", "permissionPrompt"]),
             firstString(in: nested, keys: ["permission_prompt", "permissionPrompt"]),
-            firstString(in: toolInput, keys: ["permission_prompt", "permissionPrompt"]),
-            describeToolApprovalPrompt(object),
-            firstString(in: toolInput, keys: ["message", "body", "text", "prompt", "summary", "description", "command", "file_path", "pattern", "query", "url"]),
             firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error"]),
             firstString(in: object, keys: ["title", "reason"]),
             firstString(in: nested, keys: ["title", "reason"]),
         ]
+        let approvalLikeEvent = eventName == "permissionrequest"
+            || eventName == "pretooluse"
+            || signal.contains("permission")
+            || signal.contains("approval")
+            || signal.contains("approve")
+        let questionLikeEvent = eventName == "askuserquestion" || toolName == "askuserquestion" || signal.contains("askuserquestion")
+        let approvalMessageCandidates = [
+            describeAskUserQuestion(object),
+            describeClaudeAllowedPrompt(object),
+            describeClaudeAllowedPrompt(nested),
+            describeClaudeAllowedPrompt(toolInput),
+            describeClaudeAllowedPrompt(nestedToolInput),
+            firstString(in: object, keys: ["permission_prompt", "permissionPrompt"]),
+            firstString(in: nested, keys: ["permission_prompt", "permissionPrompt"]),
+            firstString(in: toolInput, keys: ["permission_prompt", "permissionPrompt"]),
+            firstString(in: nestedToolInput, keys: ["permission_prompt", "permissionPrompt"]),
+            describeToolApprovalPrompt(object),
+            firstString(in: toolInput, keys: ["message", "body", "text", "prompt", "summary", "description", "command", "file_path", "pattern", "query", "url"]),
+            firstString(in: nestedToolInput, keys: ["message", "body", "text", "prompt", "summary", "description", "command", "file_path", "pattern", "query", "url"]),
+            firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error"]),
+            firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error"]),
+            firstString(in: object, keys: ["title", "reason"]),
+            firstString(in: nested, keys: ["title", "reason"]),
+        ]
+        let messageCandidates = questionLikeEvent || approvalLikeEvent
+            ? approvalMessageCandidates
+            : directMessageCandidates + [
+                firstString(in: toolInput, keys: ["message", "body", "text", "prompt", "summary", "description", "command", "file_path", "pattern", "query", "url"]),
+                firstString(in: nestedToolInput, keys: ["message", "body", "text", "prompt", "summary", "description", "command", "file_path", "pattern", "query", "url"])
+            ]
         return messageCandidates.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
     }
 
@@ -21169,7 +21265,8 @@ struct CMUXCLI {
 
     private func describeToolApprovalPrompt(_ object: [String: Any]) -> String? {
         guard let toolName = claudeHookToolName(object) else { return nil }
-        let input = object["tool_input"] as? [String: Any] ?? [:]
+        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        let input = (object["tool_input"] as? [String: Any]) ?? (nested["tool_input"] as? [String: Any]) ?? [:]
         switch toolName.lowercased() {
         case "bash":
             return firstString(in: input, keys: ["command"])
