@@ -19,6 +19,7 @@ postgres_data="$root/postgres-$safe_run_id-$postgres_port"
 postgres_sock="$tmp_root/pg-socket"
 postgres_log="$tmp_root/postgres.log"
 pid_file="$tmp_root/pids"
+pgid_file="$tmp_root/pgids"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export PATH="/opt/homebrew/opt/postgresql@16/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
@@ -63,10 +64,15 @@ kill_pid_list() {
 
 cleanup_current_run() {
   local code=$?
+  if [ -f "$pgid_file" ]; then
+    while IFS= read -r pgid; do
+      [ -n "$pgid" ] || continue
+      kill_process_group "$pgid" TERM
+    done < "$pgid_file"
+  fi
   if [ -f "$pid_file" ]; then
     while IFS= read -r pid; do
       [ -n "$pid" ] || continue
-      kill_process_group "$pid" TERM
       pkill -TERM -P "$pid" >/dev/null 2>&1 || true
       kill "$pid" >/dev/null 2>&1 || true
     done < "$pid_file"
@@ -95,12 +101,26 @@ track_pid() {
   printf '%s\n' "$1" >> "$pid_file"
 }
 
+track_pgid() {
+  mkdir -p "$tmp_root"
+  printf '%s\n' "$1" >> "$pgid_file"
+}
+
+untrack_value() {
+  local file="$1"
+  local value="$2"
+  local tmp_file="$file.tmp"
+  [ -f "$file" ] || return 0
+  grep -vxF "$value" "$file" > "$tmp_file" 2>/dev/null || true
+  mv "$tmp_file" "$file" 2>/dev/null || true
+}
+
 untrack_pid() {
-  local pid="$1"
-  local tmp_file="$pid_file.tmp"
-  [ -f "$pid_file" ] || return 0
-  grep -vxF "$pid" "$pid_file" > "$tmp_file" 2>/dev/null || true
-  mv "$tmp_file" "$pid_file" 2>/dev/null || true
+  untrack_value "$pid_file" "$1"
+}
+
+untrack_pgid() {
+  untrack_value "$pgid_file" "$1"
 }
 
 run_with_timeout() {
@@ -111,6 +131,7 @@ run_with_timeout() {
   local pid=$!
   local pgid="$pid"
   track_pid "$pid"
+  track_pgid "$pgid"
   local timeout_marker="$tmp_root/timeout-$pid.log"
   local restore_errexit=0
   case "$-" in
@@ -142,6 +163,7 @@ run_with_timeout() {
   kill "$watcher" >/dev/null 2>&1 || true
   wait "$watcher" >/dev/null 2>&1 || true
   untrack_pid "$pid"
+  untrack_pgid "$pgid"
   untrack_pid "$watcher"
   if [ -f "$timeout_marker" ]; then
     cat "$timeout_marker" >&2
@@ -214,7 +236,8 @@ resolve_packages() {
       echo "Failed to resolve Swift packages after 3 attempts" >&2
       exit 1
     fi
-    log "Package resolution failed on attempt $attempt, retrying..."
+    log "Package resolution failed on attempt $attempt, checking origin before retrying..."
+    GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code origin HEAD >/dev/null 2>&1 || true
   done
 }
 
