@@ -436,6 +436,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastEmittedNotificationAt: TimeInterval?
     var pendingNotificationFingerprint: String?
     var pendingNotificationStartedAt: TimeInterval?
+    var pendingNotificationClearedFingerprint: String?
     var pendingNotificationClearedAt: TimeInterval?
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
@@ -675,6 +676,7 @@ private final class ClaudeHookSessionStore {
                 lastEmittedNotificationAt: nil,
                 pendingNotificationFingerprint: nil,
                 pendingNotificationStartedAt: nil,
+                pendingNotificationClearedFingerprint: nil,
                 pendingNotificationClearedAt: nil,
                 runtimeStatus: nil,
                 activePromptDepth: nil,
@@ -740,6 +742,7 @@ private final class ClaudeHookSessionStore {
             lastEmittedNotificationAt: nil,
             pendingNotificationFingerprint: nil,
             pendingNotificationStartedAt: nil,
+            pendingNotificationClearedFingerprint: nil,
             pendingNotificationClearedAt: nil,
             runtimeStatus: nil,
             activePromptDepth: nil,
@@ -811,6 +814,7 @@ private final class ClaudeHookSessionStore {
             record.lastEmittedNotificationAt = nil
             record.pendingNotificationFingerprint = nil
             record.pendingNotificationStartedAt = nil
+            record.pendingNotificationClearedFingerprint = nil
             record.pendingNotificationClearedAt = now
             if clearSummary {
                 record.lastSubtitle = nil
@@ -849,9 +853,14 @@ private final class ClaudeHookSessionStore {
                 surfaceId: surfaceId,
                 now: now
             )
-            if let clearedAt = record.pendingNotificationClearedAt,
-               clearedAt > attemptStartedAt {
-                return false
+            if let clearedAt = record.pendingNotificationClearedAt {
+                if clearedAt > attemptStartedAt {
+                    return false
+                }
+                if record.pendingNotificationClearedFingerprint == normalizedFingerprint,
+                   now - clearedAt <= 120 {
+                    return false
+                }
             }
             update(
                 &record,
@@ -950,6 +959,7 @@ private final class ClaudeHookSessionStore {
                 record.lastSubtitle = nil
                 record.lastBody = nil
             }
+            record.pendingNotificationClearedFingerprint = normalizedFingerprint
             record.pendingNotificationClearedAt = now
             record.updatedAt = now
             state.sessions[normalized] = record
@@ -986,12 +996,64 @@ private final class ClaudeHookSessionStore {
         try withLockedState { state in
             guard var record = state.sessions[normalized] else { return }
             let now = Date().timeIntervalSince1970
+            let clearedFingerprint = record.pendingNotificationFingerprint
             record.pendingNotificationFingerprint = nil
             record.pendingNotificationStartedAt = nil
+            record.pendingNotificationClearedFingerprint = clearedFingerprint
             record.pendingNotificationClearedAt = now
             record.lastSubtitle = nil
             record.lastBody = nil
             record.updatedAt = now
+            state.sessions[normalized] = record
+        }
+    }
+
+    func markPendingNotificationCleared(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String?,
+        fingerprint: String?
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        let normalizedFingerprint = normalizeOptional(fingerprint)
+        try withLockedState { state in
+            guard state.sessions[normalized] != nil || state.consumedSessionTombstones[normalized] == nil else {
+                return
+            }
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                now: now
+            )
+            update(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                pid: nil,
+                launchCommand: nil,
+                isRestorable: nil,
+                lastSubtitle: nil,
+                lastBody: nil,
+                lastNotificationStatus: nil,
+                updateLastNotificationStatus: false,
+                runtimeStatus: nil,
+                updateRuntimeStatus: false,
+                now: now
+            )
+            record.pendingNotificationFingerprint = nil
+            record.pendingNotificationStartedAt = nil
+            record.pendingNotificationClearedFingerprint = normalizedFingerprint
+            record.pendingNotificationClearedAt = now
+            record.lastSubtitle = nil
+            record.lastBody = nil
             state.sessions[normalized] = record
         }
     }
@@ -27632,6 +27694,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Read stdin. Claude, Codex, and the other agents all pipe hook
         // JSON through stdin; unknown inputs fall through to `{}`.
         let stdinData = FileHandle.standardInput.readDataToEndOfFile()
+        let rawInput = String(data: stdinData, encoding: .utf8) ?? ""
         guard !stdinData.isEmpty,
               let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
         else {
@@ -27746,8 +27809,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let surfaceId = surfaceCandidate.flatMap {
                 try? resolveSurfaceIdForClaudeHook($0, workspaceId: workspaceId, client: client)
             }
+            let summary = summarizeClaudeHookWaitingRequest(
+                parsedInput: parseClaudeHookInput(rawInput: rawInput),
+                defaultReason: .permissionRequest
+            )
 
-            try? store.clearPendingNotification(sessionId: sessionId)
+            try? store.markPendingNotificationCleared(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId ?? "",
+                cwd: firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"]),
+                transcriptPath: firstString(in: stdinObj, keys: ["transcript_path", "transcriptPath"]),
+                fingerprint: "\(summary.subtitle)\n\(summary.body)"
+            )
             let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
             _ = try? setClaudeStatus(
                 client: client,
