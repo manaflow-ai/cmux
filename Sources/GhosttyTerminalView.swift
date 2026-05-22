@@ -4919,6 +4919,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var lastSearchNeedle = ""
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
+
+    func startupEnvironmentValue(_ key: String) -> String? {
+        additionalEnvironment[key] ?? initialEnvironmentOverrides[key]
+    }
+
     init(
         tabId: UUID,
         context: ghostty_surface_context_e,
@@ -5705,6 +5710,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
             setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }
+        setManagedEnvironmentValue(
+            AgentSubagentNotificationSettings.environmentKey,
+            AgentSubagentNotificationSettings.suppressNotifications() ? "1" : "0"
+        )
         if !CursorIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_CURSOR_HOOKS_DISABLED", "1")
         }

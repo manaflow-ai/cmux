@@ -751,6 +751,37 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
     }
 
+    func testSubagentNotificationSuppressionDefaultsToEnabledWhenUnset() {
+        let suiteName = "cmux.tests.subagent-notifications.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        XCTAssertTrue(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+    }
+
+    func testSubagentNotificationSuppressionRespectsStoredPreference() {
+        let suiteName = "cmux.tests.subagent-notifications.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        XCTAssertTrue(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+
+        defaults.set(false, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        XCTAssertFalse(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+    }
+
     func testTelemetryDefaultsToEnabledWhenUnset() {
         let suiteName = "cmux.tests.telemetry.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

@@ -712,6 +712,9 @@ final class CmuxSettingsFileStore {
         if let raw = jsonString(section["ripgrepBinaryPath"]) {
             snapshot.managedUserDefaults[RipgrepIntegrationSettings.customRipgrepPathKey] = .string(raw)
         }
+        if let value = jsonBool(section["suppressSubagentNotifications"]) {
+            snapshot.managedUserDefaults[AgentSubagentNotificationSettings.suppressNotificationsKey] = .bool(value)
+        }
         if let value = jsonBool(section["cursorIntegration"]) {
             snapshot.managedUserDefaults[CursorIntegrationSettings.hooksEnabledKey] = .bool(value)
         }

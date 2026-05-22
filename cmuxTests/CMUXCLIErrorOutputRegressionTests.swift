@@ -2,6 +2,12 @@ import Darwin
 import Foundation
 import XCTest
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     private struct ProcessRunResult {
         let status: Int32
@@ -184,7 +190,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let configURL = root
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
             .appendingPathComponent("config.ghostty", isDirectory: false)
 
         var observedThemeValues: [String] = []
@@ -288,6 +294,63 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(reloads.map { $0.socketPath }, [socketPath])
         XCTAssertFalse(result.stdout.contains(staleBundleIdentifier), result.stdout)
         XCTAssertTrue(result.stdout.contains(targetBundleIdentifier), result.stdout)
+    }
+
+    func testThemesSetNightlyOverridePathIsReadableByNightlyAppConfigResolution() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-nightly-path-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
+
+        let bundleIdentifier = "com.cmuxterm.app.nightly"
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-nightly.sock"
+        environment["CMUX_BUNDLE_ID"] = bundleIdentifier
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "set", "Theme A"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        let configPath = try XCTUnwrap(payload["config_path"] as? String, result.stdout)
+        XCTAssertEqual(payload["reload_target_bundle_id"] as? String, bundleIdentifier)
+
+        let appSupportDirectory = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        let expectedConfigURL = appSupportDirectory
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        XCTAssertEqual(configPath, expectedConfigURL.path)
+
+        let appReadablePaths = GhosttyApp.cmuxAppSupportConfigURLs(
+            currentBundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ).map(\.path)
+        XCTAssertEqual(appReadablePaths, [expectedConfigURL.path])
     }
 
     func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
