@@ -7438,6 +7438,7 @@ final class Workspace: Identifiable, ObservableObject {
     @MainActor private static var warmTerminalPoolActivatingWorkspaceId: UUID?
     @MainActor private static var warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
     @MainActor private static var warmTerminalPoolSettingsObserver: NSObjectProtocol?
+    @MainActor private static var warmTerminalPoolGhosttyConfigObserver: NSObjectProtocol?
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
@@ -10450,18 +10451,31 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor private static func installWarmTerminalPoolSettingsObserverIfNeeded() {
-        guard warmTerminalPoolSettingsObserver == nil else { return }
-        warmTerminalPoolSettingsObserver = NotificationCenter.default.addObserver(
-            forName: TerminalWarmPtyPoolSettings.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            Task { @MainActor in
-                if TerminalWarmPtyPoolSettings.isEnabled() {
-                    AppDelegate.shared?.tabManager?.selectedWorkspace?
-                        .refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "settings.enabled")
-                } else {
-                    Self.discardWarmTerminalPool(reason: "settings.disabled")
+        if warmTerminalPoolSettingsObserver == nil {
+            warmTerminalPoolSettingsObserver = NotificationCenter.default.addObserver(
+                forName: TerminalWarmPtyPoolSettings.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in
+                    if TerminalWarmPtyPoolSettings.isEnabled() {
+                        AppDelegate.shared?.tabManager?.selectedWorkspace?
+                            .refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "settings.enabled")
+                    } else {
+                        Self.discardWarmTerminalPool(reason: "settings.disabled")
+                    }
+                }
+            }
+        }
+
+        if warmTerminalPoolGhosttyConfigObserver == nil {
+            warmTerminalPoolGhosttyConfigObserver = NotificationCenter.default.addObserver(
+                forName: .ghosttyConfigDidReload,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in
+                    Self.discardWarmTerminalPool(reason: "ghosttyConfig.reload")
                 }
             }
         }
