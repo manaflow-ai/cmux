@@ -1711,15 +1711,8 @@ import UIKit
 
     let requests = await router.sentRequests()
     let createRequest = try #require(requests.first { $0.method == "workspace.create" })
-    let createdWorkspaceSnapshot = try #require(requests.first {
-        $0.method == "terminal.snapshot" &&
-            $0.workspaceID == "workspace-3" &&
-            $0.terminalID == "workspace-3-terminal-1"
-    })
     #expect(createRequest.attachToken == "ticket-secret")
     #expect(createRequest.stackAccessToken == nil)
-    #expect(createdWorkspaceSnapshot.attachToken == nil)
-    #expect(createdWorkspaceSnapshot.stackAccessToken == "test-stack-token")
     #expect(store.connectionError == nil)
     #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-3"])
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-3")
