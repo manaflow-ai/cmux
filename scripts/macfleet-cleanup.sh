@@ -40,10 +40,10 @@ live_macfleet_run_pid() {
   local command
   command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
   case "$command" in
-    *macfleet-ci-run.sh*" cleanup"*|*macfleet-ci-run.sh*" cleanup")
+    *macfleet-ci-run.sh*" cleanup"*|*macfleet-ci-run.sh*" cleanup"|*run-ci.sh*" cleanup"*|*run-ci.sh*" cleanup")
       return 1
       ;;
-    *macfleet-ci-run.sh*)
+    *macfleet-ci-run.sh*|*run-ci.sh*)
       return 0
       ;;
   esac
@@ -95,7 +95,7 @@ has_active_macfleet_runs() {
     done
   done
 
-  pgrep -f 'macfleet-ci-run\.sh .* (workflow-guards|remote-daemon|web|web-db-migrations|core-ci|debug-build|release-build|unit-test|tests|tests-build-and-lag|ui-regressions|full-ci)( |$)' >/dev/null 2>&1
+  pgrep -f '(macfleet-ci-run|run-ci)\.sh .* (workflow-guards|remote-daemon|web|web-db-migrations|core-ci|debug-build|release-build|unit-test|tests|tests-build-and-lag|ui-regressions|full-ci)( |$)' >/dev/null 2>&1
 }
 
 prune_stopped_orchard_tart_vms() {

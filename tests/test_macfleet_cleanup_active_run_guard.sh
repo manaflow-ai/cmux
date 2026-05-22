@@ -19,7 +19,7 @@ mkdir -p \
   "$home/cmux-ci/tmp/active-run" \
   "$tmp/system-tmp"
 
-fake_runner="$tmp/macfleet-ci-run.sh"
+fake_runner="$tmp/run-ci.sh"
 cat > "$fake_runner" <<'SH'
 #!/usr/bin/env bash
 sleep 60
