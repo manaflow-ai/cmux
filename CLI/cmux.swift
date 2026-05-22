@@ -24116,6 +24116,33 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 sessionId: sessionId
             )
         }
+        func publishOrRepairAgentSurfaceResumeBinding(
+            workspaceId: String,
+            surfaceId: String,
+            mapped: ClaudeHookSessionRecord?,
+            suppressRestorableRecord: Bool,
+            cwd: String?,
+            launchCommand: AgentHookLaunchCommandRecord?
+        ) {
+            if suppressRestorableRecord {
+                repairSuppressedSubagentResumeBinding(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    mapped: mapped
+                )
+                return
+            }
+            publishAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                kind: def.name,
+                displayName: def.displayName,
+                sessionId: sessionId,
+                cwd: cwd,
+                launchCommand: launchCommand
+            )
+        }
         func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
             if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
 #if DEBUG
@@ -24261,7 +24288,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = inferredPID
-            let nestedAgentSuppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -24271,7 +24297,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
             let savedSubagentSuppression = mapped?.isRestorable == false
             let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
-            let suppressVisibleMutations = suppressRestorableRecord || nestedAgentSuppressVisibleMutations
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: pid,
+                nestedPromptEvent: suppressRestorableRecord,
+                env: env
+            )
             if !sessionId.isEmpty {
                 try? store.upsert(
                     sessionId: sessionId,
@@ -24295,13 +24325,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
                 } else {
                     try? store.clearNotificationEmission(sessionId: sessionId)
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
+                    publishOrRepairAgentSurfaceResumeBinding(
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        kind: def.name,
-                        displayName: def.displayName,
-                        sessionId: sessionId,
+                        mapped: mapped,
+                        suppressRestorableRecord: suppressRestorableRecord,
                         cwd: hookCwd ?? mapped?.cwd,
                         launchCommand: launchCommand
                     )
@@ -24350,9 +24378,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             } else {
                 nestedPromptSubmit = false
             }
-            let suppressVisibleMutations = suppressRestorableRecord || shouldSuppressNestedAgentVisibleMutations(
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
-                nestedPromptEvent: nestedPromptSubmit,
+                nestedPromptEvent: nestedPromptSubmit || suppressRestorableRecord,
                 env: env
             )
             if !sessionId.isEmpty, !suppressVisibleMutations {
@@ -24369,13 +24397,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     updateRuntimeStatus: true
                 )
                 try? store.clearNotificationEmission(sessionId: sessionId)
-                publishAgentSurfaceResumeBinding(
-                    client: client,
+                publishOrRepairAgentSurfaceResumeBinding(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
+                    mapped: mapped,
+                    suppressRestorableRecord: suppressRestorableRecord,
                     cwd: hookCwd ?? mapped?.cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
@@ -24557,9 +24583,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             } else {
                 nestedPromptStop = false
             }
-            let suppressVisibleMutations = suppressRestorableRecord || shouldSuppressNestedAgentVisibleMutations(
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
-                nestedPromptEvent: nestedPromptStop,
+                nestedPromptEvent: nestedPromptStop || suppressRestorableRecord,
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
                 env: env
             )
@@ -24585,13 +24611,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         : runtimeStatus(for: stopNotificationStatus),
                     updateRuntimeStatus: true
                 )
-                publishAgentSurfaceResumeBinding(
-                    client: client,
+                publishOrRepairAgentSurfaceResumeBinding(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
+                    mapped: mapped,
+                    suppressRestorableRecord: suppressRestorableRecord,
                     cwd: cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
@@ -24785,8 +24809,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
                 let savedSubagentSuppression = mapped?.isRestorable == false
                 suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
-                suppressVisibleMutations = suppressRestorableRecord
-                    || shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
+                suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                    currentAgentPID: pid,
+                    nestedPromptEvent: suppressRestorableRecord,
+                    env: env
+                )
                 try? store.upsert(
                     sessionId: sessionId,
                     parentSessionId: input.parentSessionId,
@@ -24804,6 +24831,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     runtimeStatus: runtimeStatus(for: summary.status),
                     updateRuntimeStatus: summary.status != nil && !suppressVisibleMutations
                 )
+                if suppressRestorableRecord {
+                    repairSuppressedSubagentResumeBinding(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        mapped: mapped
+                    )
+                }
             }
             if suppressVisibleMutations {
                 repairSuppressedSubagentResumeBinding(
@@ -24905,29 +24939,32 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
                 let savedSubagentSuppression = mapped.isRestorable == false
                 let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
-                let suppressVisibleMutations = suppressRestorableRecord
-                    || shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
-                if suppressVisibleMutations {
-                    if suppressRestorableRecord {
-                        try? store.upsert(
-                            sessionId: sessionId,
-                            parentSessionId: input.parentSessionId ?? mapped.parentSessionId,
-                            workspaceId: mapped.workspaceId,
-                            surfaceId: mapped.surfaceId,
-                            cwd: hookCwd ?? mapped.cwd,
-                            transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
-                            pid: mapped.pid,
-                            launchCommand: mapped.launchCommand,
-                            isRestorable: false,
-                            runtimeStatus: nil,
-                            updateRuntimeStatus: true
-                        )
-                    }
+                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                    currentAgentPID: mapped.pid,
+                    nestedPromptEvent: suppressRestorableRecord,
+                    env: env
+                )
+                if suppressRestorableRecord {
+                    try? store.upsert(
+                        sessionId: sessionId,
+                        parentSessionId: input.parentSessionId ?? mapped.parentSessionId,
+                        workspaceId: mapped.workspaceId,
+                        surfaceId: mapped.surfaceId,
+                        cwd: hookCwd ?? mapped.cwd,
+                        transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
+                        pid: mapped.pid,
+                        launchCommand: mapped.launchCommand,
+                        isRestorable: false,
+                        runtimeStatus: suppressVisibleMutations ? nil : mapped.runtimeStatus,
+                        updateRuntimeStatus: suppressVisibleMutations
+                    )
                     repairSuppressedSubagentResumeBinding(
                         workspaceId: mapped.workspaceId,
                         surfaceId: mapped.surfaceId,
                         mapped: mapped
                     )
+                }
+                if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
                 } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                     clearAgentSurfaceResumeBinding(
