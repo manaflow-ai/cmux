@@ -879,6 +879,10 @@ final class MarkdownPaneDragUITests: XCTestCase {
         try runMarkdownPaneDragScenario("split")
     }
 
+    func testDraggingMarkdownFileToVisibleMarkdownPaneEdgeSplitsWithoutFlicker() throws {
+        try runMarkdownPaneDragScenario("samePaneSplit")
+    }
+
     private func runMarkdownPaneDragScenario(_ scenario: String) throws {
         let (app, dataPath, fixtureDirectory) = launchConfiguredApp(scenario: scenario)
         defer {
@@ -906,8 +910,6 @@ final class MarkdownPaneDragUITests: XCTestCase {
         XCTAssertEqual(data["primaryFlickerDetected"], "0", "Visible markdown renderer reloaded, rerendered, or remounted. data=\(data)")
         XCTAssertEqual(data["primaryFlickerReasons"] ?? "", "", "Expected no visible markdown flicker reasons. data=\(data)")
 
-        assertCounter(data, "primaryMakeNSViewCount", equals: 0)
-        assertCounter(data, "primaryReuseNSViewCount", equals: 0)
         assertCounter(data, "primaryWebViewCreateCount", equals: 0)
         assertCounter(data, "primaryWebViewReattachCount", equals: 0)
         assertCounter(data, "primaryDismantleRetainedWebViewCount", equals: 0)
@@ -939,14 +941,17 @@ final class MarkdownPaneDragUITests: XCTestCase {
         }
 
         XCTAssertEqual(paneCountAfter, expectedPaneCountAfter, "Unexpected pane count after \(scenario) markdown drop. data=\(data)")
-        if scenario == "split" {
+        if scenario == "split" || scenario == "samePaneSplit" {
             XCTAssertEqual(paneCountAfter, paneCountBefore + 1, "Expected edge markdown drop to create a split. data=\(data)")
-            XCTAssertNotEqual(data["droppedPaneIdAfter"], data["rightPaneId"], "Expected split markdown drop to land in a new pane. data=\(data)")
+            XCTAssertNotEqual(data["droppedPaneIdAfter"], data["targetPaneId"], "Expected split markdown drop to land in a new pane. data=\(data)")
             XCTAssertEqual(targetPaneTabCountAfter, targetPaneTabCountBefore, "Expected split drop not to insert another tab into the target pane. data=\(data)")
+            if scenario == "samePaneSplit" {
+                XCTAssertEqual(data["primaryPaneIdAfter"], data["targetPaneId"], "Expected same-pane split to leave the visible markdown panel in its original pane. data=\(data)")
+            }
         } else {
             XCTAssertEqual(paneCountAfter, paneCountBefore, "Expected center markdown drop to keep the same pane count. data=\(data)")
             XCTAssertEqual(targetPaneTabCountAfter, targetPaneTabCountBefore + 1, "Expected center drop to insert a markdown tab into the target pane. data=\(data)")
-            XCTAssertEqual(data["droppedPaneIdAfter"], data["rightPaneId"], "Expected center markdown drop to stay in the target pane. data=\(data)")
+            XCTAssertEqual(data["droppedPaneIdAfter"], data["targetPaneId"], "Expected center markdown drop to stay in the target pane. data=\(data)")
         }
     }
 

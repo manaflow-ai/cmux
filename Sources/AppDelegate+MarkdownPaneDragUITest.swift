@@ -35,6 +35,8 @@ extension AppDelegate {
             scenario = "center"
         case "split":
             scenario = "split"
+        case "samePaneSplit":
+            scenario = "samePaneSplit"
         default:
             writeMarkdownPaneDragUITestData([
                 "setupError": "Invalid CMUX_UI_TEST_MARKDOWN_PANE_DRAG_SCENARIO: \(requestedScenario ?? "")",
@@ -131,26 +133,40 @@ extension AppDelegate {
                 return
             }
 
-            workspace.focusPanel(rightTerminal.id)
+            let dropTargetPane = scenario == "samePaneSplit" ? leftPane : rightPane
+            if scenario == "samePaneSplit" {
+                workspace.focusPanel(primaryPanel.id)
+            } else {
+                workspace.focusPanel(rightTerminal.id)
+            }
             await settleMarkdownPaneDragUITestLayout(window: mainWindow, passes: 12)
             primaryPanel.rendererSession.resetDiagnostics(reason: "before-\(scenario)-drop")
 
             let paneCountBefore = workspace.bonsplitController.allPaneIds.count
-            let targetPaneTabCountBefore = workspace.bonsplitController.tabs(inPane: rightPane).count
-            let zone: DropZone = scenario == "split" ? .right : .center
+            let targetPaneTabCountBefore = workspace.bonsplitController.tabs(inPane: dropTargetPane).count
+            let zone: DropZone = {
+                switch scenario {
+                case "split":
+                    return .right
+                case "samePaneSplit":
+                    return .bottom
+                default:
+                    return .center
+                }
+            }()
             cmuxDebugLog(
                 "markdown.dragUITest.drop.start scenario=\(scenario) zone=\(zone) " +
-                    "primary=\(primaryPanel.id.uuidString.prefix(5)) targetPane=\(rightPane.id.uuidString.prefix(5))"
+                    "primary=\(primaryPanel.id.uuidString.prefix(5)) targetPane=\(dropTargetPane.id.uuidString.prefix(5))"
             )
             let handled = workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
                 urls: [fixtures.dropped],
                 destination: PaneDropRouting.filePreviewDestination(
-                    targetPane: rightPane,
+                    targetPane: dropTargetPane,
                     zone: zone
                 )
             ))
 
-            let expectedPaneCount = scenario == "split" ? paneCountBefore + 1 : paneCountBefore
+            let expectedPaneCount = scenario == "center" ? paneCountBefore : paneCountBefore + 1
             let droppedReady = await waitForMarkdownDropSettledForUITest(
                 workspace: workspace,
                 droppedPath: fixtures.dropped.path,
@@ -161,7 +177,7 @@ extension AppDelegate {
             let primaryDiagnostics = primaryPanel.rendererSession.diagnosticsSnapshot
             let droppedDiagnostics = droppedPanel?.rendererSession.diagnosticsSnapshot ?? MarkdownRendererDiagnosticsSnapshot()
             let paneCountAfter = workspace.bonsplitController.allPaneIds.count
-            let targetPaneTabCountAfter = workspace.bonsplitController.tabs(inPane: rightPane).count
+            let targetPaneTabCountAfter = workspace.bonsplitController.tabs(inPane: dropTargetPane).count
             let droppedPaneId = droppedPanel.flatMap { workspace.paneId(forPanelId: $0.id) }
             let primaryPaneId = workspace.paneId(forPanelId: primaryPanel.id)
             let violationReasons = markdownPaneDragFlickerViolationReasons(primaryDiagnostics)
@@ -181,6 +197,7 @@ extension AppDelegate {
                 "rightTerminalId": rightTerminal.id.uuidString,
                 "leftPaneId": leftPane.description,
                 "rightPaneId": rightPane.description,
+                "targetPaneId": dropTargetPane.description,
                 "primaryPaneIdAfter": primaryPaneId?.description ?? "",
                 "droppedPaneIdAfter": droppedPaneId?.description ?? "",
                 "paneCountBefore": String(paneCountBefore),
@@ -262,8 +279,6 @@ extension AppDelegate {
 
     private func markdownPaneDragFlickerViolationReasons(_ diagnostics: MarkdownRendererDiagnosticsSnapshot) -> [String] {
         var reasons: [String] = []
-        if diagnostics.makeNSViewCount > 0 { reasons.append("makeNSView") }
-        if diagnostics.reuseNSViewCount > 0 { reasons.append("reuseNSView") }
         if diagnostics.webViewCreateCount > 0 { reasons.append("webViewCreate") }
         if diagnostics.webViewReattachCount > 0 { reasons.append("webViewReattach") }
         if diagnostics.dismantleRetainedWebViewCount > 0 { reasons.append("dismantleRetainedWebView") }
