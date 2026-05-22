@@ -84,7 +84,10 @@ enum RemoteFilePreviewMaterializer {
             invalidCharacters.contains(scalar) ? "_" : String(scalar)
         }
         let name = scalars.joined().trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? "remote-file" : name
+        guard !name.isEmpty, name != ".", name != ".." else {
+            return "remote-file"
+        }
+        return name
     }
 }
 
@@ -121,6 +124,7 @@ private final class RemoteFilePreviewDownloadOperation: @unchecked Sendable {
             throw RemoteFilePreviewMaterializerError.materializationFailed
         }
         guard let outputHandle = try? FileHandle(forWritingTo: temporaryURL) else {
+            try? fileManager.removeItem(at: temporaryURL)
             RemoteFilePreviewMaterializerError.logDiagnostic("cache file handle creation failed")
             throw RemoteFilePreviewMaterializerError.materializationFailed
         }

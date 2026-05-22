@@ -87996,16 +87996,124 @@
     "fileExplorer.status.sshHomeFailed": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تحديد مجلد SSH الرئيسي. تحقق من اتصال SSH وحاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće odrediti SSH početni direktorij. Provjerite SSH vezu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-hjemmemappen kunne ikke findes. Kontroller SSH-forbindelsen, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das SSH-Home-Verzeichnis konnte nicht ermittelt werden. Prüfe die SSH-Verbindung und versuche es erneut."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unable to resolve SSH home: %@"
+            "value": "Unable to resolve SSH home. Check the SSH connection and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo resolver el inicio SSH. Comprueba la conexión SSH e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de résoudre le dossier d'accueil SSH. Vérifiez la connexion SSH, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile risolvere la home SSH. Controlla la connessione SSH e riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH のホームを解決できません: %@"
+            "value": "SSH のホームを解決できません。SSH 接続を確認してから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចរកថតដើម SSH បានទេ។ ពិនិត្យការតភ្ជាប់ SSH ហើយព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 홈을 확인할 수 없습니다. SSH 연결을 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke finne SSH-hjemmemappen. Kontroller SSH-tilkoblingen og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można ustalić katalogu domowego SSH. Sprawdź połączenie SSH i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível resolver a pasta inicial SSH. Verifique a conexão SSH e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось определить домашний каталог SSH. Проверьте подключение SSH и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถระบุโฮม SSH ได้ ตรวจสอบการเชื่อมต่อ SSH แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ana dizini çözümlenemedi. SSH bağlantısını kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося визначити домашній каталог SSH. Перевірте з’єднання SSH і повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法解析 SSH 主目录。请检查 SSH 连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法解析 SSH 主目錄。請檢查 SSH 連線後再試一次。"
           }
         }
       }
@@ -103527,16 +103635,124 @@
     "filePreview.remote.loading.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تحميل الملف البعيد..."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Učitavanje udaljene datoteke..."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæser ekstern fil..."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Datei wird geladen..."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Loading remote file..."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando archivo remoto..."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement du fichier distant..."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento del file remoto..."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "リモートファイルを読み込み中..."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងផ្ទុកឯកសារពីម៉ាស៊ីនឆ្ងាយ..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 파일을 불러오는 중..."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laster ekstern fil..."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ładowanie pliku zdalnego..."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregando arquivo remoto..."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузка удаленного файла..."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังโหลดไฟล์ระยะไกล..."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzak dosya yükleniyor..."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завантаження віддаленого файла..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载远程文件..."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入遠端檔案..."
           }
         }
       }

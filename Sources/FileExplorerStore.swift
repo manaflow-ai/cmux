@@ -1123,7 +1123,7 @@ final class FileExplorerStore: ObservableObject {
                         self.setRootStatusMessage(
                             String(
                                 localized: "fileExplorer.status.sshHomeFailed",
-                                defaultValue: "Unable to resolve SSH home: \(error.localizedDescription)"
+                                defaultValue: "Unable to resolve SSH home. Check the SSH connection and try again."
                             )
                         )
                     }

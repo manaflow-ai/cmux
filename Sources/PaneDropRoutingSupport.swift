@@ -21,10 +21,6 @@ struct PaneDragTransfer: Equatable {
         sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
     }
 
-    var isFilePreview: Bool {
-        isFilePreviewTransfer
-    }
-
     static func decode(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
         if let transfer = decodeLiveFilePreviewTransfer(from: pasteboard) {
             return transfer
