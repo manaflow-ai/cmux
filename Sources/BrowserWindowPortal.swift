@@ -3938,7 +3938,8 @@ final class WindowBrowserPortal: NSObject {
         return BrowserWindowPortalRegistry.DebugSnapshot(
             visibleInUI: entry.visibleInUI,
             containerHidden: entry.containerView?.isHidden ?? true,
-            frameInWindow: frameInWindow
+            frameInWindow: frameInWindow,
+            paneDropContext: entry.paneDropContext
         )
     }
 
@@ -3993,6 +3994,7 @@ enum BrowserWindowPortalRegistry {
         let visibleInUI: Bool
         let containerHidden: Bool
         let frameInWindow: CGRect
+        let paneDropContext: BrowserPaneDropContext?
     }
 
     private static var portalsByWindowId: [ObjectIdentifier: WindowBrowserPortal] = [:]

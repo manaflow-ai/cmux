@@ -211,8 +211,45 @@ final class MarkdownPanelTests: XCTestCase {
             filePath: fileURL.path,
             focus: false
         ))
+        let coordinator = panel.rendererSession.coordinator(
+            panelId: panel.id,
+            workspaceId: source.id,
+            filePath: panel.filePath
+        )
+        coordinator.webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: frame)
+        window.contentView = root
+
+        let probe = MarkdownWebPortalProbeView(frame: NSRect(x: 20, y: 20, width: 320, height: 180))
+        root.addSubview(probe)
+        coordinator.bindPortal(
+            to: probe,
+            visibleInUI: true,
+            zPriority: 1,
+            dropContext: BrowserPaneDropContext(
+                workspaceId: source.id,
+                panelId: panel.id,
+                paneId: sourcePane,
+                allowsHostedWebViewTextDrop: false
+            ),
+            reason: "unit-test-source"
+        )
 
         XCTAssertEqual(panel.workspaceId, source.id)
+        XCTAssertEqual(panel.rendererSession.portalSnapshot()?.paneDropContext?.workspaceId, source.id)
 
         let detached = try XCTUnwrap(source.detachSurface(panelId: panel.id))
         let attachedPanelId = try XCTUnwrap(destination.attachDetachedSurface(
@@ -224,6 +261,11 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(attachedPanelId, panel.id)
         XCTAssertEqual(panel.workspaceId, destination.id)
         XCTAssertTrue(destination.markdownPanel(for: panel.id) === panel)
+        let dropContext = try XCTUnwrap(panel.rendererSession.portalSnapshot()?.paneDropContext)
+        XCTAssertEqual(dropContext.workspaceId, destination.id)
+        XCTAssertEqual(dropContext.paneId, destinationPane)
+        XCTAssertEqual(dropContext.panelId, panel.id)
+        XCTAssertFalse(dropContext.allowsHostedWebViewTextDrop)
     }
 
     func testMarkdownRendererSessionReusesCoordinatorAcrossViewRecreation() {

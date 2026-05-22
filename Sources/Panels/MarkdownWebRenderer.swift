@@ -447,6 +447,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
         }
 
+        func updatePortalDropContext(_ context: BrowserPaneDropContext?) {
+            guard let webView else { return }
+            BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: context)
+        }
+
         @discardableResult
         func restorePortalIfPossible(
             zPriority: Int,

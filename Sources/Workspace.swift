@@ -11936,6 +11936,12 @@ final class Workspace: Identifiable, ObservableObject {
             installBrowserPanelSubscription(browserPanel)
         } else if let markdownPanel = detached.panel as? MarkdownPanel {
             markdownPanel.updateWorkspaceId(id)
+            markdownPanel.rendererSession.updatePortalDropContext(BrowserPaneDropContext(
+                workspaceId: id,
+                panelId: markdownPanel.id,
+                paneId: paneId,
+                allowsHostedWebViewTextDrop: false
+            ))
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         }
@@ -13302,19 +13308,21 @@ final class Workspace: Identifiable, ObservableObject {
             let shouldBeVisible = markdownPortalShouldBeVisible(markdownPanel, visiblePanelIds: visiblePanelIds)
             let snapshot = markdownPanel.rendererSession.portalSnapshot()
             if shouldBeVisible {
+                guard let paneId = paneId(forPanelId: markdownPanel.id) else { continue }
+                let dropContext = BrowserPaneDropContext(
+                    workspaceId: id,
+                    panelId: markdownPanel.id,
+                    paneId: paneId,
+                    allowsHostedWebViewTextDrop: false
+                )
+                markdownPanel.rendererSession.updatePortalDropContext(dropContext)
                 let portalNeedsShow =
                     snapshot?.visibleInUI == false ||
                     snapshot?.containerHidden == true
-                guard portalNeedsShow,
-                      let paneId = paneId(forPanelId: markdownPanel.id) else { continue }
+                guard portalNeedsShow else { continue }
                 let restored = markdownPanel.rendererSession.restorePortalIfPossible(
                     zPriority: 2,
-                    dropContext: BrowserPaneDropContext(
-                        workspaceId: id,
-                        panelId: markdownPanel.id,
-                        paneId: paneId,
-                        allowsHostedWebViewTextDrop: false
-                    ),
+                    dropContext: dropContext,
                     reason: reason
                 )
                 didChange = didChange || restored

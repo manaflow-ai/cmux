@@ -223,6 +223,10 @@ final class MarkdownRendererSession {
         ownedCoordinator.hidePortal(reason: reason)
     }
 
+    func updatePortalDropContext(_ context: BrowserPaneDropContext?) {
+        ownedCoordinator.updatePortalDropContext(context)
+    }
+
     @discardableResult
     func restorePortalIfPossible(
         zPriority: Int,
