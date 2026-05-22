@@ -3339,10 +3339,11 @@ struct CMUXCLI {
             let (nameOpt, rem2) = parseOption(rem1, name: "--name")
             let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
             let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
-            let (windowOpt, rem5) = parseOption(rem4, name: "--window")
-            let (focusOpt, remaining) = parseOption(rem5, name: "--focus")
+            let (iconOpt, rem5) = parseOption(rem4, name: "--icon")
+            let (windowOpt, rem6) = parseOption(rem5, name: "--window")
+            let (focusOpt, remaining) = parseOption(rem6, name: "--focus")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>")
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --icon <json>, --layout <json>, --window <id|ref|index>, --focus <true|false>")
             }
             var params: [String: Any] = [:]
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowId)
@@ -3355,6 +3356,9 @@ struct CMUXCLI {
             }
             if let descriptionOpt {
                 params["description"] = descriptionOpt
+            }
+            if let iconOpt {
+                params["icon"] = try parseIconJSONOption(iconOpt, context: "new-workspace --icon")
             }
             if let layoutOpt {
                 guard let layoutData = layoutOpt.data(using: .utf8),
@@ -3724,10 +3728,11 @@ struct CMUXCLI {
 
         case "rename-workspace", "rename-window":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
-            let (windowOpt, rem1) = parseOption(rem0, name: "--window")
+            let (iconOpt, rem1) = parseOption(rem0, name: "--icon")
+            let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let titleArgs = rem1.dropFirst(rem1.first == "--" ? 1 : 0)
+            let titleArgs = rem2.dropFirst(rem2.first == "--" ? 1 : 0)
             let title = titleArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else {
                 throw CLIError(message: "\(command) requires a title")
@@ -3736,6 +3741,9 @@ struct CMUXCLI {
             let wsId = try resolveWorkspaceId(workspaceArg, client: client, windowHandle: winId)
             var params: [String: Any] = ["title": title, "workspace_id": wsId]
             if let winId { params["window_id"] = winId }
+            if let iconOpt {
+                params["icon"] = try parseIconJSONOption(iconOpt, context: "\(command) --icon")
+            }
             let payload = try client.sendV2(method: "workspace.rename", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
@@ -5670,10 +5678,11 @@ struct CMUXCLI {
         let (actionOpt, rem1) = parseOption(rem0, name: "--action")
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
         let (colorOpt, rem3) = parseOption(rem2, name: "--color")
-        let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
-        let (windowOpt, rem5) = parseOption(rem4, name: "--window")
+        let (iconOpt, rem4) = parseOption(rem3, name: "--icon")
+        let (descriptionOpt, rem5) = parseOption(rem4, name: "--description")
+        let (windowOpt, rem6) = parseOption(rem5, name: "--window")
 
-        var positional = rem5
+        var positional = rem6
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -5711,7 +5720,14 @@ struct CMUXCLI {
             colorOpt ?? (action == "set_color" ? (inferredPositional.isEmpty ? nil : inferredPositional) : nil)
         )?.trimmingCharacters(in: .whitespacesAndNewlines)
         if action == "set_color", (color?.isEmpty ?? true) {
-            throw CLIError(message: "workspace-action set-color requires --color <name|#hex> (or a trailing color)")
+            throw CLIError(message: "workspace-action set-color requires --color <name|#RRGGBB> (or a trailing color)")
+        }
+
+        let icon = (
+            iconOpt ?? (action == "set_icon" ? (inferredPositional.isEmpty ? nil : inferredPositionalRaw) : nil)
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if action == "set_icon", (icon?.isEmpty ?? true) {
+            throw CLIError(message: "workspace-action set-icon requires --icon <json> (or trailing JSON)")
         }
 
         let description = (
@@ -5734,6 +5750,9 @@ struct CMUXCLI {
         if let color, !color.isEmpty {
             params["color"] = color
         }
+        if let icon, !icon.isEmpty {
+            params["icon"] = try parseIconJSONOption(icon, context: "workspace-action set-icon")
+        }
         if let description, !description.isEmpty {
             params["description"] = description
         }
@@ -5754,6 +5773,9 @@ struct CMUXCLI {
         }
         if let color = payload["color"] as? String {
             summaryParts.append("color=\(color)")
+        }
+        if let icon = payload["custom_icon"], !(icon is NSNull) {
+            summaryParts.append("icon=\(jsonString(icon).replacingOccurrences(of: "\n", with: ""))")
         }
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
@@ -10712,13 +10734,15 @@ struct CMUXCLI {
               close-others | close-above | close-below
               mark-read | mark-unread
               set-color | clear-color
+              set-icon | clear-icon
 
             Flags:
               --action <name>              Action name (required if not positional)
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
               --title <text>               Title for rename
-              --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
+              --color <name|#RRGGBB>       Color for set-color (name or #RRGGBB hex)
+              --icon <json>                Icon JSON for set-icon
               --description <text>         Description for set-description
 
             Named colors:
@@ -10732,6 +10756,8 @@ struct CMUXCLI {
               cmux workspace-action --action set-color --color blue
               cmux workspace-action --action set-color --color "#C0392B"
               cmux workspace-action set-color Amber
+              cmux workspace-action --action set-icon --icon '{"type":"symbol","name":"folder.fill"}'
+              cmux workspace-action clear-icon
               cmux workspace-action --action set-description --description "Ship checklist"
               cmux workspace-action --action set-description $'Ship checklist\n- verify build\n- post notes'
               cmux workspace-action clear-color
@@ -10795,7 +10821,7 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--icon <json>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
 
             Create a new workspace in the caller's window.
 
@@ -10804,6 +10830,7 @@ struct CMUXCLI {
               --description <text> Set a custom description for the new workspace
               --cwd <path>         Set the working directory for the new workspace
               --command <text>     Send text+Enter to the new workspace after creation
+              --icon <json>        Set an icon JSON value for the new workspace
               --layout <json>      Create workspace with a predefined split layout (inline JSON).
                                    Uses the same schema as cmux.json layout definitions.
                                    When provided, --command is ignored (layout surfaces define their own commands).
@@ -10815,6 +10842,7 @@ struct CMUXCLI {
               cmux new-workspace
               cmux new-workspace --name "Build Server"
               cmux new-workspace --name "Launch" --description "Ship checklist"
+              cmux new-workspace --name "Launch" --icon '{"type":"emoji","value":"🚀"}'
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
               cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"terminal","command":"npm run start"}]}}]}'
@@ -11230,7 +11258,7 @@ struct CMUXCLI {
             """
         case "rename-workspace", "rename-window":
             return """
-            Usage: cmux rename-workspace [--workspace <id|ref|index>] [--window <id|ref|index>] [--] <title>
+            Usage: cmux rename-workspace [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <json>] [--] <title>
 
             Rename a workspace. Defaults to the current workspace.
             tmux-compatible alias: rename-window
@@ -11238,9 +11266,11 @@ struct CMUXCLI {
             Flags:
               --workspace <id|ref|index>   Workspace to rename (default: current/$CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
+              --icon <json>                Also set an icon JSON value
 
             Example:
               cmux rename-workspace "backend logs"
+              cmux rename-workspace --icon '{"type":"symbol","name":"folder.fill"}' "backend logs"
               cmux rename-window --workspace workspace:2 "agent run"
             """
         case "current-workspace":
@@ -11978,6 +12008,44 @@ struct CMUXCLI {
             remaining.append(arg)
         }
         return (value, remaining)
+    }
+
+    private func parseIconJSONOption(_ raw: String, context: String) throws -> [String: Any] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else {
+            throw CLIError(message: iconJSONErrorMessage(context: context))
+        }
+
+        let icon: CmuxButtonIcon
+        do {
+            icon = try JSONDecoder().decode(CmuxButtonIcon.self, from: data)
+        } catch {
+            throw CLIError(message: iconJSONErrorMessage(context: context))
+        }
+
+        let socketIcon: CmuxButtonIcon
+        switch icon {
+        case .imagePath(let path):
+            socketIcon = .imagePath(resolvePath(path))
+        case .symbol, .emoji:
+            socketIcon = icon
+        }
+
+        guard let encoded = try? JSONEncoder().encode(socketIcon),
+              let object = try? JSONSerialization.jsonObject(with: encoded, options: []),
+              let iconObject = object as? [String: Any],
+              JSONSerialization.isValidJSONObject(iconObject) else {
+            throw CLIError(message: iconJSONErrorMessage(context: context))
+        }
+        return iconObject
+    }
+
+    private func iconJSONErrorMessage(context: String) -> String {
+        let format = String(
+            localized: "cli.error.icon.invalidJSON",
+            defaultValue: "%@ must be a valid icon JSON object, for example {\"type\":\"symbol\",\"name\":\"folder.fill\"}"
+        )
+        return String(format: format, context)
     }
 
     private func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
@@ -27967,10 +28035,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#RRGGBB>] [--icon <json>] [--description <text>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
-          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--icon <json>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
@@ -27999,8 +28067,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           focus-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
           close-workspace --workspace <id|ref|index> [--window <id|ref|index>]
           select-workspace --workspace <id|ref|index> [--window <id|ref|index>]
-          rename-workspace [--workspace <id|ref|index>] [--window <id|ref|index>] <title>
-          rename-window [--workspace <id|ref|index>] [--window <id|ref|index>] <title>
+          rename-workspace [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <json>] <title>
+          rename-window [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <json>] <title>
           current-workspace [--window <id|ref|index>]
           read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>

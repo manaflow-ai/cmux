@@ -56,7 +56,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             title: "new",
             customDescription: "description",
             isPinned: true,
-            customColorHex: "#C0392B"
+            customColorHex: "#C0392B",
+            customIcon: .symbol("folder.fill")
         )
 
         let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
@@ -93,6 +94,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         customDescription: String? = nil,
         isPinned: Bool = false,
         customColorHex: String? = nil,
+        customIcon: CmuxButtonIcon? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = []
@@ -103,6 +105,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: customColorHex,
+            customIcon: customIcon,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",

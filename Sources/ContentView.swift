@@ -3970,6 +3970,62 @@ struct ContentView: View {
 
             Divider()
 
+            HStack(spacing: 8) {
+                Text(String(localized: "commandPalette.workspaceIcon.label", defaultValue: "Icon"))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    WorkspaceIconPrompting.promptSymbol { icon in
+                        tabManager.setTabIcon(tabId: target.workspaceId, icon: icon)
+                    }
+                } label: {
+                    Image(systemName: "sparkles")
+                }
+                .buttonStyle(.borderless)
+                .safeHelp(String(localized: "commandPalette.workspaceIcon.setSymbol.tooltip", defaultValue: "Set Symbol"))
+                .accessibilityLabel(String(localized: "commandPalette.workspaceIcon.setSymbol.tooltip", defaultValue: "Set Symbol"))
+
+                Button {
+                    WorkspaceIconPrompting.promptEmoji { icon in
+                        tabManager.setTabIcon(tabId: target.workspaceId, icon: icon)
+                    }
+                } label: {
+                    Image(systemName: "face.smiling")
+                }
+                .buttonStyle(.borderless)
+                .safeHelp(String(localized: "commandPalette.workspaceIcon.setEmoji.tooltip", defaultValue: "Set Emoji"))
+                .accessibilityLabel(String(localized: "commandPalette.workspaceIcon.setEmoji.tooltip", defaultValue: "Set Emoji"))
+
+                Button {
+                    WorkspaceIconPrompting.promptImage { icon in
+                        tabManager.setTabIcon(tabId: target.workspaceId, icon: icon)
+                    }
+                } label: {
+                    Image(systemName: "photo")
+                }
+                .buttonStyle(.borderless)
+                .safeHelp(String(localized: "commandPalette.workspaceIcon.setImage.tooltip", defaultValue: "Set Image"))
+                .accessibilityLabel(String(localized: "commandPalette.workspaceIcon.setImage.tooltip", defaultValue: "Set Image"))
+
+                if tabManager.tabs.first(where: { $0.id == target.workspaceId })?.customIcon != nil {
+                    Button {
+                        tabManager.setTabIcon(tabId: target.workspaceId, icon: nil)
+                    } label: {
+                        Image(systemName: "xmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .safeHelp(String(localized: "commandPalette.workspaceIcon.clear.tooltip", defaultValue: "Clear Icon"))
+                    .accessibilityLabel(String(localized: "commandPalette.workspaceIcon.clear.tooltip", defaultValue: "Clear Icon"))
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+
+            Divider()
+
             Text(target.inputHint)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
@@ -12299,6 +12355,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        let customIcon: CmuxButtonIcon?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
@@ -12684,6 +12741,13 @@ private struct TabItemView: View, Equatable {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
+                }
+
+                if let customIcon = workspaceSnapshot.customIcon {
+                    SidebarWorkspaceIconView(
+                        icon: customIcon,
+                        foregroundColor: activeSecondaryColor(0.85)
+                    )
                 }
 
                 Text(workspaceSnapshot.title)
@@ -13246,6 +13310,41 @@ private struct TabItemView: View, Equatable {
             }
         }
 
+        Menu(String(localized: "contextMenu.workspaceIcon", defaultValue: "Workspace Icon")) {
+            Button {
+                WorkspaceIconPrompting.promptSymbol { icon in
+                    applyWorkspaceIcon(icon, targetIds: targetIds)
+                }
+            } label: {
+                Label(String(localized: "contextMenu.workspaceIcon.setSymbol", defaultValue: "Set Symbol…"), systemImage: "sparkles")
+            }
+
+            Button {
+                WorkspaceIconPrompting.promptEmoji { icon in
+                    applyWorkspaceIcon(icon, targetIds: targetIds)
+                }
+            } label: {
+                Label(String(localized: "contextMenu.workspaceIcon.setEmoji", defaultValue: "Set Emoji…"), systemImage: "face.smiling")
+            }
+
+            Button {
+                WorkspaceIconPrompting.promptImage { icon in
+                    applyWorkspaceIcon(icon, targetIds: targetIds)
+                }
+            } label: {
+                Label(String(localized: "contextMenu.workspaceIcon.setImage", defaultValue: "Set Image…"), systemImage: "photo")
+            }
+
+            if contextMenuTargetsContainCustomIcon(targetIds: targetIds) {
+                Divider()
+                Button {
+                    applyWorkspaceIcon(nil, targetIds: targetIds)
+                } label: {
+                    Label(String(localized: "contextMenu.workspaceIcon.clear", defaultValue: "Clear Icon"), systemImage: "xmark.circle")
+                }
+            }
+        }
+
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
             if tab.customColor != nil {
                 Button {
@@ -13666,6 +13765,7 @@ private struct TabItemView: View, Equatable {
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
+            customIcon: tab.customIcon,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -14003,6 +14103,16 @@ private struct TabItemView: View, Equatable {
         tabManager.applyWorkspaceColor(hex, toWorkspaceIds: targetIds)
     }
 
+    private func contextMenuTargetsContainCustomIcon(targetIds: [UUID]) -> Bool {
+        targetIds.contains { targetId in
+            tabManager.tabs.first(where: { $0.id == targetId })?.customIcon != nil
+        }
+    }
+
+    private func applyWorkspaceIcon(_ icon: CmuxButtonIcon?, targetIds: [UUID]) {
+        tabManager.applyWorkspaceIcon(icon, toWorkspaceIds: targetIds)
+    }
+
     private func toggleWorkspaceTerminalScrollBarHidden(targetIds: [UUID]) {
         let currentlyHidden = !targetIds.isEmpty && targetIds.allSatisfy { targetId in
             tabManager.tabs.first(where: { $0.id == targetId })?.terminalScrollBarHidden == true
@@ -14063,7 +14173,31 @@ private struct TabItemView: View, Equatable {
         let input = NSTextField(string: tab.customTitle ?? tab.title)
         input.placeholderString = String(localized: "alert.renameWorkspace.placeholder", defaultValue: "Workspace name")
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
+
+        let iconLabel = NSTextField(labelWithString: String(localized: "alert.renameWorkspace.icon.label", defaultValue: "Icon"))
+        iconLabel.frame = NSRect(x: 0, y: 0, width: 46, height: 22)
+        let iconPopup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 180, height: 26), pullsDown: false)
+        iconPopup.addItems(withTitles: [
+            String(localized: "alert.renameWorkspace.icon.keep", defaultValue: "Keep Current Icon"),
+            String(localized: "alert.renameWorkspace.icon.symbol", defaultValue: "Set Symbol…"),
+            String(localized: "alert.renameWorkspace.icon.emoji", defaultValue: "Set Emoji…"),
+            String(localized: "alert.renameWorkspace.icon.image", defaultValue: "Set Image…"),
+            String(localized: "alert.renameWorkspace.icon.clear", defaultValue: "Clear Icon"),
+        ])
+        iconPopup.selectItem(at: 0)
+        iconPopup.setAccessibilityLabel(String(localized: "alert.renameWorkspace.icon.label", defaultValue: "Icon"))
+
+        let iconRow = NSStackView(views: [iconLabel, iconPopup])
+        iconRow.orientation = .horizontal
+        iconRow.alignment = .centerY
+        iconRow.spacing = 8
+
+        let stack = NSStackView(views: [input, iconRow])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.frame = NSRect(x: 0, y: 0, width: 240, height: 58)
+        alert.accessoryView = stack
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
         let alertWindow = alert.window
@@ -14075,6 +14209,25 @@ private struct TabItemView: View, Equatable {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+        let targetIds = [tab.id]
+        switch iconPopup.indexOfSelectedItem {
+        case 1:
+            WorkspaceIconPrompting.promptSymbol { icon in
+                applyWorkspaceIcon(icon, targetIds: targetIds)
+            }
+        case 2:
+            WorkspaceIconPrompting.promptEmoji { icon in
+                applyWorkspaceIcon(icon, targetIds: targetIds)
+            }
+        case 3:
+            WorkspaceIconPrompting.promptImage { icon in
+                applyWorkspaceIcon(icon, targetIds: targetIds)
+            }
+        case 4:
+            applyWorkspaceIcon(nil, targetIds: targetIds)
+        default:
+            break
+        }
     }
 
     private func beginWorkspaceDescriptionEditFromContextMenu() {

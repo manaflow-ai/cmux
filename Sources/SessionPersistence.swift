@@ -1239,6 +1239,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitle: String?
     var customDescription: String?
     var customColor: String?
+    var customIcon: CmuxButtonIcon?
     var isPinned: Bool
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil

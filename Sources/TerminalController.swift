@@ -4808,7 +4808,8 @@ class TerminalController {
             "listening_ports": workspace.listeningPorts,
             "remote": workspace.remoteStatusPayload(),
             "current_directory": v2OrNull(workspace.currentDirectory),
-            "custom_color": v2OrNull(workspace.customColor)
+            "custom_color": v2OrNull(workspace.customColor),
+            "custom_icon": v2CmuxButtonIconPayload(workspace.customIcon)
         ]
         if let index {
             payload["index"] = index
@@ -4871,6 +4872,11 @@ class TerminalController {
         let requestedTitle = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = (requestedTitle?.isEmpty == false) ? requestedTitle : nil
         let description = v2RawString(params, "description")
+        let iconInput = v2CmuxButtonIcon(params)
+        if let error = iconInput.error {
+            return error
+        }
+        let customIcon = iconInput.icon
 
         // Decode optional layout param (same JSON schema as cmux.json layout field).
         // Validate before creating the workspace so malformed layouts fail fast.
@@ -4899,6 +4905,7 @@ class TerminalController {
                 eagerLoadTerminal: !shouldFocus
             )
             ws.setCustomDescription(description)
+            ws.setCustomIcon(customIcon)
             if let layoutNode {
                 ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
             }
@@ -4913,7 +4920,8 @@ class TerminalController {
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": newId.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: newId)
+            "workspace_ref": v2Ref(kind: .workspace, uuid: newId),
+            "custom_icon": v2CmuxButtonIconPayload(customIcon)
         ])
     }
     private func v2WorkspaceSelect(params: [String: Any]) -> V2CallResult {
@@ -5177,12 +5185,20 @@ class TerminalController {
               !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
         }
+        let iconInput = v2CmuxButtonIcon(params)
+        if let error = iconInput.error {
+            return error
+        }
+        let shouldSetIcon = v2HasNonNullParam(params, "icon")
 
         let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         var renamed = false
         v2MainSync {
             guard tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
             tabManager.setCustomTitle(tabId: workspaceId, title: title)
+            if shouldSetIcon {
+                tabManager.setTabIcon(tabId: workspaceId, icon: iconInput.icon)
+            }
             renamed = true
         }
 
@@ -5194,13 +5210,17 @@ class TerminalController {
         }
 
         let windowId = v2ResolveWindowId(tabManager: tabManager)
-        return .ok([
+        var payload: [String: Any] = [
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "title": title
-        ])
+        ]
+        if shouldSetIcon {
+            payload["custom_icon"] = v2CmuxButtonIconPayload(iconInput.icon)
+        }
+        return .ok(payload)
     }
     private func v2WorkspaceNext(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -5997,8 +6017,14 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color"
+            "set_color", "clear_color",
+            "set_icon", "clear_icon"
         ]
+
+        let iconInput = action == "set_icon" ? v2CmuxButtonIcon(params) : (icon: nil as CmuxButtonIcon?, error: nil as V2CallResult?)
+        if let error = iconInput.error {
+            return error
+        }
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
             "action": action,
@@ -6165,6 +6191,18 @@ class TerminalController {
             case "clear_color":
                 tabManager.setTabColor(tabId: workspace.id, color: nil)
                 finish(["color": NSNull()])
+
+            case "set_icon":
+                guard let icon = iconInput.icon else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid icon", data: nil)
+                    return
+                }
+                tabManager.setTabIcon(tabId: workspace.id, icon: icon)
+                finish(["custom_icon": v2CmuxButtonIconPayload(icon)])
+
+            case "clear_icon":
+                tabManager.setTabIcon(tabId: workspace.id, icon: nil)
+                finish(["custom_icon": NSNull()])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [

@@ -144,6 +144,9 @@
 		B37A00000000000000000007 /* SettingsCardNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000008 /* SettingsCardNote.swift */; };
 		C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */; };
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
+		C0DE38340000000000000001 /* WorkspaceIconUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE38340000000000000002 /* WorkspaceIconUI.swift */; };
+		C0DEB1700000000000000001 /* CmuxButtonIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEB1700000000000000003 /* CmuxButtonIcon.swift */; };
+		C0DEB1700000000000000002 /* CmuxButtonIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEB1700000000000000003 /* CmuxButtonIcon.swift */; };
 		C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */; };
 		A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001F000000000000000002 /* DetachedFolderDragIcon.swift */; };
 		C0DE35010000000000000001 /* SidebarScrim.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35010000000000000002 /* SidebarScrim.swift */; };
@@ -671,6 +674,8 @@
 		B37A00000000000000000008 /* SettingsCardNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsCardNote.swift; sourceTree = "<group>"; };
 		C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWorkspacePrimeCoordinator.swift; sourceTree = "<group>"; };
 		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		C0DE38340000000000000002 /* WorkspaceIconUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceIconUI.swift; sourceTree = "<group>"; };
+		C0DEB1700000000000000003 /* CmuxButtonIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxButtonIcon.swift; sourceTree = "<group>"; };
 		C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFinderDirectoryResolver.swift; sourceTree = "<group>"; };
 		A5001F000000000000000002 /* DetachedFolderDragIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderDragIcon.swift; sourceTree = "<group>"; };
 		C0DE35010000000000000002 /* SidebarScrim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarScrim.swift; sourceTree = "<group>"; };
@@ -1231,6 +1236,7 @@
 				B37A00000000000000000008 /* SettingsCardNote.swift */,
 				C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */,
 				A5001012 /* ContentView.swift */,
+				C0DE38340000000000000002 /* WorkspaceIconUI.swift */,
 				C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */,
 				A5001F000000000000000002 /* DetachedFolderDragIcon.swift */,
 				D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */,
@@ -1457,6 +1463,7 @@
 				C0DEF0C20000000000000002 /* SemanticVersion.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */,
+				C0DEB1700000000000000003 /* CmuxButtonIcon.swift */,
 				A5001651 /* CmuxConfig.swift */,
 				C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */,
 				C0DEF0A10000000000000002 /* CmuxConfigUI.swift */,
@@ -1977,6 +1984,7 @@
 				B37A00000000000000000007 /* SettingsCardNote.swift in Sources */,
 				C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
+				C0DE38340000000000000001 /* WorkspaceIconUI.swift in Sources */,
 				C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */,
 				A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */,
 				C0DE35010000000000000001 /* SidebarScrim.swift in Sources */,
@@ -2202,6 +2210,7 @@
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
 				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,
 				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
+				C0DEB1700000000000000001 /* CmuxButtonIcon.swift in Sources */,
 				A5001650 /* CmuxConfig.swift in Sources */,
 				C10D00030000000000000003 /* CmuxSurfaceTabBarBuiltInAction.swift in Sources */,
 				C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */,
@@ -2252,7 +2261,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-					B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
+				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
+				C0DEB1700000000000000002 /* CmuxButtonIcon.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
 				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,

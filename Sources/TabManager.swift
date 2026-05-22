@@ -5393,6 +5393,17 @@ class TabManager: ObservableObject {
         }
     }
 
+    func setTabIcon(tabId: UUID, icon: CmuxButtonIcon?) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.setCustomIcon(icon)
+    }
+
+    func applyWorkspaceIcon(_ icon: CmuxButtonIcon?, toWorkspaceIds workspaceIds: [UUID]) {
+        for workspaceId in workspaceIds {
+            setTabIcon(tabId: workspaceId, icon: icon)
+        }
+    }
+
     func applyWorkspacePaletteColor(named name: String, toWorkspaceIds workspaceIds: [UUID]) {
         guard let color = WorkspaceTabColorSettings.currentColorHex(named: name) else { return }
         applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
@@ -8892,6 +8903,7 @@ extension TabManager {
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
+            hasher.combine(workspace.customIcon)
             hasher.combine(workspace.isPinned)
             hasher.combine(workspace.terminalScrollBarHidden)
             hasher.combine(workspace.panels.count)

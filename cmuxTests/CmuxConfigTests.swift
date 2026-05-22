@@ -49,6 +49,24 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNil(config.commands[0].workspace)
     }
 
+    func testDecodeWorkspaceCommandIconUsesCmuxButtonIconShape() throws {
+        let json = """
+        {
+          "commands": [{
+            "name": "Launch",
+            "workspace": {
+              "name": "Launch",
+              "icon": { "type": "emoji", "value": "🚀" }
+            }
+          }]
+        }
+        """
+
+        let config = try decode(json)
+
+        XCTAssertEqual(config.commands.first?.workspace?.icon, .emoji("🚀", scale: 1.0))
+    }
+
     func testDecodeSimpleCommandWithAllFields() throws {
         let json = """
         {
@@ -407,6 +425,34 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.surfaceTabBarButtons?[5].icon, .imagePath("./icons/logo.heif"))
         XCTAssertEqual(config.surfaceTabBarButtons?[6].icon, .imagePath("./icons/logo.avif"))
         XCTAssertEqual(config.surfaceTabBarButtons?[7].icon, .imagePath("./icons/logo.ico"))
+    }
+
+    func testDecodeActionEmojiIconRejectsScaleOutsideSchemaBounds() {
+        let tooSmallJSON = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "id": "emoji", "icon": { "type": "emoji", "value": "🤖", "scale": 0.01 }, "command": "codex" }
+              ]
+            }
+          }
+        }
+        """
+        let tooLargeJSON = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "id": "emoji", "icon": { "type": "emoji", "value": "🤖", "scale": 5.01 }, "command": "codex" }
+              ]
+            }
+          }
+        }
+        """
+
+        XCTAssertThrowsError(try decode(tooSmallJSON))
+        XCTAssertThrowsError(try decode(tooLargeJSON))
     }
 
     func testDecodeStringIconThrows() {
