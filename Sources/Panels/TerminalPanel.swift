@@ -39,6 +39,7 @@ final class TerminalPanel: Panel, ObservableObject {
     private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
     private var preservedTextBoxAttributedContent: NSAttributedString?
     private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
+    private var isClosingPanel = false
 #if DEBUG
     private struct DebugTextBoxInlineFixture {
         let localURL: URL?
@@ -288,6 +289,10 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func preserveTextBoxContentForUnmount(from textBoxInputView: TextBoxInputTextView) {
+        guard !isClosingPanel else {
+            discardTextBoxContentForClose(from: textBoxInputView)
+            return
+        }
         let preservedContent = textBoxInputView.attributedContentForPreservation()
         textBoxInputView.invalidatePendingAttachmentUploads()
         preservedTextBoxAttributedContent = NSAttributedString(
@@ -295,6 +300,33 @@ final class TerminalPanel: Panel, ObservableObject {
         )
         textBoxContent = textBoxInputView.plainText()
         textBoxAttachments = textBoxInputView.inlineAttachments()
+    }
+
+    private func discardTextBoxContentForClose(from textBoxInputView: TextBoxInputTextView? = nil) {
+        let currentTextView = textBoxInputView ?? self.textBoxInputView
+        let attachmentsToCleanup = currentTextView?.inlineAttachments() ?? textBoxAttachments
+        if let currentTextView {
+            currentTextView.clearContent(cleanupAttachmentFiles: true)
+            currentTextView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
+        } else if !attachmentsToCleanup.isEmpty {
+            let cleanupTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+            cleanupTextView.cleanupDisposableAttachmentFiles(
+                attachmentsToCleanup,
+                preservingActiveInlineAttachments: false
+            )
+        }
+        restoredTextBoxDraft = nil
+        preservedTextBoxAttributedContent = nil
+        textBoxContent = ""
+        textBoxAttachments = []
+        isTextBoxActive = false
+        textBoxInputFocusIntent = .hidden
+        shouldFocusTextBoxWhenAvailable = false
+        shouldOpenTextBoxFilePickerWhenAvailable = false
+        shouldHideTextBoxOnNextEscape = false
+        if self.textBoxInputView === currentTextView {
+            self.textBoxInputView = nil
+        }
     }
 
     func sessionTextBoxDraftSnapshot() -> SessionTextBoxInputDraftSnapshot? {
@@ -490,6 +522,8 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func close() {
+        isClosingPanel = true
+        discardTextBoxContentForClose()
         // The surface will be cleaned up by its deinit
         // Detach from the window portal on real close so stale hosted views
         // cannot remain above browser panes after split close.

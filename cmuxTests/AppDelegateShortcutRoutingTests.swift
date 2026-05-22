@@ -9030,6 +9030,47 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testTerminalPanelCloseDisposesTextBoxAttachmentDrafts() throws {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            try? FileManager.default.removeItem(at: durableURL)
+        }
+
+        let textView = makeRetainedTextBoxInputTextView()
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.installDebugInlineFixture(attachment, beforeText: "close ", afterText: " draft")
+        terminalPanel.registerTextBoxInputView(textView)
+        terminalPanel.isTextBoxActive = true
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+
+        terminalPanel.close()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
+        XCTAssertNil(terminalPanel.sessionTextBoxDraftSnapshot())
+        XCTAssertTrue(textView.inlineAttachments().isEmpty)
+    }
+
     func testWorkspaceSessionRestoreRestoresActiveTextBoxDraftWithImage() throws {
         let workspace = Workspace()
         guard let panelId = workspace.focusedPanelId,
