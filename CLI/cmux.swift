@@ -13149,6 +13149,9 @@ struct CMUXCLI {
         if let totals = payload["totals"] as? [String: Any] {
             lines.append("\(topResourceColumns(resources: totals))total")
         }
+        if let webViewCounts = topBrowserWebViewCountsSummary(payload["browser_webview_counts"] as? [String: Any]) {
+            lines.append("                         \(webViewCounts)")
+        }
 
         for window in topSortedItems(windows, sortKey: sortKey, node: { $0 }) {
             lines.append("\(topResourceColumns(node: window))\(topWindowLabel(window, idFormat: idFormat))")
@@ -13731,6 +13734,16 @@ struct CMUXCLI {
             parts.append(url)
         }
         return parts.joined(separator: " ")
+    }
+
+    private func topBrowserWebViewCountsSummary(_ counts: [String: Any]?) -> String? {
+        guard let counts else { return nil }
+        guard let total = topInt(counts["total"]), total > 0 else { return nil }
+        let visible = topInt(counts["visible"]) ?? 0
+        let live = topInt(counts["live"]) ?? 0
+        let hidden = topInt(counts["hidden"]) ?? 0
+        let discarded = topInt(counts["discarded"]) ?? 0
+        return "browser webviews visible=\(visible) live=\(live) hidden=\(hidden) discarded=\(discarded)"
     }
 
     private func topProcessLabel(_ process: [String: Any]) -> String {

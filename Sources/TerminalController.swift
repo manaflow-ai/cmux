@@ -3863,6 +3863,7 @@ class TerminalController {
             "caller": NSNull(),
             "sample": processSnapshot.samplePayload(),
             "totals": processSnapshot.summaryPayload(for: totalPIDs),
+            "browser_webview_counts": v2TopBrowserWebViewLifecycleCounts(in: annotatedWindows),
             "memory_diagnostic": memoryDiagnostic,
             "program_totals": aggregates.programs,
             "coding_agents": aggregates.codingAgents,
@@ -3907,6 +3908,7 @@ class TerminalController {
 
         payload["sample"] = processSnapshot.samplePayload()
         payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
+        payload["browser_webview_counts"] = v2TopBrowserWebViewLifecycleCounts(in: windowNodes)
         payload["memory_diagnostic"] = memoryDiagnostic
         payload["program_totals"] = aggregates.programs
         payload["coding_agents"] = aggregates.codingAgents

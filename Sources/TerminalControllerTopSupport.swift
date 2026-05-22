@@ -37,6 +37,73 @@ extension TerminalController {
         return counts
     }
 
+    nonisolated func v2TopBrowserWebViewLifecycleCounts(in windows: [[String: Any]]) -> [String: Any] {
+        var total = 0
+        var visible = 0
+        var live = 0
+        var liveVisible = 0
+        var liveHidden = 0
+        var hidden = 0
+        var discarded = 0
+        var newTab = 0
+        var closing = 0
+        var unknown = 0
+
+        for window in windows {
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            for workspace in workspaces {
+                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                for pane in panes {
+                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+                    for surface in surfaces {
+                        let webviews = surface["webviews"] as? [[String: Any]] ?? []
+                        for webview in webviews {
+                            total += 1
+                            let lifecycle = webview["lifecycle"] as? [String: Any] ?? [:]
+                            let lifecycleVisible = (lifecycle["visible_in_ui"] as? Bool) == true
+                            let state = v2TopString(lifecycle["state"])
+                                ?? v2TopString(surface["browser_webview_lifecycle_state"])
+                                ?? ""
+                            if lifecycleVisible || state == BrowserWebViewLifecycleState.liveVisible.rawValue {
+                                visible += 1
+                            }
+                            switch state {
+                            case BrowserWebViewLifecycleState.liveVisible.rawValue:
+                                live += 1
+                                liveVisible += 1
+                            case BrowserWebViewLifecycleState.liveHidden.rawValue:
+                                live += 1
+                                liveHidden += 1
+                                hidden += 1
+                            case BrowserWebViewLifecycleState.discarded.rawValue:
+                                discarded += 1
+                            case BrowserWebViewLifecycleState.newTab.rawValue:
+                                newTab += 1
+                            case BrowserWebViewLifecycleState.closing.rawValue:
+                                closing += 1
+                            default:
+                                unknown += 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return [
+            "total": total,
+            "visible": visible,
+            "live": live,
+            "hidden": hidden,
+            "discarded": discarded,
+            "live_visible": liveVisible,
+            "live_hidden": liveHidden,
+            "new_tab": newTab,
+            "closing": closing,
+            "unknown": unknown
+        ]
+    }
+
     nonisolated func v2TopMemoryDiagnosticPayload(
         processSnapshot: CmuxTopProcessSnapshot,
         annotatedWindows: [[String: Any]],

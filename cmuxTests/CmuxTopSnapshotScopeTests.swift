@@ -706,6 +706,54 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertTrue(totalPIDs.contains(webContentPID))
     }
 
+    func testBrowserWebViewLifecycleCountsSummarizeTopPayload() throws {
+        let windowID = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let paneID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let windows: [[String: Any]] = [[
+            "kind": "window",
+            "id": windowID,
+            "index": 0,
+            "workspaces": [[
+                "kind": "workspace",
+                "id": workspaceID,
+                "index": 0,
+                "panes": [[
+                    "kind": "pane",
+                    "id": paneID,
+                    "index": 0,
+                    "surfaces": [[
+                        "kind": "surface",
+                        "id": surfaceID,
+                        "index": 0,
+                        "type": "browser",
+                        "title": "browser owner",
+                        "webviews": [
+                            lifecycleWebView(id: "\(surfaceID):visible", state: .liveVisible, visibleInUI: true),
+                            lifecycleWebView(id: "\(surfaceID):hidden", state: .liveHidden, visibleInUI: false),
+                            lifecycleWebView(id: "\(surfaceID):discarded", state: .discarded, visibleInUI: false),
+                            lifecycleWebView(id: "\(surfaceID):newTab", state: .newTab, visibleInUI: false),
+                        ],
+                    ] as [String: Any]],
+                ] as [String: Any]],
+            ] as [String: Any]],
+        ] as [String: Any]]
+
+        let counts = TerminalController.shared.v2TopBrowserWebViewLifecycleCounts(in: windows)
+
+        XCTAssertEqual(int(counts["total"]), 4)
+        XCTAssertEqual(int(counts["visible"]), 1)
+        XCTAssertEqual(int(counts["live"]), 2)
+        XCTAssertEqual(int(counts["hidden"]), 1)
+        XCTAssertEqual(int(counts["discarded"]), 1)
+        XCTAssertEqual(int(counts["live_visible"]), 1)
+        XCTAssertEqual(int(counts["live_hidden"]), 1)
+        XCTAssertEqual(int(counts["new_tab"]), 1)
+        XCTAssertEqual(int(counts["closing"]), 0)
+        XCTAssertEqual(int(counts["unknown"]), 0)
+    }
+
     private func kernProcArgs(
         arguments: [String] = ["zsh"],
         environment: [String]
@@ -925,6 +973,23 @@ while allocations:
                 "title": "Shared WebView",
                 "pid": pid
             ] as [String: Any]]
+        ]
+    }
+
+    private func lifecycleWebView(
+        id: String,
+        state: BrowserWebViewLifecycleState,
+        visibleInUI: Bool
+    ) -> [String: Any] {
+        [
+            "kind": "webview",
+            "id": id,
+            "index": 0,
+            "title": "WebView",
+            "lifecycle": [
+                "state": state.rawValue,
+                "visible_in_ui": visibleInUI,
+            ],
         ]
     }
 
