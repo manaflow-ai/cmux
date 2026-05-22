@@ -1488,7 +1488,8 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
     }
 
     private static var hasHiddenDiscardMaxLiveEnvironmentOverride: Bool {
-        ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_MAX_LIVE_HIDDEN_COUNT"] != nil
+        ProcessInfo.processInfo.environment[BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountEnvironmentKey] != nil ||
+            ProcessInfo.processInfo.environment[BrowserHiddenWebViewDiscardPolicy.legacyMaxLiveHiddenCountEnvironmentKey] != nil
     }
 
     private static var hiddenDiscardEnvironmentOverrideDisablesPolicy: Bool {
@@ -1570,7 +1571,8 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         let hasDelayEnvironmentOverride =
             ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"] != nil
         let hasMaxLiveEnvironmentOverride =
-            ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_MAX_LIVE_HIDDEN_COUNT"] != nil
+            ProcessInfo.processInfo.environment[BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountEnvironmentKey] != nil ||
+            ProcessInfo.processInfo.environment[BrowserHiddenWebViewDiscardPolicy.legacyMaxLiveHiddenCountEnvironmentKey] != nil
 
         if !hasEnabledEnvironmentOverride {
             XCTAssertEqual(
