@@ -201,6 +201,73 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    func testClaudePanelRestoreIgnoresTranscriptBackedSubagentMarkedNonRestorable() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-subagent-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path),
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+
+        let workspaceId = UUID()
+        let movedWorkspaceId = UUID()
+        let panelId = UUID()
+        let parentSessionId = "11111111-1111-1111-1111-111111111111"
+        let childSessionId = "22222222-2222-2222-2222-222222222222"
+        try writeClaudeTranscript(sessionId: parentSessionId, cwd: cwd, projectsDir: projectsDir)
+        try writeClaudeTranscript(sessionId: childSessionId, cwd: cwd, projectsDir: projectsDir)
+
+        var child = hookRecord(
+            sessionId: childSessionId,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            cwd: cwd.path,
+            configDir: configDir.path,
+            isRestorable: false,
+            updatedAt: 20
+        )
+        child["parentSessionId"] = parentSessionId
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                parentSessionId: hookRecord(
+                    sessionId: parentSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    updatedAt: 10
+                ),
+                childSessionId: child,
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            environment: [:]
+        )
+
+        XCTAssertEqual(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId,
+            parentSessionId
+        )
+        XCTAssertEqual(
+            index.snapshot(workspaceId: movedWorkspaceId, panelId: panelId)?.sessionId,
+            parentSessionId
+        )
+    }
+
     func testPanelRestoreIgnoresLaunchlessSubagentMarkedNonRestorable() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
