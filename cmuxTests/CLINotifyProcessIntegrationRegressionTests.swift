@@ -224,6 +224,40 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(command.contains("Claude Workspace - Claude waiting|Question|"), command)
         XCTAssertTrue(command.contains("Which workspace should I inspect before continuing?"), command)
         XCTAssertTrue(command.contains("[Current] [New]"), command)
+
+        let secondPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(secondPrompt.timedOut, secondPrompt.stderr)
+        XCTAssertEqual(secondPrompt.status, 0, secondPrompt.stderr)
+
+        let secondPreToolUse = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which workspace should I inspect before continuing?","options":[{"label":"Current"},{"label":"New"}]}]}}"#
+        )
+        XCTAssertFalse(secondPreToolUse.timedOut, secondPreToolUse.stderr)
+        XCTAssertEqual(secondPreToolUse.status, 0, secondPreToolUse.stderr)
+
+        let secondNotificationStart = context.state.commands.count
+        let secondNotification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#
+        )
+        XCTAssertFalse(secondNotification.timedOut, secondNotification.stderr)
+        XCTAssertEqual(secondNotification.status, 0, secondNotification.stderr)
+
+        let secondNotifyCommands = Array(context.state.commands.dropFirst(secondNotificationStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let secondCommand = try XCTUnwrap(
+            secondNotifyCommands.last,
+            "Expected prompt-submit to clear the Claude notification dedupe marker for a new turn"
+        )
+        XCTAssertTrue(secondCommand.contains("Claude Workspace - Claude waiting|Question|"), secondCommand)
+        XCTAssertTrue(secondCommand.contains("Which workspace should I inspect before continuing?"), secondCommand)
     }
 
     func testClaudeNotificationClassifiesToolApprovalErrorAndIdlePrompt() throws {
@@ -361,6 +395,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "claude-permission-session"
+        let raceNotificationStart = context.state.commands.count
+        let raceNotification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#
+        )
+        XCTAssertFalse(raceNotification.timedOut, raceNotification.stderr)
+        XCTAssertEqual(raceNotification.status, 0, raceNotification.stderr)
+
+        let raceNotifyCommands = Array(context.state.commands.dropFirst(raceNotificationStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertTrue(
+            raceNotifyCommands.isEmpty,
+            "Expected context-free generic Claude Notification to wait for a specific PermissionRequest prompt, saw \(raceNotifyCommands)"
+        )
+
         let commandStart = context.state.commands.count
         let result = runClaudeHook(
             context: context,
@@ -421,6 +471,24 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             duplicateNotifyCommands.isEmpty,
             "Expected generic Notification after PermissionRequest to be deduped, saw \(duplicateNotifyCommands)"
         )
+
+        let repeatedPermissionStart = context.state.commands.count
+        let repeatedPermission = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"grep error.log","allowed_prompts":[{"description":"Allow Bash to read grep error.log?"}]}}"#
+        )
+        XCTAssertFalse(repeatedPermission.timedOut, repeatedPermission.stderr)
+        XCTAssertEqual(repeatedPermission.status, 0, repeatedPermission.stderr)
+
+        let repeatedPermissionNotifyCommands = Array(context.state.commands.dropFirst(repeatedPermissionStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let repeatedPermissionCommand = try XCTUnwrap(
+            repeatedPermissionNotifyCommands.last,
+            "Expected repeated PermissionRequest prompts to remain visible even when the prompt text repeats"
+        )
+        XCTAssertTrue(repeatedPermissionCommand.contains("Claude Workspace - Claude waiting|Permission request|"), repeatedPermissionCommand)
+        XCTAssertTrue(repeatedPermissionCommand.contains("Allow Bash to read grep error.log?"), repeatedPermissionCommand)
     }
 
     func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {

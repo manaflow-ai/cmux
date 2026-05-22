@@ -18529,6 +18529,7 @@ struct CMUXCLI {
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
+                try? sessionStore.clearNotificationEmission(sessionId: sessionId)
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -18589,6 +18590,10 @@ struct CMUXCLI {
                     subtitle: mappedSession.lastSubtitle ?? summary.subtitle,
                     body: truncate(normalizedSingleLine(savedBody), maxLength: 140)
                 )
+            } else if isGenericClaudeWaitingBody(summary.body) {
+                telemetry.breadcrumb("claude-hook.notification.generic-suppressed")
+                print("OK")
+                return
             }
 
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
@@ -18673,11 +18678,6 @@ struct CMUXCLI {
                 parsedInput: parsedInput,
                 defaultReason: .permissionRequest
             )
-            if recentlySentClaudeWaitingNotification(sessionId: parsedInput.sessionId, summary: summary) {
-                telemetry.breadcrumb("claude-hook.permission-request.duplicate-suppressed")
-                print("OK")
-                return
-            }
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -21108,10 +21108,6 @@ struct CMUXCLI {
             "Claude needs your input",
             "Claude is waiting for your input",
             "Claude Code needs your attention",
-            ClaudeWaitingNotificationReason.permissionRequest.fallbackBody,
-            ClaudeWaitingNotificationReason.toolApproval.fallbackBody,
-            ClaudeWaitingNotificationReason.question.fallbackBody,
-            ClaudeWaitingNotificationReason.error.fallbackBody,
             ClaudeWaitingNotificationReason.idlePrompt.fallbackBody,
         ].map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
         return genericBodies.contains(normalized.lowercased())
