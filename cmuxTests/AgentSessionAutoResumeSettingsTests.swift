@@ -477,6 +477,56 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingAgentHookBindingDoesNotOverrideDifferentLiveAgent() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            XCTAssertTrue(
+                source.setSurfaceResumeBinding(
+                    SurfaceResumeBindingSnapshot(
+                        name: "Codex",
+                        kind: "codex",
+                        command: "codex resume old-pending-session",
+                        cwd: "/tmp/repo",
+                        checkpointId: "old-pending-session",
+                        source: "agent-hook",
+                        autoResume: true,
+                        updatedAt: 1_777_777_777
+                    ),
+                    panelId: sourcePanelId
+                )
+            )
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "old-pending-session",
+                    workingDirectory: "/tmp/repo"
+                ),
+                panelId: sourcePanelId
+            )
+            source.setRestoredAgentAutoResumePendingForTesting(true, panelId: sourcePanelId)
+            let liveIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "new-live-session"
+            )
+
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: liveIndex
+            )
+
+            XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.sessionId, "new-live-session")
+            XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
+            XCTAssertEqual(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId)?.sessionId, "new-live-session")
+            XCTAssertNil(source.surfaceResumeBinding(panelId: sourcePanelId))
+        }
+    }
+
+    @MainActor
     func testRegistryOwnedAgentHookBindingMatchesCustomRawValue() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)

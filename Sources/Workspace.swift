@@ -918,7 +918,8 @@ extension Workspace {
             if agentHookBinding(binding, matches: restorableAgent) {
                 continue
             }
-            if shouldPreserveRestoredAgentWithoutLiveMatch(panelId: panelId),
+            if restorableAgent == nil,
+               shouldPreserveRestoredAgentWithoutLiveMatch(panelId: panelId),
                agentHookBinding(binding, matches: restoredAgentSnapshotsByPanelId[panelId]) {
                 continue
             }
@@ -959,7 +960,8 @@ extension Workspace {
         if restorableAgentIndexWasScanned,
            binding.isAgentHookBinding,
            !agentHookBinding(binding, matches: restorableAgent) {
-            if shouldPreserveRestoredAgentWithoutLiveMatch(panelId: panelId),
+            if restorableAgent == nil,
+               shouldPreserveRestoredAgentWithoutLiveMatch(panelId: panelId),
                agentHookBinding(binding, matches: restoredAgentSnapshotsByPanelId[panelId]) {
                 return binding
             }
