@@ -271,12 +271,49 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         let sourceWorkspace = try XCTUnwrap(tabManager.selectedWorkspace)
         sourceWorkspace.currentDirectory = root.path
 
-        let layoutBaseCwd = customLayoutBaseCwdForNewWorkspace(tabManager: tabManager, requestedCwd: nil)
-        XCTAssertEqual(layoutBaseCwd, root.path)
-        XCTAssertNil(layout.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd))
+        let layoutContext = customLayoutCreationContextForNewWorkspace(tabManager: tabManager, requestedCwd: nil)
+        XCTAssertEqual(layoutContext.layoutBaseCwd, root.path)
+        XCTAssertEqual(layoutContext.workspaceWorkingDirectory, root.path)
+        XCTAssertFalse(layoutContext.inheritWorkspaceWorkingDirectory)
+        XCTAssertTrue(layoutContext.isCurrentSelection(in: tabManager))
+        XCTAssertNil(layout.firstMarkdownPathResolutionFailure(relativeTo: layoutContext.layoutBaseCwd))
 
-        let createdWorkspace = tabManager.addWorkspace(workingDirectory: layoutBaseCwd, select: false)
+        let createdWorkspace = tabManager.addWorkspace(
+            workingDirectory: layoutContext.workspaceWorkingDirectory,
+            inheritWorkingDirectory: layoutContext.inheritWorkspaceWorkingDirectory,
+            select: false
+        )
         XCTAssertEqual(createdWorkspace.currentDirectory, root.path)
+    }
+
+    @MainActor
+    func testNewWorkspaceLayoutBaseCwdDoesNotInheritWhenInheritanceIsDisabled() throws {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-layout-markdown-disabled-inheritance-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let tabManager = TabManager()
+            let sourceWorkspace = try XCTUnwrap(tabManager.selectedWorkspace)
+            sourceWorkspace.currentDirectory = root.path
+
+            let layoutContext = customLayoutCreationContextForNewWorkspace(tabManager: tabManager, requestedCwd: nil)
+            XCTAssertEqual(
+                layoutContext.layoutBaseCwd,
+                FileManager.default.homeDirectoryForCurrentUser.path
+            )
+            XCTAssertNil(layoutContext.workspaceWorkingDirectory)
+            XCTAssertFalse(layoutContext.inheritWorkspaceWorkingDirectory)
+
+            let createdWorkspace = tabManager.addWorkspace(
+                workingDirectory: layoutContext.workspaceWorkingDirectory,
+                inheritWorkingDirectory: layoutContext.inheritWorkspaceWorkingDirectory,
+                select: false
+            )
+            XCTAssertNil(createdWorkspace.focusedTerminalPanel?.requestedWorkingDirectory)
+            XCTAssertNotEqual(createdWorkspace.currentDirectory, root.path)
+        }
     }
 
     @MainActor
@@ -306,11 +343,18 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         let sourceWorkspace = try XCTUnwrap(tabManager.selectedWorkspace)
         sourceWorkspace.currentDirectory = root.path
 
-        let layoutBaseCwd = customLayoutBaseCwdForNewWorkspace(tabManager: tabManager, requestedCwd: "./app")
-        XCTAssertEqual(layoutBaseCwd, app.path)
-        XCTAssertNil(layout.firstMarkdownPathResolutionFailure(relativeTo: layoutBaseCwd))
+        let layoutContext = customLayoutCreationContextForNewWorkspace(tabManager: tabManager, requestedCwd: "./app")
+        XCTAssertEqual(layoutContext.layoutBaseCwd, app.path)
+        XCTAssertEqual(layoutContext.workspaceWorkingDirectory, app.path)
+        XCTAssertFalse(layoutContext.inheritWorkspaceWorkingDirectory)
+        XCTAssertTrue(layoutContext.isCurrentSelection(in: tabManager))
+        XCTAssertNil(layout.firstMarkdownPathResolutionFailure(relativeTo: layoutContext.layoutBaseCwd))
 
-        let createdWorkspace = tabManager.addWorkspace(workingDirectory: layoutBaseCwd, select: false)
+        let createdWorkspace = tabManager.addWorkspace(
+            workingDirectory: layoutContext.workspaceWorkingDirectory,
+            inheritWorkingDirectory: layoutContext.inheritWorkspaceWorkingDirectory,
+            select: false
+        )
         XCTAssertEqual(createdWorkspace.currentDirectory, app.path)
     }
 
@@ -373,5 +417,30 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         XCTAssertEqual(workspace.currentDirectory, workspaceDir.path)
         let markdownPanel = try XCTUnwrap(workspace.panels.values.compactMap { $0 as? MarkdownPanel }.first)
         XCTAssertEqual(markdownPanel.filePath, readmeURL.path)
+    }
+
+    @MainActor
+    private func withWorkspaceWorkingDirectoryInheritanceSetting(
+        _ value: Bool?,
+        _ body: () throws -> Void
+    ) rethrows {
+        let defaults = UserDefaults.standard
+        let key = WorkspaceWorkingDirectoryInheritanceSettings.key
+        let previousValue = defaults.object(forKey: key)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+
+        try body()
     }
 }

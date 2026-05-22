@@ -43,19 +43,59 @@ enum WorkspaceCustomLayoutApplyResult {
     }
 }
 
+struct WorkspaceCustomLayoutCreationContext: Sendable {
+    let layoutBaseCwd: String
+    let workspaceWorkingDirectory: String?
+    let inheritWorkspaceWorkingDirectory: Bool
+    let sourceWorkspaceId: UUID?
+
+    @MainActor
+    func isCurrentSelection(in tabManager: TabManager) -> Bool {
+        tabManager.selectedWorkspace?.id == sourceWorkspaceId
+    }
+}
+
 @MainActor
-func customLayoutBaseCwdForNewWorkspace(
+func customLayoutCreationContextForNewWorkspace(
     tabManager: TabManager,
     requestedCwd: String?
-) -> String {
-    let inheritedCwd = tabManager.preferredWorkingDirectoryForNewTab(workspace: tabManager.selectedWorkspace)
-        ?? FileManager.default.homeDirectoryForCurrentUser.path
-    let baseCwd = absoluteCustomLayoutDirectory(inheritedCwd)
-    let resolvedCwd = CmuxConfigStore.resolveCwd(
-        tabManager.normalizedWorkingDirectory(requestedCwd),
-        relativeTo: baseCwd
+) -> WorkspaceCustomLayoutCreationContext {
+    let sourceWorkspace = tabManager.selectedWorkspace
+    let sourceWorkspaceId = sourceWorkspace?.id
+    let inheritedCwd = tabManager.preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+    let fallbackCwd = FileManager.default.homeDirectoryForCurrentUser.path
+    let baseCwd = absoluteCustomLayoutDirectory(inheritedCwd ?? fallbackCwd)
+    let normalizedRequestedCwd = tabManager.normalizedWorkingDirectory(requestedCwd)
+
+    if let normalizedRequestedCwd {
+        let resolvedCwd = absoluteCustomLayoutDirectory(
+            CmuxConfigStore.resolveCwd(normalizedRequestedCwd, relativeTo: baseCwd)
+        )
+        return WorkspaceCustomLayoutCreationContext(
+            layoutBaseCwd: resolvedCwd,
+            workspaceWorkingDirectory: resolvedCwd,
+            inheritWorkspaceWorkingDirectory: false,
+            sourceWorkspaceId: sourceWorkspaceId
+        )
+    }
+
+    if WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(),
+       let inheritedCwd {
+        let resolvedCwd = absoluteCustomLayoutDirectory(inheritedCwd)
+        return WorkspaceCustomLayoutCreationContext(
+            layoutBaseCwd: resolvedCwd,
+            workspaceWorkingDirectory: resolvedCwd,
+            inheritWorkspaceWorkingDirectory: false,
+            sourceWorkspaceId: sourceWorkspaceId
+        )
+    }
+
+    return WorkspaceCustomLayoutCreationContext(
+        layoutBaseCwd: absoluteCustomLayoutDirectory(fallbackCwd),
+        workspaceWorkingDirectory: nil,
+        inheritWorkspaceWorkingDirectory: false,
+        sourceWorkspaceId: sourceWorkspaceId
     )
-    return absoluteCustomLayoutDirectory(resolvedCwd)
 }
 
 // MARK: - cmux.json custom layout

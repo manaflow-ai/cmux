@@ -4886,13 +4886,13 @@ class TerminalController {
                 return .err(code: "invalid_params", message: "Invalid layout: \(error.localizedDescription)", data: nil)
             }
         }
-        let layoutBaseCwd: String?
+        let layoutCreationContext: WorkspaceCustomLayoutCreationContext?
         let resolvedLayoutNode: CmuxLayoutNode?
         if let layoutNode {
-            let resolvedBaseCwd = v2MainSync {
-                customLayoutBaseCwdForNewWorkspace(tabManager: tabManager, requestedCwd: cwd)
+            let creationContext = v2MainSync {
+                customLayoutCreationContextForNewWorkspace(tabManager: tabManager, requestedCwd: cwd)
             }
-            let resolution = layoutNode.resolvingMarkdownPaths(relativeTo: resolvedBaseCwd)
+            let resolution = layoutNode.resolvingMarkdownPaths(relativeTo: creationContext.layoutBaseCwd)
             if let failure = resolution.failure {
                 return .err(
                     code: failure.code,
@@ -4903,10 +4903,10 @@ class TerminalController {
             guard let layout = resolution.layout else {
                 return .err(code: "internal_error", message: "Failed to resolve custom layout", data: nil)
             }
-            layoutBaseCwd = resolvedBaseCwd
+            layoutCreationContext = creationContext
             resolvedLayoutNode = layout
         } else {
-            layoutBaseCwd = nil
+            layoutCreationContext = nil
             resolvedLayoutNode = nil
         }
 
@@ -4914,26 +4914,46 @@ class TerminalController {
         let creationResult: (
             workspaceId: UUID?,
             failure: CmuxReadableFilePathResolutionFailure?,
-            internalErrorMessage: String?
+            error: (code: String, message: String)?
         ) = v2MainSync {
+            if let layoutCreationContext,
+               !layoutCreationContext.isCurrentSelection(in: tabManager) {
+                // Markdown path preflight runs off-main; refuse to create from a cwd
+                // snapshot after the workspace selection that supplied it has changed.
+                return (
+                    nil,
+                    nil,
+                    (
+                        code: "invalid_state",
+                        message: "Workspace selection changed while resolving custom layout"
+                    )
+                )
+            }
             let ws = tabManager.addWorkspace(
                 title: title,
-                workingDirectory: layoutBaseCwd ?? cwd,
+                workingDirectory: layoutCreationContext?.workspaceWorkingDirectory ?? cwd,
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
+                inheritWorkingDirectory: layoutCreationContext?.inheritWorkspaceWorkingDirectory ?? true,
                 select: shouldFocus,
                 eagerLoadTerminal: !shouldFocus
             )
             ws.setCustomDescription(description)
             if let resolvedLayoutNode,
-               let layoutBaseCwd {
-                let applyResult = ws.applyResolvedCustomLayout(resolvedLayoutNode, baseCwd: layoutBaseCwd)
+               let layoutCreationContext {
+                let applyResult = ws.applyResolvedCustomLayout(
+                    resolvedLayoutNode,
+                    baseCwd: layoutCreationContext.layoutBaseCwd
+                )
                 guard applyResult.isSuccess else {
                     tabManager.closeWorkspace(ws)
                     return (
                         nil,
                         applyResult.markdownPathFailure,
-                        "Failed to apply custom layout"
+                        (
+                            code: "internal_error",
+                            message: "Failed to apply custom layout"
+                        )
                     )
                 }
             }
@@ -4947,8 +4967,8 @@ class TerminalController {
                 data: ["path": failure.path]
             )
         }
-        if let internalErrorMessage = creationResult.internalErrorMessage {
-            return .err(code: "internal_error", message: internalErrorMessage, data: nil)
+        if let error = creationResult.error {
+            return .err(code: error.code, message: error.message, data: nil)
         }
 
         guard let newId = creationResult.workspaceId else {
