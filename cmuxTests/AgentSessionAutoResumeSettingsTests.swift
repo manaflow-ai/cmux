@@ -431,6 +431,88 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testRunningAgentHookResumeBindingClearsWhenLiveAgentDisappears() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            XCTAssertTrue(
+                source.setSurfaceResumeBinding(
+                    SurfaceResumeBindingSnapshot(
+                        name: "Codex",
+                        kind: "codex",
+                        command: "codex resume vanished-running-session",
+                        cwd: "/tmp/repo",
+                        checkpointId: "vanished-running-session",
+                        source: "agent-hook",
+                        autoResume: true,
+                        updatedAt: 1_777_777_777
+                    ),
+                    panelId: sourcePanelId
+                )
+            )
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "vanished-running-session",
+                    workingDirectory: "/tmp/repo"
+                ),
+                panelId: sourcePanelId
+            )
+            source.setRestoredAgentAutoResumePendingForTesting(true, panelId: sourcePanelId)
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty
+            )
+
+            XCTAssertNil(snapshot.panels.first?.terminal?.agent)
+            XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
+            XCTAssertNil(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId))
+            XCTAssertNil(source.surfaceResumeBinding(panelId: sourcePanelId))
+        }
+    }
+
+    @MainActor
+    func testRegistryOwnedAgentHookBindingMatchesCustomRawValue() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceIndex = try makeRestorableAgentIndex(
+            kind: .pi,
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "pi-registry-session",
+            arguments: ["/usr/local/bin/pi", "--model", "anthropic/claude-sonnet-4-5"]
+        )
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Pi",
+                kind: "pi",
+                command: "pi resume pi-registry-session",
+                cwd: "/tmp/repo",
+                checkpointId: "pi-registry-session",
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            ),
+        ])
+
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: sourceIndex,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.kind, .custom("pi"))
+        XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.sessionId, "pi-registry-session")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.kind, "pi")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "pi-registry-session")
+    }
+
+    @MainActor
     func testDisabledAutoResumeDoesNotRunAgentHookResumeBinding() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
@@ -665,9 +747,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     private func makeRestorableAgentIndex(
+        kind: RestorableAgentKind = .codex,
         workspaceId: UUID,
         panelId: UUID,
-        sessionId: String
+        sessionId: String,
+        arguments: [String]? = nil
     ) throws -> RestorableAgentSessionIndex {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-auto-resume-\(UUID().uuidString)", isDirectory: true)
@@ -680,9 +764,20 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
             }
         }
-        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        let storeURL = kind.hookStoreFileURL(homeDirectory: home.path)
         try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
+        let executablePath = arguments?.first ?? "/usr/local/bin/\(kind.rawValue)"
+        let resolvedArguments = arguments ?? [executablePath, "--model", "gpt-5.4"]
+        let environment: [String: String]
+        switch kind {
+        case .codex:
+            environment = ["CODEX_HOME": "/tmp/codex"]
+        case .pi:
+            environment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
+        default:
+            environment = [:]
+        }
 
         let jsonObject: [String: Any] = [
             "version": 1,
@@ -694,11 +789,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                     "cwd": "/tmp/repo",
                     "updatedAt": Date().timeIntervalSince1970,
                     "launchCommand": [
-                        "launcher": "codex",
-                        "executablePath": "/usr/local/bin/codex",
-                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                        "launcher": kind.rawValue,
+                        "executablePath": executablePath,
+                        "arguments": resolvedArguments,
                         "workingDirectory": "/tmp/repo",
-                        "environment": ["CODEX_HOME": "/tmp/codex"],
+                        "environment": environment,
                         "capturedAt": Date().timeIntervalSince1970,
                         "source": "process",
                     ],

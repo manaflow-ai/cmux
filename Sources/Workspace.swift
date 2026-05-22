@@ -979,19 +979,19 @@ extension Workspace {
             return false
         }
         if let kind = binding.kind {
-            if let restorableKind = RestorableAgentKind(rawValue: kind) {
-                return restorableKind == restorableAgent.kind
-            }
-            return kind.compare(restorableAgent.kind.rawValue, options: [.caseInsensitive, .literal]) == .orderedSame
+            return kind.trimmingCharacters(in: .whitespacesAndNewlines).compare(
+                restorableAgent.kind.rawValue,
+                options: [.caseInsensitive, .literal]
+            ) == .orderedSame
         }
         return true
     }
 
     private func shouldPreserveRestoredAgentWithoutLiveMatch(panelId: UUID) -> Bool {
         switch restoredAgentResumeStatesByPanelId[panelId] {
-        case .some(.manualResumeAvailable), .some(.awaitingAutoResumeCommand), .some(.autoResumeCommandRunning):
+        case .some(.manualResumeAvailable), .some(.awaitingAutoResumeCommand):
             return true
-        case .some(.observedAgentCommandRunning), nil:
+        case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning), nil:
             return false
         }
     }
