@@ -968,6 +968,61 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey))
     }
 
+    func testSettingsFileStoreIgnoresInvalidBrowserMaxLiveHiddenWebViewsAndContinuesParsing() throws {
+        let defaults = UserDefaults.standard
+        let previousMaxLiveHiddenCount = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
+        let previousOpenTerminalLinks = defaults.object(forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousMaxLiveHiddenCount {
+                defaults.set(previousMaxLiveHiddenCount, forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
+            }
+            if let previousOpenTerminalLinks {
+                defaults.set(previousOpenTerminalLinks, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+            } else {
+                defaults.removeObject(forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
+        defaults.removeObject(forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "browser": {
+                "maxLiveHiddenWebViews": 101,
+                "openTerminalLinksInCmuxBrowser": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey))
+        XCTAssertEqual(
+            defaults.object(forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) as? Bool,
+            false
+        )
+    }
+
     func testSettingsFileStoreParsesRightSidebarShortcutBindings() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }

@@ -13743,10 +13743,10 @@ struct CMUXCLI {
         let live = topInt(counts["live"]) ?? 0
         let hidden = topInt(counts["hidden"]) ?? 0
         let discarded = topInt(counts["discarded"]) ?? 0
-        return String(format: String(
+        return String(
             localized: "top.browserWebViews.summary",
-            defaultValue: "browser webviews visible=%lld live=%lld hidden=%lld discarded=%lld"
-        ), Int64(visible), Int64(live), Int64(hidden), Int64(discarded))
+            defaultValue: "browser webviews visible=\(visible) live=\(live) hidden=\(hidden) discarded=\(discarded)"
+        )
     }
 
     private func topProcessLabel(_ process: [String: Any]) -> String {

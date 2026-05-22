@@ -10,8 +10,8 @@ nonisolated enum BrowserHiddenWebViewDiscardPolicy {
     static let enabledKey = "browserHiddenWebViewDiscardEnabled"
     static let hiddenDelayKey = "browserHiddenWebViewDiscardDelaySeconds"
     static let maxLiveHiddenCountKey = "browserHiddenWebViewMaxLiveHiddenCount"
-    static let maxLiveHiddenCountEnvironmentKey = "CMUX_BROWSER_HIDDEN_WEBVIEW_MAX_LIVE_COUNT"
-    static let legacyMaxLiveHiddenCountEnvironmentKey = "CMUX_BROWSER_HIDDEN_WEBVIEW_MAX_LIVE_HIDDEN_COUNT"
+    static let maxLiveHiddenCountEnvironmentKey = "CMUX_BROWSER_HIDDEN_WEBVIEW_MAX_LIVE_HIDDEN_COUNT"
+    static let legacyMaxLiveHiddenCountEnvironmentKey = "CMUX_BROWSER_HIDDEN_WEBVIEW_MAX_LIVE_COUNT"
     static let defaultEnabled = true
     static let defaultHiddenDelay: TimeInterval = 1800
     static let defaultMaxLiveHiddenCount = 5

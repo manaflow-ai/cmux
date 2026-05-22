@@ -770,11 +770,11 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
         }
         if let value = jsonInt(section["maxLiveHiddenWebViews"]) {
-            guard let maxLiveHiddenCount = BrowserHiddenWebViewDiscardPolicy.resolvedMaxLiveHiddenCount(value) else {
+            if let maxLiveHiddenCount = BrowserHiddenWebViewDiscardPolicy.resolvedMaxLiveHiddenCount(value) {
+                snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey] = .int(maxLiveHiddenCount)
+            } else {
                 logInvalid("browser.maxLiveHiddenWebViews", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey] = .int(maxLiveHiddenCount)
         }
         if let value = jsonBool(section["openTerminalLinksInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey] = .bool(value)
