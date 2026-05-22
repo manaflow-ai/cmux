@@ -100,6 +100,11 @@
 		F4350A120000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE550002 /* CMUXWorkstream */; };
+		C3512A010000000000000001 /* CMUXNodeOptions in Frameworks */ = {isa = PBXBuildFile; productRef = C3512A010000000000000005 /* CMUXNodeOptions */; };
+		C3512A010000000000000002 /* CMUXNodeOptions in Frameworks */ = {isa = PBXBuildFile; productRef = C3512A010000000000000005 /* CMUXNodeOptions */; };
+		C3512A010000000000000003 /* CMUXNodeOptions in Frameworks */ = {isa = PBXBuildFile; productRef = C3512A010000000000000005 /* CMUXNodeOptions */; };
+		C3512A02000000000000001 /* ClaudeWrapperNodeOptionsRestoreModuleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3512A02000000000000002 /* ClaudeWrapperNodeOptionsRestoreModuleTests.swift */; };
+		C3512A03000000000000001 /* AgentResumeNodeOptionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3512A03000000000000002 /* AgentResumeNodeOptionsTests.swift */; };
 		3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */ = {isa = PBXBuildFile; productRef = 3069F1D10000000000000006 /* CMUXPasteboardFidelity */; };
 		F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */ = {isa = PBXBuildFile; productRef = F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */; };
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
@@ -391,6 +396,7 @@
 		B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */; };
 		B9000061A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */; };
 		B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */; };
+		C3512A050000000000000001 /* CMUXCLI+NodeOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3512A040000000000000001 /* CMUXCLI+NodeOptions.swift */; };
 		B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */; };
 		B9000071A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
@@ -941,6 +947,7 @@
 		B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+InstallPreview.swift"; sourceTree = "<group>"; };
 		B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+HermesAgentHooks.swift"; sourceTree = "<group>"; };
 		B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookDefinitions.swift"; sourceTree = "<group>"; };
+		C3512A040000000000000001 /* CMUXCLI+NodeOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+NodeOptions.swift"; sourceTree = "<group>"; };
 		B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AmpExtension.swift"; sourceTree = "<group>"; };
 		B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Memory.swift"; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1007,6 +1014,8 @@
 		F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotTests.swift; sourceTree = "<group>"; };
 		F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScannerTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
+		C3512A02000000000000002 /* ClaudeWrapperNodeOptionsRestoreModuleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWrapperNodeOptionsRestoreModuleTests.swift; sourceTree = "<group>"; };
+		C3512A03000000000000002 /* AgentResumeNodeOptionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentResumeNodeOptionsTests.swift; sourceTree = "<group>"; };
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderResumeTests.swift; sourceTree = "<group>"; };
 		F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderHermesTests.swift; sourceTree = "<group>"; };
@@ -1064,6 +1073,7 @@
 				A5001290 /* MarkdownUI in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
+				C3512A010000000000000001 /* CMUXNodeOptions in Frameworks */,
 				3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */,
 				F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
@@ -1084,6 +1094,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */,
+				C3512A010000000000000002 /* CMUXNodeOptions in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				B900004CA1B2C3D4E5F60719 /* CMUXSocketPathDomain in Frameworks */,
 			);
@@ -1101,6 +1112,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C3512A010000000000000003 /* CMUXNodeOptions in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1522,6 +1534,7 @@
 						B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */,
 						B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */,
 						B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */,
+						C3512A040000000000000001 /* CMUXCLI+NodeOptions.swift */,
 						B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */,
 						B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */,
 						B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */,
@@ -1551,6 +1564,8 @@
 				F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */,
 					F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */,
 					F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
+					C3512A02000000000000002 /* ClaudeWrapperNodeOptionsRestoreModuleTests.swift */,
+					C3512A03000000000000002 /* AgentResumeNodeOptionsTests.swift */,
 					B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */,
 					D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */,
 					F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */,
@@ -1701,6 +1716,7 @@
 				3069F1D10000000000000006 /* CMUXPasteboardFidelity */,
 				F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				C3512A010000000000000005 /* CMUXNodeOptions */,
 				A5354305A5354305A5354305 /* CMUXSocketPathDomain */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
@@ -1723,6 +1739,7 @@
 			name = "cmux-cli";
 			packageProductDependencies = (
 				A5001251 /* Sentry */,
+				C3512A010000000000000005 /* CMUXNodeOptions */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A5354305A5354305A5354305 /* CMUXSocketPathDomain */,
 			);
@@ -1780,6 +1797,7 @@
 			);
 			name = cmuxTests;
 			packageProductDependencies = (
+				C3512A010000000000000005 /* CMUXNodeOptions */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 			);
 			productName = cmuxTests;
@@ -1833,6 +1851,7 @@
 				3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */,
 				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
+				C3512A010000000000000004 /* XCLocalSwiftPackageReference "CMUXNodeOptions" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CMUXSocketPathDomain" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
@@ -2265,6 +2284,7 @@
 					B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */,
 					B9000061A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift in Sources */,
 					B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */,
+					C3512A050000000000000001 /* CMUXCLI+NodeOptions.swift in Sources */,
 					B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */,
 					B9000071A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift in Sources */,
 					B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */,
@@ -2434,6 +2454,8 @@
 					A5A5A505A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift in Sources */,
 					A5C41103A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift in Sources */,
 					A5D41203A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift in Sources */,
+					C3512A02000000000000001 /* ClaudeWrapperNodeOptionsRestoreModuleTests.swift in Sources */,
+					C3512A03000000000000001 /* AgentResumeNodeOptionsTests.swift in Sources */,
 					A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */,
 					A5D41207A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift in Sources */,
 					A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */,
@@ -2863,6 +2885,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXAgentLaunch;
 		};
+		C3512A010000000000000004 /* XCLocalSwiftPackageReference "CMUXNodeOptions" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CMUXNodeOptions;
+		};
 		A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXDebugLog;
@@ -2937,6 +2963,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */;
 			productName = CMUXAgentLaunch;
+		};
+		C3512A010000000000000005 /* CMUXNodeOptions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C3512A010000000000000004 /* XCLocalSwiftPackageReference "CMUXNodeOptions" */;
+			productName = CMUXNodeOptions;
 		};
 		A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */ = {
 			isa = XCSwiftPackageProductDependency;

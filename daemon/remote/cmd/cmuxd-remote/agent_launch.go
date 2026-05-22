@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 )
 
 const claudeNodeOptionsRestoreModuleScript = `const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
@@ -20,6 +21,8 @@ if (hadOriginalNodeOptions) {
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
 `
+
+const nodeOptionsRestoreModuleFilename = "restore-node-options.cjs"
 
 // runClaudeTeamsRelay implements `cmux claude-teams` on the remote side.
 // It creates tmux shim scripts, sets up environment variables, gets the
@@ -314,15 +317,104 @@ func writeShimIfChanged(path string, content string) error {
 }
 
 func ensureClaudeNodeOptionsRestoreModule() (string, error) {
-	dir := filepath.Join(os.TempDir(), "cmux-claude-node-options")
+	dir, err := claudeNodeOptionsRestoreDir()
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
-	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
+	restoreModulePath := filepath.Join(dir, nodeOptionsRestoreModuleFilename)
 	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
 		return "", err
 	}
 	return restoreModulePath, nil
+}
+
+func claudeNodeOptionsRestoreDir() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err == nil && strings.TrimSpace(configDir) != "" {
+		candidate := filepath.Join(configDir, "cmux", "node-options")
+		if err := ensureWritableNodeOptionsDir(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	return claudeNodeOptionsTempRestoreDir()
+}
+
+func ensureWritableNodeOptionsDir(dir string) error {
+	if info, err := os.Lstat(dir); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("node options directory is a symlink: %s", dir)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("node options path is not a directory: %s", dir)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(dir); err != nil {
+		return err
+	} else if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("node options directory is a symlink: %s", dir)
+	} else if !info.IsDir() {
+		return fmt.Errorf("node options path is not a directory: %s", dir)
+	}
+
+	probe, err := os.CreateTemp(dir, ".cmux-node-options-probe-*")
+	if err != nil {
+		return err
+	}
+	probePath := probe.Name()
+	closeErr := probe.Close()
+	removeErr := os.Remove(probePath)
+	if closeErr != nil {
+		return closeErr
+	}
+	return removeErr
+}
+
+func claudeNodeOptionsTempRestoreDir() (string, error) {
+	fallbackRoot := filepath.Join(os.TempDir(), fmt.Sprintf("cmux-node-options-%d", os.Getuid()))
+	if info, err := os.Lstat(fallbackRoot); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("node options fallback directory is a symlink: %s", fallbackRoot)
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("node options fallback path is not a directory: %s", fallbackRoot)
+		}
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	if err := os.MkdirAll(fallbackRoot, 0700); err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(fallbackRoot)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("node options fallback directory is a symlink: %s", fallbackRoot)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("node options fallback path is not a directory: %s", fallbackRoot)
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Uid != uint32(os.Getuid()) {
+		return "", fmt.Errorf("node options fallback directory is not owned by uid %d: %s", os.Getuid(), fallbackRoot)
+	}
+	if err := os.Chmod(fallbackRoot, 0700); err != nil {
+		return "", err
+	}
+
+	dir := filepath.Join(fallbackRoot, "cmux", "node-options")
+	if err := ensureWritableNodeOptionsDir(dir); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // --- Focused context ---
@@ -377,8 +469,14 @@ func getFocusedContext(rc *rpcContext) *focusedContext {
 func configureClaudeNodeOptions(restoreModulePath string) {
 	existing, hadExisting := os.LookupEnv("NODE_OPTIONS")
 	if hadExisting {
-		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1")
-		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS", existing)
+		original := originalNodeOptionsForRestore(existing)
+		if original != "" {
+			os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1")
+			os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS", original)
+		} else {
+			os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0")
+			os.Unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
+		}
 	} else {
 		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0")
 		os.Unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -387,7 +485,7 @@ func configureClaudeNodeOptions(restoreModulePath string) {
 }
 
 func mergeNodeOptions(existing string, restoreModulePath string) string {
-	requireFlag := "--require=" + restoreModulePath
+	requireFlag := "--require=" + nodeOptionsRequirePath(restoreModulePath)
 	const memoryFlag = "--max-old-space-size=4096"
 	cleaned := cleanedNodeOptions(existing)
 	if cleaned == "" {
@@ -396,27 +494,201 @@ func mergeNodeOptions(existing string, restoreModulePath string) string {
 	return requireFlag + " " + memoryFlag + " " + cleaned
 }
 
+func nodeOptionsRequirePath(path string) string {
+	return quoteNodeOptionsToken(path)
+}
+
 func cleanedNodeOptions(existing string) string {
-	tokens := strings.Fields(existing)
+	tokens := nodeOptionsTokens(existing)
 	if len(tokens) == 0 {
 		return ""
 	}
 
 	filtered := make([]string, 0, len(tokens))
+	dropInjectedHeapCap := false
 	for i := 0; i < len(tokens); i++ {
 		token := tokens[i]
-		if token == "--max-old-space-size" {
-			if i+1 < len(tokens) {
-				i++
+		if dropInjectedHeapCap && isInjectedNodeHeapCap(tokens, i) {
+			i += nodeHeapCapWidth(tokens, i) - 1
+			dropInjectedHeapCap = false
+			continue
+		}
+		dropInjectedHeapCap = false
+
+		if isRequireOption(token) && i+1 < len(tokens) && isCmuxRestoreModulePath(tokens[i+1]) {
+			i++
+			dropInjectedHeapCap = true
+			continue
+		}
+		if path, ok := inlineRequireOptionPath(token); ok && isCmuxRestoreModulePath(path) {
+			dropInjectedHeapCap = true
+			continue
+		}
+
+		filtered = append(filtered, token)
+	}
+	return joinNodeOptionsTokens(filtered)
+}
+
+func originalNodeOptionsForRestore(existing string) string {
+	tokens := nodeOptionsTokens(existing)
+	if len(tokens) == 0 {
+		return ""
+	}
+
+	restored := make([]string, 0, len(tokens))
+	dropInjectedHeapCap := false
+	for i := 0; i < len(tokens); i++ {
+		token := tokens[i]
+		if dropInjectedHeapCap && isInjectedNodeHeapCap(tokens, i) {
+			i += nodeHeapCapWidth(tokens, i) - 1
+			dropInjectedHeapCap = false
+			continue
+		}
+		dropInjectedHeapCap = false
+
+		if isRequireOption(token) && i+1 < len(tokens) && isCmuxRestoreModulePath(tokens[i+1]) {
+			i++
+			dropInjectedHeapCap = true
+			continue
+		}
+		if path, ok := inlineRequireOptionPath(token); ok && isCmuxRestoreModulePath(path) {
+			dropInjectedHeapCap = true
+			continue
+		}
+
+		if token == "--max-old-space-size" && i+1 < len(tokens) {
+			restored = append(restored, "--max-old-space-size="+tokens[i+1])
+			i++
+			continue
+		}
+		restored = append(restored, token)
+	}
+	return joinNodeOptionsTokens(restored)
+}
+
+func isRequireOption(token string) bool {
+	return token == "--require" || token == "-r"
+}
+
+func inlineRequireOptionPath(token string) (string, bool) {
+	for _, prefix := range []string{"--require=", "-r="} {
+		if strings.HasPrefix(token, prefix) {
+			return strings.TrimPrefix(token, prefix), true
+		}
+	}
+	return "", false
+}
+
+func isCmuxRestoreModulePath(value string) bool {
+	trimmed := strings.Trim(value, "'\"")
+	cleaned := filepath.ToSlash(filepath.Clean(trimmed))
+	components := strings.Split(cleaned, "/")
+	if len(components) == 0 || components[len(components)-1] != nodeOptionsRestoreModuleFilename {
+		return false
+	}
+	return hasPathComponentSuffix(components, []string{"cmux", "node-options", nodeOptionsRestoreModuleFilename}) ||
+		hasPathComponentSuffix(components, []string{"cmux-claude-node-options", nodeOptionsRestoreModuleFilename})
+}
+
+func hasPathComponentSuffix(components []string, suffix []string) bool {
+	if len(components) < len(suffix) {
+		return false
+	}
+	start := len(components) - len(suffix)
+	for i, want := range suffix {
+		if components[start+i] != want {
+			return false
+		}
+	}
+	return true
+}
+
+func isInjectedNodeHeapCap(tokens []string, index int) bool {
+	if index >= len(tokens) {
+		return false
+	}
+	token := tokens[index]
+	if token == "--max-old-space-size=4096" {
+		return true
+	}
+	return token == "--max-old-space-size" && index+1 < len(tokens) && tokens[index+1] == "4096"
+}
+
+func nodeHeapCapWidth(tokens []string, index int) int {
+	if index < len(tokens) && tokens[index] == "--max-old-space-size" && index+1 < len(tokens) {
+		return 2
+	}
+	return 1
+}
+
+func nodeOptionsTokens(raw string) []string {
+	var tokens []string
+	var current strings.Builder
+	var quote rune
+	escaping := false
+
+	for _, r := range raw {
+		if quote != 0 {
+			if escaping {
+				if r == '\\' || r == quote {
+					current.WriteRune(r)
+				} else {
+					current.WriteRune('\\')
+					current.WriteRune(r)
+				}
+				escaping = false
+				continue
+			}
+			if r == '\\' {
+				escaping = true
+				continue
+			}
+			if r == quote {
+				quote = 0
+			} else {
+				current.WriteRune(r)
 			}
 			continue
 		}
-		if strings.HasPrefix(token, "--max-old-space-size=") {
+		if r == '"' {
+			quote = r
 			continue
 		}
-		filtered = append(filtered, token)
+		if unicode.IsSpace(r) {
+			if current.Len() > 0 {
+				tokens = append(tokens, current.String())
+				current.Reset()
+			}
+			continue
+		}
+		current.WriteRune(r)
 	}
-	return strings.Join(filtered, " ")
+
+	if escaping {
+		current.WriteRune('\\')
+	}
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+	return tokens
+}
+
+func joinNodeOptionsTokens(tokens []string) string {
+	quoted := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		quoted = append(quoted, quoteNodeOptionsToken(token))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func quoteNodeOptionsToken(value string) string {
+	if !strings.ContainsAny(value, "\"\\") && strings.IndexFunc(value, unicode.IsSpace) == -1 {
+		return value
+	}
+	escaped := strings.ReplaceAll(value, "\\", "\\\\")
+	escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+	return "\"" + escaped + "\""
 }
 
 func stringFromAny(values ...any) string {

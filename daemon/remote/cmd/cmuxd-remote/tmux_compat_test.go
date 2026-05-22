@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -403,13 +404,131 @@ func TestMergeNodeOptions(t *testing.T) {
 	}
 
 	existing := "--max-old-space-size=2048 --trace-warnings"
-	if got := mergeNodeOptions(existing, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
-		t.Fatalf("mergeNodeOptions should replace existing size flag = %q", got)
+	if got := mergeNodeOptions(existing, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=2048 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should preserve existing size flag = %q", got)
 	}
 
 	spaceSeparated := "--max-old-space-size 2048 --trace-warnings"
-	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
-		t.Fatalf("mergeNodeOptions should replace space-separated size flag = %q", got)
+	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size 2048 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should preserve space-separated size flag = %q", got)
+	}
+
+	appSupportPath := "/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs"
+	if got := mergeNodeOptions("--trace-warnings", appSupportPath); got != "--require=\"/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs\" --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should quote restore paths with spaces = %q", got)
+	}
+
+	apostrophePath := "/Users/oconnor's/cmux/node-options/restore-node-options.cjs"
+	if got := mergeNodeOptions("--trace-warnings", apostrophePath); got != "--require=/Users/oconnor's/cmux/node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should preserve apostrophes in restore paths = %q", got)
+	}
+
+	apostropheExisting := "--require=/Users/oconnor's/preload.cjs --trace-warnings"
+	expectedApostropheExisting := "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --require=/Users/oconnor's/preload.cjs --trace-warnings"
+	if got := mergeNodeOptions(apostropheExisting, restoreModulePath); got != expectedApostropheExisting {
+		t.Fatalf("mergeNodeOptions should preserve unquoted apostrophes in existing options = %q", got)
+	}
+
+	backslashExisting := `--require=/tmp/foo\bar/preload.cjs --trace-warnings`
+	expectedBackslashExisting := `--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 "--require=/tmp/foo\\bar/preload.cjs" --trace-warnings`
+	if got := mergeNodeOptions(backslashExisting, restoreModulePath); got != expectedBackslashExisting {
+		t.Fatalf("mergeNodeOptions should preserve unquoted backslashes in existing options = %q", got)
+	}
+
+	quotedBackslashExisting := `"--require=/tmp/foo\bar/preload.cjs" --trace-warnings`
+	if got := mergeNodeOptions(quotedBackslashExisting, restoreModulePath); got != expectedBackslashExisting {
+		t.Fatalf("mergeNodeOptions should preserve quoted literal backslashes in existing options = %q", got)
+	}
+
+	existingQuotedRequire := "--require=\"/Users/example/Library/Application Support/--max-old-space-size 2048/restore-node-options.cjs\" --trace-warnings"
+	expectedQuotedRequire := "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 \"--require=/Users/example/Library/Application Support/--max-old-space-size 2048/restore-node-options.cjs\" --trace-warnings"
+	if got := mergeNodeOptions(existingQuotedRequire, restoreModulePath); got != expectedQuotedRequire {
+		t.Fatalf("mergeNodeOptions should preserve quoted existing require paths = %q", got)
+	}
+
+	staleLegacyRequire := "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings"
+	if got := mergeNodeOptions(staleLegacyRequire, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should strip stale legacy cmux restore require = %q", got)
+	}
+	staleRequireOnly := "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096"
+	if got := mergeNodeOptions(staleRequireOnly, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096" {
+		t.Fatalf("mergeNodeOptions should strip stale-only cmux restore require before reinjection = %q", got)
+	}
+	if got := originalNodeOptionsForRestore(staleRequireOnly); got != "" {
+		t.Fatalf("originalNodeOptionsForRestore should treat stale-only cmux restore require as absent = %q", got)
+	}
+
+	staleDurableRequire := "--require \"/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs\" --max-old-space-size 4096 --trace-warnings"
+	if got := mergeNodeOptions(staleDurableRequire, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should strip stale durable cmux restore require = %q", got)
+	}
+	if got := originalNodeOptionsForRestore(staleDurableRequire); got != "--trace-warnings" {
+		t.Fatalf("originalNodeOptionsForRestore should strip stale cmux restore require = %q", got)
+	}
+	staleRequireWithUserHeap := "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=8192 --trace-warnings"
+	if got := mergeNodeOptions(staleRequireWithUserHeap, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=8192 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should strip stale cmux heap cap only = %q", got)
+	}
+	if got := originalNodeOptionsForRestore(staleRequireWithUserHeap); got != "--max-old-space-size=8192 --trace-warnings" {
+		t.Fatalf("originalNodeOptionsForRestore should preserve user heap cap after stale cmux restore require = %q", got)
+	}
+	if got := originalNodeOptionsForRestore("--max-old-space-size 2048 --trace-warnings"); got != "--max-old-space-size=2048 --trace-warnings" {
+		t.Fatalf("originalNodeOptionsForRestore should normalize space-separated heap flags = %q", got)
+	}
+}
+
+func TestClaudeNodeOptionsRestoreDirFallsBackWhenUserConfigDirUnavailable(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("TMPDIR", tempDir)
+
+	got, err := claudeNodeOptionsRestoreDir()
+	if err != nil {
+		t.Fatalf("claudeNodeOptionsRestoreDir should not fail without HOME: %v", err)
+	}
+
+	expectedRoot := filepath.Join(tempDir, fmt.Sprintf("cmux-node-options-%d", os.Getuid()))
+	want := filepath.Join(expectedRoot, "cmux", "node-options")
+	if got != want {
+		t.Fatalf("claudeNodeOptionsRestoreDir fallback = %q, want stable fallback %q", got, want)
+	}
+	info, err := os.Stat(expectedRoot)
+	if err != nil {
+		t.Fatalf("claudeNodeOptionsRestoreDir should create fallback root: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("claudeNodeOptionsRestoreDir fallback root is not a directory: %q", expectedRoot)
+	}
+	if info.Mode().Perm() != 0700 {
+		t.Fatalf("claudeNodeOptionsRestoreDir fallback root mode = %o, want 0700", info.Mode().Perm())
+	}
+}
+
+func TestClaudeNodeOptionsRestoreDirFallsBackWhenUserConfigDirUnusable(t *testing.T) {
+	tempDir := t.TempDir()
+	badConfigDir := filepath.Join(tempDir, "config-file")
+	if err := os.WriteFile(badConfigDir, []byte("not a directory"), 0644); err != nil {
+		t.Fatalf("write bad config dir: %v", err)
+	}
+	t.Setenv("HOME", badConfigDir)
+	t.Setenv("XDG_CONFIG_HOME", badConfigDir)
+	t.Setenv("TMPDIR", tempDir)
+
+	got, err := claudeNodeOptionsRestoreDir()
+	if err != nil {
+		t.Fatalf("claudeNodeOptionsRestoreDir should fall back when config dir is unusable: %v", err)
+	}
+
+	expectedRoot := filepath.Join(tempDir, fmt.Sprintf("cmux-node-options-%d", os.Getuid()))
+	want := filepath.Join(expectedRoot, "cmux", "node-options")
+	if got != want {
+		t.Fatalf("claudeNodeOptionsRestoreDir invalid config fallback = %q, want %q", got, want)
+	}
+	if info, err := os.Stat(want); err != nil {
+		t.Fatalf("claudeNodeOptionsRestoreDir should create fallback restore dir: %v", err)
+	} else if !info.IsDir() {
+		t.Fatalf("claudeNodeOptionsRestoreDir fallback restore path is not a directory: %q", want)
 	}
 }
 

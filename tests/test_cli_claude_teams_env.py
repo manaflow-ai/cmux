@@ -6,6 +6,7 @@ Regression test: `cmux claude-teams` injects the tmux-style auto-mode env.
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import tempfile
 from pathlib import Path
@@ -24,11 +25,19 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+def restore_require_and_remaining(value: str) -> tuple[str, str]:
+    tokens = shlex.split(value)
+    if not tokens:
+        return "", ""
+    return tokens[0], shlex.join(tokens[1:])
+
+
 def run_claude_teams(
     cli_path: str,
     base_env: dict[str, str],
     node_options: str,
     tmpdir: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-env-") as td:
         tmp = Path(td)
@@ -128,6 +137,8 @@ fs.writeFileSync(
         env["NODE_OPTIONS"] = node_options
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
+        if extra_env is not None:
+            env.update(extra_env)
         explicit_socket_path = str(tmp / "explicit-cmux.sock")
         explicit_socket_password = "topsecret"
 
@@ -249,11 +260,18 @@ def main() -> int:
         print(f"stderr={proc.stderr.strip()}")
         return 1
 
-    require_flag, _, remaining_flags = node_options_value.partition(" ")
+    require_flag, remaining_flags = restore_require_and_remaining(node_options_value)
     if not require_flag.startswith("--require="):
         print(
             "FAIL: expected NODE_OPTIONS to prepend the restore preload, "
             f"got {node_options_value!r}"
+        )
+        return 1
+    restore_path = require_flag.removeprefix("--require=")
+    if "/Library/Application Support/cmux/node-options/restore-node-options.cjs" not in restore_path:
+        print(
+            "FAIL: expected NODE_OPTIONS restore preload to live in Application Support, "
+            f"got {restore_path!r}"
         )
         return 1
 
@@ -281,6 +299,100 @@ def main() -> int:
     proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
         cli_path,
         base_env,
+        "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs "
+        "--max-old-space-size=4096 "
+        '--require "/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs" '
+        "--max-old-space-size 4096 "
+        "--max-old-space-size=8192 "
+        "--trace-warnings",
+    )
+    if proc.returncode != 0:
+        print("FAIL: `cmux claude-teams --version` with stale cmux restore preloads exited non-zero")
+        print(f"exit={proc.returncode}")
+        print(f"stdout={proc.stdout.strip()}")
+        print(f"stderr={proc.stderr.strip()}")
+        return 1
+
+    require_flag, remaining_flags = restore_require_and_remaining(node_options_value)
+    if not require_flag.startswith("--require="):
+        print(
+            "FAIL: expected NODE_OPTIONS to prepend a fresh restore preload after stale preload cleanup, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+    restore_path = require_flag.removeprefix("--require=")
+    if "/Library/Application Support/cmux/node-options/restore-node-options.cjs" not in restore_path:
+        print(
+            "FAIL: expected fresh NODE_OPTIONS restore preload to live in Application Support, "
+            f"got {restore_path!r}"
+        )
+        return 1
+
+    if remaining_flags != "--max-old-space-size=4096 --max-old-space-size=8192 --trace-warnings":
+        print(
+            "FAIL: expected stale cmux restore preloads and paired heap caps to be stripped while preserving the user heap cap, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if runtime_node_options_value != "--max-old-space-size=8192 --trace-warnings":
+        print(
+            "FAIL: expected Claude runtime NODE_OPTIONS to drop stale cmux restore preloads only, "
+            f"got {runtime_node_options_value!r}"
+        )
+        return 1
+
+    if child_node_options_value != "--max-old-space-size=8192 --trace-warnings":
+        print(
+            "FAIL: expected child NODE_OPTIONS to drop stale cmux restore preloads only, "
+            f"got {child_node_options_value!r}"
+        )
+        return 1
+
+    proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+        cli_path,
+        base_env,
+        "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs "
+        "--max-old-space-size=4096",
+    )
+    if proc.returncode != 0:
+        print("FAIL: `cmux claude-teams --version` with only stale cmux restore preload exited non-zero")
+        print(f"exit={proc.returncode}")
+        print(f"stdout={proc.stdout.strip()}")
+        print(f"stderr={proc.stderr.strip()}")
+        return 1
+
+    require_flag, remaining_flags = restore_require_and_remaining(node_options_value)
+    if not require_flag.startswith("--require="):
+        print(
+            "FAIL: expected NODE_OPTIONS to prepend a fresh restore preload after stale-only cleanup, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+    if remaining_flags != "--max-old-space-size=4096":
+        print(
+            "FAIL: expected stale-only cmux restore preload and paired heap cap to be stripped before reinjection, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if runtime_node_options_value != "__UNSET__":
+        print(
+            "FAIL: expected Claude runtime NODE_OPTIONS to be absent after stale-only cleanup, "
+            f"got {runtime_node_options_value!r}"
+        )
+        return 1
+
+    if child_node_options_value != "__UNSET__":
+        print(
+            "FAIL: expected child NODE_OPTIONS to be absent after stale-only cleanup, "
+            f"got {child_node_options_value!r}"
+        )
+        return 1
+
+    proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+        cli_path,
+        base_env,
         "--max-old-space-size 2048 --trace-warnings",
     )
     if proc.returncode != 0:
@@ -290,7 +402,7 @@ def main() -> int:
         print(f"stderr={proc.stderr.strip()}")
         return 1
 
-    require_flag, _, remaining_flags = node_options_value.partition(" ")
+    require_flag, remaining_flags = restore_require_and_remaining(node_options_value)
     if not require_flag.startswith("--require="):
         print(
             "FAIL: expected NODE_OPTIONS to prepend the restore preload, "
@@ -298,21 +410,21 @@ def main() -> int:
         )
         return 1
 
-    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+    if remaining_flags != "--max-old-space-size=4096 --max-old-space-size 2048 --trace-warnings":
         print(
-            "FAIL: expected launcher to replace the existing space-separated NODE_OPTIONS heap cap after the restore preload, "
+            "FAIL: expected launcher to inject the cmux heap cap while preserving the user heap cap after the restore preload, "
             f"got {node_options_value!r}"
         )
         return 1
 
-    if runtime_node_options_value != "--max-old-space-size 2048 --trace-warnings":
+    if runtime_node_options_value != "--max-old-space-size=2048 --trace-warnings":
         print(
             "FAIL: expected Claude runtime NODE_OPTIONS to preserve the original max-old-space-size flag, "
             f"got {runtime_node_options_value!r}"
         )
         return 1
 
-    if child_node_options_value != "--max-old-space-size 2048 --trace-warnings":
+    if child_node_options_value != "--max-old-space-size=2048 --trace-warnings":
         print(
             "FAIL: expected child NODE_OPTIONS to preserve the original max-old-space-size flag, "
             f"got {child_node_options_value!r}"
@@ -335,23 +447,99 @@ def main() -> int:
         print(f"stderr={proc.stderr.strip()}")
         return 1
 
-    if node_options_value != "--trace-warnings":
+    require_flag, remaining_flags = restore_require_and_remaining(node_options_value)
+    if not require_flag.startswith("--require="):
         print(
-            "FAIL: expected claude-teams to skip restore preload injection when TMPDIR is unusable, "
+            "FAIL: expected claude-teams to inject restore preload even when TMPDIR is unusable, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+    restore_path = require_flag.removeprefix("--require=")
+    if str(bad_tmpdir) in restore_path:
+        print(
+            "FAIL: expected claude-teams restore preload to avoid TMPDIR, "
+            f"got {restore_path!r}"
+        )
+        return 1
+    if "/Library/Application Support/cmux/node-options/restore-node-options.cjs" not in restore_path:
+        print(
+            "FAIL: expected claude-teams restore preload to live in Application Support, "
+            f"got {restore_path!r}"
+        )
+        return 1
+    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+        print(
+            "FAIL: expected claude-teams to preserve existing NODE_OPTIONS after the restore preload, "
             f"got {node_options_value!r}"
         )
         return 1
 
     if runtime_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected Claude runtime NODE_OPTIONS to be restored when TMPDIR is unusable, "
             f"got {runtime_node_options_value!r}"
         )
         return 1
 
     if child_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected child NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected child NODE_OPTIONS to inherit restored original value when TMPDIR is unusable, "
+            f"got {child_node_options_value!r}"
+        )
+        return 1
+
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-bad-home-") as td:
+        root = Path(td)
+        bad_home = root / "home-file"
+        bad_home.write_text("not a directory", encoding="utf-8")
+        fallback_tmp = root / "fallback-tmp"
+        fallback_tmp.mkdir(parents=True, exist_ok=True)
+        proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+            cli_path,
+            base_env,
+            "--trace-warnings",
+            tmpdir=str(fallback_tmp),
+            extra_env={"HOME": str(bad_home)},
+        )
+        expected_restore_path = fallback_tmp / f"cmux-node-options-{os.getuid()}" / "cmux" / "node-options" / "restore-node-options.cjs"
+    if proc.returncode != 0:
+        print("FAIL: `cmux claude-teams --version` should still succeed when HOME is unusable")
+        print(f"exit={proc.returncode}")
+        print(f"stdout={proc.stdout.strip()}")
+        print(f"stderr={proc.stderr.strip()}")
+        return 1
+
+    require_flag, remaining_flags = restore_require_and_remaining(node_options_value)
+    if not require_flag.startswith("--require="):
+        print(
+            "FAIL: expected claude-teams to inject restore preload even when HOME is unusable, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+    restore_path = require_flag.removeprefix("--require=")
+    if Path(restore_path) != expected_restore_path:
+        print(
+            "FAIL: expected claude-teams restore preload to fall back to stable temp when HOME is unusable, "
+            f"want {expected_restore_path}, got {restore_path!r}"
+        )
+        return 1
+    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+        print(
+            "FAIL: expected claude-teams to preserve existing NODE_OPTIONS after invalid HOME fallback, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if runtime_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected Claude runtime NODE_OPTIONS to be restored when HOME is unusable, "
+            f"got {runtime_node_options_value!r}"
+        )
+        return 1
+
+    if child_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected child NODE_OPTIONS to inherit restored original value when HOME is unusable, "
             f"got {child_node_options_value!r}"
         )
         return 1

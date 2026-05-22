@@ -207,8 +207,8 @@ fi
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    local guard_dir
+    guard_dir="$(node_options_restore_dir)" || return 1
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path
@@ -238,57 +238,354 @@ EOF
     printf '%s' "$guard_path"
 }
 
+node_options_restore_dir_from_override() {
+    local override="${CMUX_NODE_OPTIONS_RESTORE_DIR:-}"
+    override="${override#"${override%%[![:space:]]*}"}"
+    override="${override%"${override##*[![:space:]]}"}"
+    [[ -n "$override" ]] || return 1
+
+    if [[ "$override" == "~" || "$override" == "~/"* ]]; then
+        local home="${HOME:-}"
+        [[ -n "$home" ]] || return 1
+        if [[ "$override" == "~" ]]; then
+            override="$home"
+        else
+            override="${home%/}/${override#~/}"
+        fi
+    elif [[ "$override" == "~"* ]]; then
+        return 1
+    fi
+
+    if [[ "$override" != /* ]]; then
+        local cwd="${PWD:-}"
+        [[ -n "$cwd" ]] || return 1
+        override="${cwd%/}/$override"
+    fi
+
+    while [[ "$override" == */ && "$override" != "/" ]]; do
+        override="${override%/}"
+    done
+    case "$override" in
+        */cmux/node-options|*/cmux-claude-node-options)
+            ;;
+        *)
+            override="${override%/}/cmux/node-options"
+            ;;
+    esac
+    printf '%s' "$override"
+}
+
+node_options_prepare_restore_dir() {
+    local dir="$1"
+    mkdir -p "$dir" 2>/dev/null || return 1
+    [[ ! -L "$dir" && -d "$dir" ]] || return 1
+
+    local probe
+    probe="$(mktemp "$dir/.cmux-node-options-probe.XXXXXX" 2>/dev/null)" || return 1
+    rm -f "$probe" 2>/dev/null || return 1
+}
+
+node_options_temp_restore_dir() {
+    local fallback_root="${TMPDIR:-/tmp}"
+    while [[ "$fallback_root" == */ && "$fallback_root" != "/" ]]; do
+        fallback_root="${fallback_root%/}"
+    done
+    local uid="${UID:-}"
+    if [[ -z "$uid" ]]; then
+        uid="$(id -u 2>/dev/null)" || return 1
+    fi
+    [[ "$uid" =~ ^[0-9]+$ ]] || return 1
+
+    local fallback_dir="$fallback_root/cmux-node-options-$uid"
+    if [[ -L "$fallback_dir" || ( -e "$fallback_dir" && ! -d "$fallback_dir" ) ]]; then
+        return 1
+    fi
+    mkdir -p "$fallback_dir" 2>/dev/null || return 1
+    if [[ -L "$fallback_dir" || ! -d "$fallback_dir" || ! -O "$fallback_dir" ]]; then
+        return 1
+    fi
+    chmod 0700 "$fallback_dir" 2>/dev/null || return 1
+    printf '%s' "$fallback_dir/cmux/node-options"
+}
+
+node_options_restore_dir() {
+    local candidate
+    if [[ -n "${CMUX_NODE_OPTIONS_RESTORE_DIR:-}" ]]; then
+        if candidate="$(node_options_restore_dir_from_override)" &&
+            node_options_prepare_restore_dir "$candidate"; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    fi
+
+    local home="${HOME:-}"
+    if [[ -n "$home" ]]; then
+        candidate="${home%/}/Library/Application Support/cmux/node-options"
+        if node_options_prepare_restore_dir "$candidate"; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    fi
+
+    candidate="$(node_options_temp_restore_dir)" || return 1
+    node_options_prepare_restore_dir "$candidate" || return 1
+    printf '%s' "$candidate"
+}
+
+node_options_split() {
+    local raw="${1:-}"
+    local current=""
+    local quote=""
+    local escaping=0
+    local ch
+    local i
+    node_options_split_tokens=()
+
+    for (( i = 0; i < ${#raw}; i++ )); do
+        ch="${raw:i:1}"
+        if [[ -n "$quote" ]]; then
+            if (( escaping )); then
+                if [[ "$ch" == "\\" || "$ch" == "$quote" ]]; then
+                    current+="$ch"
+                else
+                    current+="\\$ch"
+                fi
+                escaping=0
+                continue
+            fi
+            if [[ "$ch" == "\\" ]]; then
+                escaping=1
+                continue
+            fi
+            if [[ "$ch" == "$quote" ]]; then
+                quote=""
+            else
+                current+="$ch"
+            fi
+            continue
+        fi
+        if [[ "$ch" == "\"" ]]; then
+            quote="$ch"
+            continue
+        fi
+        if [[ "$ch" =~ [[:space:]] ]]; then
+            if [[ -n "$current" ]]; then
+                node_options_split_tokens+=("$current")
+                current=""
+            fi
+            continue
+        fi
+        current+="$ch"
+    done
+
+    if (( escaping )); then
+        current+="\\"
+    fi
+    if [[ -n "$current" ]]; then
+        node_options_split_tokens+=("$current")
+    fi
+}
+
+node_options_quote_token() {
+    local value="$1"
+    if [[ "$value" == *[[:space:]]* || "$value" == *\"* || "$value" == *\\* ]]; then
+        local escaped="${value//\\/\\\\}"
+        escaped="${escaped//\"/\\\"}"
+        printf '%s' "\"$escaped\""
+    else
+        printf '%s' "$value"
+    fi
+}
+
+node_options_join_tokens() {
+    local first=1
+    local token
+    local quoted
+
+    for token in "$@"; do
+        quoted="$(node_options_quote_token "$token")"
+        if (( first )); then
+            printf '%s' "$quoted"
+            first=0
+        else
+            printf ' %s' "$quoted"
+        fi
+    done
+}
+
+node_options_require_flag() {
+    local path="$1"
+    local quoted
+    quoted="$(node_options_quote_token "$path")"
+    printf '%s' "--require=$quoted"
+}
+
+node_options_path_has_component_suffix() {
+    local path="$1"
+    local suffix="$2"
+    if [[ "$path" == "$suffix" ]]; then
+        return 0
+    fi
+
+    local path_len="${#path}"
+    local suffix_len="${#suffix}"
+    if (( path_len <= suffix_len )); then
+        return 1
+    fi
+
+    local start=$((path_len - suffix_len))
+    local previous="${path:$((start - 1)):1}"
+    [[ "${path:$start:$suffix_len}" == "$suffix" && "$previous" == "/" ]]
+}
+
+node_options_is_cmux_restore_module_path() {
+    local path="$1"
+    while [[ "$path" == \"* || "$path" == \'* ]]; do
+        path="${path:1}"
+    done
+    while [[ "$path" == *\" || "$path" == *\' ]]; do
+        path="${path%?}"
+    done
+
+    node_options_path_has_component_suffix "$path" "cmux/node-options/restore-node-options.cjs" ||
+        node_options_path_has_component_suffix "$path" "cmux-claude-node-options/restore-node-options.cjs"
+}
+
+node_options_is_require_option() {
+    [[ "$1" == "--require" || "$1" == "-r" ]]
+}
+
+node_options_inline_require_path() {
+    case "$1" in
+        --require=*)
+            printf '%s' "${1#--require=}"
+            return 0
+            ;;
+        -r=*)
+            printf '%s' "${1#-r=}"
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+node_options_is_injected_heap_cap_at() {
+    local index="$1"
+    local token_count="$2"
+    [[ "$index" -lt "$token_count" ]] || return 1
+
+    local token="${node_options_split_tokens[$index]}"
+    if [[ "$token" == "--max-old-space-size=4096" ]]; then
+        return 0
+    fi
+    if [[ "$token" == "--max-old-space-size" ]] && (( index + 1 < token_count )) && [[ "${node_options_split_tokens[$((index + 1))]}" == "4096" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+node_options_heap_cap_width_at() {
+    local index="$1"
+    local token_count="$2"
+    if [[ "$index" -lt "$token_count" ]]; then
+        local token="${node_options_split_tokens[$index]}"
+        if [[ "$token" == "--max-old-space-size" ]] && (( index + 1 < token_count )); then
+            printf '%s' 2
+            return 0
+        fi
+    fi
+    printf '%s' 1
+}
+
 merge_node_options() {
     local guard_path="$1"
-    local require_flag="--require=$guard_path"
+    local require_flag
+    require_flag="$(node_options_require_flag "$guard_path")"
     local memory_flag="--max-old-space-size=4096"
     local existing="${NODE_OPTIONS:-}"
     local -a filtered=()
-    local -a tokens=()
     local token
-    local skip_next=0
+    local token_count=0
+    local index=0
+    local drop_injected_heap_cap=0
+    local inline_require_path
 
     if [[ -z "$guard_path" ]]; then
         printf '%s' "$existing"
         return 0
     fi
 
-    read -r -a tokens <<<"$existing"
-    for token in "${tokens[@]}"; do
-        if (( skip_next )); then
-            skip_next=0
+    node_options_split "$existing"
+    token_count=${#node_options_split_tokens[@]}
+    while (( index < token_count )); do
+        token="${node_options_split_tokens[$index]}"
+        if (( drop_injected_heap_cap )) && node_options_is_injected_heap_cap_at "$index" "$token_count"; then
+            index=$((index + $(node_options_heap_cap_width_at "$index" "$token_count")))
+            drop_injected_heap_cap=0
             continue
         fi
-        if [[ "$token" == "--max-old-space-size" ]]; then
-            skip_next=1
+        drop_injected_heap_cap=0
+
+        if node_options_is_require_option "$token" && (( index + 1 < token_count )) && node_options_is_cmux_restore_module_path "${node_options_split_tokens[$((index + 1))]}"; then
+            index=$((index + 2))
+            drop_injected_heap_cap=1
             continue
         fi
-        if [[ "$token" == --max-old-space-size=* ]]; then
+        if inline_require_path="$(node_options_inline_require_path "$token")" && node_options_is_cmux_restore_module_path "$inline_require_path"; then
+            index=$((index + 1))
+            drop_injected_heap_cap=1
             continue
         fi
+
         filtered+=("$token")
+        index=$((index + 1))
     done
 
     if (( ${#filtered[@]} == 0 )); then
         printf '%s %s' "$require_flag" "$memory_flag"
         return 0
     fi
+    local joined
+    joined="$(node_options_join_tokens "${filtered[@]}")"
     printf '%s %s' "$require_flag" "$memory_flag"
-    printf ' %s' "${filtered[@]}"
+    if [[ -n "$joined" ]]; then
+        printf ' %s' "$joined"
+    fi
 }
 
 normalize_node_options_for_restore() {
     local existing="${1:-}"
-    local -a tokens=()
     local -a normalized=()
     local token
     local index=0
+    local token_count=0
+    local drop_injected_heap_cap=0
+    local inline_require_path
 
-    read -r -a tokens <<<"$existing"
-    while (( index < ${#tokens[@]} )); do
-        token="${tokens[$index]}"
-        if [[ "$token" == "--max-old-space-size" && $((index + 1)) -lt ${#tokens[@]} ]]; then
-            normalized+=("--max-old-space-size=${tokens[$((index + 1))]}")
+    node_options_split "$existing"
+    token_count=${#node_options_split_tokens[@]}
+    while (( index < token_count )); do
+        token="${node_options_split_tokens[$index]}"
+        if (( drop_injected_heap_cap )) && node_options_is_injected_heap_cap_at "$index" "$token_count"; then
+            index=$((index + $(node_options_heap_cap_width_at "$index" "$token_count")))
+            drop_injected_heap_cap=0
+            continue
+        fi
+        drop_injected_heap_cap=0
+
+        if node_options_is_require_option "$token" && (( index + 1 < token_count )) && node_options_is_cmux_restore_module_path "${node_options_split_tokens[$((index + 1))]}"; then
+            index=$((index + 2))
+            drop_injected_heap_cap=1
+            continue
+        fi
+        if inline_require_path="$(node_options_inline_require_path "$token")" && node_options_is_cmux_restore_module_path "$inline_require_path"; then
+            index=$((index + 1))
+            drop_injected_heap_cap=1
+            continue
+        fi
+
+        if [[ "$token" == "--max-old-space-size" ]] && (( index + 1 < token_count )); then
+            normalized+=("--max-old-space-size=${node_options_split_tokens[$((index + 1))]}")
             index=$((index + 2))
             continue
         fi
@@ -299,10 +596,7 @@ normalize_node_options_for_restore() {
     if (( ${#normalized[@]} == 0 )); then
         return 0
     fi
-    printf '%s' "${normalized[0]}"
-    if (( ${#normalized[@]} > 1 )); then
-        printf ' %s' "${normalized[@]:1}"
-    fi
+    node_options_join_tokens "${normalized[@]}"
 }
 
 encode_launch_argv() {
@@ -443,8 +737,14 @@ export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
 if GUARD_PATH="$(ensure_node_options_restore_module)"; then
     if [[ ${NODE_OPTIONS+x} ]]; then
-        export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
-        export CMUX_ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
+        ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
+        if [[ -n "$ORIGINAL_NODE_OPTIONS" ]]; then
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
+            export CMUX_ORIGINAL_NODE_OPTIONS="$ORIGINAL_NODE_OPTIONS"
+        else
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
+            unset CMUX_ORIGINAL_NODE_OPTIONS
+        fi
     else
         export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
         unset CMUX_ORIGINAL_NODE_OPTIONS
