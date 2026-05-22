@@ -2300,16 +2300,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "${surface_id}": surfaceId,
         ]
         let feedResults = try replayFeedResultsByRequestId(fixture: fixture, replacements: replacements)
-        let connectionLimit = replayConnectionLimit(for: fixture)
+        var acceptingServer: MultiConnectionMockSocketServer?
 
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         defer {
+            acceptingServer?.stop()
+            if let acceptingServer {
+                wait(for: [acceptingServer.finished], timeout: 5)
+            }
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
         }
 
-        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: connectionLimit) { line in
+        acceptingServer = startMockServerAccepting(listenerFD: listenerFD, socketPath: socketPath, state: state) { line in
             self.agentReplaySocketResponse(
                 line: line,
                 surfaceId: surfaceId,
@@ -2623,13 +2627,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
         return results
-    }
-
-    private func replayConnectionLimit(for fixture: AgentHookTrajectoryReplayFixture) -> Int {
-        let stepCount = fixture.trajectories.reduce(0) { $0 + $1.steps.count }
-        // Hook invocations use short-lived sockets; budget four connections per step
-        // for discovery, feed/status, notification, and one spare.
-        return max(4, stepCount * 4)
     }
 
     private func agentReplaySocketResponse(

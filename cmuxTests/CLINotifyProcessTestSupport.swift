@@ -26,6 +26,64 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    final class MultiConnectionMockSocketServer: @unchecked Sendable {
+        let finished: XCTestExpectation
+
+        private let lock = NSLock()
+        private let listenerFD: Int32
+        private let socketPath: String
+        private var stopped = false
+
+        init(listenerFD: Int32, socketPath: String, finished: XCTestExpectation) {
+            self.listenerFD = listenerFD
+            self.socketPath = socketPath
+            self.finished = finished
+        }
+
+        var isStopped: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return stopped
+        }
+
+        func stop() {
+            lock.lock()
+            let shouldWake = !stopped
+            stopped = true
+            lock.unlock()
+
+            guard shouldWake else { return }
+            _ = Darwin.shutdown(listenerFD, SHUT_RDWR)
+            wakeAccept()
+        }
+
+        private func wakeAccept() {
+            let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else { return }
+            defer { Darwin.close(fd) }
+
+            var addr = sockaddr_un()
+            addr.sun_family = sa_family_t(AF_UNIX)
+            let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
+            let utf8 = Array(socketPath.utf8)
+            guard utf8.count < maxPathLength else { return }
+            withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
+                    for index in 0..<utf8.count {
+                        buffer[index] = CChar(bitPattern: utf8[index])
+                    }
+                    buffer[utf8.count] = 0
+                }
+            }
+
+            _ = withUnsafePointer(to: &addr) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
+            }
+        }
+    }
+
     func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
@@ -159,13 +217,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func startMockServerAccepting(
         listenerFD: Int32,
+        socketPath: String,
         state: MockSocketServerState,
-        connectionLimit: Int,
         handler: @escaping @Sendable (String) -> String
-    ) {
+    ) -> MultiConnectionMockSocketServer {
+        let server = MultiConnectionMockSocketServer(
+            listenerFD: listenerFD,
+            socketPath: socketPath,
+            finished: expectation(description: "cli mock socket accept loop stopped")
+        )
         DispatchQueue.global(qos: .userInitiated).async {
-            var accepted = 0
-            while accepted < connectionLimit {
+            defer { server.finished.fulfill() }
+            while !server.isStopped {
                 var clientAddr = sockaddr_un()
                 var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
                 let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
@@ -177,7 +240,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     if errno == EINTR { continue }
                     return
                 }
-                accepted += 1
+                if server.isStopped {
+                    Darwin.close(clientFD)
+                    return
+                }
 
                 DispatchQueue.global(qos: .userInitiated).async {
                     defer { Darwin.close(clientFD) }
@@ -204,6 +270,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 }
             }
         }
+        return server
     }
 
     func writeAll(_ string: String, to fd: Int32) -> Bool {
