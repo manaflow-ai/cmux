@@ -100,4 +100,10 @@ final class AgentExecutableResolverTests: XCTestCase {
             XCTAssertEqual(plan.arguments, provider.launchArguments)
         }
     }
+
+    func testAutoStartPolicyMatchesAppServerProviders() {
+        XCTAssertTrue(AgentSessionProviderID.codex.shouldAutoStartSession)
+        XCTAssertTrue(AgentSessionProviderID.opencode.shouldAutoStartSession)
+        XCTAssertFalse(AgentSessionProviderID.claude.shouldAutoStartSession)
+    }
 }
