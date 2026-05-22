@@ -5,12 +5,12 @@ description: "Guide and apply cmux keyboard shortcut customization. Use when the
 
 # cmux-keyboard-shortcuts
 
-Use this skill to turn a user's workflow preferences into cmux shortcut bindings in `~/.config/cmux/cmux.json`. It should guide the user, propose compact templates, apply selected changes, and validate the result.
+Use this skill to turn a user's workflow preferences into cmux shortcut bindings in `~/.config/cmux/cmux.json`. It should guide the user, propose compact templates, apply selected changes, and confirm the config parses with recognized keys.
 
 ## Prerequisites
 
 - Work from a cmux checkout or worktree root when possible.
-- Use `skills/cmux-settings/scripts/cmux-settings` for every read/write. It preserves JSONC, writes atomically, and validates the schema.
+- Use `skills/cmux-settings/scripts/cmux-settings` for every read/write. It reads JSONC, writes atomically, and validates JSON plus recognized settings keys.
 - For action IDs, read `skills/cmux-settings/references/shortcut-actions.md`.
 - For current defaults, read `web/data/cmux-shortcuts.ts` or `Sources/KeyboardShortcutSettings.swift`.
 
@@ -52,10 +52,13 @@ fi
 
 1. Classify the request:
    - One-off rebind or unbind: map the phrase to an action ID, apply it, validate, and report the previous and new binding.
+   - Audit-only request: inspect current bindings, validate, and summarize overrides/unbound shortcuts without writing.
+   - Reset request: use `unset` for named actions. For a category reset, use the restore templates below and prefer `unset` over writing default values.
    - Broad customization request: propose 3 to 5 templates from "Preset Templates" and ask the user to choose.
-   - Named style such as tmux, Vim, iTerm, browser, or agent triage: select the closest template, show the changed actions, and ask before a bulk apply unless the user explicitly said to apply it.
+   - Named style such as tmux, Vim, iTerm, browser, or agent triage: select the closest template, show the changed actions and likely collisions, and ask before a bulk apply unless the user explicitly said to apply it.
 2. Inspect existing config:
    ```bash
+   "$CMUX_SETTINGS" path
    "$CMUX_SETTINGS" get shortcuts.bindings 2>/dev/null || printf '{}\n'
    "$CMUX_SETTINGS" validate
    ```
@@ -97,6 +100,23 @@ For users who want one terminal-style shortcut namespace and accept that `ctrl+b
 "$CMUX_SETTINGS" set shortcuts.bindings.equalizeSplits '["ctrl+b","="]'
 ```
 
+### macOS Terminal/iTerm Restore
+
+For users who want surface, split, and tab behavior to feel like common macOS terminals again. These actions already match cmux defaults, so unset overrides instead of writing defaults.
+
+```bash
+"$CMUX_SETTINGS" unset shortcuts.bindings.newSurface
+"$CMUX_SETTINGS" unset shortcuts.bindings.closeTab
+"$CMUX_SETTINGS" unset shortcuts.bindings.nextSurface
+"$CMUX_SETTINGS" unset shortcuts.bindings.prevSurface
+"$CMUX_SETTINGS" unset shortcuts.bindings.selectSurfaceByNumber
+"$CMUX_SETTINGS" unset shortcuts.bindings.splitRight
+"$CMUX_SETTINGS" unset shortcuts.bindings.splitDown
+"$CMUX_SETTINGS" unset shortcuts.bindings.toggleSplitZoom
+"$CMUX_SETTINGS" unset shortcuts.bindings.toggleTerminalCopyMode
+"$CMUX_SETTINGS" unset shortcuts.bindings.renameTab
+```
+
 ### Vim Pane Navigation
 
 For users who want fast pane movement without a prefix and do not want to depend on arrow keys.
@@ -134,28 +154,28 @@ For users who want workspaces and surfaces on distinct number and bracket lanes.
 "$CMUX_SETTINGS" set shortcuts.bindings.selectSurfaceByNumber cmd+opt+1
 "$CMUX_SETTINGS" set shortcuts.bindings.nextSidebarTab 'cmd+opt+]'
 "$CMUX_SETTINGS" set shortcuts.bindings.prevSidebarTab 'cmd+opt+['
-"$CMUX_SETTINGS" set shortcuts.bindings.nextSurface 'cmd+]'
-"$CMUX_SETTINGS" set shortcuts.bindings.prevSurface 'cmd+['
+"$CMUX_SETTINGS" set shortcuts.bindings.nextSurface 'cmd+shift+]'
+"$CMUX_SETTINGS" set shortcuts.bindings.prevSurface 'cmd+shift+['
 ```
 
 ### Browser Defaults Restore
 
-For users who changed too much and want embedded-browser behavior to match common macOS browser shortcuts again.
+For users who changed too much and want embedded-browser behavior to match common macOS browser shortcuts again. Use `unset` so future cmux defaults still apply.
 
 ```bash
-"$CMUX_SETTINGS" set shortcuts.bindings.openBrowser cmd+shift+l
-"$CMUX_SETTINGS" set shortcuts.bindings.focusBrowserAddressBar cmd+l
-"$CMUX_SETTINGS" set shortcuts.bindings.browserBack 'cmd+['
-"$CMUX_SETTINGS" set shortcuts.bindings.browserForward 'cmd+]'
-"$CMUX_SETTINGS" set shortcuts.bindings.browserReload cmd+r
-"$CMUX_SETTINGS" set shortcuts.bindings.browserZoomIn cmd+=
-"$CMUX_SETTINGS" set shortcuts.bindings.browserZoomOut cmd+-
-"$CMUX_SETTINGS" set shortcuts.bindings.browserZoomReset cmd+0
-"$CMUX_SETTINGS" set shortcuts.bindings.toggleBrowserDeveloperTools cmd+opt+i
-"$CMUX_SETTINGS" set shortcuts.bindings.showBrowserJavaScriptConsole cmd+opt+c
-"$CMUX_SETTINGS" set shortcuts.bindings.find cmd+f
-"$CMUX_SETTINGS" set shortcuts.bindings.findNext cmd+g
-"$CMUX_SETTINGS" set shortcuts.bindings.findPrevious cmd+opt+g
+"$CMUX_SETTINGS" unset shortcuts.bindings.openBrowser
+"$CMUX_SETTINGS" unset shortcuts.bindings.focusBrowserAddressBar
+"$CMUX_SETTINGS" unset shortcuts.bindings.browserBack
+"$CMUX_SETTINGS" unset shortcuts.bindings.browserForward
+"$CMUX_SETTINGS" unset shortcuts.bindings.browserReload
+"$CMUX_SETTINGS" unset shortcuts.bindings.browserZoomIn
+"$CMUX_SETTINGS" unset shortcuts.bindings.browserZoomOut
+"$CMUX_SETTINGS" unset shortcuts.bindings.browserZoomReset
+"$CMUX_SETTINGS" unset shortcuts.bindings.toggleBrowserDeveloperTools
+"$CMUX_SETTINGS" unset shortcuts.bindings.showBrowserJavaScriptConsole
+"$CMUX_SETTINGS" unset shortcuts.bindings.find
+"$CMUX_SETTINGS" unset shortcuts.bindings.findNext
+"$CMUX_SETTINGS" unset shortcuts.bindings.findPrevious
 ```
 
 ### Terminal-First Cleanup
@@ -176,7 +196,8 @@ For users who want fewer app-level shortcuts. Prefer unbinding only the actions 
 - Do not overwrite all of `shortcuts.bindings` unless the user explicitly wants a full replacement.
 - Do not invent action IDs. Validate against the schema or `shortcut-actions.md`.
 - Do not apply a broad template without showing the changed actions first unless the user explicitly said to apply that named template.
-- Do not promise conflict detection from `cmux-settings validate`; it validates syntax and supported keys, not every focus-context conflict.
+- Do not promise conflict detection from `cmux-settings validate`; it validates JSON and supported keys, not shortcut syntax, macOS reservation, or every focus-context conflict.
+- Before assigning `cmd+[` or `cmd+]` to application-scoped actions, warn that they collide with common browser Back/Forward behavior unless the browser actions are also changed or unbound.
 - Prefer `unset` to "restore defaults" for individual actions:
   ```bash
   "$CMUX_SETTINGS" unset shortcuts.bindings.focusLeft
