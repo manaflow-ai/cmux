@@ -2,17 +2,27 @@
   "version": 1,
   "trajectories": [
     {
-      "name": "claude-code-basic-turn",
+      "name": "claude-code-long-tool-turn",
       "agent": "claude",
       "launch": {
         "kind": "claude",
         "executable": "/usr/local/bin/claude",
-        "argv": ["/usr/local/bin/claude", "--model", "sonnet", "--permission-mode", "plan"]
+        "argv": [
+          "/usr/local/bin/claude",
+          "--model",
+          "sonnet",
+          "--permission-mode",
+          "plan"
+        ]
       },
       "steps": [
         {
           "name": "session-start",
-          "arguments": ["hooks", "claude", "session-start"],
+          "arguments": [
+            "hooks",
+            "claude",
+            "session-start"
+          ],
           "stdin": {
             "session_id": "claude-replay-session",
             "cwd": "${workspace}",
@@ -20,42 +30,174 @@
             "source": "startup"
           },
           "expectedStdout": "OK\n",
-          "expectedSocketContains": ["feed.push"]
+          "expectedSocketContains": [
+            "feed.push"
+          ]
         },
         {
           "name": "prompt-submit",
-          "arguments": ["hooks", "claude", "prompt-submit"],
+          "arguments": [
+            "hooks",
+            "claude",
+            "prompt-submit"
+          ],
           "stdin": {
             "session_id": "claude-replay-session",
             "cwd": "${workspace}",
             "hook_event_name": "UserPromptSubmit",
-            "prompt": "summarize the replay fixture"
+            "prompt": "Inspect the replay fixtures, update a todo list, write a short markdown note, run a smoke command, ask one clarifying question, and only then produce the final plan."
           },
           "expectedStdout": "OK\n",
-          "expectedSocketContains": ["feed.push", "clear_notifications", "set_status claude_code Running"]
+          "expectedSocketContains": [
+            "feed.push",
+            "clear_notifications",
+            "set_status claude_code Running"
+          ]
         },
         {
-          "name": "permission-request",
-          "arguments": ["hooks", "feed", "--source", "claude", "--event", "PermissionRequest"],
+          "name": "post-todo-write",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "claude",
+            "--event",
+            "PostToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PostToolUse",
+            "session_id": "claude-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "claude-post-todo-1",
+            "tool_name": "TodoWrite",
+            "tool_input": {
+              "todos": [
+                {
+                  "content": "Read existing replay fixture",
+                  "status": "completed"
+                },
+                {
+                  "content": "Add longer multi-tool trajectories",
+                  "status": "in_progress"
+                },
+                {
+                  "content": "Validate fixture replay",
+                  "status": "pending"
+                }
+              ]
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "claude",
+              "hook_event_name": "PostToolUse",
+              "tool_name": "TodoWrite"
+            }
+          ]
+        },
+        {
+          "name": "read-fixture-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "claude",
+            "--event",
+            "PostToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PostToolUse",
+            "session_id": "claude-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "claude-post-read-1",
+            "tool_name": "Read",
+            "tool_input": {
+              "file_path": "${workspace}/cmuxTests/Fixtures/AgentHookTrajectories.json"
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "claude",
+              "hook_event_name": "PostToolUse",
+              "tool_name": "Read"
+            }
+          ]
+        },
+        {
+          "name": "permission-write-note",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "claude",
+            "--event",
+            "PermissionRequest"
+          ],
           "stdin": {
             "hook_event_name": "PermissionRequest",
             "session_id": "claude-replay-session",
             "cwd": "${workspace}",
-            "request_id": "claude-permission-1",
-            "tool_name": "Bash",
+            "request_id": "claude-write-note-1",
+            "tool_name": "Write",
             "tool_input": {
-              "command": "git status --short"
+              "file_path": "${workspace}/tmp/replay-notes/claude.md",
+              "content": "# Claude replay note\n\nRecord the longer trajectory coverage.\n"
             }
           },
           "feedResult": {
             "status": "resolved",
-            "request_id": "claude-permission-1",
+            "request_id": "claude-write-note-1",
             "decision": {
               "kind": "permission",
               "mode": "allow"
             }
           },
-          "expectedStdoutContains": ["\"behavior\":\"allow\"", "\"hookEventName\":\"PermissionRequest\""],
+          "expectedStdoutContains": [
+            "\"behavior\":\"allow\"",
+            "\"hookEventName\":\"PermissionRequest\""
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "claude",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "Write"
+            }
+          ]
+        },
+        {
+          "name": "permission-run-smoke-command",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "claude",
+            "--event",
+            "PermissionRequest"
+          ],
+          "stdin": {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "claude-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "claude-bash-smoke-1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "python3 -m json.tool cmuxTests/Fixtures/AgentHookTrajectories.json >/dev/null"
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "claude-bash-smoke-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"behavior\":\"allow\"",
+            "\"hookEventName\":\"PermissionRequest\""
+          ],
           "expectedFeedEvents": [
             {
               "_source": "claude",
@@ -65,61 +207,334 @@
           ]
         },
         {
+          "name": "permission-multi-edit",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "claude",
+            "--event",
+            "PermissionRequest"
+          ],
+          "stdin": {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "claude-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "claude-multiedit-1",
+            "tool_name": "MultiEdit",
+            "tool_input": {
+              "file_path": "${workspace}/tmp/replay-notes/claude.md",
+              "edits": [
+                {
+                  "old_string": "Record the longer trajectory coverage.",
+                  "new_string": "Record longer coverage across read, write, shell, question, and plan events."
+                }
+              ]
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "claude-multiedit-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"behavior\":\"allow\"",
+            "\"hookEventName\":\"PermissionRequest\""
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "claude",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "MultiEdit"
+            }
+          ]
+        },
+        {
+          "name": "ask-user-question",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "claude",
+            "--event",
+            "PermissionRequest"
+          ],
+          "stdin": {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "claude-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "claude-question-1",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+              "questions": [
+                {
+                  "question": "How should the closeout summary be formatted?",
+                  "options": [
+                    "Use a compact checklist.",
+                    "Use a narrative paragraph."
+                  ]
+                }
+              ]
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "claude-question-1",
+            "decision": {
+              "kind": "question",
+              "selections": [
+                "Use a compact checklist."
+              ]
+            }
+          },
+          "expectedStdoutContains": [
+            "\"behavior\":\"allow\"",
+            "\"answers\"",
+            "Use a compact checklist."
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "claude",
+              "hook_event_name": "AskUserQuestion",
+              "tool_name": "AskUserQuestion"
+            }
+          ]
+        },
+        {
+          "name": "exit-plan-near-end",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "claude",
+            "--event",
+            "PermissionRequest"
+          ],
+          "stdin": {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "claude-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "claude-exit-plan-1",
+            "tool_name": "ExitPlanMode",
+            "tool_input": {
+              "plan": "1. Keep the fixture deterministic.\n2. Cover read-only telemetry and mutating permission tools.\n3. Replay the plan approval after the tool coverage is visible.",
+              "allowedPrompts": [
+                {
+                  "tool": "Write",
+                  "prompt": "Update fixture notes"
+                }
+              ]
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "claude-exit-plan-1",
+            "decision": {
+              "kind": "exit_plan",
+              "mode": "autoAccept"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"behavior\":\"allow\"",
+            "\"updatedInput\"",
+            "\"updatedPermissions\""
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "claude",
+              "hook_event_name": "ExitPlanMode",
+              "tool_name": "ExitPlanMode"
+            }
+          ]
+        },
+        {
           "name": "stop",
-          "arguments": ["hooks", "claude", "stop"],
+          "arguments": [
+            "hooks",
+            "claude",
+            "stop"
+          ],
           "stdin": {
             "session_id": "claude-replay-session",
             "cwd": "${workspace}",
             "hook_event_name": "Stop",
-            "last_assistant_message": "Claude replay turn completed"
+            "last_assistant_message": "Claude replay turn completed after tool, question, and plan coverage."
           },
           "expectedStdout": "OK\n",
-          "expectedSocketContains": ["feed.push", "notify_target", "set_status claude_code Idle"]
+          "expectedSocketContains": [
+            "feed.push",
+            "notify_target",
+            "set_status claude_code Idle"
+          ]
+        },
+        {
+          "name": "session-end",
+          "arguments": [
+            "hooks",
+            "claude",
+            "session-end"
+          ],
+          "stdin": {
+            "session_id": "claude-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "SessionEnd"
+          },
+          "expectedStdout": "OK\n",
+          "expectedSocketContains": [
+            "feed.push",
+            "surface.resume.clear"
+          ]
         }
       ]
     },
     {
-      "name": "codex-permission-turn",
+      "name": "codex-long-tool-turn",
       "agent": "codex",
       "launch": {
         "kind": "codex",
         "executable": "/usr/local/bin/codex",
-        "argv": ["/usr/local/bin/codex", "--model", "gpt-5.4", "--sandbox", "workspace-write"]
+        "argv": [
+          "/usr/local/bin/codex",
+          "--model",
+          "gpt-5.4",
+          "--sandbox",
+          "workspace-write"
+        ]
       },
       "steps": [
         {
           "name": "session-start",
-          "arguments": ["hooks", "codex", "session-start"],
+          "arguments": [
+            "hooks",
+            "codex",
+            "session-start"
+          ],
           "stdin": {
             "session_id": "codex-replay-session",
             "cwd": "${workspace}",
             "hook_event_name": "SessionStart"
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "surface.resume.set"]
+          "expectedSocketContains": [
+            "feed.push",
+            "surface.resume.set"
+          ]
         },
         {
-          "name": "permission-request",
-          "arguments": ["hooks", "feed", "--source", "codex", "--event", "PermissionRequest"],
+          "name": "prompt-submit",
+          "arguments": [
+            "hooks",
+            "codex",
+            "prompt-submit"
+          ],
+          "stdin": {
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "UserPromptSubmit",
+            "turn_id": "codex-turn-1",
+            "prompt": "Audit replay coverage, search for hook code, read the fixture, stage a patch, run a parser check, ask for one preference, and make the plan late in the turn."
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": [
+            "feed.push",
+            "clear_notifications",
+            "set_status codex Running"
+          ]
+        },
+        {
+          "name": "read-hook-code-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "codex",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "event": "PreToolUse",
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "codex-read-1",
+            "tool_name": "Read",
+            "tool_input": {
+              "file_path": "${workspace}/CLI/cmux.swift"
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "codex",
+              "hook_event_name": "PreToolUse",
+              "tool_name": "Read"
+            }
+          ]
+        },
+        {
+          "name": "grep-fixture-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "codex",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "event": "PreToolUse",
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "codex-grep-1",
+            "tool_name": "Grep",
+            "tool_input": {
+              "pattern": "ExitPlanMode",
+              "path": "${workspace}"
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "codex",
+              "hook_event_name": "PreToolUse",
+              "tool_name": "Grep"
+            }
+          ]
+        },
+        {
+          "name": "permission-apply-patch",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "codex",
+            "--event",
+            "PermissionRequest"
+          ],
           "stdin": {
             "event": "PermissionRequest",
             "session_id": "codex-replay-session",
             "cwd": "${workspace}",
-            "request_id": "codex-permission-1",
+            "request_id": "codex-apply-patch-1",
             "tool_name": "apply_patch",
             "tool_input": {
-              "patch": "*** Begin Patch\\n*** End Patch"
+              "patch": "*** Begin Patch\n*** Update File: tmp/replay-codex.md\n@@\n+Codex replay note\n*** End Patch"
             }
           },
           "feedResult": {
             "status": "resolved",
-            "request_id": "codex-permission-1",
+            "request_id": "codex-apply-patch-1",
             "decision": {
               "kind": "permission",
               "mode": "allow"
             }
           },
-          "expectedStdoutContains": ["\"behavior\":\"allow\"", "\"hookEventName\":\"PermissionRequest\""],
+          "expectedStdoutContains": [
+            "\"behavior\":\"allow\"",
+            "\"hookEventName\":\"PermissionRequest\""
+          ],
           "expectedFeedEvents": [
             {
               "_source": "codex",
@@ -129,73 +544,315 @@
           ]
         },
         {
+          "name": "permission-shell-check",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "codex",
+            "--event",
+            "PermissionRequest"
+          ],
+          "stdin": {
+            "event": "PermissionRequest",
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "codex-shell-1",
+            "tool_name": "shell",
+            "tool_input": {
+              "command": "swiftc -parse cmuxTests/CLIGenericHookPersistenceTests.swift"
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "codex-shell-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"behavior\":\"allow\"",
+            "\"hookEventName\":\"PermissionRequest\""
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "codex",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "shell"
+            }
+          ]
+        },
+        {
+          "name": "post-patch-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "codex",
+            "--event",
+            "PostToolUse"
+          ],
+          "stdin": {
+            "event": "PostToolUse",
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "codex-post-patch-1",
+            "tool_name": "apply_patch",
+            "tool_input": {
+              "status": "applied"
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "codex",
+              "hook_event_name": "PostToolUse",
+              "tool_name": "apply_patch"
+            }
+          ]
+        },
+        {
+          "name": "ask-user-question",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "codex",
+            "--event",
+            "PermissionRequest"
+          ],
+          "stdin": {
+            "event": "PermissionRequest",
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "codex-question-1",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+              "question": "Should the report emphasize timing or coverage?",
+              "options": [
+                "Coverage first.",
+                "Timing first."
+              ]
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "codex-question-1",
+            "decision": {
+              "kind": "question",
+              "selections": [
+                "Coverage first."
+              ]
+            }
+          },
+          "expectedStdoutContains": [
+            "\"permissionDecision\":\"deny\"",
+            "Coverage first."
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "codex",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "AskUserQuestion"
+            }
+          ]
+        },
+        {
+          "name": "exit-plan-near-end",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "codex",
+            "--event",
+            "PermissionRequest"
+          ],
+          "stdin": {
+            "event": "PermissionRequest",
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "codex-exit-plan-1",
+            "tool_name": "ExitPlanMode",
+            "tool_input": {
+              "plan": "Check the updated fixture, keep the Codex request IDs unique, and then push the branch."
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "codex-exit-plan-1",
+            "decision": {
+              "kind": "exit_plan",
+              "mode": "manual"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"permissionDecision\":\"deny\"",
+            "Exit plan mode now"
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "codex",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "ExitPlanMode"
+            }
+          ]
+        },
+        {
           "name": "stop",
-          "arguments": ["hooks", "codex", "stop"],
+          "arguments": [
+            "hooks",
+            "codex",
+            "stop"
+          ],
           "stdin": {
             "session_id": "codex-replay-session",
             "cwd": "${workspace}",
             "hook_event_name": "Stop",
-            "last_assistant_message": "Codex replay turn completed"
+            "turn_id": "codex-turn-1",
+            "last_assistant_message": "Codex replay turn completed with read, patch, shell, question, and plan coverage."
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "notify_target_async", "set_status codex Idle"]
+          "expectedSocketContains": [
+            "feed.push",
+            "notify_target_async",
+            "set_status codex Idle"
+          ]
+        },
+        {
+          "name": "session-end",
+          "arguments": [
+            "hooks",
+            "codex",
+            "session-end"
+          ],
+          "stdin": {
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "SessionEnd"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": [
+            "feed.push",
+            "surface.resume.clear"
+          ]
         }
       ]
     },
     {
-      "name": "antigravity-tool-turn",
+      "name": "antigravity-long-tool-turn",
       "agent": "antigravity",
       "launch": {
         "kind": "antigravity",
         "executable": "/usr/local/bin/agy",
-        "argv": ["/usr/local/bin/agy", "--sandbox", "danger-full-access"]
+        "argv": [
+          "/usr/local/bin/agy",
+          "--sandbox",
+          "danger-full-access"
+        ]
       },
       "steps": [
         {
           "name": "session-start",
-          "arguments": ["hooks", "antigravity", "session-start"],
+          "arguments": [
+            "hooks",
+            "antigravity",
+            "session-start"
+          ],
           "stdin": {
             "conversation_id": "antigravity-replay-conversation",
             "cwd": "${workspace}",
             "hook_event_name": "SessionStart"
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "surface.resume.set"]
+          "expectedSocketContains": [
+            "feed.push",
+            "surface.resume.set"
+          ]
         },
         {
           "name": "prompt-submit",
-          "arguments": ["hooks", "antigravity", "prompt-submit"],
+          "arguments": [
+            "hooks",
+            "antigravity",
+            "prompt-submit"
+          ],
           "stdin": {
             "conversation_id": "antigravity-replay-conversation",
             "cwd": "${workspace}",
             "hook_event_name": "PreInvocation",
-            "prompt": "inspect the repo"
+            "prompt": "Search the hook implementation, read one fixture, update the task list, write a note, run one command, then request plan approval near the end."
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "clear_notifications", "set_status antigravity Running"]
+          "expectedSocketContains": [
+            "feed.push",
+            "clear_notifications",
+            "set_status antigravity Running"
+          ]
         },
         {
-          "name": "pre-tool-use",
-          "arguments": ["hooks", "feed", "--source", "antigravity", "--event", "PreToolUse"],
+          "name": "search-files-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "antigravity",
+            "--event",
+            "PreToolUse"
+          ],
           "stdin": {
             "hook_event_name": "PreToolUse",
             "conversation_id": "antigravity-replay-conversation",
             "cwd": "${workspace}",
-            "request_id": "antigravity-tool-1",
+            "request_id": "antigravity-search-1",
+            "tool_name": "search_files",
+            "tool_input": {
+              "query": "AgentHookTrajectories",
+              "cwd": "${workspace}"
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "antigravity",
+              "hook_event_name": "PreToolUse",
+              "tool_name": "search_files"
+            }
+          ]
+        },
+        {
+          "name": "permission-run-command",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "antigravity",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "conversation_id": "antigravity-replay-conversation",
+            "cwd": "${workspace}",
+            "request_id": "antigravity-run-1",
             "tool_name": "run_command",
             "tool_input": {
-              "command": "git status --short"
+              "CommandLine": "git diff -- cmuxTests/Fixtures/AgentHookTrajectories.json",
+              "Cwd": "${workspace}"
             }
           },
           "feedResult": {
             "status": "resolved",
-            "request_id": "antigravity-tool-1",
+            "request_id": "antigravity-run-1",
             "decision": {
               "kind": "permission",
               "mode": "allow"
             }
           },
-          "expectedStdoutContains": ["\"decision\":\"allow\"", "User approved via cmux Feed."],
+          "expectedStdoutContains": [
+            "\"decision\":\"allow\"",
+            "User approved via cmux Feed."
+          ],
           "expectedFeedEvents": [
             {
               "_source": "antigravity",
@@ -205,75 +862,343 @@
           ]
         },
         {
+          "name": "permission-write-file",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "antigravity",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "conversation_id": "antigravity-replay-conversation",
+            "cwd": "${workspace}",
+            "request_id": "antigravity-write-1",
+            "tool_name": "write_to_file",
+            "tool_input": {
+              "AbsolutePath": "${workspace}/tmp/replay-notes/antigravity.txt",
+              "Content": "Antigravity replay note\n"
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "antigravity-write-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"decision\":\"allow\"",
+            "User approved via cmux Feed."
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "antigravity",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "write_to_file"
+            }
+          ]
+        },
+        {
+          "name": "permission-manage-task",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "antigravity",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "conversation_id": "antigravity-replay-conversation",
+            "cwd": "${workspace}",
+            "request_id": "antigravity-task-1",
+            "tool_name": "manage_task",
+            "tool_input": {
+              "operation": "update_todos",
+              "items": [
+                "searched hooks",
+                "wrote replay note",
+                "plan still pending"
+              ]
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "antigravity-task-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"decision\":\"allow\"",
+            "User approved via cmux Feed."
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "antigravity",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "manage_task"
+            }
+          ]
+        },
+        {
+          "name": "notification-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "antigravity",
+            "--event",
+            "Notification"
+          ],
+          "stdin": {
+            "hook_event_name": "Notification",
+            "conversation_id": "antigravity-replay-conversation",
+            "cwd": "${workspace}",
+            "request_id": "antigravity-notification-1",
+            "message": "Waiting for plan approval after file and task updates."
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "antigravity",
+              "hook_event_name": "Notification"
+            }
+          ]
+        },
+        {
+          "name": "exit-plan-near-end",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "antigravity",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "conversation_id": "antigravity-replay-conversation",
+            "cwd": "${workspace}",
+            "request_id": "antigravity-plan-1",
+            "tool_name": "ExitPlanMode",
+            "tool_input": {
+              "plan": "Summarize the fixture expansion, validate JSON, then rerun PR review."
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "antigravity-plan-1",
+            "decision": {
+              "kind": "exit_plan",
+              "mode": "manual"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"permissionDecision\":\"deny\"",
+            "Exit plan mode now"
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "antigravity",
+              "hook_event_name": "ExitPlanMode",
+              "tool_name": "ExitPlanMode"
+            }
+          ]
+        },
+        {
           "name": "stop",
-          "arguments": ["hooks", "antigravity", "stop"],
+          "arguments": [
+            "hooks",
+            "antigravity",
+            "stop"
+          ],
           "stdin": {
             "conversation_id": "antigravity-replay-conversation",
             "cwd": "${workspace}",
             "hook_event_name": "Stop",
-            "fullyIdle": true,
-            "last_assistant_message": "Antigravity replay turn completed"
+            "last_assistant_message": "Antigravity replay turn completed after task and plan coverage.",
+            "fullyIdle": true
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "notify_target_async", "set_status antigravity Idle"]
+          "expectedSocketContains": [
+            "feed.push",
+            "notify_target_async",
+            "set_status antigravity Idle"
+          ]
+        },
+        {
+          "name": "session-end",
+          "arguments": [
+            "hooks",
+            "antigravity",
+            "session-end"
+          ],
+          "stdin": {
+            "conversation_id": "antigravity-replay-conversation",
+            "cwd": "${workspace}",
+            "hook_event_name": "SessionEnd"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": [
+            "feed.push"
+          ]
         }
       ]
     },
     {
-      "name": "gemini-tool-turn",
+      "name": "gemini-long-tool-turn",
       "agent": "gemini",
       "launch": {
         "kind": "gemini",
         "executable": "/usr/local/bin/gemini",
-        "argv": ["/usr/local/bin/gemini", "--model", "gemini-2.5-pro", "--approval-mode", "default"]
+        "argv": [
+          "/usr/local/bin/gemini",
+          "--model",
+          "gemini-2.5-pro"
+        ]
       },
       "steps": [
         {
           "name": "session-start",
-          "arguments": ["hooks", "gemini", "session-start"],
+          "arguments": [
+            "hooks",
+            "gemini",
+            "session-start"
+          ],
           "stdin": {
             "session_id": "gemini-replay-session",
             "cwd": "${workspace}",
             "hook_event_name": "SessionStart"
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "surface.resume.set"]
+          "expectedSocketContains": [
+            "feed.push",
+            "surface.resume.set"
+          ]
         },
         {
-          "name": "before-agent",
-          "arguments": ["hooks", "gemini", "prompt-submit"],
+          "name": "prompt-submit",
+          "arguments": [
+            "hooks",
+            "gemini",
+            "prompt-submit"
+          ],
           "stdin": {
             "session_id": "gemini-replay-session",
             "cwd": "${workspace}",
-            "hook_event_name": "BeforeAgent",
-            "prompt": "update the docs"
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "List candidate files, read a fixture, update todos, write and edit a replay note, ask which validation to prefer, and move into plan mode near the end."
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "clear_notifications", "set_status gemini Running"]
+          "expectedSocketContains": [
+            "feed.push",
+            "clear_notifications",
+            "set_status gemini Running"
+          ]
         },
         {
-          "name": "pre-tool-use",
-          "arguments": ["hooks", "feed", "--source", "gemini", "--event", "PreToolUse"],
+          "name": "glob-files-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "gemini",
+            "--event",
+            "PreToolUse"
+          ],
           "stdin": {
             "hook_event_name": "PreToolUse",
             "session_id": "gemini-replay-session",
             "cwd": "${workspace}",
-            "request_id": "gemini-tool-1",
+            "request_id": "gemini-glob-1",
+            "tool_name": "Glob",
+            "tool_input": {
+              "pattern": "cmuxTests/Fixtures/*.json"
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "gemini",
+              "hook_event_name": "PreToolUse",
+              "tool_name": "Glob"
+            }
+          ]
+        },
+        {
+          "name": "todo-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "gemini",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "gemini-todo-1",
+            "tool_name": "TodoWrite",
+            "tool_input": {
+              "todos": [
+                {
+                  "content": "Write fixture change",
+                  "status": "in_progress"
+                }
+              ]
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "gemini",
+              "hook_event_name": "PreToolUse",
+              "tool_name": "TodoWrite"
+            }
+          ]
+        },
+        {
+          "name": "permission-write",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "gemini",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "gemini-write-1",
             "tool_name": "Write",
             "tool_input": {
-              "path": "README.md",
-              "content": "fixture"
+              "file_path": "${workspace}/tmp/replay-notes/gemini.md",
+              "content": "Gemini replay note\n"
             }
           },
           "feedResult": {
             "status": "resolved",
-            "request_id": "gemini-tool-1",
+            "request_id": "gemini-write-1",
             "decision": {
               "kind": "permission",
               "mode": "allow"
             }
           },
-          "expectedStdoutContains": ["\"permissionDecision\":\"allow\"", "\"decision\":\"approve\""],
+          "expectedStdoutContains": [
+            "\"decision\":\"approve\"",
+            "\"permissionDecision\":\"allow\""
+          ],
           "expectedFeedEvents": [
             {
               "_source": "gemini",
@@ -283,74 +1208,356 @@
           ]
         },
         {
-          "name": "after-agent",
-          "arguments": ["hooks", "gemini", "stop"],
+          "name": "permission-edit",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "gemini",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "gemini-edit-1",
+            "tool_name": "Edit",
+            "tool_input": {
+              "file_path": "${workspace}/tmp/replay-notes/gemini.md",
+              "old_string": "Gemini replay note",
+              "new_string": "Gemini replay note with edit coverage"
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "gemini-edit-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"decision\":\"approve\"",
+            "\"permissionDecision\":\"allow\""
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "gemini",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "Edit"
+            }
+          ]
+        },
+        {
+          "name": "permission-shell",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "gemini",
+            "--event",
+            "beforeShellExecution"
+          ],
+          "stdin": {
+            "hook_event_name": "beforeShellExecution",
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "gemini-shell-1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "python3 -m json.tool cmuxTests/Fixtures/AgentHookTrajectories.json >/dev/null"
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "gemini-shell-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"decision\":\"approve\"",
+            "\"permissionDecision\":\"allow\""
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "gemini",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "Bash"
+            }
+          ]
+        },
+        {
+          "name": "ask-user-question",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "gemini",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "gemini-question-1",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+              "question": "Which validator should run first?",
+              "options": [
+                "JSON validation.",
+                "Swift parse."
+              ]
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "gemini-question-1",
+            "decision": {
+              "kind": "question",
+              "selections": [
+                "JSON validation."
+              ]
+            }
+          },
+          "expectedStdoutContains": [
+            "\"permissionDecision\":\"deny\"",
+            "JSON validation."
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "gemini",
+              "hook_event_name": "AskUserQuestion",
+              "tool_name": "AskUserQuestion"
+            }
+          ]
+        },
+        {
+          "name": "exit-plan-near-end",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "gemini",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "gemini-plan-1",
+            "tool_name": "ExitPlanMode",
+            "tool_input": {
+              "plan": "Finish the fixture edits, validate them, and hand the PR back with CI state."
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "gemini-plan-1",
+            "decision": {
+              "kind": "exit_plan",
+              "mode": "autoAccept"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"permissionDecision\":\"deny\"",
+            "auto mode",
+            "Exit plan mode now"
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "gemini",
+              "hook_event_name": "ExitPlanMode",
+              "tool_name": "ExitPlanMode"
+            }
+          ]
+        },
+        {
+          "name": "stop",
+          "arguments": [
+            "hooks",
+            "gemini",
+            "stop"
+          ],
           "stdin": {
             "session_id": "gemini-replay-session",
             "cwd": "${workspace}",
-            "hook_event_name": "AfterAgent",
-            "last_assistant_message": "Gemini replay turn completed"
+            "hook_event_name": "Stop",
+            "last_assistant_message": "Gemini replay turn completed with file, shell, question, todo, and plan coverage."
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "notify_target_async", "set_status gemini Idle"]
+          "expectedSocketContains": [
+            "feed.push",
+            "notify_target_async",
+            "set_status gemini Idle"
+          ]
         },
         {
           "name": "session-end",
-          "arguments": ["hooks", "gemini", "session-end"],
+          "arguments": [
+            "hooks",
+            "gemini",
+            "session-end"
+          ],
           "stdin": {
             "session_id": "gemini-replay-session",
             "cwd": "${workspace}",
             "hook_event_name": "SessionEnd"
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "surface.resume.clear"]
+          "expectedSocketContains": [
+            "feed.push",
+            "surface.resume.clear"
+          ]
         }
       ]
     },
     {
-      "name": "opencode-plugin-turn",
+      "name": "opencode-long-tool-turn",
       "agent": "opencode",
       "launch": {
         "kind": "opencode",
         "executable": "/usr/local/bin/opencode",
-        "argv": ["/usr/local/bin/opencode", "run", "--agent", "build"]
+        "argv": [
+          "/usr/local/bin/opencode",
+          "run",
+          "--mode",
+          "build"
+        ]
       },
       "steps": [
         {
           "name": "session-start",
-          "arguments": ["hooks", "opencode", "session-start"],
+          "arguments": [
+            "hooks",
+            "opencode",
+            "session-start"
+          ],
           "stdin": {
             "session_id": "opencode-replay-session",
             "cwd": "${workspace}",
-            "hook_event_name": "SessionStart",
-            "event": "session.created"
+            "hook_event_name": "SessionStart"
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "surface.resume.set"]
+          "expectedSocketContains": [
+            "feed.push",
+            "surface.resume.set"
+          ]
         },
         {
-          "name": "permission-request",
-          "arguments": ["hooks", "feed", "--source", "opencode", "--event", "PermissionRequest"],
+          "name": "prompt-submit",
+          "arguments": [
+            "hooks",
+            "opencode",
+            "prompt-submit"
+          ],
           "stdin": {
-            "hook_event_name": "PermissionRequest",
             "session_id": "opencode-replay-session",
             "cwd": "${workspace}",
-            "request_id": "opencode-permission-1",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "Use plugin-style hooks to list files, inspect code, write a note, update the task tracker, run a command, ask one question, and approve the plan near the end."
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": [
+            "feed.push",
+            "clear_notifications",
+            "set_status opencode Running"
+          ]
+        },
+        {
+          "name": "ls-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "opencode",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "event": "PreToolUse",
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "_opencode_request_id": "opencode-ls-1",
+            "tool_name": "LS",
+            "tool_input": {
+              "path": "${workspace}/cmuxTests/Fixtures"
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "opencode",
+              "hook_event_name": "PreToolUse",
+              "tool_name": "LS"
+            }
+          ]
+        },
+        {
+          "name": "web-search-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "opencode",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "event": "PreToolUse",
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "_opencode_request_id": "opencode-websearch-1",
+            "tool_name": "WebSearch",
+            "tool_input": {
+              "query": "cmux hook replay fixture testing"
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "opencode",
+              "hook_event_name": "PreToolUse",
+              "tool_name": "WebSearch"
+            }
+          ]
+        },
+        {
+          "name": "permission-bash",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "opencode",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "event": "PreToolUse",
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "_opencode_request_id": "opencode-bash-1",
             "tool_name": "Bash",
             "tool_input": {
-              "permission": "bash",
-              "patterns": ["git status --short"]
+              "command": "git status --short"
             }
           },
           "feedResult": {
             "status": "resolved",
-            "request_id": "opencode-permission-1",
+            "request_id": "opencode-bash-1",
             "decision": {
               "kind": "permission",
               "mode": "allow"
             }
           },
-          "expectedStdoutContains": ["\"permissionDecision\":\"allow\"", "\"decision\":\"approve\""],
+          "expectedStdoutContains": [
+            "\"decision\":\"approve\"",
+            "\"permissionDecision\":\"allow\""
+          ],
           "expectedFeedEvents": [
             {
               "_source": "opencode",
@@ -360,29 +1567,244 @@
           ]
         },
         {
-          "name": "session-idle",
-          "arguments": ["hooks", "opencode", "stop"],
+          "name": "permission-write-file",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "opencode",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "event": "PreToolUse",
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "_opencode_request_id": "opencode-write-1",
+            "tool_name": "write_to_file",
+            "tool_input": {
+              "path": "${workspace}/tmp/replay-notes/opencode.md",
+              "content": "OpenCode replay note\n"
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "opencode-write-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"decision\":\"approve\"",
+            "\"permissionDecision\":\"allow\""
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "opencode",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "write_to_file"
+            }
+          ]
+        },
+        {
+          "name": "permission-manage-task",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "opencode",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "event": "PreToolUse",
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "_opencode_request_id": "opencode-task-1",
+            "tool_name": "manage_task",
+            "tool_input": {
+              "action": "set",
+              "todos": [
+                {
+                  "text": "Plan near end",
+                  "state": "pending"
+                }
+              ]
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "opencode-task-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"decision\":\"approve\"",
+            "\"permissionDecision\":\"allow\""
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "opencode",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "manage_task"
+            }
+          ]
+        },
+        {
+          "name": "post-bash-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "opencode",
+            "--event",
+            "PostToolUse"
+          ],
+          "stdin": {
+            "event": "PostToolUse",
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "_opencode_request_id": "opencode-post-bash-1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "exit_code": 0
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "opencode",
+              "hook_event_name": "PostToolUse",
+              "tool_name": "Bash"
+            }
+          ]
+        },
+        {
+          "name": "ask-user-question",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "opencode",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "event": "PreToolUse",
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "_opencode_request_id": "opencode-question-1",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+              "question": "Which handoff should this fixture prefer?",
+              "options": [
+                "Dogfood handoff.",
+                "Ready-to-merge handoff."
+              ]
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "opencode-question-1",
+            "decision": {
+              "kind": "question",
+              "selections": [
+                "Ready-to-merge handoff."
+              ]
+            }
+          },
+          "expectedStdoutContains": [
+            "\"permissionDecision\":\"deny\"",
+            "Ready-to-merge handoff."
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "opencode",
+              "hook_event_name": "AskUserQuestion",
+              "tool_name": "AskUserQuestion"
+            }
+          ]
+        },
+        {
+          "name": "exit-plan-near-end",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "opencode",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "event": "PreToolUse",
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "_opencode_request_id": "opencode-plan-1",
+            "tool_name": "ExitPlanMode",
+            "tool_input": {
+              "plan": "After the diverse tool pass, validate the fixture, push the branch, and wait for PR checks."
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "opencode-plan-1",
+            "decision": {
+              "kind": "exit_plan",
+              "mode": "manual"
+            }
+          },
+          "expectedStdoutContains": [
+            "\"permissionDecision\":\"deny\"",
+            "Exit plan mode now"
+          ],
+          "expectedFeedEvents": [
+            {
+              "_source": "opencode",
+              "hook_event_name": "ExitPlanMode",
+              "tool_name": "ExitPlanMode"
+            }
+          ]
+        },
+        {
+          "name": "stop",
+          "arguments": [
+            "hooks",
+            "opencode",
+            "stop"
+          ],
           "stdin": {
             "session_id": "opencode-replay-session",
             "cwd": "${workspace}",
             "hook_event_name": "Stop",
-            "event": "session.idle",
-            "last_assistant_message": "OpenCode replay turn completed"
+            "last_assistant_message": "OpenCode replay turn completed with plugin-style telemetry, permissions, question, and plan coverage."
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "notify_target_async", "set_status opencode Idle"]
+          "expectedSocketContains": [
+            "feed.push",
+            "notify_target_async",
+            "set_status opencode Idle"
+          ]
         },
         {
           "name": "session-end",
-          "arguments": ["hooks", "opencode", "session-end"],
+          "arguments": [
+            "hooks",
+            "opencode",
+            "session-end"
+          ],
           "stdin": {
             "session_id": "opencode-replay-session",
             "cwd": "${workspace}",
-            "hook_event_name": "SessionEnd",
-            "event": "session.deleted"
+            "hook_event_name": "SessionEnd"
           },
           "expectedStdout": "{}\n",
-          "expectedSocketContains": ["feed.push", "surface.resume.clear"]
+          "expectedSocketContains": [
+            "feed.push",
+            "surface.resume.clear"
+          ]
         }
       ]
     }
