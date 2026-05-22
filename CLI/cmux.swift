@@ -21417,6 +21417,7 @@ struct CMUXCLI {
         )
     }
 
+    @discardableResult
     private func publishAgentSurfaceResumeBinding(
         client: SocketClient,
         workspaceId: String,
@@ -21426,7 +21427,7 @@ struct CMUXCLI {
         sessionId: String,
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?
-    ) {
+    ) -> Bool {
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
             sessionId: sessionId,
@@ -21439,7 +21440,7 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 sessionId: sessionId
             )
-            return
+            return false
         }
         var params: [String: Any] = [
             "surface_id": surfaceId,
@@ -21458,6 +21459,7 @@ struct CMUXCLI {
             params["environment"] = environment
         }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
+        return true
     }
 
     private func clearAgentSurfaceResumeBinding(
@@ -24093,7 +24095,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 ancestorSessionId = nextAncestor
             }
             if let parent = restorableAncestor {
-                publishAgentSurfaceResumeBinding(
+                let publishedParentBinding = publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -24103,14 +24105,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: parent.cwd,
                     launchCommand: parent.launchCommand
                 )
-            } else {
-                clearAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    sessionId: sessionId
-                )
+                if publishedParentBinding {
+                    return
+                }
             }
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            )
         }
         func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
             if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
