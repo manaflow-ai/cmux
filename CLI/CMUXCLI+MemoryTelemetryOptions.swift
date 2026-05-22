@@ -1,6 +1,8 @@
 import Foundation
 
 extension CMUXCLI {
+    private static let memoryTrimMaximumGraceSeconds: TimeInterval = 24 * 60 * 60
+
     enum MemorySubcommand: String {
         case snapshot
         case list
@@ -243,9 +245,17 @@ extension CMUXCLI {
         }
         let graceSeconds: TimeInterval
         if let graceSecondsOpt {
-            graceSeconds = try parseMemoryDuration(graceSecondsOpt, label: "--grace-seconds")
+            graceSeconds = try parseMemoryDuration(
+                graceSecondsOpt,
+                label: "--grace-seconds",
+                maximum: Self.memoryTrimMaximumGraceSeconds
+            )
         } else {
-            graceSeconds = try parseMemoryDuration(graceOpt ?? "5s", label: "--grace")
+            graceSeconds = try parseMemoryDuration(
+                graceOpt ?? "5s",
+                label: "--grace",
+                maximum: Self.memoryTrimMaximumGraceSeconds
+            )
         }
         let workspaceHandle = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         return MemoryTrimCommandOptions(
@@ -257,7 +267,7 @@ extension CMUXCLI {
         )
     }
 
-    func parseMemoryDuration(_ raw: String, label: String) throws -> TimeInterval {
+    func parseMemoryDuration(_ raw: String, label: String, maximum: TimeInterval? = nil) throws -> TimeInterval {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else {
             throw CLIError(message: String(
@@ -307,6 +317,15 @@ extension CMUXCLI {
         }
         let seconds = value * multiplier
         guard seconds.isFinite else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationInvalid",
+                    defaultValue: "%@ must be a non-negative duration like 30s, 15m, 6h, or 1d"
+                ),
+                label
+            ))
+        }
+        if let maximum, seconds > maximum {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.memory.error.durationInvalid",

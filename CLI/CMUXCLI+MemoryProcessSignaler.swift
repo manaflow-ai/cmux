@@ -3,6 +3,8 @@ import Foundation
 
 extension CMUXCLI {
     struct MemoryProcessSignaler {
+        private static let maximumKeventTimeoutSeconds: TimeInterval = TimeInterval(Int32.max)
+
         let client: SocketClient
 
         func sendGracefulExit(_ action: MemoryGracefulExitAction, workspaceId: String) throws {
@@ -47,10 +49,11 @@ extension CMUXCLI {
             while true {
                 let remaining = deadline.timeIntervalSinceNow
                 guard remaining > 0 else { return !isRunning(pid: pid) }
-                let seconds = floor(remaining)
+                let boundedRemaining = min(remaining, Self.maximumKeventTimeoutSeconds)
+                let seconds = floor(boundedRemaining)
                 var timeoutSpec = timespec(
                     tv_sec: Int(seconds),
-                    tv_nsec: Int((remaining - seconds) * 1_000_000_000)
+                    tv_nsec: Int((boundedRemaining - seconds) * 1_000_000_000)
                 )
                 var event = kevent()
                 let result = kevent(queue, nil, 0, &event, 1, &timeoutSpec)
