@@ -61,6 +61,9 @@ reviews:
     - path: "Resources/bin/grok"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Grok wrapper hook installation, socket routing, and launch metadata changes.
+    - path: "Resources/opencode-plugin.js"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for the OpenCode Feed bridge. Preserve socket routing, `feed.push` event mapping, and the longer blocking permission timeout.
     - path: "Packages/CMUXAgentLaunch/**"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook config writers and agent launch environment policy.
