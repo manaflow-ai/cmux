@@ -10489,22 +10489,14 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func warmTerminalDefaultDirectory(configTemplate: CmuxSurfaceConfigTemplate?) -> String {
-        normalizedWarmTerminalDirectory(configTemplate?.workingDirectory)
-            ?? normalizedWarmTerminalDirectory(GhosttyConfig.load().workingDirectory)
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
-    }
-
     private static func warmTerminalTargetDirectory(
         workingDirectory: String?,
-        configTemplate: CmuxSurfaceConfigTemplate?,
-        useDefaultWhenMissing: Bool
+        configTemplate: CmuxSurfaceConfigTemplate?
     ) -> String? {
         if let directory = normalizedWarmTerminalDirectory(workingDirectory) {
             return directory
         }
-        guard useDefaultWhenMissing else { return nil }
-        return warmTerminalDefaultDirectory(configTemplate: configTemplate)
+        return normalizedWarmTerminalDirectory(configTemplate?.workingDirectory)
     }
 
     private static func warmTerminalContextsMatch(
@@ -10648,64 +10640,16 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    private static func warmTerminalActivationInput(
-        workspaceId: UUID,
-        portOrdinal: Int,
-        workingDirectory: String?,
-        shouldRefreshWorkspaceEnvironment: Bool
-    ) -> String? {
-        var commands: [String] = []
-        if shouldRefreshWorkspaceEnvironment {
-            let quotedWorkspaceId = shellSingleQuoted(workspaceId.uuidString)
-            let portValues = TerminalSurface.cmuxPortEnvironmentValues(portOrdinal: portOrdinal)
-            commands.append(
-                [
-                    "export",
-                    "CMUX_WORKSPACE_ID=\(quotedWorkspaceId)",
-                    "CMUX_TAB_ID=\(quotedWorkspaceId)",
-                    "CMUX_PORT=\(shellSingleQuoted(portValues.port))",
-                    "CMUX_PORT_END=\(shellSingleQuoted(portValues.portEnd))",
-                    "CMUX_PORT_RANGE=\(shellSingleQuoted(portValues.portRange))"
-                ].joined(separator: " ")
-            )
-        }
-        if let directory = normalizedWarmTerminalDirectory(workingDirectory) {
-            commands.append("cd \(shellSingleQuoted(directory))")
-        }
-        guard !commands.isEmpty else { return nil }
-        return commands.joined(separator: " && ") + " && /usr/bin/clear\n"
-    }
-
 #if DEBUG
-    static func debugWarmTerminalActivationInputForTesting(
-        workspaceId: UUID,
-        portOrdinal: Int,
-        workingDirectory: String?,
-        shouldRefreshWorkspaceEnvironment: Bool
-    ) -> String? {
-        warmTerminalActivationInput(
-            workspaceId: workspaceId,
-            portOrdinal: portOrdinal,
-            workingDirectory: workingDirectory,
-            shouldRefreshWorkspaceEnvironment: shouldRefreshWorkspaceEnvironment
-        )
-    }
-
     static func debugWarmTerminalTargetDirectoryForTesting(
         workingDirectory: String?,
-        configTemplateWorkingDirectory: String?,
-        useDefaultWhenMissing: Bool
+        configTemplateWorkingDirectory: String?
     ) -> String? {
         var configTemplate = CmuxSurfaceConfigTemplate()
         configTemplate.workingDirectory = configTemplateWorkingDirectory
         return warmTerminalTargetDirectory(
             workingDirectory: workingDirectory,
-            configTemplate: configTemplate,
-            useDefaultWhenMissing: useDefaultWhenMissing
+            configTemplate: configTemplate
         )
     }
 #endif
@@ -10749,7 +10693,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        return Self.normalizedWarmTerminalDirectory(currentDirectory)
+        return nil
     }
 
     private func resolvedWorkingDirectoryForTerminalSplit(
@@ -10769,7 +10713,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        return Self.normalizedWarmTerminalDirectory(currentDirectory)
+        return nil
     }
 
     private func canUseWarmTerminalPool(
@@ -10827,18 +10771,18 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         let previousOwner = Self.warmTerminalPoolOwnerWorkspaceId
-        let shouldRefreshWorkspaceEnvironment = previousOwner != id
         let targetDirectory = Self.warmTerminalTargetDirectory(
             workingDirectory: workingDirectory,
-            configTemplate: configTemplate,
-            useDefaultWhenMissing: shouldRefreshWorkspaceEnvironment
+            configTemplate: configTemplate
         )
         let currentDirectory = Self.normalizedWarmTerminalDirectory(panel.directory)
             ?? Self.normalizedWarmTerminalDirectory(panel.requestedWorkingDirectory)
-        let shouldChangeDirectory = targetDirectory != nil && currentDirectory != targetDirectory
-        if shouldRefreshWorkspaceEnvironment || shouldChangeDirectory,
-           startupSignature?.supportsBourneWarmActivation != true {
-            Self.discardWarmTerminalPool(reason: "take.unsupportedActivationShell")
+        guard previousOwner == id else {
+            Self.discardWarmTerminalPool(reason: "take.workspaceMismatch")
+            return nil
+        }
+        guard currentDirectory == targetDirectory else {
+            Self.discardWarmTerminalPool(reason: "take.directoryMismatch")
             return nil
         }
 
@@ -10850,12 +10794,7 @@ final class Workspace: Identifiable, ObservableObject {
         Self.warmTerminalPoolActivatingWorkspaceId = id
         panel.updateWorkspaceId(id)
         configureTerminalPanel(panel)
-        prepareWarmTerminalPanelForUse(
-            panel,
-            configTemplate: configTemplate,
-            targetWorkingDirectory: targetDirectory,
-            shouldRefreshWorkspaceEnvironment: shouldRefreshWorkspaceEnvironment
-        )
+        prepareWarmTerminalPanelForUse(panel, configTemplate: configTemplate)
 #if DEBUG
         let previousOwnerLabel = previousOwner.map { String($0.uuidString.prefix(5)) } ?? "nil"
         cmuxDebugLog(
@@ -10869,29 +10808,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func prepareWarmTerminalPanelForUse(
         _ panel: TerminalPanel,
-        configTemplate: CmuxSurfaceConfigTemplate?,
-        targetWorkingDirectory: String?,
-        shouldRefreshWorkspaceEnvironment: Bool
+        configTemplate: CmuxSurfaceConfigTemplate?
     ) {
         if let inheritedFontPoints = configTemplate?.fontSize, inheritedFontPoints > 0 {
             let action = String(format: "set_font_size:%.3f", inheritedFontPoints)
             _ = panel.performBindingAction(action)
-        }
-
-        let targetDirectory = Self.normalizedWarmTerminalDirectory(targetWorkingDirectory)
-        let currentDirectory = Self.normalizedWarmTerminalDirectory(panel.directory)
-            ?? Self.normalizedWarmTerminalDirectory(panel.requestedWorkingDirectory)
-        let shouldChangeDirectory = targetDirectory != nil && currentDirectory != targetDirectory
-        guard shouldChangeDirectory || shouldRefreshWorkspaceEnvironment else { return }
-        guard let input = Self.warmTerminalActivationInput(
-            workspaceId: id,
-            portOrdinal: portOrdinal,
-            workingDirectory: shouldChangeDirectory ? targetDirectory : nil,
-            shouldRefreshWorkspaceEnvironment: shouldRefreshWorkspaceEnvironment
-        ) else { return }
-        panel.sendInput(input)
-        if let targetDirectory {
-            panel.updateDirectory(targetDirectory)
         }
     }
 
@@ -10959,7 +10880,7 @@ final class Workspace: Identifiable, ObservableObject {
                 preferredPanelId: focusedPanelId,
                 inPane: $0
             )
-        } ?? Self.normalizedWarmTerminalDirectory(currentDirectory)
+        }
         let startupSignature = TerminalWarmPtyPoolStartupSignature.current()
         let panel = TerminalPanel(
             workspaceId: id,

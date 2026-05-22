@@ -136,7 +136,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(surface.surface.debugInitialCommand(), "ssh cmux-macmini")
     }
 
-    func testSplitFallsBackToWorkspaceDirectoryNotSiblingTabDirectory() throws {
+    func testSplitDoesNotUseSiblingOrWorkspaceDirectoryWhenSourceHasNoDirectory() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
@@ -157,7 +157,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             focus: false
         ))
 
-        XCTAssertEqual(split.requestedWorkingDirectory, workspaceDirectory)
+        XCTAssertNil(split.requestedWorkingDirectory)
     }
 
     func testRemoteTerminalSplitDoesNotUseRemoteCwdAsLocalWorkingDirectory() throws {
@@ -192,53 +192,27 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(split.surface.debugInitialCommand(), "ssh cmux-macmini")
     }
 
-    func testWarmTerminalCrossWorkspaceActivationRefreshesPortEnvironment() throws {
-        let workspaceId = try XCTUnwrap(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
-        let portOrdinal = 3
-        let portValues = TerminalSurface.cmuxPortEnvironmentValues(portOrdinal: portOrdinal)
-        let input = try XCTUnwrap(Workspace.debugWarmTerminalActivationInputForTesting(
-            workspaceId: workspaceId,
-            portOrdinal: portOrdinal,
-            workingDirectory: nil,
-            shouldRefreshWorkspaceEnvironment: true
-        ))
-
-        XCTAssertTrue(input.contains("CMUX_WORKSPACE_ID='\(workspaceId.uuidString)'"), input)
-        XCTAssertTrue(input.contains("CMUX_TAB_ID='\(workspaceId.uuidString)'"), input)
-        XCTAssertTrue(input.contains("CMUX_PORT='\(portValues.port)'"), input)
-        XCTAssertTrue(input.contains("CMUX_PORT_END='\(portValues.portEnd)'"), input)
-        XCTAssertTrue(input.contains("CMUX_PORT_RANGE='\(portValues.portRange)'"), input)
-    }
-
-    func testWarmTerminalActivationUsesPortableCdSyntax() throws {
-        let workspaceId = try XCTUnwrap(UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
-        let input = try XCTUnwrap(Workspace.debugWarmTerminalActivationInputForTesting(
-            workspaceId: workspaceId,
-            portOrdinal: 0,
-            workingDirectory: "/tmp/cmux warm cwd",
-            shouldRefreshWorkspaceEnvironment: false
-        ))
-
-        XCTAssertTrue(input.contains("cd '/tmp/cmux warm cwd'"), input)
-        XCTAssertFalse(input.contains("cd --"), input)
-    }
-
-    func testWarmTerminalCrossWorkspaceTargetFallsBackToDefaultDirectory() throws {
+    func testWarmTerminalTargetUsesExplicitOrInheritedConfigDirectoryOnly() throws {
         let configuredDirectory = "/tmp/cmux-default-cwd-\(UUID().uuidString)"
 
         XCTAssertEqual(
             Workspace.debugWarmTerminalTargetDirectoryForTesting(
                 workingDirectory: nil,
-                configTemplateWorkingDirectory: configuredDirectory,
-                useDefaultWhenMissing: true
+                configTemplateWorkingDirectory: configuredDirectory
             ),
             configuredDirectory
+        )
+        XCTAssertEqual(
+            Workspace.debugWarmTerminalTargetDirectoryForTesting(
+                workingDirectory: "/tmp/cmux-explicit-cwd",
+                configTemplateWorkingDirectory: configuredDirectory
+            ),
+            "/tmp/cmux-explicit-cwd"
         )
         XCTAssertNil(
             Workspace.debugWarmTerminalTargetDirectoryForTesting(
                 workingDirectory: nil,
-                configTemplateWorkingDirectory: configuredDirectory,
-                useDefaultWhenMissing: false
+                configTemplateWorkingDirectory: nil
             )
         )
     }
@@ -271,7 +245,6 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             fileManager: fileManager
         )
         XCTAssertNotEqual(first, second)
-        XCTAssertTrue(second.supportsBourneWarmActivation)
     }
 
     func testWarmTerminalStartupSignatureTracksFishConfDAdditions() throws {
@@ -302,7 +275,6 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             fileManager: fileManager
         )
         XCTAssertNotEqual(first, second)
-        XCTAssertFalse(second.supportsBourneWarmActivation)
     }
 
     func testWarmTerminalStartupSignatureTracksManagedEnvironmentSettings() throws {

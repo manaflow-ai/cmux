@@ -185,15 +185,6 @@ struct TerminalWarmPtyPoolStartupSignature: Equatable {
     let managedEnvironment: ManagedEnvironmentFingerprint
     let files: [FileFingerprint]
 
-    var supportsBourneWarmActivation: Bool {
-        switch shellName {
-        case "ash", "bash", "dash", "ksh", "mksh", "pdksh", "sh", "zsh":
-            return true
-        default:
-            return false
-        }
-    }
-
     static func current(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
