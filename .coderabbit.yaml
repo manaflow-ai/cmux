@@ -67,6 +67,9 @@ reviews:
     - path: "Sources/Feed/FeedCoordinator.swift"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed bridge runtime behavior. Preserve `feed.push` blocking reply semantics, timeout handling, and source/event routing.
+    - path: "Sources/TerminalController.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for `feed.push` socket-handler hunks only. Preserve `wait_timeout_seconds` validation, the 120s upper bound, event decoding, and direct plugin bridge compatibility.
     - path: "Packages/CMUXWorkstream/Sources/CMUXWorkstream/WorkstreamEvent.swift"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed wire-frame changes. Preserve `_source`, `hook_event_name`, request id, and `tool_input` compatibility for CLI hooks and direct plugin bridges.

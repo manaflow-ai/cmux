@@ -21,9 +21,9 @@ Review production Swift and runtime changes, plus any test files explicitly targ
 
 ## Agent Hook Standardization
 
-For agent hook install, uninstall, command generation, Feed bridge, hook config writer, docs, and targeted hook or Feed tests, keep hook behavior routed through the shared `AgentHookDef`, `hookCommandString`, `feedHookCommandString`, and config builder paths.
+For agent hook install, uninstall, command generation, Feed bridge handlers, hook config writer, docs, and targeted hook or Feed tests, keep hook behavior routed through the shared `AgentHookDef`, `hookCommandString`, `feedHookCommandString`, and config builder paths.
 
-Flag new per-agent shell command generators, hardcoded app bundle paths, socket paths, release channel names, or special pinned dispatch markers unless the diff proves the agent cannot use `CMUX_SURFACE_ID`, `CMUX_SOCKET_PATH`, or `CMUX_BUNDLED_CLI_PATH` interpolation. Pinned dispatch must preserve owned-hook markers, install-time CLI/socket pinning, fallback to `command -v cmux`, disable-env handling, longer Feed timeouts, CLI source/event routing, direct plugin bridge contracts such as OpenCode `feed.push`, and legacy cmux-owned hook pruning. In mixed test files, apply this rule only to hook and Feed regression hunks.
+Flag new per-agent shell command generators, hardcoded app bundle paths, socket paths, release channel names, or special pinned dispatch markers unless the diff proves the agent cannot use `CMUX_SURFACE_ID`, `CMUX_SOCKET_PATH`, or `CMUX_BUNDLED_CLI_PATH` interpolation. Pinned dispatch must preserve owned-hook markers, install-time CLI/socket pinning, fallback to `command -v cmux`, disable-env handling, longer Feed timeouts, CLI source/event routing, direct plugin bridge contracts such as OpenCode `feed.push`, and legacy cmux-owned hook pruning. In mixed files, apply this rule only to hook and Feed bridge hunks.
 
 ## Runtime No Hacky Sleeps
 
