@@ -618,6 +618,63 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(store.workspaceIsUnread(forTabId: nextWorkspace.id))
     }
 
+    func testJumpToLatestUnreadExcludesNotificationsFromExcludedWorkspace() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
+        let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let nextPanelId = try XCTUnwrap(nextWorkspace.focusedPanelId)
+        let currentNotificationId = UUID()
+        let nextNotificationId = UUID()
+        let now = Date()
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: currentNotificationId,
+                tabId: currentWorkspace.id,
+                surfaceId: currentPanelId,
+                title: "Current",
+                subtitle: "",
+                body: "",
+                createdAt: now,
+                isRead: false
+            ),
+            TerminalNotification(
+                id: nextNotificationId,
+                tabId: nextWorkspace.id,
+                surfaceId: nextPanelId,
+                title: "Next",
+                subtitle: "",
+                body: "",
+                createdAt: now.addingTimeInterval(-1),
+                isRead: false
+            ),
+        ])
+
+        let opened = appDelegate.jumpToLatestUnread(excludingWorkspaceId: currentWorkspace.id)
+
+        XCTAssertEqual(opened?.id, nextNotificationId)
+        XCTAssertEqual(manager.selectedTabId, nextWorkspace.id)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == currentNotificationId })?.isRead, false)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == nextNotificationId })?.isRead, true)
+    }
+
     func testJumpToLatestManualWorkspaceUnreadFlashesAfterSwitchingAway() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared
