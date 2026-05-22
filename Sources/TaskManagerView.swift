@@ -371,10 +371,12 @@ struct CmuxTaskManagerRowView: View, Equatable {
     let onActivate: () -> Void
 
     static func == (lhs: CmuxTaskManagerRowView, rhs: CmuxTaskManagerRowView) -> Bool {
-        // Intentionally broken in this commit: returns false so the
-        // load-bearing snapshot-boundary test fails. Fixed in the next
-        // commit by comparing only the value-typed `row` payload.
-        false
+        // Closures excluded on purpose: the parent rebuilds the action
+        // bundle on every render tick, but the row payload is what
+        // actually drives visible state. Comparing closure identity
+        // would defeat `.equatable()` at the ForEach call site and
+        // re-introduce the 0.64.8 memory leak.
+        lhs.row == rhs.row
     }
 
     var body: some View {
