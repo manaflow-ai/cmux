@@ -30,6 +30,7 @@ MARKER = "cmux-network-capture-ok"
 MAX_BODY_BYTES = 12_000
 DEFAULT_OUTPUT = pathlib.Path("cmuxTests/Fixtures/AgentNetworkCaptures.json")
 CAPTURE_ROOT_REPLACEMENTS: set[str] = set()
+REQUIRED_CAPTURE_AGENTS = {"claude", "codex", "opencode"}
 UTF8_MOJIBAKE_RE = re.compile(r"(?:[\u00C2\u00C3][\u0080-\u00BF]|\u00E2[\u0080-\u00BF]{2})")
 JSON_DROPPED_KEYS = {
     "additional_rate_limits",
@@ -868,6 +869,19 @@ def main() -> int:
                 unavailable.append(failed)
 
         captures, unavailable = merge_existing_fixture(output, selected_agents, captures, unavailable)
+        captured_agents = {item["agent"] for item in captures}
+        required_agents = REQUIRED_CAPTURE_AGENTS if selected_agents is None else REQUIRED_CAPTURE_AGENTS & selected_agents
+        missing_required = sorted(required_agents - captured_agents)
+        if missing_required:
+            print(
+                f"missing required captures: {', '.join(missing_required)}",
+                file=sys.stderr,
+            )
+            for item in sorted(unavailable, key=lambda value: value["agent"]):
+                if item["agent"] in missing_required:
+                    print(f"{item['agent']}: {item['reason']}", file=sys.stderr)
+            return 1
+
         fixture = {
             "version": 1,
             "captureSource": "real-cli-mitm-har",
