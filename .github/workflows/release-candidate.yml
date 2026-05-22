@@ -711,7 +711,7 @@ jobs:
           test -s appcast.xml
           RC_RELEASE_TAGS="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --exclude-drafts \
             --json tagName,isPrerelease -q '.[] | select(.isPrerelease) | .tagName')"
-          LATEST_RC="$(printf '%s\n' "$RC_RELEASE_TAGS" \
+          LATEST_RC="$(printf '%s\n%s\n' "$RC_RELEASE_TAGS" "$RC_TAG" \
             | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' \
             | sort -V \
             | tail -1 || true)"

@@ -253,8 +253,9 @@ jobs:
           fi
           test -s appcast.xml
 
-          LATEST=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
-            --json tagName -q '.[].tagName' | sort -V | tail -1)
+          STABLE_RELEASE_TAGS="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName')"
+          LATEST="$(printf '%s\n%s\n' "$STABLE_RELEASE_TAGS" "$STABLE_TAG" | sed '/^$/d' | sort -V | tail -1)"
           if [ -n "$LATEST" ] && [ "$LATEST" != "$STABLE_TAG" ]; then
             echo "Skipping R2 stable upload: $STABLE_TAG is not the latest release ($LATEST)"
             exit 0
@@ -271,8 +272,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          LATEST=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
-            --json tagName -q '.[].tagName' | sort -V | tail -1)
+          STABLE_RELEASE_TAGS="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName')"
+          LATEST="$(printf '%s\n%s\n' "$STABLE_RELEASE_TAGS" "$STABLE_TAG" | sed '/^$/d' | sort -V | tail -1)"
           if [ -n "$LATEST" ] && [ "$LATEST" != "$STABLE_TAG" ]; then
             echo "Skipping Homebrew update: $STABLE_TAG is not the latest release ($LATEST)"
             exit 0
