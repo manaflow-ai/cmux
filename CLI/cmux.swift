@@ -19099,7 +19099,7 @@ struct CMUXCLI {
             }
 
             if let sessionId = parsedInput.sessionId {
-                try? sessionStore.clearPendingNotification(sessionId: sessionId)
+                try? sessionStore.clearNotificationEmission(sessionId: sessionId, clearSummary: true)
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
 
@@ -19392,8 +19392,24 @@ struct CMUXCLI {
     }
 
     private func describeAskUserQuestion(_ object: [String: Any]?) -> String? {
-        guard let object,
-              let input = object["tool_input"] as? [String: Any],
+        guard let object else { return nil }
+        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any])
+        let inputs = [
+            object["tool_input"] as? [String: Any],
+            nested?["tool_input"] as? [String: Any],
+            object,
+            nested,
+        ]
+        for input in inputs {
+            if let description = describeAskUserQuestionInput(input) {
+                return description
+            }
+        }
+        return nil
+    }
+
+    private func describeAskUserQuestionInput(_ input: [String: Any]?) -> String? {
+        guard let input,
               let questions = input["questions"] as? [[String: Any]],
               let first = questions.first else { return nil }
 

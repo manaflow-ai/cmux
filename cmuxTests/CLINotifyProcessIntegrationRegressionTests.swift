@@ -225,6 +225,40 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(command.contains("Which workspace should I inspect before continuing?"), command)
         XCTAssertTrue(command.contains("[Current] [New]"), command)
 
+        let resumeAfterQuestion = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo resumed"}}"#
+        )
+        XCTAssertFalse(resumeAfterQuestion.timedOut, resumeAfterQuestion.stderr)
+        XCTAssertEqual(resumeAfterQuestion.status, 0, resumeAfterQuestion.stderr)
+
+        let repeatedPreToolUse = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which workspace should I inspect before continuing?","options":[{"label":"Current"},{"label":"New"}]}]}}"#
+        )
+        XCTAssertFalse(repeatedPreToolUse.timedOut, repeatedPreToolUse.stderr)
+        XCTAssertEqual(repeatedPreToolUse.status, 0, repeatedPreToolUse.stderr)
+
+        let repeatedNotificationStart = context.state.commands.count
+        let repeatedNotification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#
+        )
+        XCTAssertFalse(repeatedNotification.timedOut, repeatedNotification.stderr)
+        XCTAssertEqual(repeatedNotification.status, 0, repeatedNotification.stderr)
+
+        let repeatedNotifyCommands = Array(context.state.commands.dropFirst(repeatedNotificationStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let repeatedCommand = try XCTUnwrap(
+            repeatedNotifyCommands.last,
+            "Expected pre-tool-use resume to clear the emitted Claude notification dedupe marker"
+        )
+        XCTAssertTrue(repeatedCommand.contains("Claude Workspace - Claude waiting|Question|"), repeatedCommand)
+        XCTAssertTrue(repeatedCommand.contains("Which workspace should I inspect before continuing?"), repeatedCommand)
+
         let secondPrompt = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "prompt-submit"],
@@ -315,6 +349,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "Claude Workspace - Claude waiting",
                 "Tool approval",
                 "grep error.log"
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","data":{"hook_event_name":"AskUserQuestion","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Choose a branch to continue","options":[{"label":"main"},{"label":"feature"}]}]}}}"#,
+                "Claude Workspace - Claude waiting",
+                "Question",
+                "Choose a branch to continue"
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Permission request: run grep error.log"}"#,
