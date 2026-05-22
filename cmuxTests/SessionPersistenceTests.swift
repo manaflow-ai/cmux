@@ -73,6 +73,59 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(panelSnapshot.listeningPorts.isEmpty)
     }
 
+    @MainActor
+    func testWorkspaceSessionSnapshotRestoresPaneNotificationsIntoStore() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalNotificationStore = appDelegate.notificationStore
+        appDelegate.notificationStore = store
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let liveSurfaceId = UUID()
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: liveSurfaceId,
+            panelId: panelId,
+            title: "Agent finished",
+            subtitle: "codex",
+            body: "Tests passed",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isRead: false,
+            paneFlash: true
+        )
+        store.replaceNotificationsForTesting([notification])
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+        XCTAssertEqual(panelSnapshot.notifications?.first?.body, "Tests passed")
+
+        store.replaceNotificationsForTesting([])
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredNotification = try XCTUnwrap(store.latestNotification(forTabId: restored.id))
+        XCTAssertEqual(restoredNotification.surfaceId, restoredPanelId)
+        XCTAssertEqual(restoredNotification.panelId, restoredPanelId)
+        XCTAssertEqual(restoredNotification.title, "Agent finished")
+        XCTAssertEqual(restoredNotification.body, "Tests passed")
+        XCTAssertFalse(restoredNotification.isRead)
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
+        let restoredSurfaceId = try XCTUnwrap(restored.surfaceIdFromPanelId(restoredPanelId))
+        XCTAssertEqual(restored.bonsplitController.tab(restoredSurfaceId)?.showsNotificationBadge, true)
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
+        XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertTrue(store.notificationMenuSnapshot.hasNotifications)
+        XCTAssertTrue(store.notificationMenuSnapshot.hasUnreadNotifications)
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -1084,6 +1137,46 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoredAntigravityAgentAutoResumeUsesConversationCommand() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceIndex = try makeRestorableAgentIndex(
+            kind: .antigravity,
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "antigravity-conversation-123",
+            arguments: [
+                "/usr/local/bin/agy",
+                "--conversation",
+                "old-conversation",
+                "--sandbox",
+                "danger-full-access",
+                "startup prompt should not replay",
+            ],
+            environment: [:]
+        )
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: sourceIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+
+        let agent = try XCTUnwrap(
+            restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent
+        )
+        XCTAssertEqual(agent.kind, .custom("antigravity"))
+        XCTAssertEqual(agent.sessionId, "antigravity-conversation-123")
+        XCTAssertEqual(
+            agent.resumeCommand,
+            "cd '/tmp/repo' && '/usr/local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access'"
+        )
+    }
+
+    @MainActor
     func testRestoredAgentWithoutResumeCommandInvalidatesOnFirstCommand() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
@@ -1446,6 +1539,8 @@ final class SessionPersistenceTests: XCTestCase {
             case .cursor, .rovodev, .factory, .custom:
                 resolvedEnvironment = [:]
             case .gemini:
+                resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
+            case .antigravity:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
             case .opencode:
                 resolvedEnvironment = ["OPENCODE_CONFIG_DIR": "/tmp/opencode"]
@@ -3463,6 +3558,66 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(snapshot.sessionId, "live-process-session")
         XCTAssertEqual(snapshot.launchCommand?.source, "process")
+    }
+
+    func testAntigravityProcessDetectionDoesNotTreatTrailingFlagAsConversationID() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let processId = 1_739_392_001
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [
+                CmuxTopProcessInfo(
+                    pid: processId,
+                    parentPID: 1,
+                    name: "agy",
+                    path: "/usr/local/bin/agy",
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: workspaceId,
+                    cmuxSurfaceID: panelId,
+                    cmuxAttributionReason: "cmux-test",
+                    processGroupID: nil,
+                    terminalProcessGroupID: nil,
+                    cpuPercent: 0,
+                    residentBytes: 0,
+                    virtualBytes: 0,
+                    threadCount: 1
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInAntigravity])
+
+        func detectedSnapshot(arguments: [String]) -> SessionRestorableAgentSnapshot? {
+            RestorableAgentSessionIndex.processDetectedSnapshots(
+                registry: registry,
+                fileManager: FileManager.default,
+                processSnapshot: processSnapshot,
+                capturedAt: 42,
+                processArgumentsProvider: { requestedProcessId in
+                    guard requestedProcessId == processId else { return nil }
+                    return CmuxTopProcessArguments(
+                        arguments: arguments,
+                        environment: ["PWD": "/tmp/antigravity repo"]
+                    )
+                }
+            )[panelKey]?.snapshot
+        }
+
+        XCTAssertNil(
+            detectedSnapshot(arguments: ["/usr/local/bin/agy", "--conversation", "--sandbox", "danger-full-access"])
+        )
+        XCTAssertNil(
+            detectedSnapshot(arguments: ["/usr/local/bin/agy", "--conversation=--sandbox"])
+        )
+
+        let validSnapshot = try XCTUnwrap(
+            detectedSnapshot(arguments: ["/usr/local/bin/agy", "--conversation", "conversation-123", "--sandbox", "danger-full-access"])
+        )
+        XCTAssertEqual(validSnapshot.sessionId, "conversation-123")
+        XCTAssertEqual(validSnapshot.workingDirectory, "/tmp/antigravity repo")
+        XCTAssertEqual(validSnapshot.launchCommand?.launcher, "antigravity")
     }
 
 }
