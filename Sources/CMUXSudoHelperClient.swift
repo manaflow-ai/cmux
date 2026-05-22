@@ -75,7 +75,7 @@ enum CMUXSudoHelperClient {
             return override(envelope)
         }
 #endif
-        let service = CMUXSudoHelperService.ensureRegistered()
+        let service = availability()
         guard service.available else {
             return .init(
                 status: "helper_unavailable",
@@ -84,20 +84,6 @@ enum CMUXSudoHelperClient {
                 stderr: nil,
                 errorCode: service.errorCode ?? "helper_unavailable",
                 message: service.message
-            )
-        }
-
-        guard FileManager.default.fileExists(atPath: helperSocketPath) else {
-            return .init(
-                status: "helper_unavailable",
-                exitCode: nil,
-                stdout: nil,
-                stderr: nil,
-                errorCode: "helper_unavailable",
-                message: String(
-                    localized: "sudo.helper.unavailable",
-                    defaultValue: "The cmux sudo helper is not installed or enabled. No command was run."
-                )
             )
         }
 
@@ -117,6 +103,30 @@ enum CMUXSudoHelperClient {
                 )
             )
         }
+    }
+
+    static func availability() -> CMUXSudoHelperServiceResult {
+#if DEBUG
+        if let override = CMUXSudoTestHooks.helperAvailabilityOverride {
+            return override()
+        }
+#endif
+        let service = CMUXSudoHelperService.ensureRegistered()
+        guard service.available else {
+            return service
+        }
+
+        guard FileManager.default.fileExists(atPath: helperSocketPath) else {
+            return .unavailable(
+                errorCode: "helper_unavailable",
+                message: String(
+                    localized: "sudo.helper.unavailable",
+                    defaultValue: "The cmux sudo helper is not installed or enabled. No command was run."
+                )
+            )
+        }
+
+        return .available
     }
 
     static func canonicalJSONData(_ object: Any) throws -> Data {

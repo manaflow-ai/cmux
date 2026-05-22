@@ -4,6 +4,7 @@ import Foundation
 #if DEBUG
 enum CMUXSudoTestHooks {
     nonisolated(unsafe) static var approvalOverride: ((CMUXSudoCommandRequest) -> CMUXSudoApprovalResult)?
+    nonisolated(unsafe) static var helperAvailabilityOverride: (() -> CMUXSudoHelperServiceResult)?
     nonisolated(unsafe) static var helperOverride: ((CMUXSudoSignedHelperEnvelope) -> CMUXSudoHelperExecutionResult)?
     nonisolated(unsafe) static var isDescendantOverride: ((pid_t) -> Bool)?
     nonisolated(unsafe) static var processArgumentsOverride: ((pid_t) -> CmuxTopProcessArguments?)?
@@ -12,6 +13,7 @@ enum CMUXSudoTestHooks {
 
     static func reset() {
         approvalOverride = nil
+        helperAvailabilityOverride = nil
         helperOverride = nil
         isDescendantOverride = nil
         processArgumentsOverride = nil

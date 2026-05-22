@@ -244,6 +244,31 @@ extension TerminalController {
         request: CMUXSudoCommandRequest,
         auditLogURL: URL
     ) async -> CMUXSudoSocketResponse {
+        let helperAvailability = CMUXSudoHelperClient.availability()
+        guard helperAvailability.available else {
+            _ = try? CMUXSudoAuditLogger.append(
+                auditRecord(
+                    request: request,
+                    result: "helper_unavailable",
+                    exitCode: nil,
+                    errorCode: helperAvailability.errorCode,
+                    message: helperAvailability.message
+                ),
+                logURL: auditLogURL
+            )
+            return .err(
+                code: sanitizedHelperErrorCode(helperAvailability.errorCode),
+                message: helperAvailability.message ?? String(
+                    localized: "sudo.helper.unavailable",
+                    defaultValue: "The cmux sudo helper is not installed or enabled. No command was run."
+                ),
+                data: [
+                    "status": .string("helper_unavailable"),
+                    "error_code": helperAvailability.errorCode.map { .string($0) } ?? .null,
+                ]
+            )
+        }
+
         let approval = await CMUXSudoApprovalPresenter.requestApproval(request)
         guard !Task.isCancelled else {
             _ = try? CMUXSudoAuditLogger.append(
@@ -323,10 +348,11 @@ extension TerminalController {
         guard execution.status == "completed" else {
             return .err(
                 code: sanitizedHelperErrorCode(execution.errorCode),
-                message: String(localized: "sudo.error.helperFailed", defaultValue: "sudo helper failed"),
+                message: execution.message ?? String(localized: "sudo.error.helperFailed", defaultValue: "sudo helper failed"),
                 data: [
                     "status": .string(execution.status),
                     "exit_code": execution.exitCode.map { .int(Int($0)) } ?? .null,
+                    "error_code": execution.errorCode.map { .string($0) } ?? .null,
                 ]
             )
         }
@@ -367,7 +393,15 @@ extension TerminalController {
 
     private nonisolated func sanitizedHelperErrorCode(_ rawCode: String?) -> String {
         switch rawCode {
-        case "helper_unavailable", "helper_transport_error":
+        case "helper_unavailable",
+             "helper_transport_error",
+             "helper_not_found",
+             "helper_not_bundled",
+             "helper_registration_failed",
+             "helper_requires_approval",
+             "helper_not_registered",
+             "helper_unsupported",
+             "helper_status_unknown":
             return rawCode ?? "helper_error"
         default:
             return "helper_error"

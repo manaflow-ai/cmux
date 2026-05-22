@@ -15,6 +15,14 @@ enum CMUXSudoApprovalPresenter {
             return override(request)
         }
 #endif
+        guard let window = workspaceWindow(for: request) else {
+            return .init(
+                approved: false,
+                reason: String(localized: "sudo.error.surfaceInactive", defaultValue: "workspace or terminal surface is not active")
+            )
+        }
+        notifyWorkspace(for: request)
+
         let alert = NSAlert()
         alert.messageText = String(
             localized: "sudo.prompt.title",
@@ -28,7 +36,12 @@ enum CMUXSudoApprovalPresenter {
         alert.addButton(withTitle: String(localized: "sudo.prompt.deny", defaultValue: "Deny"))
         alert.accessoryView = commandAccessoryView(for: request.displayCommand)
 
-        guard alert.runModal() == .alertFirstButtonReturn else {
+        let response = await withCheckedContinuation { continuation in
+            alert.beginSheetModal(for: window) { modalResponse in
+                continuation.resume(returning: modalResponse)
+            }
+        }
+        guard response == .alertFirstButtonReturn else {
             return .init(
                 approved: false,
                 reason: String(localized: "sudo.denied.byUser", defaultValue: "User denied the sudo request")
@@ -64,6 +77,37 @@ enum CMUXSudoApprovalPresenter {
                 )
             }
         }
+    }
+
+    @MainActor
+    private static func workspaceWindow(for request: CMUXSudoCommandRequest) -> NSWindow? {
+        guard let app = AppDelegate.shared else { return nil }
+        for summary in app.listMainWindowSummaries() {
+            guard let tabManager = app.tabManagerFor(windowId: summary.windowId),
+                  tabManager.tabs.contains(where: { $0.id == request.workspaceID }) else {
+                continue
+            }
+            return app.windowForMainWindowId(summary.windowId)
+        }
+        return nil
+    }
+
+    @MainActor
+    private static func notifyWorkspace(for request: CMUXSudoCommandRequest) {
+        let title = String(localized: "sudo.prompt.title", defaultValue: "Approve sudo command?")
+        let body = String(
+            localized: "sudo.prompt.message",
+            defaultValue: "cmux will authenticate you before sending this exact command to the privileged helper."
+        )
+        TerminalNotificationStore.shared.addNotification(
+            tabId: request.workspaceID,
+            surfaceId: request.surfaceID,
+            title: title,
+            subtitle: request.displayCommand,
+            body: body,
+            cooldownKey: "sudo.request.\(request.requestID)",
+            cooldownInterval: 60
+        )
     }
 
     @MainActor

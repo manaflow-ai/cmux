@@ -334,6 +334,106 @@ final class CMUXSudoTests: XCTestCase {
 #endif
     }
 
+    func testSudoRequestUnavailableHelperSkipsApprovalAndAudits() throws {
+#if DEBUG
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let logURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
+        installValidSudoHooks(workspaceID: workspaceID, surfaceID: surfaceID, logURL: logURL)
+        CMUXSudoTestHooks.helperAvailabilityOverride = {
+            .unavailable(errorCode: "helper_not_found", message: "missing helper for test")
+        }
+        CMUXSudoTestHooks.approvalOverride = { _ in
+            XCTFail("Unavailable sudo helpers must not trigger approval UI")
+            return CMUXSudoApprovalResult(approved: true, reason: nil)
+        }
+        CMUXSudoTestHooks.helperOverride = { _ in
+            XCTFail("Unavailable sudo helpers must not execute commands")
+            return CMUXSudoHelperExecutionResult(
+                status: "completed",
+                exitCode: 0,
+                stdout: nil,
+                stderr: nil,
+                errorCode: nil,
+                message: nil
+            )
+        }
+
+        let requestResult = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
+            TerminalController.shared.v2SudoRequestOnSocketWorker(
+                params: makeParams(workspaceID: workspaceID, surfaceID: surfaceID)
+            )
+        }
+        let requestID = try pendingRequestID(from: requestResult)
+        let result = try waitForSudoResult(requestID: requestID)
+
+        guard case .err(let code, let message, let data) = result else {
+            return XCTFail("Expected helper availability error, got \(result)")
+        }
+        XCTAssertEqual(code, "helper_not_found")
+        XCTAssertEqual(message, "missing helper for test")
+        let object = try XCTUnwrap(data as? [String: Any])
+        XCTAssertEqual(object["status"] as? String, "helper_unavailable")
+        XCTAssertEqual(object["error_code"] as? String, "helper_not_found")
+
+        let entries = try auditEntries(in: logURL)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0]["result"] as? String, "helper_unavailable")
+        XCTAssertEqual(entries[0]["error_code"] as? String, "helper_not_found")
+        XCTAssertEqual(entries[0]["message"] as? String, "missing helper for test")
+#else
+        throw XCTSkip("Sudo request flow hooks are debug-only.")
+#endif
+    }
+
+    func testSudoRequestHelperFailureSurfacesMessageAndAudits() throws {
+#if DEBUG
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let logURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
+        installValidSudoHooks(workspaceID: workspaceID, surfaceID: surfaceID, logURL: logURL)
+        CMUXSudoTestHooks.approvalOverride = { _ in
+            CMUXSudoApprovalResult(approved: true, reason: nil)
+        }
+        CMUXSudoTestHooks.helperOverride = { _ in
+            CMUXSudoHelperExecutionResult(
+                status: "helper_unavailable",
+                exitCode: nil,
+                stdout: nil,
+                stderr: nil,
+                errorCode: "helper_transport_error",
+                message: "transport broken for test"
+            )
+        }
+
+        let requestResult = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
+            TerminalController.shared.v2SudoRequestOnSocketWorker(
+                params: makeParams(workspaceID: workspaceID, surfaceID: surfaceID)
+            )
+        }
+        let requestID = try pendingRequestID(from: requestResult)
+        let result = try waitForSudoResult(requestID: requestID)
+
+        guard case .err(let code, let message, let data) = result else {
+            return XCTFail("Expected helper transport error, got \(result)")
+        }
+        XCTAssertEqual(code, "helper_transport_error")
+        XCTAssertEqual(message, "transport broken for test")
+        let object = try XCTUnwrap(data as? [String: Any])
+        XCTAssertEqual(object["status"] as? String, "helper_unavailable")
+        XCTAssertEqual(object["error_code"] as? String, "helper_transport_error")
+        XCTAssertNotNil(object["exit_code"] as? NSNull)
+
+        let entries = try auditEntries(in: logURL)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0]["result"] as? String, "helper_unavailable")
+        XCTAssertEqual(entries[0]["error_code"] as? String, "helper_transport_error")
+        XCTAssertEqual(entries[0]["message"] as? String, "transport broken for test")
+#else
+        throw XCTSkip("Sudo request flow hooks are debug-only.")
+#endif
+    }
+
     func testSudoResultRejectsMalformedAndUnknownRequests() throws {
 #if DEBUG
         switch TerminalController.shared.v2SudoResultOnSocketWorker(params: [:]) {
@@ -410,6 +510,7 @@ final class CMUXSudoTests: XCTestCase {
         CMUXSudoTestHooks.surfaceExistsOverride = { requestedWorkspaceID, requestedSurfaceID in
             requestedWorkspaceID == workspaceID && requestedSurfaceID == surfaceID
         }
+        CMUXSudoTestHooks.helperAvailabilityOverride = { .available }
 #endif
     }
 
