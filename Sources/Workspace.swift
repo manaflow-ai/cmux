@@ -10436,10 +10436,11 @@ final class Workspace: Identifiable, ObservableObject {
             forName: TerminalWarmPtyPoolSettings.didChangeNotification,
             object: nil,
             queue: .main
-        ) { [weak tabManager = AppDelegate.shared?.tabManager] _ in
-            Task { @MainActor [weak tabManager] in
+        ) { _ in
+            Task { @MainActor in
                 if TerminalWarmPtyPoolSettings.isEnabled() {
-                    tabManager?.selectedWorkspace?.refillWarmTerminalPoolIfNeeded(reason: "settings.enabled")
+                    AppDelegate.shared?.tabManager?.selectedWorkspace?
+                        .refillWarmTerminalPoolIfNeeded(reason: "settings.enabled")
                 } else {
                     Self.discardWarmTerminalPool(reason: "settings.disabled")
                 }
@@ -10576,7 +10577,7 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
-    private func takeWarmTerminalPanelIfAvailable(
+    @MainActor private func takeWarmTerminalPanelIfAvailable(
         configTemplate: CmuxSurfaceConfigTemplate?,
         workingDirectory: String?,
         reason: String
@@ -10686,7 +10687,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private func refillWarmTerminalPoolIfNeeded(reason: String) {
+    @MainActor private func refillWarmTerminalPoolIfNeeded(reason: String) {
         Self.installWarmTerminalPoolSettingsObserverIfNeeded()
         guard TerminalWarmPtyPoolSettings.isEnabled() else {
             Self.discardWarmTerminalPool(reason: "refill.disabled")
