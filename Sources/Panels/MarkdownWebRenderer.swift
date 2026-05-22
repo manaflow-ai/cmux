@@ -32,9 +32,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
     }
 
-    func makeNSView(context: Context) -> MarkdownWebPortalHostView {
-        let host = MarkdownWebPortalHostView(frame: .zero)
-        applyBackground(to: host)
+    func makeNSView(context: Context) -> MarkdownWebPortalProbeView {
+        let probe = MarkdownWebPortalProbeView(frame: .zero)
+        applyBackground(to: probe)
         let reusedWebView = context.coordinator.webView != nil
         let webView = context.coordinator.webView ?? makeWebView(context: context)
 
@@ -47,18 +47,18 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
         applyAppearance(to: webView, isDark: theme.isDark)
 
-        configurePortalHost(host, coordinator: context.coordinator)
+        configurePortalProbe(probe, coordinator: context.coordinator)
         context.coordinator.bindPortal(
-            to: host,
+            to: probe,
             visibleInUI: visibleInUI,
             zPriority: portalPriority,
             dropContext: paneDropContext,
             reason: "makeNSView"
         )
-        return host
+        return probe
     }
 
-    func updateNSView(_ nsView: MarkdownWebPortalHostView, context: Context) {
+    func updateNSView(_ nsView: MarkdownWebPortalProbeView, context: Context) {
         // Re-bind panel metadata in case SwiftUI recreated the wrapper while
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
@@ -72,7 +72,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         webView.uiDelegate = context.coordinator
         applyBackground(to: webView)
         applyAppearance(to: webView, isDark: theme.isDark)
-        configurePortalHost(nsView, coordinator: context.coordinator)
+        configurePortalProbe(nsView, coordinator: context.coordinator)
         context.coordinator.bindPortal(
             to: nsView,
             visibleInUI: visibleInUI,
@@ -83,18 +83,17 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.update(markdown: markdown, theme: theme)
     }
 
-    static func dismantleNSView(_ nsView: MarkdownWebPortalHostView, coordinator: Coordinator) {
+    static func dismantleNSView(_ nsView: MarkdownWebPortalProbeView, coordinator: Coordinator) {
 #if DEBUG
         if coordinator.shouldRecordDismantleRetainedWebView(for: nsView) {
             coordinator.recordDismantleRetainedWebView()
         }
 #endif
-        coordinator.notePortalHostDismantled(nsView)
+        coordinator.notePortalProbeDismantled(nsView)
         nsView.onDidMoveToWindow = nil
         nsView.onGeometryChanged = nil
-        // The WKWebView is panel-owned and portal-hosted. Do not detach it here:
-        // Bonsplit can rebuild the lightweight SwiftUI host during split changes,
-        // and the portal preserves the visible WebKit surface until the new host binds.
+        // The SwiftUI view is only a geometry probe. The actual portal anchor is
+        // panel-owned by the coordinator and remains mounted until the panel closes.
     }
 
     /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's
@@ -167,23 +166,23 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         return webView
     }
 
-    private func configurePortalHost(
-        _ host: MarkdownWebPortalHostView,
+    private func configurePortalProbe(
+        _ probe: MarkdownWebPortalProbeView,
         coordinator: Coordinator
     ) {
-        host.onDidMoveToWindow = { [weak host, weak coordinator] in
-            guard let host, let coordinator else { return }
+        probe.onDidMoveToWindow = { [weak probe, weak coordinator] in
+            guard let probe, let coordinator else { return }
             coordinator.bindPortal(
-                to: host,
+                to: probe,
                 visibleInUI: visibleInUI,
                 zPriority: portalPriority,
                 dropContext: paneDropContext,
                 reason: "hostMovedToWindow"
             )
         }
-        host.onGeometryChanged = { [weak host, weak coordinator] in
-            guard let host, let coordinator else { return }
-            coordinator.synchronizePortal(for: host)
+        probe.onGeometryChanged = { [weak probe, weak coordinator] in
+            guard let probe, let coordinator else { return }
+            coordinator.synchronizePortal(for: probe)
         }
     }
 
@@ -199,7 +198,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastTheme: MarkdownWebTheme? = nil
         private var isLoaded = false
         private var isShellLoading = false
-        private weak var currentPortalHost: MarkdownWebPortalHostView?
+        private weak var currentPortalProbe: MarkdownWebPortalProbeView?
+        private let portalAnchorView = MarkdownWebPortalAnchorView(frame: .zero)
         private var currentPortalHostVisibleInUI = false
         private var webContentProcessRecoveryAttempts = 0
         private let maxWebContentProcessRecoveryAttempts = 2
@@ -282,8 +282,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
-        func shouldRecordDismantleRetainedWebView(for host: MarkdownWebPortalHostView) -> Bool {
-            webView != nil && currentPortalHost === host && currentPortalHostVisibleInUI
+        func shouldRecordDismantleRetainedWebView(for probe: MarkdownWebPortalProbeView) -> Bool {
+            // Probe teardown is expected when Bonsplit rebuilds a pane wrapper.
+            // The retained WebView stays bound to the coordinator-owned anchor.
+            false
         }
 
         private var debugFileName: String {
@@ -316,10 +318,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             self.filePath = filePath
         }
 
-        func notePortalHostDismantled(_ host: MarkdownWebPortalHostView) {
-            guard currentPortalHost === host else { return }
-            currentPortalHost = nil
-            currentPortalHostVisibleInUI = false
+        func notePortalProbeDismantled(_ probe: MarkdownWebPortalProbeView) {
+            guard currentPortalProbe === probe else { return }
+            currentPortalProbe = nil
         }
 
         func installWebView(
@@ -340,15 +341,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         func bindPortal(
-            to host: MarkdownWebPortalHostView,
+            to probe: MarkdownWebPortalProbeView,
             visibleInUI: Bool,
             zPriority: Int,
             dropContext: BrowserPaneDropContext,
             reason: String
         ) {
             guard let webView else { return }
-            guard host.window != nil else {
-                if currentPortalHost === host {
+            guard let anchorView = updatePortalAnchorFrame(from: probe) else {
+                if currentPortalProbe === probe {
                     currentPortalHostVisibleInUI = visibleInUI
                 }
                 if !visibleInUI {
@@ -361,11 +362,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
             BrowserWindowPortalRegistry.bind(
                 webView: webView,
-                to: host,
+                to: anchorView,
                 visibleInUI: visibleInUI,
                 zPriority: zPriority
             )
-            currentPortalHost = host
+            currentPortalProbe = probe
             currentPortalHostVisibleInUI = visibleInUI
             BrowserWindowPortalRegistry.updatePaneDropContext(
                 for: webView,
@@ -374,6 +375,65 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             recordPortalBind(reason: reason, visibleInUI: visibleInUI)
 #endif
+        }
+
+        private func portalReferenceView(in window: NSWindow) -> NSView? {
+            if let glassTarget = WindowGlassEffect.portalInstallationTarget(for: window) {
+                return glassTarget.reference
+            }
+            return window.contentView
+        }
+
+        private func updatePortalAnchorFrame(from probe: MarkdownWebPortalProbeView) -> MarkdownWebPortalAnchorView? {
+            guard let window = probe.window,
+                  let referenceView = portalReferenceView(in: window) else {
+                return nil
+            }
+            if portalAnchorView.superview !== referenceView {
+                portalAnchorView.removeFromSuperview()
+                referenceView.addSubview(portalAnchorView, positioned: .above, relativeTo: nil)
+            }
+
+            let frameInWindow = effectiveProbeFrameInWindow(probe, stoppingAt: referenceView)
+            let frameInReference = referenceView.convert(frameInWindow, from: nil)
+            if !Self.rectApproximatelyEqual(portalAnchorView.frame, frameInReference) {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                portalAnchorView.frame = frameInReference
+                CATransaction.commit()
+            }
+            portalAnchorView.isHidden = false
+            return portalAnchorView
+        }
+
+        private func effectiveProbeFrameInWindow(
+            _ probe: MarkdownWebPortalProbeView,
+            stoppingAt referenceView: NSView
+        ) -> NSRect {
+            var frameInWindow = probe.convert(probe.bounds, to: nil)
+            var current = probe.superview
+            while let ancestor = current {
+                let ancestorBoundsInWindow = ancestor.convert(ancestor.bounds, to: nil)
+                let finiteAncestorBounds =
+                    ancestorBoundsInWindow.origin.x.isFinite &&
+                    ancestorBoundsInWindow.origin.y.isFinite &&
+                    ancestorBoundsInWindow.size.width.isFinite &&
+                    ancestorBoundsInWindow.size.height.isFinite
+                if finiteAncestorBounds {
+                    frameInWindow = frameInWindow.intersection(ancestorBoundsInWindow)
+                    if frameInWindow.isNull { return .zero }
+                }
+                if ancestor === referenceView { break }
+                current = ancestor.superview
+            }
+            return frameInWindow
+        }
+
+        private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
+            abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+                abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+                abs(lhs.size.width - rhs.size.width) <= epsilon &&
+                abs(lhs.size.height - rhs.size.height) <= epsilon
         }
 
         func hidePortal(reason: String) {
@@ -391,9 +451,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             return BrowserWindowPortalRegistry.debugSnapshot(for: webView)
         }
 
-        func synchronizePortal(for host: MarkdownWebPortalHostView) {
-            guard webView != nil, host.window != nil else { return }
-            BrowserWindowPortalRegistry.synchronizeForAnchor(host)
+        func synchronizePortal(for probe: MarkdownWebPortalProbeView) {
+            guard webView != nil else { return }
+            guard let anchorView = updatePortalAnchorFrame(from: probe) else { return }
+            BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
         }
 
         func close() {
@@ -408,8 +469,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.onPortalRenderingStateReattached = nil
 #endif
             }
+            portalAnchorView.removeFromSuperview()
             self.webView = nil
-            currentPortalHost = nil
+            currentPortalProbe = nil
             currentPortalHostVisibleInUI = false
             isLoaded = false
             isShellLoading = false

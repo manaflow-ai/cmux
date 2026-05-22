@@ -35,12 +35,28 @@ final class MarkdownWebView: WKWebView {
 }
 
 @MainActor
-final class MarkdownWebPortalHostView: NSView {
+final class MarkdownWebPortalProbeView: NSView {
     var onDidMoveToWindow: (() -> Void)?
     var onGeometryChanged: (() -> Void)?
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setAccessibilityRole(.none)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setAccessibilityRole(.none)
+        setAccessibilityElement(false)
+    }
+
     override var isOpaque: Bool {
         layer?.isOpaque == true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 
     override func viewDidMoveToWindow() {
@@ -62,6 +78,27 @@ final class MarkdownWebPortalHostView: NSView {
     override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
         onGeometryChanged?()
+    }
+}
+
+@MainActor
+final class MarkdownWebPortalAnchorView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setAccessibilityRole(.none)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setAccessibilityRole(.none)
+        setAccessibilityElement(false)
+    }
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
 

@@ -272,10 +272,10 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
-    func testMarkdownRendererDismantleClearsPortalHostCallbacksOnly() {
+    func testMarkdownRendererDismantleClearsProbeCallbacksOnly() {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        let hostView = MarkdownWebPortalHostView(frame: .zero)
+        let hostView = MarkdownWebPortalProbeView(frame: .zero)
         coordinator.webView = webView
         defer { coordinator.close() }
 
@@ -289,7 +289,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(coordinator.diagnosticsSnapshot.dismantleRetainedWebViewCount, 0)
     }
 
-    func testMarkdownRendererIgnoresStalePortalHostDismantleAfterRebind() {
+    func testMarkdownRendererKeepsStablePortalAnchorAfterProbeDismantle() {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
         coordinator.webView = webView
@@ -310,13 +310,11 @@ final class MarkdownPanelTests: XCTestCase {
         let root = NSView(frame: frame)
         window.contentView = root
 
-        let currentHost = MarkdownWebPortalHostView(frame: NSRect(x: 20, y: 20, width: 320, height: 180))
-        let staleHost = MarkdownWebPortalHostView(frame: currentHost.frame)
-        root.addSubview(currentHost)
-        root.addSubview(staleHost)
+        let currentProbe = MarkdownWebPortalProbeView(frame: NSRect(x: 20, y: 20, width: 320, height: 180))
+        root.addSubview(currentProbe)
 
         coordinator.bindPortal(
-            to: currentHost,
+            to: currentProbe,
             visibleInUI: true,
             zPriority: 1,
             dropContext: BrowserPaneDropContext(
@@ -328,9 +326,13 @@ final class MarkdownPanelTests: XCTestCase {
             reason: "unit-test"
         )
 
-        MarkdownWebRenderer.dismantleNSView(staleHost, coordinator: coordinator)
+        let beforeDismantle = coordinator.portalSnapshot()
+        MarkdownWebRenderer.dismantleNSView(currentProbe, coordinator: coordinator)
+        let afterDismantle = coordinator.portalSnapshot()
 
         XCTAssertEqual(coordinator.diagnosticsSnapshot.dismantleRetainedWebViewCount, 0)
+        XCTAssertEqual(beforeDismantle?.visibleInUI, true)
+        XCTAssertEqual(afterDismantle?.visibleInUI, true)
     }
 
     func testMarkdownRendererPortalReattachDiagnosticIsLive() {
