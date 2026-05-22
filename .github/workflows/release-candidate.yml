@@ -49,10 +49,14 @@ jobs:
 
       - name: Validate release candidate inputs
         id: vars
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_RC_NUMBER: ${{ inputs.rc_number }}
+          INPUT_CANDIDATE_REF: ${{ inputs.candidate_ref }}
         run: |
           set -euo pipefail
-          VERSION="${{ inputs.version }}"
-          RC_NUMBER="${{ inputs.rc_number }}"
+          VERSION="$INPUT_VERSION"
+          RC_NUMBER="$INPUT_RC_NUMBER"
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "version must look like 0.64.0, got: $VERSION" >&2
             exit 1
@@ -94,7 +98,7 @@ jobs:
           {
             echo "### Release candidate"
             echo
-            echo "- candidate ref: \`${{ inputs.candidate_ref }}\`"
+            echo "- candidate ref: \`$INPUT_CANDIDATE_REF\`"
             echo "- candidate sha: \`$CANDIDATE_SHA\`"
             echo "- stable tag: \`$STABLE_TAG\`"
             echo "- rc tag: \`$RC_TAG\`"
@@ -682,7 +686,6 @@ jobs:
 
       - name: Upload RC appcast to R2
         if: steps.guard_rc_assets.outputs.skip_upload != 'true'
-        continue-on-error: true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}

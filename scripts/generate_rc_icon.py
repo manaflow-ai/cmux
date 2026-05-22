@@ -96,23 +96,24 @@ def recolor_banner(img: Image.Image) -> Image.Image:
 
 def main() -> None:
     os.makedirs(DST_DIR, exist_ok=True)
+    generated_count = 0
 
     for filename, pixel_size in SIZES:
         src_path = os.path.join(SRC_DIR, filename)
         dst_path = os.path.join(DST_DIR, filename)
 
         if not os.path.exists(src_path):
-            print(f"  SKIP {filename} (source not found)")
-            continue
+            raise SystemExit(f"missing source icon: {src_path}")
 
         img = Image.open(src_path)
         if img.size != (pixel_size, pixel_size):
             img = img.resize((pixel_size, pixel_size), Image.LANCZOS)
 
         recolor_banner(img).save(dst_path, "PNG")
+        generated_count += 1
         print(f"  {filename} ({pixel_size}x{pixel_size})")
 
-    print(f"\nGenerated {len(SIZES)} icons in {DST_DIR}")
+    print(f"\nGenerated {generated_count} icons in {DST_DIR}")
 
 
 if __name__ == "__main__":

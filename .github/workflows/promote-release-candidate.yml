@@ -25,9 +25,11 @@ jobs:
 
       - name: Resolve tags
         id: vars
+        env:
+          INPUT_RC_TAG: ${{ inputs.rc_tag }}
         run: |
           set -euo pipefail
-          RC_TAG="${{ inputs.rc_tag }}"
+          RC_TAG="$INPUT_RC_TAG"
           if ! [[ "$RC_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
             echo "rc_tag must look like v0.64.0-rc.1, got: $RC_TAG" >&2
             exit 1
@@ -171,7 +173,6 @@ jobs:
 
       - name: Upload stable appcast to R2
         if: steps.guard_stable_assets.outputs.skip_upload != 'true'
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
