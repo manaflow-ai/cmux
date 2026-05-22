@@ -282,12 +282,12 @@
           "type": "string",
           "enum": ["always", "dirty-only", "never"],
           "default": "always",
-          "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
+          "descriptionKey": "schemaDescriptions.app.confirmQuit"
         },
         "warnBeforeQuit": {
           "type": "boolean",
           "default": true,
-          "description": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
+          "descriptionKey": "schemaDescriptions.app.warnBeforeQuit"
         },
         "warnBeforeClosingTab": {
           "type": "boolean",

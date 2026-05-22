@@ -422,11 +422,11 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[TelemetrySettings.sendAnonymousTelemetryKey] = .bool(value)
         }
         if let raw = jsonString(section["confirmQuit"]) {
-            guard let mode = QuitConfirmationMode(rawValue: raw) else {
+            if let mode = QuitConfirmationMode(rawValue: raw) {
+                snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
+            } else {
                 logInvalid("app.confirmQuit", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
         }
         if let value = jsonBool(section["warnBeforeQuit"]) {
             snapshot.managedUserDefaults[QuitWarningSettings.warnBeforeQuitKey] = .bool(value)

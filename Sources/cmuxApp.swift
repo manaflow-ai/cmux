@@ -4639,18 +4639,34 @@ enum QuitWarningSettings {
         return defaults.bool(forKey: warnBeforeQuitKey) ? .always : .never
     }
 
+    static func setMode(_ mode: QuitConfirmationMode, defaults: UserDefaults = .standard) {
+        defaults.set(mode.rawValue, forKey: confirmQuitKey)
+        defaults.set(mode != .never, forKey: warnBeforeQuitKey)
+    }
+
     static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
-        defaults.set(isEnabled, forKey: warnBeforeQuitKey)
+        setMode(isEnabled ? .always : .never, defaults: defaults)
     }
 }
 
-enum QuitConfirmationMode: String, CaseIterable, Sendable {
+nonisolated enum QuitConfirmationMode: String, CaseIterable, Sendable {
     case always
     case dirtyOnly = "dirty-only"
     case never
+
+    var localizedSettingsTitle: String {
+        switch self {
+        case .always:
+            return String(localized: "settings.app.confirmQuit.always", defaultValue: "Always")
+        case .dirtyOnly:
+            return String(localized: "settings.app.confirmQuit.dirtyOnly", defaultValue: "Dirty Only")
+        case .never:
+            return String(localized: "settings.app.confirmQuit.never", defaultValue: "Never")
+        }
+    }
 }
 
-enum BuildFlavor: String, Sendable {
+nonisolated enum BuildFlavor: String, Sendable {
     case dev
     case nightly
     case stable
@@ -5182,6 +5198,8 @@ struct SettingsView: View {
     @AppStorage(NotificationPaneFlashSettings.enabledKey) private var notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
     @AppStorage(MenuBarExtraSettings.showInMenuBarKey) private var showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
     @AppStorage(MenuBarOnlySettings.menuBarOnlyKey) private var menuBarOnly = MenuBarOnlySettings.defaultMenuBarOnly
+    @AppStorage(QuitWarningSettings.confirmQuitKey)
+    private var confirmQuitModeRaw = QuitWarningSettings.defaultConfirmQuitMode.rawValue
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabKey) private var warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
@@ -5330,6 +5348,37 @@ struct SettingsView: View {
             localized: "settings.app.paneFirstClickFocus.subtitleOff",
             defaultValue: "When cmux is inactive, the first click only activates the window. Click again to focus the pane."
         )
+    }
+
+    private var confirmQuitModeBinding: Binding<QuitConfirmationMode> {
+        Binding(
+            get: { QuitWarningSettings.confirmQuitMode() },
+            set: { mode in
+                QuitWarningSettings.setMode(mode)
+                confirmQuitModeRaw = mode.rawValue
+                warnBeforeQuitShortcut = mode != .never
+            }
+        )
+    }
+
+    private var confirmQuitModeSubtitle: String {
+        switch QuitWarningSettings.confirmQuitMode() {
+        case .always:
+            return String(
+                localized: "settings.app.warnBeforeQuit.subtitleOn",
+                defaultValue: "Show a confirmation before quitting with Cmd+Q."
+            )
+        case .dirtyOnly:
+            return String(
+                localized: "settings.app.confirmQuit.subtitleDirtyOnly",
+                defaultValue: "Show a confirmation only when a workspace needs close confirmation."
+            )
+        case .never:
+            return String(
+                localized: "settings.app.warnBeforeQuit.subtitleOff",
+                defaultValue: "Cmd+Q quits immediately without confirmation."
+            )
+        }
     }
 
     private var showTerminalScrollBarBinding: Binding<Bool> {
@@ -6414,12 +6463,16 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("app.confirmQuit", "app.warnBeforeQuit"),
                             String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"),
-                            subtitle: warnBeforeQuitShortcut
-                                ? String(localized: "settings.app.warnBeforeQuit.subtitleOn", defaultValue: "Show a confirmation before quitting with Cmd+Q.")
-                                : String(localized: "settings.app.warnBeforeQuit.subtitleOff", defaultValue: "Cmd+Q quits immediately without confirmation.")
+                            subtitle: confirmQuitModeSubtitle,
+                            controlWidth: pickerColumnWidth
                         ) {
-                            Toggle("", isOn: $warnBeforeQuitShortcut)
+                            Picker("", selection: confirmQuitModeBinding) {
+                                ForEach(QuitConfirmationMode.allCases, id: \.self) { mode in
+                                    Text(mode.localizedSettingsTitle).tag(mode)
+                                }
+                            }
                                 .labelsHidden()
+                                .pickerStyle(.segmented)
                                 .controlSize(.small)
                         }
 
@@ -7703,7 +7756,9 @@ struct SettingsView: View {
         notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
         showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
         menuBarOnly = MenuBarOnlySettings.defaultMenuBarOnly
-        warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+        QuitWarningSettings.setMode(QuitWarningSettings.defaultConfirmQuitMode)
+        confirmQuitModeRaw = QuitWarningSettings.defaultConfirmQuitMode.rawValue
+        warnBeforeQuitShortcut = QuitWarningSettings.defaultConfirmQuitMode != .never
         warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces

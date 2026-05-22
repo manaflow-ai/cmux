@@ -1604,6 +1604,25 @@ final class QuitWarningSettingsTests: XCTestCase {
         XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
         XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
     }
+
+    func testSetEnabledWritesConfirmQuitAndLegacyFallback() {
+        let suiteName = "QuitWarningSettingsTests.SetEnabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        QuitWarningSettings.setEnabled(false, defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.never.rawValue)
+        XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, false)
+        XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+
+        QuitWarningSettings.setEnabled(true, defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.always.rawValue)
+        XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, true)
+        XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+    }
 }
 
 final class BuildFlavorTests: XCTestCase {
