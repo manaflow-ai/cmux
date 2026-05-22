@@ -79,7 +79,7 @@ reviews:
     - path: "cmuxTests/**/*Hook*.swift"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook-related tests. Tests for special hook dispatch should prove the agent cannot use the shared env-interpolating path.
-    - path: "cmuxTests/**/*Feed*.swift"
+    - path: "cmuxTests/FeedCoordinatorTests.swift"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed bridge tests. Preserve source/event routing through `cmux hooks feed --source <agent> --event <event>` and the longer Feed timeout behavior.
     - path: "cmuxTests/WorkspaceRemoteConnectionTests.swift"
