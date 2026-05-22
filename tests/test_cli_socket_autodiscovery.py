@@ -125,6 +125,19 @@ def write_marker(home: str, marker_name: str, socket_path: str) -> None:
         f.write(f"{socket_path}\n")
 
 
+def create_stale_socket_file(socket_path: str) -> None:
+    os.makedirs(os.path.dirname(socket_path), exist_ok=True)
+    try:
+        os.remove(socket_path)
+    except OSError:
+        pass
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        server.bind(socket_path)
+    finally:
+        server.close()
+
+
 def temporary_socket_home(prefix: str) -> tempfile.TemporaryDirectory:
     # Darwin caps Unix socket paths at a little over 100 bytes. Keep fake HOME
     # roots short because stable sockets live under ~/Library/Application Support.
@@ -572,6 +585,56 @@ def test_python_client_supports_rc_variant() -> bool:
     return True
 
 
+def test_cli_prefers_rc_default_socket_file_over_stale_marker(cli_path: str) -> bool:
+    pid = os.getpid()
+    slug = f"fallback-{pid}"
+    stale_marker_socket = f"/tmp/cmux-stale-rc-marker-{pid}.sock"
+    rc_default_socket = f"/tmp/cmux-rc-{slug}.sock"
+
+    with temporary_socket_home("cmux-rc-stale-") as home:
+        apps = os.path.join(home, "Apps")
+        os.makedirs(apps, exist_ok=True)
+        rc_cli = bundled_cli_for_variant(
+            cli_path,
+            apps,
+            "cmux RC fallback",
+            f"com.cmuxterm.app.rc.{slug}",
+        )
+        write_marker(home, f"rc-{slug}-last-socket-path", stale_marker_socket)
+        try:
+            create_stale_socket_file(stale_marker_socket)
+            create_stale_socket_file(rc_default_socket)
+            proc = run_ping(rc_cli, home)
+        finally:
+            for path in [stale_marker_socket, rc_default_socket]:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+    combined_output = f"{proc.stdout}\n{proc.stderr}"
+    if proc.returncode == 0:
+        print("FAIL: cmux ping unexpectedly succeeded against stale socket fixtures")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+    if rc_default_socket not in combined_output:
+        print("FAIL: cmux ping did not choose the RC default socket file fallback")
+        print(f"expected path in output={rc_default_socket!r}")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+    if stale_marker_socket in combined_output:
+        print("FAIL: cmux ping chose stale RC marker socket before the default fallback")
+        print(f"stale marker={stale_marker_socket!r}")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    print("PASS: CLI prefers RC default socket file over stale marker fallback")
+    return True
+
+
 def test_variant_last_socket_markers(cli_path: str) -> bool:
     pid = os.getpid()
     stable_socket = f"/tmp/cmux-issue3542-stable-{pid}.sock"
@@ -784,6 +847,9 @@ def main() -> int:
         return 1
 
     if not test_python_client_supports_rc_variant():
+        return 1
+
+    if not test_cli_prefers_rc_default_socket_file_over_stale_marker(cli_path):
         return 1
 
     print("PASS: cmux ping auto-discovers tagged socket from CMUX_TAG")

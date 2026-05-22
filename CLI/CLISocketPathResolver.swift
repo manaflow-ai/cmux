@@ -140,8 +140,10 @@ enum CLISocketPathResolver {
             return path
         }
 
-        // If the listener is still starting, prefer existing socket files.
-        for path in candidates where isSocketFile(path) {
+        // If the listener is still starting, prefer the channel default socket
+        // file over a last-run marker that may have gone stale.
+        let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
+        for path in dedupe([defaultPath] + candidates) where isSocketFile(path) {
             return path
         }
 
