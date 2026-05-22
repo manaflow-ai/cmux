@@ -7552,7 +7552,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL)
         )
 
-        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let snapshot = try preparedSessionAttachmentSnapshot(attachment)
         let durablePath = try XCTUnwrap(snapshot.localPath)
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
@@ -7572,6 +7572,31 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let restoredAttachment = snapshot.textBoxAttachment()
         XCTAssertEqual(restoredAttachment.localURL?.standardizedFileURL.path, durableURL.path)
         XCTAssertEqual(restoredAttachment.submissionPath, durableURL.path)
+    }
+
+    func testTextBoxSessionDraftSnapshotDoesNotSynchronouslyCopyUnpreparedTemporaryImage() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+        addTeardownBlock {
+            attachment.debugCancelSessionDraftCopyForTesting()
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+        }
+
+        let snapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
+
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        XCTAssertNotEqual(durablePath, temporaryURL.path)
+        XCTAssertEqual(snapshot.submissionPath, durablePath)
+        XCTAssertEqual(
+            snapshot.submissionText,
+            TextBoxAttachment.submissionText(forLocalFileURL: URL(fileURLWithPath: durablePath))
+        )
+        XCTAssertTrue(snapshot.cleanupLocalPathWhenDisposed)
     }
 
     func testTextBoxSessionDraftKeepsOwnedTemporaryImageWhenDurableCopyFails() throws {
@@ -7611,7 +7636,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             cleanupLocalURLWhenDisposed: true
         )
 
-        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let snapshot = try preparedSessionAttachmentSnapshot(attachment)
         let durablePath = try XCTUnwrap(snapshot.localPath)
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
@@ -7638,7 +7663,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             cleanupLocalURLWhenDisposed: true
         )
 
-        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let snapshot = try preparedSessionAttachmentSnapshot(attachment)
         let durablePath = try XCTUnwrap(snapshot.localPath)
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
@@ -7664,7 +7689,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             cleanupLocalURLWhenDisposed: true
         )
 
-        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let snapshot = try preparedSessionAttachmentSnapshot(attachment)
         let durablePath = try XCTUnwrap(snapshot.localPath)
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
@@ -7697,7 +7722,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             cleanupLocalURLWhenDisposed: true
         )
 
-        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let snapshot = try preparedSessionAttachmentSnapshot(attachment)
         let durablePath = try XCTUnwrap(snapshot.localPath)
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
@@ -7726,7 +7751,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 cleanupLocalURLWhenDisposed: true
             )
 
-            let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+            let snapshot = try preparedSessionAttachmentSnapshot(attachment)
             let durablePath = try XCTUnwrap(snapshot.localPath)
             let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
             addTeardownBlock {
@@ -7763,7 +7788,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 cleanupLocalURLWhenDisposed: true
             )
 
-            let snapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
+            let snapshot = try preparedSessionAttachmentSnapshot(attachment)
             let durablePath = try XCTUnwrap(snapshot.localPath)
             let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
             addTeardownBlock {
@@ -7817,7 +7842,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
             cleanupLocalURLWhenDisposed: true
         )
-        let snapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
+        let snapshot = try preparedSessionAttachmentSnapshot(attachment)
         let durablePath = try XCTUnwrap(snapshot.localPath)
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
@@ -7852,7 +7877,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             cleanupLocalURLWhenDisposed: true
         )
 
-        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let snapshot = try preparedSessionAttachmentSnapshot(attachment)
         let durablePath = try XCTUnwrap(snapshot.localPath)
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
@@ -7949,7 +7974,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             cleanupLocalURLWhenDisposed: true
         )
 
-        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let snapshot = try preparedSessionAttachmentSnapshot(attachment)
         let durablePath = try XCTUnwrap(snapshot.localPath)
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
@@ -8011,8 +8036,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: inlineTemporaryURL),
             cleanupLocalURLWhenDisposed: true
         )
-        let deletedSnapshot = SessionTextBoxInputAttachmentSnapshot(deletedAttachment)
-        let inlineSnapshot = SessionTextBoxInputAttachmentSnapshot(inlineAttachment)
+        let deletedSnapshot = try preparedSessionAttachmentSnapshot(deletedAttachment)
+        let inlineSnapshot = try preparedSessionAttachmentSnapshot(inlineAttachment)
         let deletedDurablePath = try XCTUnwrap(deletedSnapshot.localPath)
         let inlineDurablePath = try XCTUnwrap(inlineSnapshot.localPath)
         let deletedDurableURL = URL(fileURLWithPath: deletedDurablePath).standardizedFileURL
@@ -8064,7 +8089,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
             cleanupLocalURLWhenDisposed: true
         )
-        let snapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
+        let snapshot = try preparedSessionAttachmentSnapshot(attachment)
         let durablePath = try XCTUnwrap(snapshot.localPath)
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
@@ -8116,7 +8141,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL)
         )
-        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let snapshot = try preparedSessionAttachmentSnapshot(attachment)
         let durablePath = try XCTUnwrap(snapshot.localPath)
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
@@ -9142,7 +9167,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
             cleanupLocalURLWhenDisposed: true
         )
-        let snapshot = try XCTUnwrap(SessionTextBoxInputAttachmentSnapshot(attachment))
+        let snapshot = try preparedSessionAttachmentSnapshot(attachment)
         let durablePath = try XCTUnwrap(snapshot.localPath)
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
@@ -10059,6 +10084,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         try data.write(to: url)
         return url.standardizedFileURL
+    }
+
+    private func preparedSessionAttachmentSnapshot(
+        _ attachment: TextBoxAttachment
+    ) throws -> SessionTextBoxInputAttachmentSnapshot {
+        _ = attachment.debugPrepareSessionDraftCopySynchronouslyForTesting()
+        return SessionTextBoxInputAttachmentSnapshot(attachment)
     }
 
     private enum TextBoxSubmissionPartSummary: Equatable {

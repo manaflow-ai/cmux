@@ -294,8 +294,14 @@ struct TextBoxAttachment: Identifiable {
 
 private enum TextBoxDraftAttachmentStorage {
     private static let directoryName = "textbox-draft-attachments"
-    private nonisolated static let copiedDraftPathByOriginalPath = OSAllocatedUnfairLock(
-        initialState: [String: String]()
+    private struct DraftCopyState {
+        var copiedDraftPathByOriginalPath: [String: String] = [:]
+        var pendingOriginalPaths: Set<String> = []
+        var cancelledOriginalPaths: Set<String> = []
+    }
+
+    private nonisolated static let draftCopyState = OSAllocatedUnfairLock(
+        initialState: DraftCopyState()
     )
 
     static func snapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
@@ -303,14 +309,19 @@ private enum TextBoxDraftAttachmentStorage {
               GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
             return fallbackSnapshot(for: attachment)
         }
-
-        guard let durableURL = copyToDurableStorage(localURL) else {
+        let standardizedLocalURL = localURL.standardizedFileURL
+        guard FileManager.default.fileExists(atPath: standardizedLocalURL.path) else {
             return fallbackSnapshot(for: attachment)
         }
-        trackCopiedDraft(originalURL: localURL, durableURL: durableURL)
+
+        guard let durableURL = copiedDraftURL(forOriginalURL: standardizedLocalURL)
+                ?? durableStorageURL(for: standardizedLocalURL) else {
+            return fallbackSnapshot(for: attachment)
+        }
+        prepareDurableCopy(forTemporaryFileAtPath: standardizedLocalURL.path)
         let submissionFields = copiedSubmissionFields(
             for: attachment,
-            originalLocalURL: localURL,
+            originalLocalURL: standardizedLocalURL,
             durableURL: durableURL
         )
         return SessionTextBoxInputAttachmentSnapshot(
@@ -332,6 +343,16 @@ private enum TextBoxDraftAttachmentStorage {
         )
     }
 
+    static func prepareDurableCopy(for attachment: TextBoxAttachment) {
+        guard let localURL = attachment.localURL,
+              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+            return
+        }
+        let standardizedLocalURL = localURL.standardizedFileURL
+        guard FileManager.default.fileExists(atPath: standardizedLocalURL.path) else { return }
+        prepareDurableCopy(forTemporaryFileAtPath: standardizedLocalURL.path)
+    }
+
     static func removeIfOwnedDraftCopy(_ fileURL: URL) -> Bool {
         guard isOwnedDraftCopy(fileURL) else { return false }
         try? FileManager.default.removeItem(at: fileURL.standardizedFileURL)
@@ -340,16 +361,60 @@ private enum TextBoxDraftAttachmentStorage {
 
     static func removeCopiedDraftForOriginalTemporaryFile(_ fileURL: URL) {
         let originalPath = fileURL.standardizedFileURL.path
-        let copiedPath = copiedDraftPathByOriginalPath.withLock { paths in
-            paths.removeValue(forKey: originalPath)
+        let copiedPath = draftCopyState.withLock { state in
+            state.pendingOriginalPaths.remove(originalPath)
+            state.cancelledOriginalPaths.insert(originalPath)
+            return state.copiedDraftPathByOriginalPath.removeValue(forKey: originalPath)
         }
         guard let copiedPath else { return }
         try? FileManager.default.removeItem(atPath: copiedPath)
     }
 
-    private static func trackCopiedDraft(originalURL: URL, durableURL: URL) {
-        copiedDraftPathByOriginalPath.withLock { paths in
-            paths[originalURL.standardizedFileURL.path] = durableURL.standardizedFileURL.path
+    private static func copiedDraftURL(forOriginalURL originalURL: URL) -> URL? {
+        let copiedPath = draftCopyState.withLock { state in
+            state.copiedDraftPathByOriginalPath[originalURL.standardizedFileURL.path]
+        }
+        guard let copiedPath else { return nil }
+        let copiedURL = URL(fileURLWithPath: copiedPath).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: copiedURL.path) else {
+            _ = draftCopyState.withLock { state in
+                state.copiedDraftPathByOriginalPath.removeValue(
+                    forKey: originalURL.standardizedFileURL.path
+                )
+            }
+            return nil
+        }
+        return copiedURL
+    }
+
+    private static func prepareDurableCopy(forTemporaryFileAtPath originalPath: String) {
+        let originalPath = URL(fileURLWithPath: originalPath).standardizedFileURL.path
+        let shouldStart = draftCopyState.withLock { state in
+            guard state.copiedDraftPathByOriginalPath[originalPath] == nil,
+                  !state.pendingOriginalPaths.contains(originalPath),
+                  !state.cancelledOriginalPaths.contains(originalPath) else {
+                return false
+            }
+            state.pendingOriginalPaths.insert(originalPath)
+            return true
+        }
+        guard shouldStart else { return }
+
+        Task.detached(priority: .utility) {
+            let originalURL = URL(fileURLWithPath: originalPath).standardizedFileURL
+            let durableURL = copyToDurableStorage(originalURL)
+            let copiedPathToRemove = draftCopyState.withLock { state -> String? in
+                state.pendingOriginalPaths.remove(originalPath)
+                guard let durableURL else { return nil }
+                if state.cancelledOriginalPaths.remove(originalPath) != nil {
+                    return durableURL.path
+                }
+                state.copiedDraftPathByOriginalPath[originalPath] = durableURL.path
+                return nil
+            }
+            if let copiedPathToRemove {
+                try? FileManager.default.removeItem(atPath: copiedPathToRemove)
+            }
         }
     }
 
@@ -368,13 +433,8 @@ private enum TextBoxDraftAttachmentStorage {
     }
 
     private static func copyToDurableStorage(_ sourceURL: URL) -> URL? {
-        guard let directory = storageDirectory() else { return nil }
         let sourceURL = sourceURL.standardizedFileURL
-        let fileExtension = sourceURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pathToken = stablePathToken(sourceURL.path)
-        let fallbackName = fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)"
-        let filename = "\(pathToken)-\(sourceURL.lastPathComponent.isEmpty ? fallbackName : sourceURL.lastPathComponent)"
-        let destinationURL = directory.appendingPathComponent(filename, isDirectory: false)
+        guard let destinationURL = durableStorageURL(for: sourceURL) else { return nil }
         if FileManager.default.fileExists(atPath: destinationURL.path) {
             return destinationURL.standardizedFileURL
         }
@@ -384,6 +444,16 @@ private enum TextBoxDraftAttachmentStorage {
         } catch {
             return nil
         }
+    }
+
+    private static func durableStorageURL(for sourceURL: URL) -> URL? {
+        guard let directory = storageDirectory() else { return nil }
+        let sourceURL = sourceURL.standardizedFileURL
+        let fileExtension = sourceURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pathToken = stablePathToken(sourceURL.path)
+        let fallbackName = fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)"
+        let filename = "\(pathToken)-\(sourceURL.lastPathComponent.isEmpty ? fallbackName : sourceURL.lastPathComponent)"
+        return directory.appendingPathComponent(filename, isDirectory: false).standardizedFileURL
     }
 
     static func isOwnedDraftCopy(_ fileURL: URL) -> Bool {
@@ -421,7 +491,39 @@ private enum TextBoxDraftAttachmentStorage {
         }
         return directory
     }
+
+#if DEBUG
+    static func debugPrepareDurableCopySynchronously(for attachment: TextBoxAttachment) -> URL? {
+        guard let localURL = attachment.localURL,
+              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+            return nil
+        }
+        let originalURL = localURL.standardizedFileURL
+        guard let durableURL = copyToDurableStorage(originalURL) else {
+            return nil
+        }
+        draftCopyState.withLock { state in
+            state.pendingOriginalPaths.remove(originalURL.path)
+            state.cancelledOriginalPaths.remove(originalURL.path)
+            state.copiedDraftPathByOriginalPath[originalURL.path] = durableURL.path
+        }
+        return durableURL
+    }
+#endif
 }
+
+#if DEBUG
+extension TextBoxAttachment {
+    func debugPrepareSessionDraftCopySynchronouslyForTesting() -> URL? {
+        TextBoxDraftAttachmentStorage.debugPrepareDurableCopySynchronously(for: self)
+    }
+
+    func debugCancelSessionDraftCopyForTesting() {
+        guard let localURL else { return }
+        TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(localURL)
+    }
+}
+#endif
 
 enum TextBoxSubmissionPart {
     case text(String)
@@ -3431,9 +3533,6 @@ private struct TextBoxInputView: NSViewRepresentable {
 
         updateTextView(textView, context: context)
         onTextViewCreated(textView)
-        DispatchQueue.main.async {
-            context.coordinator.recalculateHeight(textView)
-        }
         return scrollView
     }
 
@@ -3444,6 +3543,7 @@ private struct TextBoxInputView: NSViewRepresentable {
         coordinator.parent.hasPendingAttachmentUpload = false
         coordinator.parent.onTextViewDismantled(textView)
         textView.onMoveToWindow = { _ in }
+        textView.onLayoutCompleted = { _ in }
         textView.invalidatePendingAttachmentUploads()
         textView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
@@ -3464,12 +3564,10 @@ private struct TextBoxInputView: NSViewRepresentable {
             textView.string = text
         }
         updateTextView(textView, context: context)
-        DispatchQueue.main.async {
-            context.coordinator.recalculateHeight(textView)
-        }
     }
 
     private func updateTextView(_ textView: TextBoxInputTextView, context: Context) {
+        let coordinator = context.coordinator
         textView.font = font
         textView.textColor = foregroundColor
         textView.backgroundColor = .clear
@@ -3492,6 +3590,9 @@ private struct TextBoxInputView: NSViewRepresentable {
         textView.layer?.backgroundColor = NSColor.clear.cgColor
         textView.layer?.borderWidth = 0
         textView.delegate = context.coordinator
+        textView.onLayoutCompleted = { [weak coordinator] textView in
+            coordinator?.recalculateHeight(textView)
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -3585,6 +3686,8 @@ final class TextBoxInputTextView: NSTextView {
     var onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool = { _, _ in false }
     var onChooseFiles: () -> Void = {}
     var onMoveToWindow: (TextBoxInputTextView) -> Void = { _ in }
+    var onLayoutCompleted: (TextBoxInputTextView) -> Void = { _ in }
+    private var isReportingLayoutCompletion = false
 
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
     private static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
@@ -3936,6 +4039,7 @@ final class TextBoxInputTextView: NSTextView {
         replacementRange: NSRange
     ) {
         guard !attachments.isEmpty else { return }
+        attachments.forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
         let inserted = NSMutableAttributedString()
         inserted.append(inlineAttachmentAttributedString(for: attachments, replacing: replacementRange))
         insertText(inserted, replacementRange: replacementRange)
@@ -4064,6 +4168,10 @@ final class TextBoxInputTextView: NSTextView {
     override func layout() {
         super.layout()
         recenterSingleLineTextContainer()
+        guard !isReportingLayoutCompletion else { return }
+        isReportingLayoutCompletion = true
+        onLayoutCompleted(self)
+        isReportingLayoutCompletion = false
     }
 
 #if DEBUG
