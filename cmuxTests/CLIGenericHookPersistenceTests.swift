@@ -2484,6 +2484,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let responseBody = entry.response.content.text ?? ""
                 XCTAssertFalse(requestBody.isEmpty, "\(capture.name) \(entry.request.url) missing request body")
                 XCTAssertFalse(responseBody.isEmpty, "\(capture.name) \(entry.request.url) missing response body")
+                assertContentLength(
+                    entry.request.headers,
+                    matches: Data(requestBody.utf8).count,
+                    context: "request \(capture.name) \(entry.request.url)"
+                )
+                assertContentLength(
+                    entry.response.headers,
+                    matches: Data(responseBody.utf8).count,
+                    context: "response \(capture.name) \(entry.request.url)"
+                )
                 XCTAssertGreaterThanOrEqual(entry.response.status, 200, "\(capture.name) \(entry.request.url)")
                 XCTAssertLessThan(entry.response.status, 600, "\(capture.name) \(entry.request.url)")
                 replayResponses.append(
@@ -2978,6 +2988,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let normalizedExpected = normalizedAgentNetworkHeaders(expected)
         for (name, value) in normalizedExpected {
             XCTAssertEqual(actual[name], value, "\(context) header \(name)", file: file, line: line)
+        }
+    }
+
+    private func assertContentLength(
+        _ headers: [AgentNetworkHARHeader],
+        matches byteCount: Int,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let normalized = headers.reduce(into: [:]) { result, header in
+            result[header.name.lowercased()] = header.value
+        }
+        if let contentLength = normalized["content-length"] {
+            XCTAssertEqual(Int(contentLength), byteCount, "\(context) content-length", file: file, line: line)
         }
     }
 }

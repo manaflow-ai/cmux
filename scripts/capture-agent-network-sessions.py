@@ -194,6 +194,24 @@ def sanitize_headers(headers: list[dict[str, Any]]) -> list[dict[str, str]]:
     return sanitized
 
 
+def synchronize_content_length(
+    headers: list[dict[str, str]],
+    body: dict[str, Any] | None,
+) -> list[dict[str, str]]:
+    text = body.get("text") if body else None
+    is_truncated = bool(body.get("_cmuxBodyTruncated")) if body else False
+    if not isinstance(text, str) or is_truncated:
+        return [header for header in headers if header["name"].lower() != "content-length"]
+
+    byte_count = str(len(text.encode("utf-8")))
+    return [
+        {**header, "value": byte_count}
+        if header["name"].lower() == "content-length"
+        else header
+        for header in headers
+    ]
+
+
 def sanitize_post_data(post_data: dict[str, Any] | None) -> dict[str, Any] | None:
     if not post_data:
         return None
@@ -270,6 +288,8 @@ def score_entry(agent: str, entry: dict[str, Any]) -> int:
 def sanitize_entry(entry: dict[str, Any]) -> dict[str, Any]:
     request = entry.get("request", {})
     response = entry.get("response", {})
+    request_post_data = sanitize_post_data(request.get("postData"))
+    response_content = sanitize_content(response.get("content", {}))
     return {
         "startedDateTime": entry.get("startedDateTime", ""),
         "time": entry.get("time", 0),
@@ -277,15 +297,21 @@ def sanitize_entry(entry: dict[str, Any]) -> dict[str, Any]:
             "method": request.get("method", "GET"),
             "url": sanitize_text(str(request.get("url", ""))),
             "httpVersion": request.get("httpVersion", "HTTP/1.1"),
-            "headers": sanitize_headers(request.get("headers", [])),
-            "postData": sanitize_post_data(request.get("postData")),
+            "headers": synchronize_content_length(
+                sanitize_headers(request.get("headers", [])),
+                request_post_data,
+            ),
+            "postData": request_post_data,
         },
         "response": {
             "status": response.get("status", 0),
             "statusText": response.get("statusText", ""),
             "httpVersion": response.get("httpVersion", "HTTP/1.1"),
-            "headers": sanitize_headers(response.get("headers", [])),
-            "content": sanitize_content(response.get("content", {})),
+            "headers": synchronize_content_length(
+                sanitize_headers(response.get("headers", [])),
+                response_content,
+            ),
+            "content": response_content,
         },
     }
 

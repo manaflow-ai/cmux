@@ -110,7 +110,7 @@
                   },
                   {
                     "name": "Content-Length",
-                    "value": "1977"
+                    "value": "1828"
                   }
                 ],
                 "httpVersion": "HTTP/1.1",
@@ -340,7 +340,7 @@
                   },
                   {
                     "name": "content-length",
-                    "value": "566"
+                    "value": "545"
                   }
                 ],
                 "httpVersion": "HTTP/1.1",
