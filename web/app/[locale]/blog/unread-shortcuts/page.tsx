@@ -2,7 +2,6 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
-import { CodeBlock } from "../../components/code-block";
 
 export async function generateMetadata({
   params,
@@ -10,7 +9,7 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "blog.passkeyAuth" });
+  const t = await getTranslations({ locale, namespace: "blog.unreadShortcuts" });
   const rawKeywords = t.raw("metaKeywords");
   const keywords = Array.isArray(rawKeywords)
     ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
@@ -30,12 +29,12 @@ export async function generateMetadata({
       title: t("metaTitle"),
       description: t("metaDescription"),
     },
-    alternates: buildAlternates(locale, "/blog/passkey-auth"),
+    alternates: buildAlternates(locale, "/blog/unread-shortcuts"),
   };
 }
 
-export default function PasskeyAuthPage() {
-  const t = useTranslations("blog.posts.passkeyAuth");
+export default function UnreadShortcutsPage() {
+  const t = useTranslations("blog.posts.unreadShortcuts");
   const tc = useTranslations("common");
 
   return (
@@ -55,9 +54,9 @@ export default function PasskeyAuthPage() {
       </time>
 
       <video
-        src="/blog/passkey-browser-import.mp4"
+        src="/blog/cmd-ctrl-u-cmd-option-u.mp4"
         width={1280}
-        height={988}
+        height={866}
         autoPlay
         loop
         muted
@@ -65,10 +64,11 @@ export default function PasskeyAuthPage() {
         className="my-6 rounded-lg w-full h-auto"
       />
 
-      <p className="mt-6">{t("p1")}</p>
+      <p>{t("p1")}</p>
       <p>{t("p2")}</p>
-      <CodeBlock lang="bash">{`cmux browser import`}</CodeBlock>
       <p>{t("p3")}</p>
+      <p>{t("p4")}</p>
+      <p>{t("p5")}</p>
     </>
   );
 }

@@ -10,7 +10,7 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "blog.passkeyAuth" });
+  const t = await getTranslations({ locale, namespace: "blog.markdownViewer" });
   const rawKeywords = t.raw("metaKeywords");
   const keywords = Array.isArray(rawKeywords)
     ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
@@ -30,12 +30,12 @@ export async function generateMetadata({
       title: t("metaTitle"),
       description: t("metaDescription"),
     },
-    alternates: buildAlternates(locale, "/blog/passkey-auth"),
+    alternates: buildAlternates(locale, "/blog/markdown-viewer"),
   };
 }
 
-export default function PasskeyAuthPage() {
-  const t = useTranslations("blog.posts.passkeyAuth");
+export default function MarkdownViewerPage() {
+  const t = useTranslations("blog.posts.markdownViewer");
   const tc = useTranslations("common");
 
   return (
@@ -55,9 +55,9 @@ export default function PasskeyAuthPage() {
       </time>
 
       <video
-        src="/blog/passkey-browser-import.mp4"
+        src="/blog/cmux-markdown-tobi.mp4"
         width={1280}
-        height={988}
+        height={850}
         autoPlay
         loop
         muted
@@ -65,10 +65,15 @@ export default function PasskeyAuthPage() {
         className="my-6 rounded-lg w-full h-auto"
       />
 
-      <p className="mt-6">{t("p1")}</p>
+      <p>{t("p1")}</p>
       <p>{t("p2")}</p>
-      <CodeBlock lang="bash">{`cmux browser import`}</CodeBlock>
+      <CodeBlock lang="bash">{`cmux open README.md`}</CodeBlock>
       <p>{t("p3")}</p>
+      <p>
+        {t.rich("p4", {
+          tobiLink: (chunks) => <a href="https://github.com/tobi">{chunks}</a>,
+        })}
+      </p>
     </>
   );
 }

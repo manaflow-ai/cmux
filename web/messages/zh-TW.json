@@ -186,6 +186,44 @@
         "seoP": "如果你想知道終端機當機後如何復原 Claude Code、OpenCode、opencode、Codex、Gemini CLI、Antigravity CLI、Grok Build CLI、Amp、Cursor CLI、Rovo Dev、Copilot、CodeBuddy、Factory、Qoder 或 Hermes Agent 工作階段，請安裝 cmux hooks，並保持 agent 復原功能開啟。",
         "summary": "cmux 如何復原版面並繼續 Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Grok Build CLI 和其他 agent 工作階段。",
         "agentP": "當 cmux 擁有原生工作階段 ID 時，Claude Code、Codex、Grok Build CLI、OpenCode、Pi、Amp、Cursor CLI、Gemini CLI、Antigravity CLI、Rovo Dev、Hermes Agent、Copilot、CodeBuddy、Factory 和 Qoder 都可以繼續工作階段。對大多數 agent，請用 <code>cmux hooks setup</code> 安裝整合。"
+      },
+      "cmuxFinder": {
+        "title": "Introducing cmux Finder",
+        "summary": "cmux now has a file explorer that previews videos, images, PDFs, and markdown files.",
+        "date": "May 22, 2026",
+        "p1": "cmux now has a Finder-style file explorer in the sidebar.",
+        "p2": "It previews videos, images, PDFs, and markdown files inside cmux, so you can inspect generated artifacts without leaving the workspace.",
+        "p3": "I use it most for demo videos and screenshots that Codex records while it is testing changes.",
+        "p4": "Toggle file previews from Cmd+Shift+P, then choose Enable Cmd-click File Previews or Disable Cmd-click File Previews.",
+        "p5": "Requires cmux v0.64+."
+      },
+      "cmuxVault": {
+        "title": "cmux Vault",
+        "summary": "Search Codex, Claude Code, OpenCode, and Pi sessions from the Vault pane and drag them into your workspace.",
+        "date": "May 22, 2026",
+        "p1": "cmux now has a Vault pane in the right sidebar for old agent sessions.",
+        "p2": "It indexes Codex, Claude Code, OpenCode, and Pi sessions, with full-text search across transcripts.",
+        "p3": "Drag a session from Vault into a workspace to reopen it where you are working.",
+        "p4": "Requires cmux v0.64+."
+      },
+      "markdownViewer": {
+        "title": "A better markdown viewer in cmux",
+        "summary": "Open README.md with cmux open or drag markdown files from the right sidebar.",
+        "date": "May 22, 2026",
+        "p1": "cmux has a better markdown viewer for README files, docs, and generated reports.",
+        "p2": "Open a file from the CLI:",
+        "p3": "You can also drag a markdown file from the right sidebar into the workspace.",
+        "p4": "Thank you <tobiLink>@tobi</tobiLink> for the contribution."
+      },
+      "unreadShortcuts": {
+        "title": "Unread workspace shortcuts in cmux",
+        "summary": "Cmd+Control+U cycles through unread workspaces while keeping them unread, and Cmd+Option+U toggles read state.",
+        "date": "May 22, 2026",
+        "p1": "cmux has two more shortcuts for managing unread workspaces when agents finish at the same time.",
+        "p2": "Cmd+Control+U marks the current workspace as the oldest unread workspace, then jumps to the most recent unread workspace.",
+        "p3": "That sends the current workspace to the back of the unread cycle, so you can keep cycling through unread work without clearing it.",
+        "p4": "Cmd+Option+U toggles the current workspace read or unread.",
+        "p5": "This is useful when you jump to a new unread workspace with Cmd+Shift+U but need to context switch away before responding."
       }
     },
     "zenOfCmux": {
@@ -253,6 +291,62 @@
         "Antigravity CLI",
         "Grok Build CLI",
         "AI 編程 agent"
+      ]
+    },
+    "cmuxFinder": {
+      "metaTitle": "Introducing cmux Finder",
+      "metaDescription": "cmux v0.64+ includes a Finder-style file explorer that previews videos, images, PDFs, and markdown files inside your workspace.",
+      "metaKeywords": [
+        "cmux Finder",
+        "cmux file explorer",
+        "terminal file explorer",
+        "preview video in terminal",
+        "preview screenshots in terminal",
+        "PDF preview",
+        "markdown preview",
+        "AI coding agents",
+        "Codex demo videos"
+      ]
+    },
+    "cmuxVault": {
+      "metaTitle": "cmux Vault",
+      "metaDescription": "cmux v0.64+ adds a Vault pane for searching Codex, Claude Code, OpenCode, and Pi sessions, then dragging them into your workspace.",
+      "metaKeywords": [
+        "cmux Vault",
+        "Codex sessions",
+        "Claude Code sessions",
+        "OpenCode sessions",
+        "Pi sessions",
+        "AI coding agent history",
+        "agent session search",
+        "restore coding agent session",
+        "full-text search"
+      ]
+    },
+    "markdownViewer": {
+      "metaTitle": "A better markdown viewer in cmux",
+      "metaDescription": "Open README.md with cmux open or drag markdown files from the right sidebar into the improved cmux markdown viewer.",
+      "metaKeywords": [
+        "cmux markdown viewer",
+        "cmux open README.md",
+        "markdown preview",
+        "README viewer",
+        "terminal markdown viewer",
+        "developer docs preview"
+      ]
+    },
+    "unreadShortcuts": {
+      "metaTitle": "Unread workspace shortcuts in cmux",
+      "metaDescription": "Use Cmd+Control+U and Cmd+Option+U to cycle through unread cmux workspaces without clearing unread state before you respond.",
+      "metaKeywords": [
+        "cmux unread shortcuts",
+        "Cmd+Control+U",
+        "Cmd+Option+U",
+        "Cmd+Shift+U",
+        "coding agent notifications",
+        "terminal notifications",
+        "AI coding agents",
+        "workspace unread"
       ]
     }
   },
