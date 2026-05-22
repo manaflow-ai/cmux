@@ -788,6 +788,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
             initialScript
         )
+        XCTAssertTrue(initialScript.contains("254|255"), initialScript)
         XCTAssertFalse(initialScript.contains("-surface"), initialScript)
         XCTAssertTrue(
             initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
@@ -814,6 +815,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
             terminalStartupScript
         )
+        XCTAssertTrue(terminalStartupScript.contains("254|255"), terminalStartupScript)
         XCTAssertFalse(terminalStartupScript.contains("-surface"), terminalStartupScript)
         XCTAssertTrue(
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),

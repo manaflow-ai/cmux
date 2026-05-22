@@ -5388,6 +5388,7 @@ final class WorkspaceRemoteSessionController {
         let attachmentID: String
         let command: String?
         let requireExisting: Bool
+        let isCancelled: () -> Bool
         let completion: (Result<WorkspaceRemotePTYBridgeServer.Endpoint, Error>) -> Void
     }
 
@@ -5522,6 +5523,12 @@ final class WorkspaceRemoteSessionController {
         let semaphore = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var captured: Result<WorkspaceRemotePTYBridgeServer.Endpoint, Error>?
+        let isCancelled: () -> Bool = {
+            lock.lock()
+            let completed = captured != nil
+            lock.unlock()
+            return completed
+        }
         let complete: (Result<WorkspaceRemotePTYBridgeServer.Endpoint, Error>) -> Void = { result in
             lock.lock()
             if captured == nil {
@@ -5555,22 +5562,30 @@ final class WorkspaceRemoteSessionController {
                 })
                 return
             }
+            guard !isCancelled() else { return }
             self.pendingPTYBridgeStarts[waiterID] = PendingPTYBridgeStart(
                 sessionID: sessionID,
                 attachmentID: attachmentID,
                 command: command,
                 requireExisting: requireExisting,
+                isCancelled: isCancelled,
                 completion: complete
             )
         }
 
         guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            queue.sync {
-                _ = pendingPTYBridgeStarts.removeValue(forKey: waiterID)
-            }
-            throw NSError(domain: "cmux.remote.pty", code: 8, userInfo: [
+            let timeoutError = NSError(domain: "cmux.remote.pty", code: 8, userInfo: [
                 NSLocalizedDescriptionKey: "timed out waiting for remote PTY operation",
             ])
+            lock.lock()
+            if captured == nil {
+                captured = .failure(timeoutError)
+            }
+            lock.unlock()
+            queue.async { [weak self] in
+                _ = self?.pendingPTYBridgeStarts.removeValue(forKey: waiterID)
+            }
+            throw timeoutError
         }
 
         lock.lock()
@@ -5617,6 +5632,7 @@ final class WorkspaceRemoteSessionController {
         let pending = pendingPTYBridgeStarts
         pendingPTYBridgeStarts.removeAll(keepingCapacity: false)
         for request in pending.values {
+            guard !request.isCancelled() else { continue }
             request.completion(Result {
                 try startPTYBridgeLocked(
                     sessionID: request.sessionID,

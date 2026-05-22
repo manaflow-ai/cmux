@@ -7360,7 +7360,7 @@ struct CMUXCLI {
             "  cmux_ssh_status=$?",
             "  CMUX_SSH_CHILD_PID=",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
-            "  if [ \"$cmux_ssh_status\" -ne 255 ]; then break; fi",
+            "  case \"$cmux_ssh_status\" in 254|255) ;; *) break ;; esac",
             "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
             "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
             "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
