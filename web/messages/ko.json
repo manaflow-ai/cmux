@@ -166,26 +166,26 @@
         "featureGpuDesc": "libghostty로 부드러운 렌더링"
       },
       "passkeyAuth": {
-        "title": "Passkey auth in the cmux browser",
-        "summary": "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
-        "date": "May 22, 2026",
-        "p1": "cmux's browser now supports passkey authentication. Sign-in flows that depend on passkeys, WebAuthn, Touch ID, or hardware security keys can complete inside a cmux browser pane.",
-        "p2": "If you already use another browser for the same site, import compatible cookies once:",
-        "p3": "Requires cmux v0.64+. This helps when Claude Code, Codex, OpenCode, Gemini CLI, or another agent needs to test an authenticated local app without leaving cmux."
+        "title": "cmux 브라우저의 패스키 인증",
+        "summary": "cmux의 내장 브라우저는 패스키 인증을 지원하며 cmux browser import로 다른 브라우저의 쿠키를 가져올 수 있습니다.",
+        "date": "2026년 5월 22일",
+        "p1": "cmux 브라우저가 이제 패스키 인증을 지원합니다. 패스키, WebAuthn, Touch ID, 하드웨어 보안 키에 의존하는 로그인 흐름을 cmux 브라우저 패널 안에서 완료할 수 있습니다.",
+        "p2": "같은 사이트를 다른 브라우저에서 이미 사용 중이라면 호환되는 쿠키를 한 번 가져오세요.",
+        "p3": "cmux v0.64+가 필요합니다. Claude Code, Codex, OpenCode, Gemini CLI 또는 다른 에이전트가 cmux를 벗어나지 않고 인증된 로컬 앱을 테스트해야 할 때 유용합니다."
       },
       "taskManager": {
-        "title": "Task Manager in cmux",
-        "summary": "Use cmux top or Task Manager from the command palette to see CPU and RAM usage for your coding agents.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a task manager for checking how much CPU and RAM your coding agents and terminal processes are using.",
-        "p2": "Open it from the CLI:",
-        "p3": "Or press Cmd+Shift+P and choose Task Manager from the command palette.",
-        "p4": "Requires cmux v0.64.4+."
+        "title": "cmux의 작업 관리자",
+        "summary": "cmux top 또는 명령 팔레트의 작업 관리자를 사용해 코딩 에이전트의 CPU와 RAM 사용량을 확인하세요.",
+        "date": "2026년 5월 22일",
+        "p1": "cmux에 코딩 에이전트와 터미널 프로세스가 사용하는 CPU와 RAM을 확인할 수 있는 작업 관리자가 추가되었습니다.",
+        "p2": "CLI에서 열기:",
+        "p3": "또는 Cmd+Shift+P를 누르고 명령 팔레트에서 작업 관리자를 선택하세요.",
+        "p4": "cmux v0.64.4+가 필요합니다."
       },
       "sessionRestore": {
-        "seoP": "If you are looking for how to restore Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder, or Hermes Agent sessions after a terminal crash, install cmux hooks and keep agent resume enabled.",
-        "summary": "How cmux restores layouts and resumes Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions.",
-        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder can resume when cmux has a native session ID. For most agents, install the integration with <code>cmux hooks setup</code>."
+        "seoP": "터미널 충돌 후 Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder 또는 Hermes Agent 세션을 복원하는 방법을 찾고 있다면 cmux hooks를 설치하고 에이전트 재개를 켜 두세요.",
+        "summary": "cmux가 레이아웃을 복원하고 Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI 및 다른 에이전트 세션을 재개하는 방식입니다.",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, Qoder는 cmux가 네이티브 세션 ID를 가지고 있을 때 재개할 수 있습니다. 대부분의 에이전트는 <code>cmux hooks setup</code>으로 통합을 설치하세요."
       }
     },
     "zenOfCmux": {
@@ -205,45 +205,45 @@
       "metaDescription": "macOS용 새 터미널 cmux를 만든 이유."
     },
     "passkeyAuth": {
-      "metaTitle": "Passkey auth in the cmux browser",
-      "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
+      "metaTitle": "cmux 브라우저의 패스키 인증",
+      "metaDescription": "cmux v0.64+는 브라우저 패널에서 패스키 인증을 지원하며 cmux browser import로 다른 브라우저의 쿠키를 가져올 수 있습니다.",
       "metaKeywords": [
-        "cmux browser passkey authentication",
-        "passkey authentication",
+        "cmux 브라우저 패스키 인증",
+        "패스키 인증",
         "WebAuthn",
         "Touch ID",
-        "cookie import",
-        "browser cookies",
+        "쿠키 가져오기",
+        "브라우저 쿠키",
         "Claude Code",
         "Codex",
         "OpenCode",
         "Gemini CLI",
-        "AI coding agents"
+        "AI 코딩 에이전트"
       ]
     },
     "taskManager": {
-      "metaTitle": "Task Manager in cmux",
-      "metaDescription": "cmux v0.64.4+ includes a task manager for checking CPU and RAM usage from coding agents with cmux top or the command palette.",
+      "metaTitle": "cmux의 작업 관리자",
+      "metaDescription": "cmux v0.64.4+에는 cmux top 또는 명령 팔레트로 코딩 에이전트의 CPU와 RAM 사용량을 확인하는 작업 관리자가 포함됩니다.",
       "metaKeywords": [
-        "cmux task manager",
+        "cmux 작업 관리자",
         "cmux top",
-        "coding agent CPU usage",
-        "coding agent RAM usage",
-        "terminal process monitor",
+        "코딩 에이전트 CPU 사용량",
+        "코딩 에이전트 RAM 사용량",
+        "터미널 프로세스 모니터",
         "Claude Code CPU",
         "Codex CPU",
         "OpenCode CPU",
-        "AI coding agents"
+        "AI 코딩 에이전트"
       ]
     },
     "sessionRestore": {
-      "metaDescription": "How to restore Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other coding agent sessions after relaunch or a terminal crash with cmux.",
+      "metaDescription": "cmux로 재실행 또는 터미널 충돌 후 Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI 및 다른 코딩 에이전트 세션을 복원하는 방법입니다.",
       "metaKeywords": [
         "cmux",
-        "session restore",
-        "restore terminal after crash",
-        "terminal crash recovery",
-        "terminal",
+        "세션 복원",
+        "충돌 후 터미널 복원",
+        "터미널 충돌 복구",
+        "터미널",
         "macOS",
         "Claude Code",
         "Codex",
@@ -252,7 +252,7 @@
         "Gemini CLI",
         "Antigravity CLI",
         "Grok Build CLI",
-        "AI coding agents"
+        "AI 코딩 에이전트"
       ]
     }
   },

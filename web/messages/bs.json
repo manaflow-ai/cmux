@@ -166,26 +166,26 @@
         "featureGpuDesc": "pokreće libghostty za glatko renderiranje"
       },
       "passkeyAuth": {
-        "title": "Passkey auth in the cmux browser",
-        "summary": "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
-        "date": "May 22, 2026",
-        "p1": "cmux's browser now supports passkey authentication. Sign-in flows that depend on passkeys, WebAuthn, Touch ID, or hardware security keys can complete inside a cmux browser pane.",
-        "p2": "If you already use another browser for the same site, import compatible cookies once:",
-        "p3": "Requires cmux v0.64+. This helps when Claude Code, Codex, OpenCode, Gemini CLI, or another agent needs to test an authenticated local app without leaving cmux."
+        "title": "Passkey autentifikacija u cmux pregledniku",
+        "summary": "Ugrađeni cmux preglednik podržava passkey autentifikaciju i može uvesti kolačiće iz drugih preglednika pomoću cmux browser import.",
+        "date": "22. maj 2026.",
+        "p1": "cmux preglednik sada podržava passkey autentifikaciju. Prijave koje zavise od passkey ključeva, WebAuthn-a, Touch ID-a ili hardverskih sigurnosnih ključeva mogu se završiti u cmux pregledničkom panelu.",
+        "p2": "Ako za isti sajt već koristite drugi preglednik, jednom uvezite kompatibilne kolačiće:",
+        "p3": "Zahtijeva cmux v0.64+. Ovo pomaže kada Claude Code, Codex, OpenCode, Gemini CLI ili drugi agent treba testirati lokalnu aplikaciju s prijavom bez napuštanja cmux-a."
       },
       "taskManager": {
-        "title": "Task Manager in cmux",
-        "summary": "Use cmux top or Task Manager from the command palette to see CPU and RAM usage for your coding agents.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a task manager for checking how much CPU and RAM your coding agents and terminal processes are using.",
-        "p2": "Open it from the CLI:",
-        "p3": "Or press Cmd+Shift+P and choose Task Manager from the command palette.",
-        "p4": "Requires cmux v0.64.4+."
+        "title": "Upravitelj zadataka u cmux-u",
+        "summary": "Koristite cmux top ili Upravitelj zadataka iz komandne palete da vidite CPU i RAM potrošnju svojih koderskih agenata.",
+        "date": "22. maj 2026.",
+        "p1": "cmux sada ima upravitelj zadataka za provjeru koliko CPU-a i RAM-a koriste vaši koderski agenti i terminalski procesi.",
+        "p2": "Otvorite ga iz CLI-ja:",
+        "p3": "Ili pritisnite Cmd+Shift+P i odaberite Upravitelj zadataka iz komandne palete.",
+        "p4": "Zahtijeva cmux v0.64.4+."
       },
       "sessionRestore": {
-        "seoP": "If you are looking for how to restore Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder, or Hermes Agent sessions after a terminal crash, install cmux hooks and keep agent resume enabled.",
-        "summary": "How cmux restores layouts and resumes Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions.",
-        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder can resume when cmux has a native session ID. For most agents, install the integration with <code>cmux hooks setup</code>."
+        "seoP": "Ako tražite kako obnoviti sesije Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder ili Hermes Agent nakon pada terminala, instalirajte cmux hooks i ostavite nastavak agenata uključenim.",
+        "summary": "Kako cmux obnavlja rasporede i nastavlja sesije Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI i drugih agenata.",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory i Qoder mogu nastaviti rad kada cmux ima izvorni ID sesije. Za većinu agenata instalirajte integraciju pomoću <code>cmux hooks setup</code>."
       }
     },
     "zenOfCmux": {
@@ -205,44 +205,44 @@
       "metaDescription": "Zašto smo napravili cmux, novi terminal za macOS."
     },
     "passkeyAuth": {
-      "metaTitle": "Passkey auth in the cmux browser",
-      "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
+      "metaTitle": "Passkey autentifikacija u cmux pregledniku",
+      "metaDescription": "cmux v0.64+ podržava passkey autentifikaciju u pregledničkim panelima i može uvesti kolačiće iz drugih preglednika pomoću cmux browser import.",
       "metaKeywords": [
-        "cmux browser passkey authentication",
-        "passkey authentication",
+        "passkey autentifikacija u cmux pregledniku",
+        "passkey autentifikacija",
         "WebAuthn",
         "Touch ID",
-        "cookie import",
-        "browser cookies",
+        "uvoz kolačića",
+        "kolačići preglednika",
         "Claude Code",
         "Codex",
         "OpenCode",
         "Gemini CLI",
-        "AI coding agents"
+        "AI koderski agenti"
       ]
     },
     "taskManager": {
-      "metaTitle": "Task Manager in cmux",
-      "metaDescription": "cmux v0.64.4+ includes a task manager for checking CPU and RAM usage from coding agents with cmux top or the command palette.",
+      "metaTitle": "Upravitelj zadataka u cmux-u",
+      "metaDescription": "cmux v0.64.4+ uključuje upravitelj zadataka za provjeru CPU i RAM potrošnje koderskih agenata pomoću cmux top ili komandne palete.",
       "metaKeywords": [
-        "cmux task manager",
+        "cmux upravitelj zadataka",
         "cmux top",
-        "coding agent CPU usage",
-        "coding agent RAM usage",
-        "terminal process monitor",
+        "CPU potrošnja koderskih agenata",
+        "RAM potrošnja koderskih agenata",
+        "nadzor terminalskih procesa",
         "Claude Code CPU",
         "Codex CPU",
         "OpenCode CPU",
-        "AI coding agents"
+        "AI koderski agenti"
       ]
     },
     "sessionRestore": {
-      "metaDescription": "How to restore Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other coding agent sessions after relaunch or a terminal crash with cmux.",
+      "metaDescription": "Kako pomoću cmux-a obnoviti sesije Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI i drugih koderskih agenata nakon ponovnog pokretanja ili pada terminala.",
       "metaKeywords": [
         "cmux",
-        "session restore",
-        "restore terminal after crash",
-        "terminal crash recovery",
+        "obnova sesije",
+        "obnova terminala nakon pada",
+        "oporavak terminala nakon pada",
         "terminal",
         "macOS",
         "Claude Code",
@@ -252,7 +252,7 @@
         "Gemini CLI",
         "Antigravity CLI",
         "Grok Build CLI",
-        "AI coding agents"
+        "AI koderski agenti"
       ]
     }
   },

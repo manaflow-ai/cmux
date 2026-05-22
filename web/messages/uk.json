@@ -182,68 +182,68 @@
         "getStartedP": "Встановіть cmux через Homebrew або завантажте DMG із <link>посібника з початку роботи</link>."
       },
       "passkeyAuth": {
-        "title": "Passkey auth in the cmux browser",
-        "summary": "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
-        "date": "May 22, 2026",
-        "p1": "cmux's browser now supports passkey authentication. Sign-in flows that depend on passkeys, WebAuthn, Touch ID, or hardware security keys can complete inside a cmux browser pane.",
-        "p2": "If you already use another browser for the same site, import compatible cookies once:",
-        "p3": "Requires cmux v0.64+. This helps when Claude Code, Codex, OpenCode, Gemini CLI, or another agent needs to test an authenticated local app without leaving cmux."
+        "title": "Автентифікація passkey у браузері cmux",
+        "summary": "Вбудований браузер cmux підтримує автентифікацію passkey і може імпортувати cookie з інших браузерів за допомогою cmux browser import.",
+        "date": "22 травня 2026 р.",
+        "p1": "Браузер cmux тепер підтримує автентифікацію passkey. Сценарії входу, що залежать від passkey, WebAuthn, Touch ID або апаратних ключів безпеки, можна завершити всередині панелі браузера cmux.",
+        "p2": "Якщо ви вже використовуєте інший браузер для того самого сайту, один раз імпортуйте сумісні cookie:",
+        "p3": "Потрібен cmux v0.64+. Це допомагає, коли Claude Code, Codex, OpenCode, Gemini CLI або інший агент має протестувати автентифікований локальний застосунок, не виходячи з cmux."
       },
       "taskManager": {
-        "title": "Task Manager in cmux",
-        "summary": "Use cmux top or Task Manager from the command palette to see CPU and RAM usage for your coding agents.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a task manager for checking how much CPU and RAM your coding agents and terminal processes are using.",
-        "p2": "Open it from the CLI:",
-        "p3": "Or press Cmd+Shift+P and choose Task Manager from the command palette.",
-        "p4": "Requires cmux v0.64.4+."
+        "title": "Диспетчер завдань у cmux",
+        "summary": "Використовуйте cmux top або Диспетчер завдань із палітри команд, щоб бачити використання CPU і RAM вашими агентами для програмування.",
+        "date": "22 травня 2026 р.",
+        "p1": "У cmux тепер є диспетчер завдань для перевірки, скільки CPU і RAM використовують ваші агенти для програмування та процеси термінала.",
+        "p2": "Відкрийте його з CLI:",
+        "p3": "Або натисніть Cmd+Shift+P і виберіть Диспетчер завдань у палітрі команд.",
+        "p4": "Потрібен cmux v0.64.4+."
       },
       "sessionRestore": {
-        "seoP": "If you are looking for how to restore Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder, or Hermes Agent sessions after a terminal crash, install cmux hooks and keep agent resume enabled.",
-        "summary": "How cmux restores layouts and resumes Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions.",
-        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder can resume when cmux has a native session ID. For most agents, install the integration with <code>cmux hooks setup</code>."
+        "seoP": "Якщо ви шукаєте, як відновити сеанси Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder або Hermes Agent після збою термінала, встановіть cmux hooks і залиште продовження агентів увімкненим.",
+        "summary": "Як cmux відновлює розкладки та продовжує сеанси Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI та інших агентів.",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory і Qoder можуть продовжитися, коли cmux має нативний ID сеансу. Для більшості агентів встановіть інтеграцію за допомогою <code>cmux hooks setup</code>."
       }
     },
     "passkeyAuth": {
-      "metaTitle": "Passkey auth in the cmux browser",
-      "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
+      "metaTitle": "Автентифікація passkey у браузері cmux",
+      "metaDescription": "cmux v0.64+ підтримує автентифікацію passkey у панелях браузера і може імпортувати cookie з інших браузерів за допомогою cmux browser import.",
       "metaKeywords": [
-        "cmux browser passkey authentication",
-        "passkey authentication",
+        "автентифікація passkey у браузері cmux",
+        "автентифікація passkey",
         "WebAuthn",
         "Touch ID",
-        "cookie import",
-        "browser cookies",
+        "імпорт cookie",
+        "cookie браузера",
         "Claude Code",
         "Codex",
         "OpenCode",
         "Gemini CLI",
-        "AI coding agents"
+        "AI-агенти для програмування"
       ]
     },
     "taskManager": {
-      "metaTitle": "Task Manager in cmux",
-      "metaDescription": "cmux v0.64.4+ includes a task manager for checking CPU and RAM usage from coding agents with cmux top or the command palette.",
+      "metaTitle": "Диспетчер завдань у cmux",
+      "metaDescription": "cmux v0.64.4+ містить диспетчер завдань для перевірки використання CPU і RAM агентами для програмування через cmux top або палітру команд.",
       "metaKeywords": [
-        "cmux task manager",
+        "диспетчер завдань cmux",
         "cmux top",
-        "coding agent CPU usage",
-        "coding agent RAM usage",
-        "terminal process monitor",
-        "Claude Code CPU",
-        "Codex CPU",
-        "OpenCode CPU",
-        "AI coding agents"
+        "використання CPU агентами для програмування",
+        "використання RAM агентами для програмування",
+        "монітор процесів термінала",
+        "CPU Claude Code",
+        "CPU Codex",
+        "CPU OpenCode",
+        "AI-агенти для програмування"
       ]
     },
     "sessionRestore": {
-      "metaDescription": "How to restore Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other coding agent sessions after relaunch or a terminal crash with cmux.",
+      "metaDescription": "Як відновити сеанси Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI та інших агентів для програмування після перезапуску або збою термінала за допомогою cmux.",
       "metaKeywords": [
         "cmux",
-        "session restore",
-        "restore terminal after crash",
-        "terminal crash recovery",
-        "terminal",
+        "відновлення сеансу",
+        "відновити термінал після збою",
+        "відновлення після збою термінала",
+        "термінал",
         "macOS",
         "Claude Code",
         "Codex",
@@ -252,7 +252,7 @@
         "Gemini CLI",
         "Antigravity CLI",
         "Grok Build CLI",
-        "AI coding agents"
+        "AI-агенти для програмування"
       ]
     }
   },

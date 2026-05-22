@@ -166,26 +166,26 @@
         "featureGpuDesc": "由 libghostty 驅動，提供流暢的渲染效果"
       },
       "passkeyAuth": {
-        "title": "Passkey auth in the cmux browser",
-        "summary": "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
-        "date": "May 22, 2026",
-        "p1": "cmux's browser now supports passkey authentication. Sign-in flows that depend on passkeys, WebAuthn, Touch ID, or hardware security keys can complete inside a cmux browser pane.",
-        "p2": "If you already use another browser for the same site, import compatible cookies once:",
-        "p3": "Requires cmux v0.64+. This helps when Claude Code, Codex, OpenCode, Gemini CLI, or another agent needs to test an authenticated local app without leaving cmux."
+        "title": "cmux 瀏覽器中的通行密鑰驗證",
+        "summary": "cmux 內建瀏覽器支援通行密鑰驗證，並可透過 cmux browser import 從其他瀏覽器匯入 Cookie。",
+        "date": "2026年5月22日",
+        "p1": "cmux 瀏覽器現在支援通行密鑰驗證。依賴通行密鑰、WebAuthn、Touch ID 或硬體安全金鑰的登入流程，可以在 cmux 瀏覽器窗格內完成。",
+        "p2": "如果你已經在其他瀏覽器使用同一個網站，可以一次匯入相容的 Cookie：",
+        "p3": "需要 cmux v0.64+。當 Claude Code、Codex、OpenCode、Gemini CLI 或其他 agent 需要在不離開 cmux 的情況下測試已登入的本機 app 時，這會很有用。"
       },
       "taskManager": {
-        "title": "Task Manager in cmux",
-        "summary": "Use cmux top or Task Manager from the command palette to see CPU and RAM usage for your coding agents.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a task manager for checking how much CPU and RAM your coding agents and terminal processes are using.",
-        "p2": "Open it from the CLI:",
-        "p3": "Or press Cmd+Shift+P and choose Task Manager from the command palette.",
-        "p4": "Requires cmux v0.64.4+."
+        "title": "cmux 中的工作管理員",
+        "summary": "使用 cmux top 或命令面板中的工作管理員，查看你的編程 agent 使用了多少 CPU 和 RAM。",
+        "date": "2026年5月22日",
+        "p1": "cmux 現在有工作管理員，可以檢查你的編程 agent 和終端機程序正在使用多少 CPU 和 RAM。",
+        "p2": "從 CLI 開啟：",
+        "p3": "或按 Cmd+Shift+P，並在命令面板中選擇工作管理員。",
+        "p4": "需要 cmux v0.64.4+。"
       },
       "sessionRestore": {
-        "seoP": "If you are looking for how to restore Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder, or Hermes Agent sessions after a terminal crash, install cmux hooks and keep agent resume enabled.",
-        "summary": "How cmux restores layouts and resumes Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions.",
-        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder can resume when cmux has a native session ID. For most agents, install the integration with <code>cmux hooks setup</code>."
+        "seoP": "如果你想知道終端機當機後如何復原 Claude Code、OpenCode、opencode、Codex、Gemini CLI、Antigravity CLI、Grok Build CLI、Amp、Cursor CLI、Rovo Dev、Copilot、CodeBuddy、Factory、Qoder 或 Hermes Agent 工作階段，請安裝 cmux hooks，並保持 agent 復原功能開啟。",
+        "summary": "cmux 如何復原版面並繼續 Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Grok Build CLI 和其他 agent 工作階段。",
+        "agentP": "當 cmux 擁有原生工作階段 ID 時，Claude Code、Codex、Grok Build CLI、OpenCode、Pi、Amp、Cursor CLI、Gemini CLI、Antigravity CLI、Rovo Dev、Hermes Agent、Copilot、CodeBuddy、Factory 和 Qoder 都可以繼續工作階段。對大多數 agent，請用 <code>cmux hooks setup</code> 安裝整合。"
       }
     },
     "zenOfCmux": {
@@ -205,45 +205,45 @@
       "metaDescription": "我們為什麼要做 cmux，一個全新的 macOS 終端。"
     },
     "passkeyAuth": {
-      "metaTitle": "Passkey auth in the cmux browser",
-      "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
+      "metaTitle": "cmux 瀏覽器中的通行密鑰驗證",
+      "metaDescription": "cmux v0.64+ 支援在瀏覽器窗格中使用通行密鑰驗證，並可透過 cmux browser import 從其他瀏覽器匯入 Cookie。",
       "metaKeywords": [
-        "cmux browser passkey authentication",
-        "passkey authentication",
+        "cmux 瀏覽器通行密鑰驗證",
+        "通行密鑰驗證",
         "WebAuthn",
         "Touch ID",
-        "cookie import",
-        "browser cookies",
+        "匯入 Cookie",
+        "瀏覽器 Cookie",
         "Claude Code",
         "Codex",
         "OpenCode",
         "Gemini CLI",
-        "AI coding agents"
+        "AI 編程 agent"
       ]
     },
     "taskManager": {
-      "metaTitle": "Task Manager in cmux",
-      "metaDescription": "cmux v0.64.4+ includes a task manager for checking CPU and RAM usage from coding agents with cmux top or the command palette.",
+      "metaTitle": "cmux 中的工作管理員",
+      "metaDescription": "cmux v0.64.4+ 包含工作管理員，可透過 cmux top 或命令面板檢查編程 agent 的 CPU 和 RAM 使用量。",
       "metaKeywords": [
-        "cmux task manager",
+        "cmux 工作管理員",
         "cmux top",
-        "coding agent CPU usage",
-        "coding agent RAM usage",
-        "terminal process monitor",
+        "編程 agent CPU 使用量",
+        "編程 agent RAM 使用量",
+        "終端機程序監視器",
         "Claude Code CPU",
         "Codex CPU",
         "OpenCode CPU",
-        "AI coding agents"
+        "AI 編程 agent"
       ]
     },
     "sessionRestore": {
-      "metaDescription": "How to restore Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other coding agent sessions after relaunch or a terminal crash with cmux.",
+      "metaDescription": "如何用 cmux 在重新啟動或終端機當機後復原 Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Grok Build CLI 和其他編程 agent 工作階段。",
       "metaKeywords": [
         "cmux",
-        "session restore",
-        "restore terminal after crash",
-        "terminal crash recovery",
-        "terminal",
+        "工作階段復原",
+        "終端機當機後復原",
+        "終端機當機復原",
+        "終端機",
         "macOS",
         "Claude Code",
         "Codex",
@@ -252,7 +252,7 @@
         "Gemini CLI",
         "Antigravity CLI",
         "Grok Build CLI",
-        "AI coding agents"
+        "AI 編程 agent"
       ]
     }
   },

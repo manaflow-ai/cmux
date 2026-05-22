@@ -166,26 +166,26 @@
         "featureGpuDesc": "ขับเคลื่อนด้วย libghostty เพื่อการเรนเดอร์ที่ลื่นไหล"
       },
       "passkeyAuth": {
-        "title": "Passkey auth in the cmux browser",
-        "summary": "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
-        "date": "May 22, 2026",
-        "p1": "cmux's browser now supports passkey authentication. Sign-in flows that depend on passkeys, WebAuthn, Touch ID, or hardware security keys can complete inside a cmux browser pane.",
-        "p2": "If you already use another browser for the same site, import compatible cookies once:",
-        "p3": "Requires cmux v0.64+. This helps when Claude Code, Codex, OpenCode, Gemini CLI, or another agent needs to test an authenticated local app without leaving cmux."
+        "title": "การยืนยันตัวตนด้วยพาสคีย์ในเบราว์เซอร์ cmux",
+        "summary": "เบราว์เซอร์ในตัวของ cmux รองรับการยืนยันตัวตนด้วยพาสคีย์ และนำเข้าคุกกี้จากเบราว์เซอร์อื่นได้ด้วย cmux browser import",
+        "date": "22 พฤษภาคม 2026",
+        "p1": "เบราว์เซอร์ของ cmux รองรับการยืนยันตัวตนด้วยพาสคีย์แล้ว ขั้นตอนเข้าสู่ระบบที่ใช้พาสคีย์, WebAuthn, Touch ID หรือกุญแจความปลอดภัยแบบฮาร์ดแวร์สามารถทำให้เสร็จในแผงเบราว์เซอร์ของ cmux ได้",
+        "p2": "ถ้าคุณใช้เบราว์เซอร์อื่นกับเว็บเดียวกันอยู่แล้ว ให้นำเข้าคุกกี้ที่ใช้ร่วมกันได้หนึ่งครั้ง:",
+        "p3": "ต้องใช้ cmux v0.64+ สิ่งนี้ช่วยเมื่อ Claude Code, Codex, OpenCode, Gemini CLI หรือเอเจนต์อื่นต้องทดสอบแอป local ที่ต้องเข้าสู่ระบบโดยไม่ออกจาก cmux"
       },
       "taskManager": {
-        "title": "Task Manager in cmux",
-        "summary": "Use cmux top or Task Manager from the command palette to see CPU and RAM usage for your coding agents.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a task manager for checking how much CPU and RAM your coding agents and terminal processes are using.",
-        "p2": "Open it from the CLI:",
-        "p3": "Or press Cmd+Shift+P and choose Task Manager from the command palette.",
-        "p4": "Requires cmux v0.64.4+."
+        "title": "ตัวจัดการงานใน cmux",
+        "summary": "ใช้ cmux top หรือตัวจัดการงานจาก command palette เพื่อดูการใช้ CPU และ RAM ของเอเจนต์เขียนโค้ด",
+        "date": "22 พฤษภาคม 2026",
+        "p1": "cmux มีตัวจัดการงานแล้ว สำหรับตรวจสอบว่าเอเจนต์เขียนโค้ดและโปรเซส terminal ใช้ CPU และ RAM เท่าไร",
+        "p2": "เปิดจาก CLI:",
+        "p3": "หรือกด Cmd+Shift+P แล้วเลือกตัวจัดการงานจาก command palette",
+        "p4": "ต้องใช้ cmux v0.64.4+"
       },
       "sessionRestore": {
-        "seoP": "If you are looking for how to restore Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder, or Hermes Agent sessions after a terminal crash, install cmux hooks and keep agent resume enabled.",
-        "summary": "How cmux restores layouts and resumes Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions.",
-        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder can resume when cmux has a native session ID. For most agents, install the integration with <code>cmux hooks setup</code>."
+        "seoP": "ถ้าคุณกำลังหาวิธีกู้คืนเซสชัน Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder หรือ Hermes Agent หลัง terminal ล่ม ให้ติดตั้ง cmux hooks และเปิดการทำงานต่อของเอเจนต์ไว้",
+        "summary": "cmux กู้คืนเลย์เอาต์และทำงานต่อกับเซสชัน Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI และเอเจนต์อื่นอย่างไร",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory และ Qoder สามารถทำงานต่อได้เมื่อ cmux มี native session ID สำหรับเอเจนต์ส่วนใหญ่ ให้ติดตั้ง integration ด้วย <code>cmux hooks setup</code>"
       }
     },
     "zenOfCmux": {
@@ -205,44 +205,44 @@
       "metaDescription": "ทำไมเราถึงสร้าง cmux เทอร์มินัลใหม่สำหรับ macOS"
     },
     "passkeyAuth": {
-      "metaTitle": "Passkey auth in the cmux browser",
-      "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
+      "metaTitle": "การยืนยันตัวตนด้วยพาสคีย์ในเบราว์เซอร์ cmux",
+      "metaDescription": "cmux v0.64+ รองรับการยืนยันตัวตนด้วยพาสคีย์ในแผงเบราว์เซอร์ และนำเข้าคุกกี้จากเบราว์เซอร์อื่นได้ด้วย cmux browser import",
       "metaKeywords": [
-        "cmux browser passkey authentication",
-        "passkey authentication",
+        "การยืนยันตัวตนด้วยพาสคีย์ในเบราว์เซอร์ cmux",
+        "การยืนยันตัวตนด้วยพาสคีย์",
         "WebAuthn",
         "Touch ID",
-        "cookie import",
-        "browser cookies",
+        "นำเข้าคุกกี้",
+        "คุกกี้ของเบราว์เซอร์",
         "Claude Code",
         "Codex",
         "OpenCode",
         "Gemini CLI",
-        "AI coding agents"
+        "เอเจนต์เขียนโค้ด AI"
       ]
     },
     "taskManager": {
-      "metaTitle": "Task Manager in cmux",
-      "metaDescription": "cmux v0.64.4+ includes a task manager for checking CPU and RAM usage from coding agents with cmux top or the command palette.",
+      "metaTitle": "ตัวจัดการงานใน cmux",
+      "metaDescription": "cmux v0.64.4+ มีตัวจัดการงานสำหรับตรวจสอบการใช้ CPU และ RAM ของเอเจนต์เขียนโค้ดด้วย cmux top หรือ command palette",
       "metaKeywords": [
-        "cmux task manager",
+        "ตัวจัดการงาน cmux",
         "cmux top",
-        "coding agent CPU usage",
-        "coding agent RAM usage",
-        "terminal process monitor",
+        "การใช้ CPU ของเอเจนต์เขียนโค้ด",
+        "การใช้ RAM ของเอเจนต์เขียนโค้ด",
+        "ตัวติดตามโปรเซส terminal",
         "Claude Code CPU",
         "Codex CPU",
         "OpenCode CPU",
-        "AI coding agents"
+        "เอเจนต์เขียนโค้ด AI"
       ]
     },
     "sessionRestore": {
-      "metaDescription": "How to restore Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other coding agent sessions after relaunch or a terminal crash with cmux.",
+      "metaDescription": "วิธีกู้คืนเซสชัน Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI และเอเจนต์เขียนโค้ดอื่นหลังเปิดใหม่หรือหลัง terminal ล่มด้วย cmux",
       "metaKeywords": [
         "cmux",
-        "session restore",
-        "restore terminal after crash",
-        "terminal crash recovery",
+        "กู้คืนเซสชัน",
+        "กู้คืน terminal หลังล่ม",
+        "กู้คืนจาก terminal ล่ม",
         "terminal",
         "macOS",
         "Claude Code",
@@ -252,7 +252,7 @@
         "Gemini CLI",
         "Antigravity CLI",
         "Grok Build CLI",
-        "AI coding agents"
+        "เอเจนต์เขียนโค้ด AI"
       ]
     }
   },
