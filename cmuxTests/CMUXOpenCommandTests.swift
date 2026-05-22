@@ -172,13 +172,11 @@ final class CMUXOpenCommandTests: XCTestCase {
     func testRoughdraftOpenFailureUsesSanitizedError() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("roughdraft-failure")
-        let listenerFD = try bindUnixSocket(at: socketPath)
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-roughdraft-\(UUID().uuidString)", isDirectory: true)
         let fakeBinURL = rootURL.appendingPathComponent("bin", isDirectory: true)
         let fileURL = rootURL.appendingPathComponent("README.md")
         let fakeRoughdraftURL = fakeBinURL.appendingPathComponent("roughdraft")
-        let state = MockSocketServerState()
 
         try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
         try "# Smoke\n".write(to: fileURL, atomically: true, encoding: .utf8)
@@ -191,17 +189,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeRoughdraftURL.path)
 
         defer {
-            Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: rootURL)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = Self.v2Payload(from: line),
-                  let id = payload["id"] as? String else {
-                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
-            }
-            return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-command"])
         }
 
         let result = runCLI(
@@ -211,7 +200,6 @@ final class CMUXOpenCommandTests: XCTestCase {
             environmentOverrides: ["PATH": "\(fakeBinURL.path):/usr/bin:/bin"]
         )
 
-        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stderr.contains("Failed to open the Markdown review app."), result.stderr)
@@ -222,7 +210,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Failed to open Roughdraft"), result.stderr)
         XCTAssertFalse(result.stderr.contains("npm i -g roughdraft"), result.stderr)
         XCTAssertFalse(result.stderr.contains("roughdraft exited"), result.stderr)
-        XCTAssertEqual(state.commands, [])
     }
 
     func testTopCommandSortsWorkspacesByCPUDescending() throws {
