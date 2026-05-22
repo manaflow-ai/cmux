@@ -837,6 +837,10 @@ struct RestorableAgentSessionIndex: Sendable {
         guard kind == .claude else {
             return record.isRestorable != false
         }
+        if record.isRestorable == false,
+           normalizedNonEmptyValue(record.parentSessionId) != nil {
+            return false
+        }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
            regularNonEmptyFileExists(
                atPath: (transcriptPath as NSString).expandingTildeInPath,
