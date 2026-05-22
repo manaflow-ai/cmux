@@ -26,6 +26,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+def sensitive_key_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
 PROMPT = "Reply with exactly: cmux-network-capture-ok"
 MARKER = "cmux-network-capture-ok"
 MAX_BODY_BYTES = 12_000
@@ -82,9 +86,17 @@ JSON_DROPPED_KEYS = {
     "total_tokens",
     "usage",
 }
+JSON_DROPPED_KEY_TOKENS = {
+    sensitive_key_token(key)
+    for key in JSON_DROPPED_KEYS
+}
 JSON_REDACTED_KEYS = {
     "instructions",
     "system",
+}
+JSON_REDACTED_KEY_TOKENS = {
+    sensitive_key_token(key)
+    for key in JSON_REDACTED_KEYS
 }
 JSON_DROPPED_WEBSOCKET_TYPES = {
     "codex.rate_limits",
@@ -108,6 +120,10 @@ SENSITIVE_QUERY_KEYS = {
     "signature",
     "sig",
     "token",
+}
+SENSITIVE_QUERY_KEY_TOKENS = {
+    sensitive_key_token(key)
+    for key in SENSITIVE_QUERY_KEYS
 }
 
 
@@ -284,6 +300,7 @@ def sanitize_url(value: str) -> str:
         (key, val)
         for key, val in query_items
         if key.lower() not in SENSITIVE_QUERY_KEYS
+        and sensitive_key_token(key) not in SENSITIVE_QUERY_KEY_TOKENS
     ]
     query = urllib.parse.urlencode(kept_query_items, doseq=True)
     return urllib.parse.urlunsplit((
@@ -317,7 +334,8 @@ def redact_json_value(value: Any) -> Any:
         role_lower = role.lower() if isinstance(role, str) else None
         for key, item in value.items():
             lowered = key.lower()
-            if lowered in JSON_DROPPED_KEYS:
+            key_token = sensitive_key_token(key)
+            if lowered in JSON_DROPPED_KEYS or key_token in JSON_DROPPED_KEY_TOKENS:
                 continue
             if lowered == "content" and role_lower in {"developer", "system"}:
                 redacted[key] = (
@@ -325,7 +343,7 @@ def redact_json_value(value: Any) -> Any:
                     if role_lower == "developer"
                     else "<redacted-provider-metadata>"
                 )
-            elif lowered in JSON_REDACTED_KEYS:
+            elif lowered in JSON_REDACTED_KEYS or key_token in JSON_REDACTED_KEY_TOKENS:
                 redacted[key] = "<redacted-provider-metadata>"
             else:
                 redacted[key] = redact_json_value(item)
