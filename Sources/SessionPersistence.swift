@@ -1443,8 +1443,8 @@ enum SessionTerminalScrollbackNormalizer {
         var cursor = text.startIndex
         ansiSGRRunBeforePercentRegex.value.enumerateMatches(
             in: text,
-            range: NSRange(text.startIndex..<text.endIndex, in: text),
-            options: []
+            options: [],
+            range: NSRange(text.startIndex..<text.endIndex, in: text)
         ) { match, _, _ in
             guard let match else { return }
             let sgrRunRange = match.range(at: 1)
@@ -1468,8 +1468,8 @@ enum SessionTerminalScrollbackNormalizer {
         var finalParameters: String?
         ansiSGRParametersRegex.value.enumerateMatches(
             in: sgrRun,
-            range: NSRange(location: 0, length: (sgrRun as NSString).length),
-            options: []
+            options: [],
+            range: NSRange(location: 0, length: (sgrRun as NSString).length)
         ) { match, _, _ in
             guard
                 let match,
