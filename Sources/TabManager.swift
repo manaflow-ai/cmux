@@ -1298,8 +1298,6 @@ class TabManager: ObservableObject {
         })
 
         updateAgentPIDSweepTimer()
-        startWorkspaceGitMetadataPollTimer()
-        startSelectedWorkspaceGitMetadataPollTimer()
         updateWorkspacePullRequestPollTimer()
         updateWorkspaceGitMetadataFallbackTimer()
         observers.append(NotificationCenter.default.addObserver(
