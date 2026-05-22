@@ -8296,6 +8296,7 @@ struct CMUXCLI {
             let sessions = listResponse["sessions"] as? [[String: Any]] ?? []
             for session in sessions {
                 guard let sessionID = trimmedDebugString(session["session_id"]) else {
+                    errors.append(sshSessionCleanupMissingSessionIDError(session: session))
                     continue
                 }
                 guard let workspaceID = trimmedDebugString(session["workspace_id"])
@@ -8392,6 +8393,18 @@ struct CMUXCLI {
             "session_id": sessionID,
             "workspace_id": NSNull(),
             "error": "missing workspace_id in SSH PTY session list response",
+        ]
+        if let workspaceRef = trimmedDebugString(session["workspace_ref"]) {
+            error["workspace_ref"] = workspaceRef
+        }
+        return error
+    }
+
+    private func sshSessionCleanupMissingSessionIDError(session: [String: Any]) -> [String: Any] {
+        var error: [String: Any] = [
+            "session_id": "unknown",
+            "workspace_id": trimmedDebugString(session["workspace_id"]) ?? NSNull(),
+            "error": "missing session_id in SSH PTY session list response",
         ]
         if let workspaceRef = trimmedDebugString(session["workspace_ref"]) {
             error["workspace_ref"] = workspaceRef
@@ -8574,13 +8587,18 @@ struct CMUXCLI {
             return decoded
         }
         var bridgeReachedReady = false
+        var attachFinished = false
+        var attachmentToken = ""
         defer {
-            if requireExisting && !bridgeReachedReady {
+            if requireExisting && !attachFinished {
                 cleanupFailedSSHPTYAttach(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceID: surfaceID,
-                    sessionID: sessionID
+                    sessionID: sessionID,
+                    attachmentID: attachmentID,
+                    attachmentToken: attachmentToken,
+                    clearLocalSurface: !bridgeReachedReady
                 )
             }
         }
@@ -8607,7 +8625,6 @@ struct CMUXCLI {
             throw CLIError(message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))")
         }
         var connectedFD: Int32?
-        var attachmentToken = ""
         let controlSocketLock = NSLock()
         do {
             let host = (bridge["host"] as? String) ?? "127.0.0.1"
@@ -8689,6 +8706,7 @@ struct CMUXCLI {
                     attachmentID: attachmentID,
                     socketLock: controlSocketLock
                 )
+                attachFinished = true
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
@@ -8701,6 +8719,7 @@ struct CMUXCLI {
                         attachmentID: attachmentID,
                         socketLock: controlSocketLock
                     )
+                    attachFinished = true
                     return
                 }
                 throw CLIError(message: "ssh-pty-attach: bridge read failed")
@@ -8712,8 +8731,26 @@ struct CMUXCLI {
         client: SocketClient,
         workspaceId: String,
         surfaceID: String?,
-        sessionID: String
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String,
+        clearLocalSurface: Bool
     ) {
+        let normalizedAttachmentToken = attachmentToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedAttachmentToken.isEmpty {
+            var detachParams: [String: Any] = [
+                "workspace_id": workspaceId,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+                "attachment_token": normalizedAttachmentToken,
+            ]
+            if let surfaceID {
+                detachParams["surface_id"] = surfaceID
+                detachParams["allow_moved_surface"] = true
+            }
+            _ = try? client.sendV2(method: "workspace.remote.pty_detach", params: detachParams)
+        }
+        guard clearLocalSurface else { return }
         guard let surfaceID else { return }
         _ = try? client.sendV2(method: "workspace.remote.pty_attach_end", params: [
             "workspace_id": workspaceId,
@@ -8850,6 +8887,9 @@ struct CMUXCLI {
         }
         if lowered.contains("missing workspace_id in ssh pty session list response") {
             return "missing workspace_id in SSH PTY session list response"
+        }
+        if lowered.contains("missing session_id in ssh pty session list response") {
+            return "missing session_id in SSH PTY session list response"
         }
         if lowered.contains("timed out") || lowered.contains("timeout") {
             return "remote daemon did not respond in time"

@@ -2169,9 +2169,9 @@ private final class WorkspaceRemoteDaemonRPCClient {
         )
     }
 
-    func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
+    func detachPTYChecked(sessionID: String, attachmentID: String, attachmentToken: String) throws {
         unregisterPTY(sessionID: sessionID, attachmentID: attachmentID, attachmentToken: attachmentToken)
-        _ = try? call(
+        _ = try call(
             method: "pty.detach",
             params: [
                 "session_id": sessionID,
@@ -2179,6 +2179,14 @@ private final class WorkspaceRemoteDaemonRPCClient {
                 "client_attachment_token": attachmentToken,
             ],
             timeout: 4.0
+        )
+    }
+
+    func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
+        _ = try? detachPTYChecked(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            attachmentToken: attachmentToken
         )
     }
 
@@ -3658,6 +3666,21 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         }
     }
 
+    func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) throws {
+        try queue.sync {
+            guard let rpcClient, !isStopped else {
+                throw NSError(domain: "cmux.remote.pty", code: 34, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
+                ])
+            }
+            try rpcClient.detachPTYChecked(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken
+            )
+        }
+    }
+
     func startPTYBridge(sessionID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
         try queue.sync {
             guard let rpcClient, !isStopped else {
@@ -3877,6 +3900,21 @@ private final class WorkspaceRemoteProxyBroker {
                 attachmentToken: attachmentToken,
                 cols: cols,
                 rows: rows
+            )
+        }
+    }
+
+    func detachPTY(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String
+    ) throws {
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            try tunnel.detachPTY(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken
             )
         }
     }
@@ -5622,6 +5660,27 @@ final class WorkspaceRemoteSessionController {
                 attachmentToken: attachmentToken,
                 cols: cols,
                 rows: rows
+            )
+        }
+    }
+
+    func detachPTYSession(
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String,
+        timeout: TimeInterval = 8.0
+    ) throws {
+        try runOnControllerQueue(timeout: timeout) {
+            guard self.daemonReady, self.proxyLease != nil else {
+                throw NSError(domain: "cmux.remote.pty", code: 7, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon is not ready",
+                ])
+            }
+            try WorkspaceRemoteProxyBroker.shared.detachPTY(
+                configuration: self.configuration,
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken
             )
         }
     }
@@ -11124,6 +11183,19 @@ final class Workspace: Identifiable, ObservableObject {
             attachmentToken: attachmentToken,
             cols: cols,
             rows: rows
+        )
+    }
+
+    func detachRemotePTYAttachment(sessionID: String, attachmentID: String, attachmentToken: String) throws {
+        guard let controller = remoteSessionController else {
+            throw NSError(domain: "cmux.remote.pty", code: 14, userInfo: [
+                NSLocalizedDescriptionKey: "remote connection is not active",
+            ])
+        }
+        try controller.detachPTYSession(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            attachmentToken: attachmentToken
         )
     }
 

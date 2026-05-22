@@ -972,8 +972,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
+            let params = payload["params"] as? [String: Any] ?? [:]
             switch method {
             case "workspace.remote.pty_bridge":
+                XCTAssertEqual(params["require_existing"] as? Bool, true)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -998,6 +1000,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         ],
                     ]
                 )
+            case "workspace.remote.pty_detach":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
+                XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "session_id": sessionId,
+                        "attachment_id": surfaceId,
+                        "detached": true,
+                    ]
+                )
             default:
                 return self.v2Response(
                     id: id,
@@ -1016,6 +1034,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             executablePath: cliPath,
             arguments: [
                 "ssh-pty-attach",
+                "--require-existing",
                 "--workspace", workspaceId,
                 "--session-id", sessionId,
                 "--attachment-id", surfaceId,
@@ -1031,6 +1050,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             result.stderr.contains("ssh-pty-attach: bridge closed while remote PTY session is still running"),
             result.stderr
         )
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_sessions",
+            "workspace.remote.pty_detach",
+        ])
     }
 
     func testSSHPTYAttachBridgeEOFWhenSessionGoneClearsLocalState() throws {
@@ -2011,6 +2036,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                                 "workspace_id": workspaceId,
                                 "session_id": failedSessionId,
                             ],
+                            [
+                                "workspace_id": workspaceId,
+                                "session_id": "   ",
+                            ],
                         ],
                     ]
                 )
@@ -2054,8 +2083,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stdout.contains("Closed 1 persisted SSH PTY session"), result.stdout)
-        XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 1 persisted SSH PTY session"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 2 persisted SSH PTY sessions"), result.stderr)
         XCTAssertTrue(result.stderr.contains(failedSessionId), result.stderr)
+        XCTAssertTrue(result.stderr.contains("missing session_id in SSH PTY session list response"), result.stderr)
         XCTAssertTrue(result.stderr.contains("remote PTY operation failed"), result.stderr)
         XCTAssertFalse(result.stderr.contains("close failed"), result.stderr)
     }
