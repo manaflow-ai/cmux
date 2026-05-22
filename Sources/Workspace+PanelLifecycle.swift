@@ -325,6 +325,14 @@ extension Workspace {
            panel is TerminalPanel {
             markRemoteTerminalSessionClosingIfLast(surfaceId: panelId)
         }
+        let shouldRefreshRemoteDisconnectPlaceholder =
+            origin == "tab_close" &&
+            remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
+            panels.count == 1
+        if shouldRefreshRemoteDisconnectPlaceholder,
+           let remoteConfiguration {
+            rememberPendingRemoteDisconnectReplacement(configuration: remoteConfiguration)
+        }
 
         panels.removeValue(forKey: panelId)
         untrackRemoteTerminalSurface(panelId)
