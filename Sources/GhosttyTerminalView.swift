@@ -4093,7 +4093,14 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_RING_BELL:
             performOnMain {
-                guard surfaceView.isVisibleInUI else { return }
+                let tabId = callbackTabId ?? surfaceView.tabId
+                let surfaceId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                if let tabId,
+                   let surfaceId,
+                   let workspace = AppDelegate.shared?.tabManagerFor(tabId: tabId)?.tabs.first(where: { $0.id == tabId }),
+                   workspace.panels[surfaceId] == nil {
+                    return
+                }
                 self.ringBell()
             }
             return true
