@@ -138,6 +138,26 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Rewrites versioned Codex vendor executable")
+    func rewritesVersionedCodexVendorExecutable() {
+        let vendorExecutable = "/Users/example/.bun/install/global/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex"
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    vendorExecutable,
+                    "resume",
+                    "019e3e65-ac70-7161-8e33-a3be96626d82",
+                    "--yolo",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--yolo",
+            ]
+        )
+    }
+
     @Test("Drops Claude startup files")
     func dropsClaudeStartupFiles() {
         #expect(

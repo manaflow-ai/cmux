@@ -2186,6 +2186,34 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testCodexResumeCommandFallsBackFromVersionedVendorExecutable() {
+        let vendorExecutable = "/Users/lawrence/.bun/install/global/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019e3e65-ac70-7161-8e33-a3be96626d82",
+            workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: vendorExecutable,
+                arguments: [
+                    vendorExecutable,
+                    "resume",
+                    "old-session",
+                    "--yolo"
+                ],
+                workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/lawrence/fun/cmuxterm-hq' && 'codex' 'resume' '019e3e65-ac70-7161-8e33-a3be96626d82' '--yolo'"
+        )
+    }
+
     func testCodexTeamsResumeCommandUsesWrapperSubcommand() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
