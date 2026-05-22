@@ -479,7 +479,7 @@ final class cmuxMobileUITests: XCTestCase {
         line: UInt = #line
     ) {
         XCTAssertTrue(element.waitForExistence(timeout: 4), file: file, line: line)
-        dismissKeyboard(in: app)
+        dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: true)
         guard let frame = waitForUsableFrame(of: element, timeout: 4) else {
             XCTFail("Element has no usable frame: \(element.debugDescription)", file: file, line: line)
             return
