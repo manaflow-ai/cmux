@@ -132,7 +132,7 @@ extension CMUXCLI {
         throw CLIError(message: "Unknown theme '\(trimmed)'. Run 'cmux themes' to list available themes.")
     }
 
-    func themeConfigSearchURLs() -> [URL] {
+    func themeConfigSearchURLs(targetBundleIdentifier: String) -> [URL] {
         let fileManager = FileManager.default
         var urls = [
             configURL("~/.config/ghostty/config"),
@@ -166,12 +166,13 @@ extension CMUXCLI {
                 append(legacyGhosttyConfigURL)
             }
 
-            let cmuxDirectory = appSupportDirectory.appendingPathComponent(
-                Self.cmuxThemeOverrideBundleIdentifier,
-                isDirectory: true
-            )
-            append(cmuxDirectory.appendingPathComponent("config", isDirectory: false))
-            append(cmuxDirectory.appendingPathComponent("config.ghostty", isDirectory: false))
+            for url in CmuxGhosttyConfigPathResolver.loadConfigURLs(
+                currentBundleIdentifier: targetBundleIdentifier,
+                appSupportDirectory: appSupportDirectory,
+                fileManager: fileManager
+            ) {
+                append(url)
+            }
         }
 
         return urls
@@ -223,18 +224,22 @@ extension CMUXCLI {
         return lastValue
     }
 
-    func cmuxThemeOverrideConfigURL() throws -> URL {
+    func cmuxThemeOverrideConfigURL(targetBundleIdentifier: String) throws -> URL {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             throw CLIError(message: "Unable to resolve Application Support directory")
         }
-        return appSupport
-            .appendingPathComponent(Self.cmuxThemeOverrideBundleIdentifier, isDirectory: true)
-            .appendingPathComponent("config.ghostty", isDirectory: false)
+        return CmuxGhosttyConfigPathResolver.editableConfigURL(
+            currentBundleIdentifier: targetBundleIdentifier,
+            appSupportDirectory: appSupport
+        )
     }
 
-    func writeManagedThemeOverride(rawThemeValue: String) throws -> URL {
+    func writeManagedThemeOverride(
+        rawThemeValue: String,
+        targetBundleIdentifier: String
+    ) throws -> URL {
         let fileManager = FileManager.default
-        let configURL = try cmuxThemeOverrideConfigURL()
+        let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
         let directoryURL = configURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
 
@@ -252,9 +257,9 @@ extension CMUXCLI {
         return configURL
     }
 
-    func clearManagedThemeOverride() throws -> URL {
+    func clearManagedThemeOverride(targetBundleIdentifier: String) throws -> URL {
         let fileManager = FileManager.default
-        let configURL = try cmuxThemeOverrideConfigURL()
+        let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
         guard let existingContents = try readOptionalThemeOverrideContents(at: configURL) else {
             return configURL
         }
@@ -311,22 +316,22 @@ extension CMUXCLI {
 
     func reloadThemesIfPossible(
         socketPath: String,
+        targetBundleIdentifier: String,
         explicitPassword _: String?
     ) -> ThemeReloadStatus {
-        let bundleIdentifier = themeReloadTargetBundleIdentifier(socketPath: socketPath)
         DistributedNotificationCenter.default().post(
             name: Notification.Name(Self.cmuxThemesReloadNotificationName),
             object: nil,
             userInfo: [
-                "bundleIdentifier": bundleIdentifier,
+                "bundleIdentifier": targetBundleIdentifier,
                 "socketPath": socketPath,
                 "phase": "final",
             ]
         )
-        return ThemeReloadStatus(requested: true, targetBundleIdentifier: bundleIdentifier)
+        return ThemeReloadStatus(requested: true, targetBundleIdentifier: targetBundleIdentifier)
     }
 
-    func themeReloadTargetBundleIdentifier(socketPath: String) -> String {
+    func themeTargetBundleIdentifier(socketPath: String) -> String {
         bundleIdentifierForThemeReloadSocketPath(socketPath)
             ?? currentCmuxAppBundleIdentifier()
             ?? Self.cmuxThemeOverrideBundleIdentifier
