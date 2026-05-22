@@ -1746,8 +1746,11 @@ private final class WorkspaceRemoteDaemonRPCClient {
                 in: capabilities
             )
             guard missingCapabilities.isEmpty else {
+                let detail = missingCapabilities.contains(Self.requiredPTYSessionCapability)
+                    ? "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+                    : "remote daemon is missing required functionality; reconnect the remote workspace to update cmux"
                 throw NSError(domain: "cmux.remote.daemon.rpc", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon missing required capability \(missingCapabilities.joined(separator: ","))",
+                    NSLocalizedDescriptionKey: detail,
                 ])
             }
         } catch {
@@ -4564,6 +4567,8 @@ final class WorkspaceRemotePTYBridgeServer {
         private static let handshakeTimeout: TimeInterval = 30.0
         private static let maxPendingOutputSends = 256
         private static let maxPendingOutputBytes = 4 * 1024 * 1024
+        private static let maxPendingInputWrites = 256
+        private static let maxPendingInputBytes = 4 * 1024 * 1024
 
         private let connection: NWConnection
         private let rpcClient: any WorkspaceRemotePTYBridgeRPCClient
@@ -4573,11 +4578,16 @@ final class WorkspaceRemotePTYBridgeServer {
         private let requireExisting: Bool
         private let token: String
         private let queue: DispatchQueue
+        private let rpcQueue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.rpc.\(UUID().uuidString)", qos: .userInitiated)
         private let onClose: () -> Void
 
         private var isClosed = false
+        private var isAttaching = false
         private var isAttached = false
         private var handshakeBuffer = Data()
+        private var pendingInputBeforeAttach = Data()
+        private var pendingInputWrites = 0
+        private var pendingInputBytes = 0
         private var pendingOutputSends = 0
         private var pendingOutputBytes = 0
         private var closeWhenOutputFlushes: (detach: Bool, gracefulOutputClose: Bool)?
@@ -4632,6 +4642,8 @@ final class WorkspaceRemotePTYBridgeServer {
                 if let data, !data.isEmpty {
                     if self.isAttached {
                         self.forwardInput(data)
+                    } else if self.isAttaching {
+                        self.bufferInputUntilAttach(data)
                     } else {
                         self.consumeHandshake(data)
                     }
@@ -4677,31 +4689,60 @@ final class WorkspaceRemotePTYBridgeServer {
             }
             let cols = Self.strictInt(payload["cols"]) ?? 80
             let rows = Self.strictInt(payload["rows"]) ?? 24
-            do {
-                handshakeTimeoutWorkItem?.cancel()
-                handshakeTimeoutWorkItem = nil
-                let remoteAttachment = try rpcClient.attachBridgePTY(
-                    sessionID: sessionID,
-                    attachmentID: attachmentID,
-                    cols: cols,
-                    rows: rows,
-                    command: command,
-                    requireExisting: requireExisting,
-                    queue: queue
-                ) { [weak self] event in
-                    self?.handlePTYEvent(event)
+            handshakeTimeoutWorkItem?.cancel()
+            handshakeTimeoutWorkItem = nil
+            isAttaching = true
+            if !remaining.isEmpty {
+                bufferInputUntilAttach(remaining)
+            }
+            rpcQueue.async { [weak self] in
+                guard let self else { return }
+                let result: Result<WorkspaceRemotePTYBridgeAttachment, Error>
+                do {
+                    let remoteAttachment = try self.rpcClient.attachBridgePTY(
+                        sessionID: self.sessionID,
+                        attachmentID: self.attachmentID,
+                        cols: cols,
+                        rows: rows,
+                        command: self.command,
+                        requireExisting: self.requireExisting,
+                        queue: self.queue
+                    ) { [weak self] event in
+                        self?.handlePTYEvent(event)
+                    }
+                    result = .success(remoteAttachment)
+                } catch {
+                    result = .failure(error)
                 }
+                self.queue.async {
+                    self.finishAttach(result)
+                }
+            }
+        }
+
+        private func finishAttach(_ result: Result<WorkspaceRemotePTYBridgeAttachment, Error>) {
+            guard !isClosed else {
+                if case .success(let remoteAttachment) = result {
+                    detachRemoteAttachment(remoteAttachment)
+                }
+                return
+            }
+            isAttaching = false
+            do {
+                let remoteAttachment = try result.get()
                 self.remoteAttachment = remoteAttachment
                 sendBridgeStatus([
                     "type": "ready",
                     "attachment_token": remoteAttachment.token,
                 ])
                 isAttached = true
-                if !remaining.isEmpty {
-                    forwardInput(remaining)
+                if !pendingInputBeforeAttach.isEmpty {
+                    let pendingInput = pendingInputBeforeAttach
+                    pendingInputBeforeAttach.removeAll(keepingCapacity: false)
+                    forwardInput(pendingInput)
                 }
             } catch {
-                closeWithBridgeError(error.localizedDescription)
+                closeWithBridgeError(Self.userFacingBridgeErrorMessage(error))
             }
         }
 
@@ -4714,21 +4755,70 @@ final class WorkspaceRemotePTYBridgeServer {
             queue.asyncAfter(deadline: .now() + Self.handshakeTimeout, execute: workItem)
         }
 
+        private func bufferInputUntilAttach(_ data: Data) {
+            guard !data.isEmpty else { return }
+            guard pendingInputBeforeAttach.count <= Self.maxPendingInputBytes - data.count else {
+                close(detach: false)
+                return
+            }
+            pendingInputBeforeAttach.append(data)
+        }
+
         private func forwardInput(_ data: Data) {
             guard !data.isEmpty else { return }
             guard let remoteAttachment else {
                 close(detach: true)
                 return
             }
-            do {
-                try rpcClient.writePTY(
-                    sessionID: sessionID,
-                    attachmentID: remoteAttachment.attachmentID,
-                    attachmentToken: remoteAttachment.token,
-                    data: data
-                )
-            } catch {
+            guard pendingInputWrites < Self.maxPendingInputWrites,
+                  pendingInputBytes <= Self.maxPendingInputBytes - data.count else {
                 close(detach: true)
+                return
+            }
+            pendingInputWrites += 1
+            pendingInputBytes += data.count
+            let currentSessionID = sessionID
+            rpcQueue.async { [weak self, data, remoteAttachment] in
+                guard let self else { return }
+                let shouldWrite = self.queue.sync { !self.isClosed }
+                guard shouldWrite else {
+                    self.queue.async {
+                        self.handleInputWriteFinished(bytes: data.count, error: nil)
+                    }
+                    return
+                }
+                var writeError: Error?
+                do {
+                    try self.rpcClient.writePTY(
+                        sessionID: currentSessionID,
+                        attachmentID: remoteAttachment.attachmentID,
+                        attachmentToken: remoteAttachment.token,
+                        data: data
+                    )
+                } catch {
+                    writeError = error
+                }
+                self.queue.async {
+                    self.handleInputWriteFinished(bytes: data.count, error: writeError)
+                }
+            }
+        }
+
+        private func handleInputWriteFinished(bytes: Int, error: Error?) {
+            pendingInputWrites = max(0, pendingInputWrites - 1)
+            pendingInputBytes = max(0, pendingInputBytes - bytes)
+            if error != nil {
+                close(detach: true)
+            }
+        }
+
+        private func detachRemoteAttachment(_ attachment: WorkspaceRemotePTYBridgeAttachment) {
+            rpcQueue.async { [rpcClient, sessionID] in
+                rpcClient.detachPTY(
+                    sessionID: sessionID,
+                    attachmentID: attachment.attachmentID,
+                    attachmentToken: attachment.token
+                )
             }
         }
 
@@ -4823,12 +4913,10 @@ final class WorkspaceRemotePTYBridgeServer {
             isClosed = true
             handshakeTimeoutWorkItem?.cancel()
             handshakeTimeoutWorkItem = nil
+            isAttaching = false
+            pendingInputBeforeAttach.removeAll(keepingCapacity: false)
             if detach && isAttached, let remoteAttachment {
-                rpcClient.detachPTY(
-                    sessionID: sessionID,
-                    attachmentID: remoteAttachment.attachmentID,
-                    attachmentToken: remoteAttachment.token
-                )
+                detachRemoteAttachment(remoteAttachment)
             }
             if gracefulOutputClose && !detach {
                 connection.send(
@@ -4857,6 +4945,25 @@ final class WorkspaceRemotePTYBridgeServer {
                 return number.intValue
             }
             return nil
+        }
+
+        private static func userFacingBridgeErrorMessage(_ error: Error) -> String {
+            let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lowered = message.lowercased()
+            if lowered.contains("missing required capability") || lowered.contains("pty.session") {
+                return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+            }
+            if lowered.contains("pty_session_not_found") ||
+                (lowered.contains("persistent pty session") && lowered.contains("not running")) {
+                return "persistent SSH PTY session is no longer running"
+            }
+            if lowered.contains("pty_input_queue_full") || lowered.contains("pty input queue is full") {
+                return "remote PTY input is temporarily backed up"
+            }
+            if lowered.contains("timed out") || lowered.contains("timeout") {
+                return "remote daemon did not respond in time"
+            }
+            return message.isEmpty ? "remote PTY attach failed" : "remote PTY attach failed"
         }
     }
 
@@ -13180,11 +13287,6 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
-        if let remotePTYSessionID = normalizedRemotePTYSessionID(detached.remotePTYSessionID) {
-            remotePTYSessionIDsByPanelId[detached.panelId] = remotePTYSessionID
-        } else {
-            remotePTYSessionIDsByPanelId.removeValue(forKey: detached.panelId)
-        }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
@@ -13197,6 +13299,12 @@ final class Workspace: Identifiable, ObservableObject {
         let didAdoptWorkspaceRemoteTracking =
             detached.isRemoteTerminal
             && detached.remoteRelayPort == remoteConfiguration?.relayPort
+        if didAdoptWorkspaceRemoteTracking,
+           let remotePTYSessionID = normalizedRemotePTYSessionID(detached.remotePTYSessionID) {
+            remotePTYSessionIDsByPanelId[detached.panelId] = remotePTYSessionID
+        } else {
+            remotePTYSessionIDsByPanelId.removeValue(forKey: detached.panelId)
+        }
         if didAdoptWorkspaceRemoteTracking {
             trackRemoteTerminalSurface(detached.panelId)
         }

@@ -119,16 +119,15 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
 
     private static func foregroundAuthLines(_ auth: ForegroundAuth) -> [String] {
         let sshCommand = sshForegroundAuthCommand(auth)
-        let escapedToken = auth.token
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
+        let quotedToken = shellQuote(auth.token)
         return [
             "\(sshCommand)",
             "cmux_ssh_auth_status=$?",
             "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi",
-            "cmux_ssh_auth_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"\(escapedToken)\\\"}\"",
+            "cmux_ssh_auth_token=\(quotedToken)",
+            "cmux_ssh_auth_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"$cmux_ssh_auth_token\\\"}\"",
             "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.foreground_auth_ready \"$cmux_ssh_auth_payload\" >/dev/null 2>&1 || true",
-            "unset cmux_ssh_auth_payload cmux_ssh_auth_status",
+            "unset cmux_ssh_auth_payload cmux_ssh_auth_status cmux_ssh_auth_token",
         ]
     }
 
@@ -159,16 +158,42 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
 
     static func sshOptionsWithRestoreControlDefaults(_ options: [String]) -> [String] {
         var merged = options.compactMap(normalized)
-        if !hasSSHOptionKey(merged, key: "ControlMaster") {
+        let controlMaster = sshOptionValue(named: "ControlMaster", in: merged)
+        let controlMasterDisabled = sshOptionValueIsDisabled(controlMaster)
+        if controlMaster == nil {
             merged.append("ControlMaster=auto")
         }
-        if !hasSSHOptionKey(merged, key: "ControlPersist") {
-            merged.append("ControlPersist=600")
-        }
-        if !hasSSHOptionKey(merged, key: "ControlPath") {
-            merged.append("ControlPath=/tmp/cmux-ssh-\(getuid())-%C")
+        if !controlMasterDisabled {
+            if !hasSSHOptionKey(merged, key: "ControlPersist") {
+                merged.append("ControlPersist=600")
+            }
+            if !hasSSHOptionKey(merged, key: "ControlPath") {
+                merged.append("ControlPath=/tmp/cmux-ssh-\(getuid())-%C")
+            }
         }
         return merged
+    }
+
+    static func sshOptionsSupportReusableForegroundAuth(_ options: [String]) -> Bool {
+        guard !hasSSHOptionKey(options, key: "LocalCommand"),
+              !hasSSHOptionKey(options, key: "PermitLocalCommand") else {
+            return false
+        }
+
+        guard let controlPath = sshOptionValue(named: "ControlPath", in: options),
+              !controlPath.isEmpty,
+              controlPath.lowercased() != "none" else {
+            return false
+        }
+
+        if sshOptionValueIsDisabled(sshOptionValue(named: "ControlMaster", in: options)) {
+            return false
+        }
+
+        return !sshOptionValueIsDisabled(
+            sshOptionValue(named: "ControlPersist", in: options),
+            zeroIsDisabled: false
+        )
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -189,6 +214,33 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
                 .map(String.init)?
                 .lowercased() == loweredKey
         }
+    }
+
+    private static func sshOptionValue(named name: String, in options: [String]) -> String? {
+        let loweredName = name.lowercased()
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if let equals = trimmed.firstIndex(of: "=") {
+                let key = String(trimmed[..<equals]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard key.lowercased() == loweredName else { continue }
+                let value = String(trimmed[trimmed.index(after: equals)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                return value.isEmpty ? nil : String(value)
+            }
+            let parts = trimmed.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
+            guard parts.first.map({ String($0).lowercased() }) == loweredName else { continue }
+            guard parts.count > 1 else { return nil }
+            let value = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+        return nil
+    }
+
+    private static func sshOptionValueIsDisabled(_ rawValue: String?, zeroIsDisabled: Bool = true) -> Bool {
+        guard let normalized = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return false
+        }
+        return ["no", "false", "off"].contains(normalized) || (zeroIsDisabled && normalized == "0")
     }
 
     private static func shellQuote(_ value: String) -> String {
@@ -298,12 +350,13 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
-        // A saved SSH snapshot does not currently carry a durable daemon RPC endpoint.
-        // Restoring `ssh-pty-attach` without that bridge fails later with "remote daemon is not ready",
-        // so snapshots fall back to a fresh SSH terminal until durable daemon metadata is persisted.
-        let preservePTYSession = false
         let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
-        let restoredSSHOptions = normalizedOptions
+        let optionsWithRestoreControlDefaults = SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(normalizedOptions)
+        let preservePTYSession =
+            preserveAfterTerminalExit == true &&
+            skipDaemonBootstrap != true &&
+            SSHPTYAttachStartupCommandBuilder.sshOptionsSupportReusableForegroundAuth(optionsWithRestoreControlDefaults)
+        let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : normalizedOptions
         return WorkspaceRemoteConfiguration(
             transport: transport,
             destination: normalizedDestination,
@@ -315,10 +368,12 @@ extension SessionRemoteWorkspaceSnapshot {
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
-            terminalStartupCommand: sshReconnectCommand(
-                destination: normalizedDestination,
-                port: normalizedPort
-            ),
+            terminalStartupCommand: preservePTYSession
+                ? SSHPTYAttachStartupCommandBuilder.command(requireExisting: false)
+                : sshReconnectCommand(
+                    destination: normalizedDestination,
+                    port: normalizedPort
+                ),
             foregroundAuthToken: nil,
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession,

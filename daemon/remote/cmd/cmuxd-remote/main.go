@@ -1027,7 +1027,21 @@ func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
 			},
 		}
 	}
-	if s.ptyHub == nil || !s.ptyHub.writeInputByID(sessionID, attachmentID, attachmentToken, payload) {
+	writeStatus := wsPTYInputWriteNotFound
+	if s.ptyHub != nil {
+		writeStatus = s.ptyHub.writeInputByID(sessionID, attachmentID, attachmentToken, payload)
+	}
+	if writeStatus == wsPTYInputWriteQueueFull {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "pty_input_queue_full",
+				Message: "PTY input queue is full",
+			},
+		}
+	}
+	if writeStatus != wsPTYInputWriteOK {
 		return rpcResponse{
 			ID: req.ID,
 			OK: false,

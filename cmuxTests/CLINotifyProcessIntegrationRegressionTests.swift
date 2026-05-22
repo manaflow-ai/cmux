@@ -918,7 +918,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods, [
             "workspace.remote.pty_bridge",
-            "workspace.remote.pty_attach_end",
         ])
     }
 
@@ -1101,6 +1100,94 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "workspace.remote.pty_bridge",
             "workspace.remote.pty_sessions",
             "workspace.remote.pty_attach_end",
+        ])
+    }
+
+    func testSSHPTYAttachWithoutSurfaceDoesNotSendLocalAttachEnd() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptynosurface")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let bridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "ssh-manual-session"
+        let token = "bridge-token"
+
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.close(bridge.fd)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.remote.pty_bridge":
+                XCTAssertNil(params["surface_id"])
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                let attachmentID = params["attachment_id"] as? String
+                XCTAssertNotNil(attachmentID.flatMap { UUID(uuidString: $0) })
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": token,
+                        "session_id": sessionId,
+                        "attachment_id": attachmentID ?? "attachment",
+                    ]
+                )
+            case "workspace.remote.pty_sessions":
+                XCTAssertNil(params["surface_id"])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "sessions": [],
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+        let bridgeHandled = startBridgeReadyThenCloseServer(listenerFD: bridge.fd)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment.removeValue(forKey: "CMUX_SURFACE_ID")
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-pty-attach",
+                "--workspace", workspaceId,
+                "--session-id", sessionId,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [socketHandled, bridgeHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_sessions",
         ])
     }
 
@@ -1708,7 +1795,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods, [
             "workspace.remote.pty_bridge",
-            "workspace.remote.pty_attach_end",
         ])
     }
 
@@ -1791,11 +1877,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [socketHandled], timeout: 3)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
-        XCTAssertTrue(result.stderr.contains("pty_session_not_found"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods, [
             "workspace.remote.pty_bridge",
-            "workspace.remote.pty_attach_end",
         ])
     }
 

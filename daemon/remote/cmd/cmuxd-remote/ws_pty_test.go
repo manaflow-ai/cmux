@@ -691,7 +691,10 @@ func TestWebSocketPTYInputBackpressureRejectsWholePayload(t *testing.T) {
 		bytes.Repeat([]byte("x"), defaultPTYInputChunkBytes),
 		'y',
 	)
-	if hub.writeInputByID(session.id, attachment.id, "", payload) {
+	if status := hub.writeInputByID(session.id, attachment.id, "", payload); status != wsPTYInputWriteQueueFull {
+		t.Fatalf("writeInputByID status = %v, want queue full", status)
+	}
+	if len(session.input) == defaultPTYInputQueueCap {
 		t.Fatal("writeInputByID unexpectedly accepted a two-chunk payload with one queue slot free")
 	}
 	if got := len(session.input); got != defaultPTYInputQueueCap-1 {

@@ -7172,20 +7172,22 @@ struct CMUXCLI {
     ) -> String {
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let commandB64 = Data(remoteShellCommand.utf8).base64EncodedString()
-        let fallbackLiteral = shellQuote(sessionIDFallback)
+        let workspaceFallbackLiteral = shellQuote(sessionIDFallback)
+        let surfaceFallbackLiteral = shellQuote("\(sessionIDFallback)-surface")
         let attachCommand = [
             shellQuote(executablePath),
             "ssh-pty-attach",
             "--wait",
             "--workspace", "\"$cmux_ssh_pty_workspace_id\"",
             "--session-id", "\"$cmux_ssh_pty_session_id\"",
+            "--attachment-id", "\"$cmux_ssh_pty_surface_id\"",
             "--command-b64", shellQuote(commandB64),
         ].joined(separator: " ")
         return [
             "cmux_ssh_pty_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
             "cmux_ssh_pty_surface_id=\"${CMUX_SURFACE_ID:-}\"",
-            "if [ -z \"$cmux_ssh_pty_workspace_id\" ]; then cmux_ssh_pty_workspace_id=\(fallbackLiteral); fi",
-            "if [ -z \"$cmux_ssh_pty_surface_id\" ]; then cmux_ssh_pty_surface_id=\(fallbackLiteral); fi",
+            "if [ -z \"$cmux_ssh_pty_workspace_id\" ]; then cmux_ssh_pty_workspace_id=\(workspaceFallbackLiteral); fi",
+            "if [ -z \"$cmux_ssh_pty_surface_id\" ]; then cmux_ssh_pty_surface_id=\(surfaceFallbackLiteral); fi",
             "cmux_ssh_pty_session_id=\"ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id\"",
             "exec \(attachCommand)",
         ].joined(separator: "\n")
@@ -8159,7 +8161,7 @@ struct CMUXCLI {
             let workspace = debugString(error["workspace_ref"])
                 ?? debugString(error["workspace_id"])
                 ?? "workspace:?"
-            let message = debugString(error["error"]) ?? "unknown error"
+            let message = userFacingRemotePTYErrorMessage(error["error"])
             return "- \(workspace): \(message)"
         }
         return ([summary] + details).joined(separator: "\n")
@@ -8197,6 +8199,12 @@ struct CMUXCLI {
         )
 
         var closed: [String] = []
+        var closedSet = Set<String>()
+        let recordClosedSession: (String) -> Void = { sessionID in
+            if closedSet.insert(sessionID).inserted {
+                closed.append(sessionID)
+            }
+        }
         var errors: [[String: Any]] = []
         if closeAll {
             let listResponse = try client.sendV2(method: "workspace.remote.pty_sessions", params: baseParams)
@@ -8217,12 +8225,12 @@ struct CMUXCLI {
                 ]
                 do {
                     _ = try client.sendV2(method: "workspace.remote.pty_close", params: params)
-                    closed.append(sessionID)
+                    recordClosedSession(sessionID)
                 } catch {
                     errors.append([
                         "session_id": sessionID,
                         "workspace_id": params["workspace_id"] ?? NSNull(),
-                        "error": String(describing: error),
+                        "error": self.userFacingRemotePTYErrorMessage(error),
                     ])
                 }
             }
@@ -8247,12 +8255,12 @@ struct CMUXCLI {
                             "workspace_id": workspaceID,
                             "session_id": sessionID,
                         ])
-                        closed.append(sessionID)
+                        recordClosedSession(sessionID)
                     } catch {
                         errors.append([
                             "session_id": sessionID,
                             "workspace_id": workspaceID,
-                            "error": String(describing: error),
+                            "error": self.userFacingRemotePTYErrorMessage(error),
                         ])
                     }
                 }
@@ -8260,7 +8268,7 @@ struct CMUXCLI {
                 var params = baseParams
                 params["session_id"] = sessionID
                 _ = try client.sendV2(method: "workspace.remote.pty_close", params: params)
-                closed.append(sessionID)
+                recordClosedSession(sessionID)
             }
         } else {
             throw CLIError(message: "ssh-session-cleanup: --session-id requires a value")
@@ -8311,7 +8319,7 @@ struct CMUXCLI {
             let payload: [String: Any] = [
                 "session_id": sessionID ?? debugString(error["session_id"]) ?? "workspace-query",
                 "workspace_id": workspaceValue,
-                "error": debugString(error["error"]) ?? "unknown error",
+                "error": userFacingRemotePTYErrorMessage(error["error"]),
             ]
             return payload
         }
@@ -8324,7 +8332,7 @@ struct CMUXCLI {
             let sessionID = debugString(error["session_id"]) ?? "unknown"
             let workspaceID = (debugString(error["workspace_ref"]) ?? debugString(error["workspace_id"]))
                 .map { " workspace=\($0)" } ?? ""
-            let message = debugString(error["error"]) ?? "unknown error"
+            let message = userFacingRemotePTYErrorMessage(error["error"])
             return "- \(sessionID)\(workspaceID): \(message)"
         }
         return ([summary] + details).joined(separator: "\n")
@@ -8401,8 +8409,10 @@ struct CMUXCLI {
 
     private func sshSessionAttachStartupCommand(sessionID: String) -> String {
         let quotedSessionID = shellQuote(sessionID)
+        let currentExecutable = shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux"))
         return [
             "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
+            "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\(currentExecutable); fi",
             "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "if [ -z \"$cmux_ssh_attach_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for SSH PTY attach.' >&2; exit 127; fi",
             "if [ -z \"${CMUX_SOCKET_PATH:-}\" ]; then printf '%s\\n' '[cmux] required configuration missing for SSH PTY attach.' >&2; exit 1; fi",
@@ -8455,13 +8465,10 @@ struct CMUXCLI {
               !sessionID.isEmpty else {
             throw CLIError(message: "ssh-pty-attach requires --session-id <id>")
         }
-        let attachmentID = [
-            attachmentIDOpt,
-            ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"],
-            UUID().uuidString.lowercased(),
-        ]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }!
+        let environmentSurfaceID = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
+        let explicitAttachmentID = Self.normalizedEnvValue(attachmentIDOpt)
+        let surfaceID = environmentSurfaceID ?? (explicitAttachmentID.flatMap { UUID(uuidString: $0) == nil ? nil : $0 })
+        let attachmentID = explicitAttachmentID ?? environmentSurfaceID ?? UUID().uuidString.lowercased()
         let command: String? = try commandB64Opt.flatMap { encoded in
             guard let data = Data(base64Encoded: encoded),
                   var decoded = String(data: data, encoding: .utf8) else {
@@ -8479,23 +8486,17 @@ struct CMUXCLI {
         let bridge: [String: Any]
         do {
             bridge = try waitForReady
-                ? waitForSSHPTYBridge(client: client, workspaceId: workspaceId, sessionID: sessionID, attachmentID: attachmentID, command: command, requireExisting: requireExisting)
-                : client.sendV2(method: "workspace.remote.pty_bridge", params: [
-                    "workspace_id": workspaceId,
-                    "surface_id": attachmentID,
-                    "session_id": sessionID,
-                    "attachment_id": attachmentID,
-                    "command": command ?? "",
-                    "require_existing": requireExisting,
-                ])
+                ? waitForSSHPTYBridge(client: client, workspaceId: workspaceId, surfaceID: surfaceID, sessionID: sessionID, attachmentID: attachmentID, command: command, requireExisting: requireExisting)
+                : client.sendV2(method: "workspace.remote.pty_bridge", params: sshPTYBridgeParams(
+                    workspaceId: workspaceId,
+                    surfaceID: surfaceID,
+                    sessionID: sessionID,
+                    attachmentID: attachmentID,
+                    command: command,
+                    requireExisting: requireExisting
+                ))
         } catch {
-            notifySSHPTYAttachEndedIgnoringFailure(
-                client: client,
-                workspaceId: workspaceId,
-                sessionID: sessionID,
-                attachmentID: attachmentID
-            )
-            throw error
+            throw CLIError(message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))")
         }
         var connectedFD: Int32?
         var attachmentToken = ""
@@ -8521,12 +8522,6 @@ struct CMUXCLI {
             try writeAll(fd: fd, data: handshakeData)
             attachmentToken = try readSSHPTYBridgeReady(fd: fd)
         } catch {
-            notifySSHPTYAttachEndedIgnoringFailure(
-                client: client,
-                workspaceId: workspaceId,
-                sessionID: sessionID,
-                attachmentID: attachmentID
-            )
             if let connectedFD {
                 Darwin.close(connectedFD)
             }
@@ -8540,6 +8535,7 @@ struct CMUXCLI {
         let resizeSource = startSSHPTYResizeSource(
             client: client,
             workspaceId: workspaceId,
+            surfaceID: surfaceID,
             sessionID: sessionID,
             attachmentID: attachmentID,
             attachmentToken: attachmentToken,
@@ -8578,6 +8574,7 @@ struct CMUXCLI {
                 try handleSSHPTYBridgeEOF(
                     client: client,
                     workspaceId: workspaceId,
+                    surfaceID: surfaceID,
                     sessionID: sessionID,
                     attachmentID: attachmentID,
                     socketLock: controlSocketLock
@@ -8589,6 +8586,7 @@ struct CMUXCLI {
                     try handleSSHPTYBridgeEOF(
                         client: client,
                         workspaceId: workspaceId,
+                        surfaceID: surfaceID,
                         sessionID: sessionID,
                         attachmentID: attachmentID,
                         socketLock: controlSocketLock
@@ -8612,6 +8610,7 @@ struct CMUXCLI {
     private func handleSSHPTYBridgeEOF(
         client: SocketClient,
         workspaceId: String,
+        surfaceID: String?,
         sessionID: String,
         attachmentID: String,
         socketLock: NSLock
@@ -8621,13 +8620,16 @@ struct CMUXCLI {
 
         let response: [String: Any]
         do {
-            response = try client.sendV2(method: "workspace.remote.pty_sessions", params: [
+            var params: [String: Any] = [
                 "workspace_id": workspaceId,
-                "surface_id": attachmentID,
-            ])
+            ]
+            if let surfaceID {
+                params["surface_id"] = surfaceID
+            }
+            response = try client.sendV2(method: "workspace.remote.pty_sessions", params: params)
         } catch {
             throw CLIError(
-                message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed: \(error)",
+                message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed: \(userFacingRemotePTYErrorMessage(error))",
                 exitCode: 255
             )
         }
@@ -8651,31 +8653,70 @@ struct CMUXCLI {
             )
         }
 
+        guard let surfaceID else {
+            return
+        }
+
         do {
             _ = try client.sendV2(method: "workspace.remote.pty_attach_end", params: [
                 "workspace_id": workspaceId,
-                "surface_id": attachmentID,
+                "surface_id": surfaceID,
                 "session_id": sessionID,
             ])
         } catch {
             throw CLIError(
-                message: "ssh-pty-attach: remote PTY exited but local session cleanup failed: \(error)",
+                message: "ssh-pty-attach: remote PTY exited but local session cleanup failed: \(userFacingRemotePTYErrorMessage(error))",
                 exitCode: 255
             )
         }
     }
 
-    private func notifySSHPTYAttachEndedIgnoringFailure(
-        client: SocketClient,
+    private func sshPTYBridgeParams(
         workspaceId: String,
+        surfaceID: String?,
         sessionID: String,
-        attachmentID: String
-    ) {
-        _ = try? client.sendV2(method: "workspace.remote.pty_attach_end", params: [
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool
+    ) -> [String: Any] {
+        var params: [String: Any] = [
             "workspace_id": workspaceId,
-            "surface_id": attachmentID,
             "session_id": sessionID,
-        ])
+            "attachment_id": attachmentID,
+            "command": command ?? "",
+            "require_existing": requireExisting,
+        ]
+        if let surfaceID {
+            params["surface_id"] = surfaceID
+        }
+        return params
+    }
+
+    private func userFacingRemotePTYErrorMessage(_ value: Any?) -> String {
+        if let error = value as? Error {
+            return userFacingRemotePTYErrorMessage(String(describing: error))
+        }
+        return userFacingRemotePTYErrorMessage(debugString(value) ?? "unknown error")
+    }
+
+    private func userFacingRemotePTYErrorMessage(_ message: String) -> String {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "unknown error" }
+        let lowered = trimmed.lowercased()
+        if lowered.contains("missing required capability") || lowered.contains("pty.session") {
+            return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+        }
+        if lowered.contains("pty_session_not_found") ||
+            (lowered.contains("persistent pty session") && lowered.contains("not running")) {
+            return "persistent SSH PTY session is no longer running"
+        }
+        if lowered.contains("pty_input_queue_full") || lowered.contains("pty input queue is full") {
+            return "remote PTY input is temporarily backed up"
+        }
+        if lowered.contains("timed out") || lowered.contains("timeout") {
+            return "remote daemon did not respond in time"
+        }
+        return trimmed
     }
 
     private func readSSHPTYBridgeReady(fd: Int32) throws -> String {
@@ -8720,6 +8761,7 @@ struct CMUXCLI {
     private func startSSHPTYResizeSource(
         client: SocketClient,
         workspaceId: String,
+        surfaceID: String?,
         sessionID: String,
         attachmentID: String,
         attachmentToken: String,
@@ -8734,15 +8776,18 @@ struct CMUXCLI {
             let size = self.currentCLITerminalSize()
             socketLock.lock()
             defer { socketLock.unlock() }
-            _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: [
+            var params: [String: Any] = [
                 "workspace_id": workspaceId,
-                "surface_id": attachmentID,
                 "session_id": sessionID,
                 "attachment_id": attachmentID,
                 "attachment_token": attachmentToken,
                 "cols": size.cols,
                 "rows": size.rows,
-            ])
+            ]
+            if let surfaceID {
+                params["surface_id"] = surfaceID
+            }
+            _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
         }
         source.resume()
         return source
@@ -8751,6 +8796,7 @@ struct CMUXCLI {
     private func waitForSSHPTYBridge(
         client: SocketClient,
         workspaceId: String,
+        surfaceID: String?,
         sessionID: String,
         attachmentID: String,
         command: String?,
@@ -8760,20 +8806,20 @@ struct CMUXCLI {
         var lastError: Error?
         repeat {
             do {
-                return try client.sendV2(method: "workspace.remote.pty_bridge", params: [
-                    "workspace_id": workspaceId,
-                    "surface_id": attachmentID,
-                    "session_id": sessionID,
-                    "attachment_id": attachmentID,
-                    "command": command ?? "",
-                    "require_existing": requireExisting,
-                ])
+                return try client.sendV2(method: "workspace.remote.pty_bridge", params: sshPTYBridgeParams(
+                    workspaceId: workspaceId,
+                    surfaceID: surfaceID,
+                    sessionID: sessionID,
+                    attachmentID: attachmentID,
+                    command: command,
+                    requireExisting: requireExisting
+                ))
             } catch {
                 if shouldFailSSHPTYBridgeWaitImmediately(error, requireExisting: requireExisting) {
                     throw error
                 }
                 lastError = error
-                _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.5)
+                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
             }
         } while Date() < deadline
         throw lastError ?? CLIError(message: "ssh-pty-attach: timed out waiting for remote PTY bridge")
@@ -9050,9 +9096,7 @@ struct CMUXCLI {
     ) -> String? {
         guard shouldDeferRemoteReconnect(in: options) else { return nil }
         let preferredCLIPath = localCLIPath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let escapedForegroundAuthToken = foregroundAuthToken
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
+        let quotedForegroundAuthToken = shellQuote(foregroundAuthToken)
         return [
             preferredCLIPath.map { "cmux_reconnect_cli=\(shellQuote($0));" } ?? "cmux_reconnect_cli=\"\";",
             "cmux_reconnect_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
@@ -9062,9 +9106,10 @@ struct CMUXCLI {
             "if [ -z \"$cmux_reconnect_socket\" ]; then printf '%s\\n' 'cmux: deferred SSH reconnect skipped, local cmux socket not found' >&2;",
             "elif [ -z \"$cmux_reconnect_cli\" ] || [ ! -x \"$cmux_reconnect_cli\" ]; then printf '%s\\n' 'cmux: deferred SSH reconnect skipped, local cmux CLI not found' >&2;",
             "else",
-            "cmux_reconnect_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"\(escapedForegroundAuthToken)\\\"}\";",
+            "cmux_reconnect_token=\(quotedForegroundAuthToken);",
+            "cmux_reconnect_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"$cmux_reconnect_token\\\"}\";",
             "\"$cmux_reconnect_cli\" --socket \"$cmux_reconnect_socket\" rpc workspace.remote.foreground_auth_ready \"$cmux_reconnect_payload\" >/dev/null 2>&1 || true;",
-            "unset cmux_reconnect_payload;",
+            "unset cmux_reconnect_payload cmux_reconnect_token;",
             "fi;",
             "fi;",
             "unset cmux_reconnect_socket cmux_reconnect_cli;",

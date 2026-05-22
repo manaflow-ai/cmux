@@ -101,6 +101,14 @@ type wsPTYInputChunk struct {
 	payload      []byte
 }
 
+type wsPTYInputWriteStatus uint8
+
+const (
+	wsPTYInputWriteOK wsPTYInputWriteStatus = iota
+	wsPTYInputWriteNotFound
+	wsPTYInputWriteQueueFull
+)
+
 type wsPTYAttachment struct {
 	sessionKey  wsPTYSessionKey
 	id          string
@@ -854,10 +862,10 @@ func (h *wsPTYHub) closeAll() {
 	}
 }
 
-func (h *wsPTYHub) writeInputByID(sessionID string, attachmentID string, attachmentToken string, payload []byte) bool {
+func (h *wsPTYHub) writeInputByID(sessionID string, attachmentID string, attachmentToken string, payload []byte) wsPTYInputWriteStatus {
 	attachment := h.attachmentByID(sessionID, attachmentID, attachmentToken)
 	if attachment == nil {
-		return false
+		return wsPTYInputWriteNotFound
 	}
 	return h.writeInput(attachment, payload)
 }
@@ -1039,7 +1047,7 @@ func (h *wsPTYHub) pumpSession(session *wsPTYSession) {
 			return
 		}
 		if n == 0 {
-			return
+			continue
 		}
 	}
 }
@@ -1127,6 +1135,11 @@ func (h *wsPTYHub) recomputeSessionSizeLocked(session *wsPTYSession) bool {
 		if minRows == 0 || attachment.rows < minRows {
 			minRows = attachment.rows
 		}
+	}
+	if session.effectiveCols == minCols && session.effectiveRows == minRows {
+		session.lastKnownCols = minCols
+		session.lastKnownRows = minRows
+		return false
 	}
 	session.effectiveCols = minCols
 	session.effectiveRows = minRows
@@ -1228,13 +1241,13 @@ func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, ro
 	return false
 }
 
-func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) bool {
+func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) wsPTYInputWriteStatus {
 	session := h.sessionForAttachment(attachment.sessionKey)
 	if session == nil {
-		return false
+		return wsPTYInputWriteNotFound
 	}
 	if len(payload) == 0 {
-		return true
+		return wsPTYInputWriteOK
 	}
 
 	h.mu.Lock()
@@ -1244,7 +1257,7 @@ func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) bool 
 		session.input != nil
 	h.mu.Unlock()
 	if !current {
-		return false
+		return wsPTYInputWriteNotFound
 	}
 
 	chunks := make([]wsPTYInputChunk, 0, (len(payload)+defaultPTYInputChunkBytes-1)/defaultPTYInputChunkBytes)
@@ -1271,22 +1284,22 @@ func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) bool 
 		session.input != nil
 	h.mu.Unlock()
 	if !current {
-		return false
+		return wsPTYInputWriteNotFound
 	}
 	if len(chunks) > cap(session.input)-len(session.input) {
 		if h.stderr != nil {
 			_, _ = fmt.Fprintf(h.stderr, "ws pty input queue full session=%s attachment=%s\n", session.id, attachment.id)
 		}
-		return false
+		return wsPTYInputWriteQueueFull
 	}
 	for _, chunk := range chunks {
 		select {
 		case session.input <- chunk:
 		case <-session.done:
-			return false
+			return wsPTYInputWriteNotFound
 		}
 	}
-	return true
+	return wsPTYInputWriteOK
 }
 
 func (h *wsPTYHub) writeInputLoop(session *wsPTYSession) {
@@ -1308,15 +1321,10 @@ func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk)
 	current := h.sessions[session.key] == session &&
 		!session.closed &&
 		session.attachments[chunk.attachmentID] == chunk.attachment
-	cols := session.effectiveCols
-	rows := session.effectiveRows
 	ptyFile := session.ptyFile
 	h.mu.Unlock()
 	if !current || ptyFile == nil {
 		return false
-	}
-	if cols > 0 && rows > 0 {
-		h.applyPTYSizeWithWriteLock(session, cols, rows)
 	}
 	total := 0
 	for total < len(chunk.payload) {
@@ -1509,7 +1517,7 @@ func pumpWebSocketToPTY(ctx context.Context, hub *wsPTYHub, attachment *wsPTYAtt
 		}
 		switch msgType {
 		case websocket.MessageBinary:
-			if ok := hub.writeInput(attachment, payload); !ok {
+			if status := hub.writeInput(attachment, payload); status != wsPTYInputWriteOK {
 				return
 			}
 		case websocket.MessageText:
