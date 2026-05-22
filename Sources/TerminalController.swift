@@ -6191,7 +6191,9 @@ class TerminalController {
                         v2RemotePTYSessionPayload($0, target: target)
                     })
                 } catch where remotePTYSessionListErrorIsUnsupportedDaemon(error) {
-                    continue
+                    var payload = v2RemotePTYTargetPayload(target)
+                    payload["error"] = v2RemotePTYUserFacingErrorMessage(error)
+                    errors.append(payload)
                 } catch {
                     var payload = v2RemotePTYTargetPayload(target)
                     payload["error"] = v2RemotePTYUserFacingErrorMessage(error)

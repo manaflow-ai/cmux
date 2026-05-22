@@ -965,9 +965,11 @@ extension Workspace {
                 restoredAgentResumeInput != nil ||
                 (restoredBindingInput != nil && resumeBinding?.isAgentHookBinding == true)
             )
-            let restoredRemotePTYSessionID = normalizedRemotePTYSessionID(snapshot.terminal?.remotePTYSessionID)
-                .flatMap { remoteConfiguration?.preserveAfterTerminalExit == true ? $0 : nil }
-            let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map(remotePTYAttachStartupCommand)
+            // Snapshot session IDs belong to the previous app run's remote daemon.
+            // Restored persistent SSH terminals start a fresh attach path and replay
+            // local scrollback until the new remote PTY is ready.
+            let restoredRemotePTYSessionID: String? = nil
+            let restoredRemotePTYAttachCommand: String? = nil
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
