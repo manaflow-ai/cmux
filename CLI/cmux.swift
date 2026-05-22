@@ -539,6 +539,7 @@ private final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         previousActivePromptTurnIsTerminal: Bool = false,
+        preserveActivePromptTurnStackOnTurnChange: Bool = false,
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
@@ -578,9 +579,12 @@ private final class ClaudeHookSessionStore {
                 if turnStack.isEmpty, max(0, record.activePromptDepth ?? 0) > 0 {
                     record.activePromptDepth = nil
                 } else if let activeTurnId = turnStack.last,
-                          activeTurnId != normalizedTurnId,
-                          previousActivePromptTurnIsTerminal {
-                    turnStack.removeLast()
+                          activeTurnId != normalizedTurnId {
+                    if previousActivePromptTurnIsTerminal {
+                        turnStack.removeLast()
+                    } else if !preserveActivePromptTurnStackOnTurnChange {
+                        turnStack.removeAll()
+                    }
                 }
                 turnStack.append(normalizedTurnId)
                 setActivePromptTurnStack(turnStack, on: &record)
@@ -24475,6 +24479,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     transcriptPath: transcriptPathForStore,
                     turnId: input.turnId,
                     previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
+                    preserveActivePromptTurnStackOnTurnChange: def.name == "codex",
                     pid: pid,
                     launchCommand: launchCommand
                 )) ?? false
