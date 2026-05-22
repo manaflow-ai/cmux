@@ -607,6 +607,25 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Spawned Codex subagent should not clear the parent resume binding, saw \(childCommands)"
         )
 
+        let childStopIndex = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertFalse(
+            childStopCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Stored non-restorable subagent Stop should not publish a child resume binding, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Stored non-restorable subagent Stop should not notify or clobber visible parent status, saw \(childStopCommands)"
+        )
+
         let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
         let parent = try XCTUnwrap(savedSessions[parentSessionId] as? [String: Any])
