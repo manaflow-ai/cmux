@@ -5769,13 +5769,21 @@ class TerminalController {
             let fallbackWorkspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
             var owner: TabManager?
             var workspace: Workspace?
-            if let preferredSurfaceId,
-               let located = AppDelegate.shared?.workspaceContainingPanel(
-                   panelId: preferredSurfaceId,
-                   preferredWorkspaceId: fallbackWorkspaceId
-               ) {
-                owner = located.tabManager
-                workspace = located.workspace
+            if let preferredSurfaceId {
+                if let fallbackTabManager,
+                   let surfaceWorkspace = fallbackTabManager.tabs.first(where: {
+                       $0.panels[preferredSurfaceId] != nil
+                           && $0.surfaceIdFromPanelId(preferredSurfaceId) != nil
+                   }) {
+                    owner = fallbackTabManager
+                    workspace = surfaceWorkspace
+                } else if let located = AppDelegate.shared?.workspaceContainingPanel(
+                    panelId: preferredSurfaceId,
+                    preferredWorkspaceId: fallbackWorkspaceId
+                ) {
+                    owner = located.tabManager
+                    workspace = located.workspace
+                }
             }
             if workspace == nil,
                let fallbackWorkspaceId,
@@ -6003,10 +6011,14 @@ class TerminalController {
         let command = v2RawString(params, "command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let requireExisting = v2Bool(params, "require_existing") ?? false
+        let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
+        if let error = surfaceSelection.error { return error }
+        let preferredSurfaceId = surfaceSelection.surfaceId ?? UUID(uuidString: attachmentID)
 
         let resolved = v2ResolveRemotePTYTarget(
             params: params,
-            requestedWorkspaceId: workspaceSelection.workspaceId
+            requestedWorkspaceId: workspaceSelection.workspaceId,
+            preferredSurfaceId: preferredSurfaceId
         )
         if let error = resolved.error { return error }
         guard let target = resolved.target else {

@@ -278,6 +278,57 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let error = try XCTUnwrap(response["error"] as? [String: Any])
         XCTAssertEqual(error["code"] as? String, "remote_pty_error")
         let data = try XCTUnwrap(error["data"] as? [String: Any])
+        let locatedWorkspaceId = appDelegate.workspaceContainingPanel(
+            panelId: moved.panel.id,
+            preferredWorkspaceId: moved.source.id
+        )?.workspace.id.uuidString
+        XCTAssertEqual(
+            data["workspace_id"] as? String,
+            moved.destination.id.uuidString,
+            "source=\(moved.source.id.uuidString) destination=\(moved.destination.id.uuidString) " +
+            "located=\(locatedWorkspaceId ?? "nil") " +
+            "sourceActive=\(moved.source.surfaceIdFromPanelId(moved.panel.id) != nil) " +
+            "destinationActive=\(moved.destination.surfaceIdFromPanelId(moved.panel.id) != nil)"
+        )
+        XCTAssertEqual(data["session_id"] as? String, moved.sessionID)
+        XCTAssertEqual(data["attachment_id"] as? String, moved.panel.id.uuidString)
+    }
+
+    func testRemotePTYBridgeRoutesMovedSurfaceToCurrentWorkspace() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let socketPath = makeSocketPath("pty-bridge-move")
+        let manager = TabManager()
+        let moved = try makeMovedRemotePTYSurface(in: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_bridge",
+            params: [
+                "workspace_id": moved.source.id.uuidString,
+                "surface_id": moved.panel.id.uuidString,
+                "session_id": moved.sessionID,
+                "attachment_id": moved.panel.id.uuidString,
+                "command": "",
+                "require_existing": true,
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "remote_pty_error")
+        let data = try XCTUnwrap(error["data"] as? [String: Any])
         XCTAssertEqual(data["workspace_id"] as? String, moved.destination.id.uuidString)
         XCTAssertEqual(data["session_id"] as? String, moved.sessionID)
         XCTAssertEqual(data["attachment_id"] as? String, moved.panel.id.uuidString)
@@ -959,7 +1010,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             source.newTerminalSplit(
                 from: sourcePanelID,
                 orientation: .horizontal,
-                initialCommand: "cmux ssh-pty-attach",
+                initialCommand: nil,
                 remotePTYSessionID: sessionID
             )
         )

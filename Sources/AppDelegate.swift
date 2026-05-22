@@ -5013,7 +5013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func locateSurface(surfaceId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager)? {
         for ctx in mainWindowContexts.values {
             for ws in ctx.tabManager.tabs {
-                if ws.panels[surfaceId] != nil {
+                if ws.panels[surfaceId] != nil, ws.surfaceIdFromPanelId(surfaceId) != nil {
                     return (ctx.windowId, ws.id, ctx.tabManager)
                 }
             }
@@ -5021,7 +5021,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for route in recoverableMainWindowRoutes() {
             guard let manager = route.tabManager else { continue }
             for ws in manager.tabs {
-                if ws.panels[surfaceId] != nil {
+                if ws.panels[surfaceId] != nil, ws.surfaceIdFromPanelId(surfaceId) != nil {
                     return (route.windowId, ws.id, manager)
                 }
             }
@@ -5038,25 +5038,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId),
            let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
-           workspace.panels[panelId] != nil {
+           workspace.panels[panelId] != nil,
+           workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, manager)
         }
 
         if let located = locateSurface(surfaceId: panelId),
            let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-           workspace.panels[panelId] != nil {
+           workspace.panels[panelId] != nil,
+           workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, located.tabManager)
         }
 
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId) ?? tabManager,
            let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
-           workspace.panels[panelId] != nil {
+           workspace.panels[panelId] != nil,
+           workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, manager)
         }
 
         if let manager = tabManager,
-           let workspace = manager.tabs.first(where: { $0.panels[panelId] != nil }) {
+           let workspace = manager.tabs.first(where: {
+               $0.panels[panelId] != nil && $0.surfaceIdFromPanelId(panelId) != nil
+           }) {
             return (workspace, manager)
         }
 

@@ -8463,6 +8463,7 @@ struct CMUXCLI {
                 ? waitForSSHPTYBridge(client: client, workspaceId: workspaceId, sessionID: sessionID, attachmentID: attachmentID, command: command, requireExisting: requireExisting)
                 : client.sendV2(method: "workspace.remote.pty_bridge", params: [
                     "workspace_id": workspaceId,
+                    "surface_id": attachmentID,
                     "session_id": sessionID,
                     "attachment_id": attachmentID,
                     "command": command ?? "",
@@ -8742,6 +8743,7 @@ struct CMUXCLI {
             do {
                 return try client.sendV2(method: "workspace.remote.pty_bridge", params: [
                     "workspace_id": workspaceId,
+                    "surface_id": attachmentID,
                     "session_id": sessionID,
                     "attachment_id": attachmentID,
                     "command": command ?? "",
