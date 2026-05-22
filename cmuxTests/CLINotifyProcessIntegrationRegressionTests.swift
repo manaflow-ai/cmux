@@ -923,7 +923,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
-        XCTAssertNotNil(savedSessions[sessionId], "Suppressed SessionEnd should leave the stored child record for later suppression")
+        let savedSession = try XCTUnwrap(
+            savedSessions[sessionId] as? [String: Any],
+            "Suppressed SessionEnd should leave the stored child record for later suppression"
+        )
+        XCTAssertEqual(savedSession["parentSessionId"] as? String, parentSessionId)
+        XCTAssertEqual(savedSession["isRestorable"] as? Bool, false)
     }
 
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
