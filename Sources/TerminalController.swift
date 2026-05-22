@@ -376,8 +376,7 @@ class TerminalController {
     @MainActor
     func v2EnsureTerminalAutomationReady(workspace: Workspace, surfaceId: UUID, reason: String) -> Bool {
         guard let terminalPanel = workspace.terminalPanel(for: surfaceId) else { return false }
-        terminalPanel.surface.ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: reason)
-        return true
+        return terminalPanel.surface.ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: reason)
     }
 
     func v2TerminalAutomationReadinessFailure(workspace: Workspace, surfaceId: UUID, reason: String) -> V2CallResult {
@@ -4904,6 +4903,7 @@ class TerminalController {
         }
 
         var newId: UUID?
+        var failure: V2CallResult?
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
         let startTerminalForAutomation = v2Bool(params, "start_terminal_for_automation") ?? false
         v2MainSync {
@@ -4921,13 +4921,24 @@ class TerminalController {
                 ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
             }
             if !shouldFocus {
-                ws.requestBackgroundPrimeTerminalSurfaceStartIfNeeded(
+                guard ws.requestBackgroundPrimeTerminalSurfaceStartIfNeeded(
                     includeIdleTerminals: startTerminalForAutomation
-                )
+                ) else {
+                    tabManager.closeWorkspace(ws)
+                    failure = .err(code: "internal_error", message: "Failed to start workspace terminal automation surfaces", data: [
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "reason": "socket.workspace.create"
+                    ])
+                    return
+                }
             }
             newId = ws.id
         }
 
+        if let failure {
+            return failure
+        }
         guard let newId else {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
         }

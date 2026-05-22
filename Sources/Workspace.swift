@@ -8715,7 +8715,7 @@ final class Workspace: Identifiable, ObservableObject {
         includeIdleTerminals: Bool = false
     ) -> [TerminalPanel] {
         backgroundPrimeTerminalPanelCandidates(includeIdleTerminals: includeIdleTerminals).filter { panel in
-            panel.surface.surface == nil &&
+            !panel.surface.hasLiveSurface &&
                 (includeIdleTerminals || hasBackgroundSurfaceStartWork(for: panel))
         }
     }
@@ -8727,15 +8727,19 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
-    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded(includeIdleTerminals: Bool = false) {
-        backgroundPrimeTerminalPanelsNeedingSurfaceStart(includeIdleTerminals: includeIdleTerminals).forEach {
-            $0.surface.ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: "workspace.backgroundPrime")
+    @discardableResult
+    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded(includeIdleTerminals: Bool = false) -> Bool {
+        let panels = backgroundPrimeTerminalPanelsNeedingSurfaceStart(includeIdleTerminals: includeIdleTerminals)
+        var startedAll = true
+        for panel in panels {
+            startedAll = panel.surface.ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: "workspace.backgroundPrime") && startedAll
         }
+        return startedAll
     }
 
     func hasLoadedBackgroundPrimeTerminalSurface(includeIdleTerminals: Bool = false) -> Bool {
         backgroundPrimeTerminalPanelCandidates(includeIdleTerminals: includeIdleTerminals).allSatisfy { panel in
-            panel.surface.surface != nil ||
+            panel.surface.hasLiveSurface ||
                 (!includeIdleTerminals && !hasBackgroundSurfaceStartWork(for: panel))
         }
     }

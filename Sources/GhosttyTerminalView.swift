@@ -6398,15 +6398,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
-    func ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: String) {
-        guard allowsRuntimeSurfaceCreation() else { return }
-        guard surface == nil else { return }
+    @discardableResult
+    func ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: String) -> Bool {
+        guard !hasLiveSurface else { return true }
+        guard allowsRuntimeSurfaceCreation() else { return false }
+        guard surface == nil else { return false }
 
         if let view = attachedView, view.window != nil {
             createSurface(for: view)
         } else {
             startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
         }
+        return hasLiveSurface
     }
 
     private func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
