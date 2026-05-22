@@ -358,7 +358,12 @@
       "settingsFilePrecedence": "cmux.json で定義したショートカットはアプリ内設定より優先されます。管理対象のショートカットは設定画面に表示されたままですが、そこでの編集は無効になります。",
       "settingsFileChords": "単発ショートカットは文字列、コードは2要素の配列で指定します。例: [\"ctrl+b\", \"c\"] は Ctrl+B の後に C を押します。",
       "exampleConfig": "設定例",
-      "metaTitle": "設定"
+      "metaTitle": "設定",
+      "schemaDescriptions": {
+        "automation": {
+          "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。"
+        }
+      }
     },
     "customCommands": {
       "title": "カスタムコマンド",
