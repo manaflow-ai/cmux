@@ -5122,11 +5122,16 @@ class TerminalController {
     }
 
     private func v2WorkspaceReorderMany(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
         let rawOrder = v2WorkspaceReorderManyOrder(params)
-        guard !rawOrder.isEmpty else {
+        if let invalid = rawOrder.invalidValue {
+            return .err(
+                code: "invalid_params",
+                message: workspaceReorderManyInvalidWorkspaceMessage(),
+                data: ["workspace": invalid]
+            )
+        }
+        let order = rawOrder.order
+        guard !order.isEmpty else {
             return .err(
                 code: "invalid_params",
                 message: workspaceReorderManyMissingOrderMessage(),
@@ -5135,8 +5140,8 @@ class TerminalController {
         }
 
         var workspaceIds: [UUID] = []
-        workspaceIds.reserveCapacity(rawOrder.count)
-        for raw in rawOrder {
+        workspaceIds.reserveCapacity(order.count)
+        for raw in order {
             guard let workspaceId = v2UUIDAny(raw) else {
                 return .err(
                     code: "invalid_params",
@@ -5145,6 +5150,10 @@ class TerminalController {
                 )
             }
             workspaceIds.append(workspaceId)
+        }
+
+        guard let tabManager = v2ResolveWorkspaceReorderManyTabManager(params: params, workspaceIds: workspaceIds) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
         let dryRun = v2Bool(params, "dry_run") ?? false
@@ -5189,15 +5198,61 @@ class TerminalController {
         ])
     }
 
-    private func v2WorkspaceReorderManyOrder(_ params: [String: Any]) -> [String] {
-        if let workspaceIds = v2StringArray(params, "workspace_ids") {
-            return workspaceIds
+    private func v2ResolveWorkspaceReorderManyTabManager(params: [String: Any], workspaceIds: [UUID]) -> TabManager? {
+        if v2HasNonNullParam(params, "window_id") {
+            return v2ResolveTabManager(params: params)
         }
-        guard let order = v2String(params, "order") else { return [] }
-        return order
-            .split(separator: ",")
+        for workspaceId in workspaceIds {
+            if let owner = v2ResolveWorkspaceOwner(workspaceId) {
+                return owner
+            }
+        }
+        return v2ResolveTabManager(params: params)
+    }
+
+    private func v2WorkspaceReorderManyOrder(_ params: [String: Any]) -> (order: [String], invalidValue: String?) {
+        if let raw = params["workspace_ids"], !(raw is NSNull) {
+            if let workspaceIds = raw as? [String] {
+                return v2NormalizeWorkspaceReorderManyOrder(workspaceIds)
+            }
+            if let workspaceIds = raw as? [Any] {
+                var strings: [String] = []
+                strings.reserveCapacity(workspaceIds.count)
+                for item in workspaceIds {
+                    guard let stringItem = item as? String else {
+                        return ([], String(describing: item))
+                    }
+                    strings.append(stringItem)
+                }
+                return v2NormalizeWorkspaceReorderManyOrder(strings)
+            }
+            if let workspaceId = raw as? String {
+                return v2NormalizeWorkspaceReorderManyOrder([workspaceId])
+            }
+            return ([], String(describing: raw))
+        }
+
+        guard let order = params["order"], !(order is NSNull) else { return ([], nil) }
+        guard let orderString = order as? String else {
+            return ([], String(describing: order))
+        }
+        let refs = orderString
+            .split(separator: ",", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        return v2NormalizeWorkspaceReorderManyOrder(refs)
+    }
+
+    private func v2NormalizeWorkspaceReorderManyOrder(_ rawItems: [String]) -> (order: [String], invalidValue: String?) {
+        var order: [String] = []
+        order.reserveCapacity(rawItems.count)
+        for raw in rawItems {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return ([], raw)
+            }
+            order.append(trimmed)
+        }
+        return (order, nil)
     }
 
     private func v2WorkspaceReorderPlanPayload(

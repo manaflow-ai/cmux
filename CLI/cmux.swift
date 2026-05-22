@@ -5675,15 +5675,26 @@ struct CMUXCLI {
         idFormat: CLIIDFormat
     ) throws {
         guard let orderRaw = optionValue(commandArgs, name: "--order") else {
-            throw CLIError(message: "reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,...")
+            throw CLIError(message: String(
+                localized: "cli.reorderWorkspaces.error.missingOrder",
+                defaultValue: "reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."
+            ))
         }
 
         let rawRefs = orderRaw
-            .split(separator: ",")
+            .split(separator: ",", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
         guard !rawRefs.isEmpty else {
-            throw CLIError(message: "reorder-workspaces requires at least one workspace in --order")
+            throw CLIError(message: String(
+                localized: "cli.reorderWorkspaces.error.emptyOrder",
+                defaultValue: "reorder-workspaces requires at least one workspace in --order"
+            ))
+        }
+        guard !rawRefs.contains(where: \.isEmpty) else {
+            throw CLIError(message: String(
+                localized: "cli.reorderWorkspaces.error.emptyOrderItem",
+                defaultValue: "reorder-workspaces --order cannot contain empty workspace refs"
+            ))
         }
 
         let windowRaw = optionValue(commandArgs, name: "--window")
@@ -5715,7 +5726,9 @@ struct CMUXCLI {
         dryRun: Bool
     ) -> [String] {
         let planItems = payload["plan"] as? [[String: Any]] ?? [payload]
-        let prefix = dryRun ? "OK plan" : "OK"
+        let prefix = dryRun
+            ? String(localized: "cli.reorderWorkspaces.result.planPrefix", defaultValue: "OK plan")
+            : String(localized: "common.ok", defaultValue: "OK")
         return planItems.map { item in
             let workspace = formatHandle(item, kind: "workspace", idFormat: idFormat) ?? "unknown"
             let window = formatHandle(item, kind: "window", idFormat: idFormat) ?? "unknown"
@@ -10766,7 +10779,7 @@ struct CMUXCLI {
               cmux reorder-workspace --workspace workspace:2 --index 0 --dry-run
             """
         case "reorder-workspaces":
-            return """
+            return String(localized: "cli.help.reorderWorkspaces", defaultValue: """
             Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]
 
             Reorder workspaces within a window as one atomic batch. The comma-separated
@@ -10782,7 +10795,7 @@ struct CMUXCLI {
             Example:
               cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31
               cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run
-            """
+            """)
         case "workspace-action":
             return """
             Usage: cmux workspace-action --action <name> [flags]
