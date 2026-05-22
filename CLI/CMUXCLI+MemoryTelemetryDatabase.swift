@@ -45,9 +45,14 @@ extension CMUXCLI {
                 throw CLIError(message: telemetryAccessErrorMessage)
             }
             _ = sqlite3_busy_timeout(db, 1000)
-            try exec("PRAGMA journal_mode=WAL", failureMessage: telemetryAccessErrorMessage)
-            try exec("PRAGMA foreign_keys=ON", failureMessage: telemetryAccessErrorMessage)
-            try migrate()
+            do {
+                try exec("PRAGMA journal_mode=WAL", failureMessage: telemetryAccessErrorMessage)
+                try exec("PRAGMA foreign_keys=ON", failureMessage: telemetryAccessErrorMessage)
+                try migrate()
+            } catch {
+                close()
+                throw error
+            }
         }
 
         func close() {
