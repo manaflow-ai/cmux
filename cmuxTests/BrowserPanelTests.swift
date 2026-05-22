@@ -120,6 +120,20 @@ final class BrowserWebExtensionAuxiliaryWindowFrameTests: XCTestCase {
         XCTAssertEqual(rect.size.width, 800)
         XCTAssertEqual(rect.size.height, 600)
     }
+
+    func testClampsTinyRequestedWindowFrameToRecoverableMinimum() {
+        let rect = browserWebExtensionAuxiliaryWindowContentRect(
+            requestedFrame: CGRect(x: 100, y: 120, width: 1, height: 1),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            defaultSize: CGSize(width: 420, height: 560),
+            minSize: CGSize(width: 260, height: 180)
+        )
+
+        XCTAssertEqual(rect.origin.x, 100)
+        XCTAssertEqual(rect.origin.y, 120)
+        XCTAssertEqual(rect.size.width, 260)
+        XCTAssertEqual(rect.size.height, 180)
+    }
 }
 
 final class BrowserWebExtensionActionPopupContentSizeTests: XCTestCase {

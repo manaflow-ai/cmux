@@ -3090,11 +3090,13 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
         completionHandler: @escaping (Error?) -> Void
     ) {
         let visibleFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame
-        let width = min(max(frame.width, 1), visibleFrame.width)
-        let height = min(max(frame.height, 1), visibleFrame.height)
-        let x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - width)
-        let y = min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - height)
-        panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
+        let contentRect = browserWebExtensionAuxiliaryWindowContentRect(
+            requestedFrame: frame,
+            visibleFrame: visibleFrame,
+            defaultSize: panel.frame.size,
+            minSize: CGSize(width: 260, height: 180)
+        )
+        panel.setFrame(contentRect, display: true)
         completionHandler(nil)
     }
 
