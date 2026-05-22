@@ -1,5 +1,53 @@
 export const blogPosts = [
   {
+    slug: "cmux-finder",
+    key: "cmuxFinder",
+    title: "Introducing cmux Finder",
+    date: "2026-05-22",
+    summary:
+      "cmux now has a file explorer that previews videos, images, PDFs, and markdown files.",
+  },
+  {
+    slug: "cmux-vault",
+    key: "cmuxVault",
+    title: "cmux Vault",
+    date: "2026-05-22",
+    summary:
+      "Search Codex, Claude Code, OpenCode, and Pi sessions from the Vault pane and drag them into your workspace.",
+  },
+  {
+    slug: "passkey-auth",
+    key: "passkeyAuth",
+    title: "Passkey auth in the cmux browser",
+    date: "2026-05-22",
+    summary:
+      "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
+  },
+  {
+    slug: "task-manager",
+    key: "taskManager",
+    title: "Task Manager in cmux",
+    date: "2026-05-22",
+    summary:
+      "Use cmux top or Task Manager from the command palette to see CPU and RAM usage for your coding agents.",
+  },
+  {
+    slug: "markdown-viewer",
+    key: "markdownViewer",
+    title: "A better markdown viewer in cmux",
+    date: "2026-05-22",
+    summary:
+      "Open README.md with cmux open or drag markdown files from the right sidebar.",
+  },
+  {
+    slug: "unread-shortcuts",
+    key: "unreadShortcuts",
+    title: "Unread workspace shortcuts in cmux",
+    date: "2026-05-22",
+    summary:
+      "Cmd+Control+U cycles through unread workspaces while keeping them unread, and Cmd+Option+U toggles read state.",
+  },
+  {
     slug: "session-restore",
     key: "sessionRestore",
     title: "Session restore in cmux",
