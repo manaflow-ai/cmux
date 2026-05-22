@@ -701,8 +701,13 @@ private final class ClaudeHookSessionStore {
                 record.activePromptTurnId = nil
                 record.activePromptTurnIds = nil
             } else {
-                record.activePromptDepth = depthAfterStop
-                if let normalizedTurnId {
+                let turnStack = activePromptTurnStack(from: record)
+                if !turnStack.isEmpty {
+                    setActivePromptTurnStack(Array(turnStack.prefix(depthAfterStop)), on: &record)
+                } else {
+                    record.activePromptDepth = depthAfterStop
+                }
+                if let normalizedTurnId, turnStack.isEmpty {
                     record.activePromptTurnId = normalizedTurnId
                     record.activePromptTurnIds = Array(repeating: normalizedTurnId, count: depthAfterStop)
                 }
@@ -19881,6 +19886,11 @@ struct CMUXCLI {
             if objectType == "turn_context",
                let payload = object["payload"] as? [String: Any] {
                 currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let currentTurnId = normalizedHookValue(currentTurnId),
+                   currentTurnId != excludedTurnId {
+                    terminalTurnIds.remove(currentTurnId)
+                    activeTurnIds.insert(currentTurnId)
+                }
                 continue
             }
 
