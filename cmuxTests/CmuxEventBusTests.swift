@@ -172,6 +172,64 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(payload["is_main_window"] as? Bool, true)
     }
 
+    func testWorkspaceReorderSocketEventPayloadUsesRefsAndIndexes() throws {
+        CmuxEventBus.shared.resetForTesting()
+        let snapshot = CmuxEventBus.shared.subscribe(
+            afterSequence: nil,
+            names: ["workspace.reordered"],
+            categories: []
+        )
+        defer {
+            CmuxEventBus.shared.unsubscribe(snapshot.subscription)
+            CmuxEventBus.shared.resetForTesting()
+        }
+
+        let windowId = UUID()
+        let workspaceId = UUID()
+        let commandObject: [String: Any] = [
+            "id": "reorder-test",
+            "method": "workspace.reorder",
+            "params": ["workspace_id": workspaceId.uuidString]
+        ]
+        let responseObject: [String: Any] = [
+            "id": "reorder-test",
+            "ok": true,
+            "result": [
+                "dry_run": false,
+                "events": [[
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": "workspace:11",
+                    "window_id": windowId.uuidString,
+                    "window_ref": "window:1",
+                    "from_index": 12,
+                    "to_index": 1
+                ]]
+            ]
+        ]
+        let commandData = try JSONSerialization.data(withJSONObject: commandObject)
+        let responseData = try JSONSerialization.data(withJSONObject: responseObject)
+        let command = try XCTUnwrap(String(data: commandData, encoding: .utf8))
+        let response = try XCTUnwrap(String(data: responseData, encoding: .utf8))
+
+        CmuxSocketEventMapper.publish(command: command, response: response)
+
+        let event = try XCTUnwrap(snapshot.subscription.next(timeout: 0.2))
+        XCTAssertEqual(event["name"] as? String, "workspace.reordered")
+        XCTAssertEqual(event["category"] as? String, "workspace")
+        XCTAssertEqual(event["source"] as? String, "socket.v2")
+        XCTAssertEqual(event["workspace_id"] as? String, workspaceId.uuidString)
+        XCTAssertEqual(event["window_id"] as? String, windowId.uuidString)
+
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(Set(payload.keys), Set(["type", "window", "workspace", "from_index", "to_index", "ts"]))
+        XCTAssertEqual(payload["type"] as? String, "workspace.reordered")
+        XCTAssertEqual(payload["window"] as? String, "window:1")
+        XCTAssertEqual(payload["workspace"] as? String, "workspace:11")
+        XCTAssertEqual(payload["from_index"] as? Int, 12)
+        XCTAssertEqual(payload["to_index"] as? Int, 1)
+        XCTAssertNotNil(payload["ts"] as? String)
+    }
+
     func testNotificationReplacementPublishesRemovedThenCreatedWithReplacedIds() throws {
         let bus = CmuxEventBus(retainedEventLimit: 8)
         let workspaceId = UUID()
