@@ -26,6 +26,21 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.9": {
+    title: "0.64.8 Memory Leak Hotfix",
+    features: [
+      {
+        title: "Fix 8GB RSS Growth on Non-Git Workspaces",
+        description:
+          "Git repository search now stops at filesystem root instead of walking forever into `/..`. On older Foundation builds, `deletingLastPathComponent()` could yield `/..` and keep climbing, allocating ever-longer parent paths until the OS OOM killer fired. Non-Git workspaces no longer grow RSS from ~450MB to 8GB within minutes on 0.64.8.",
+      },
+      {
+        title: "Restore Browser Memory Saver Default",
+        description:
+          "Hidden browser webview renderers discard by default again, reverting the 0.64.8 keep-alive default that exposed the memory regression. The keep-alive behavior remains available as an opt-in setting for workflows that need to preserve DOM state across workspace switches.",
+      },
+    ],
+  },
   "0.64.8": {
     title:
       "Antigravity CLI, Grok Vault Resume, CLI Window Targeting, Browser Screenshots",
