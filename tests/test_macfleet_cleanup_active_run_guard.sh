@@ -22,7 +22,10 @@ mkdir -p \
 fake_runner="$tmp/run-ci.sh"
 cat > "$fake_runner" <<'SH'
 #!/usr/bin/env bash
-sleep 60
+trap 'exit 0' TERM INT
+while :; do
+  sleep 1
+done
 SH
 chmod +x "$fake_runner"
 "$fake_runner" main tests-build-and-lag &
