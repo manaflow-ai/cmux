@@ -148,4 +148,47 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         XCTAssertEqual(manager.selectedWorkspace?.id, destinationWorkspace.id)
         XCTAssertEqual(destinationWorkspace.focusedPanelId, movedPanelId)
     }
+
+    func testMoveSurfaceToExistingWorkspaceUsesDestinationFocusedDockPane() throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let movedPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
+        let destinationMainPanelId = try XCTUnwrap(destinationWorkspace.focusedTerminalPanel?.id)
+        let dock = destinationWorkspace.dockLayout.addDock(edge: .right)
+        destinationWorkspace.dockLayout.openEdge(.right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            destinationWorkspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        destinationWorkspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+
+        XCTAssertEqual(destinationWorkspace.focusedPanelId, dockPanel.id)
+        XCTAssertTrue(app.moveSurface(
+            panelId: movedPanelId,
+            toWorkspace: destinationWorkspace.id,
+            focus: true,
+            focusWindow: false
+        ))
+
+        XCTAssertFalse(manager.tabs.contains { $0.id == sourceWorkspace.id })
+        XCTAssertNotNil(destinationWorkspace.panels[movedPanelId])
+        XCTAssertNotNil(destinationWorkspace.panels[destinationMainPanelId])
+        XCTAssertNotNil(destinationWorkspace.panels[dockPanel.id])
+        XCTAssertEqual(destinationWorkspace.paneId(forPanelId: movedPanelId), dockPaneId)
+        XCTAssertTrue(dock.controller.allTabIds.contains { destinationWorkspace.panelIdFromSurfaceId($0) == movedPanelId })
+        XCTAssertFalse(destinationWorkspace.bonsplitController.allTabIds.contains {
+            destinationWorkspace.panelIdFromSurfaceId($0) == movedPanelId
+        })
+        XCTAssertEqual(destinationWorkspace.focusedPanelId, movedPanelId)
+    }
 }

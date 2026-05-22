@@ -4330,10 +4330,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 
+        let focusedDestinationPane = targetPane == nil ? destinationWorkspace.focusedBonsplitPaneForCommands() : nil
         let destinationController = targetPane.flatMap { destinationWorkspace.bonsplitController(containingPane: $0) }
+            ?? focusedDestinationPane?.controller
             ?? destinationWorkspace.bonsplitController
         let resolvedTargetPane = targetPane.flatMap { pane in
             destinationController.allPaneIds.first(where: { $0 == pane })
+        } ?? focusedDestinationPane.flatMap { focusedPane in
+            focusedPane.controller === destinationController ? focusedPane.paneId : nil
         } ?? destinationController.focusedPaneId
             ?? destinationController.allPaneIds.first
 
