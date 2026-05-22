@@ -88,4 +88,31 @@ final class SessionIndexJSONLStreamTests: XCTestCase {
         XCTAssertTrue(visited.elementsEqual(visited.sorted(by: >)))
         XCTAssertLessThan(visited.count, 30)
     }
+
+    func testReverseJSONLStreamProcessesLineStartingAtByteBoundary() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-jsonl-byte-boundary-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let records = (0..<5).map { #"{"index":\#($0)}"# }
+        let historyURL = tempDir.appendingPathComponent("history.jsonl", isDirectory: false)
+        try (records.joined(separator: "\n") + "\n").write(to: historyURL, atomically: true, encoding: .utf8)
+
+        let byteWindow = Data((records[3] + "\n" + records[4] + "\n").utf8).count
+        var visited: [Int] = []
+        let summary = SessionIndexStore.forEachJSONLine(
+            url: historyURL,
+            maxBytes: byteWindow,
+            direction: .reverse
+        ) { object in
+            if let index = object["index"] as? Int {
+                visited.append(index)
+            }
+            return false
+        }
+
+        XCTAssertEqual(visited, [4, 3])
+        XCTAssertEqual(summary.stopReason, .maxBytes)
+    }
 }

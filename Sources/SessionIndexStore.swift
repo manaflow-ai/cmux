@@ -1027,7 +1027,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Stream JSON-lines from `url`. `body` returns true to stop early.
-    /// Caps total bytes read at `maxBytes` and decoded non-empty records at `maxLines`.
+    /// Caps total bytes read at `maxBytes` and non-empty line decode attempts at `maxLines`.
     @discardableResult
     nonisolated static func forEachJSONLine(
         url: URL,
@@ -1164,19 +1164,31 @@ final class SessionIndexStore: ObservableObject {
             }
         }
 
-        if position == 0, !carry.isEmpty,
-           let stopReason = processJSONLineData(
-               in: carry,
-               range: carry.startIndex..<carry.endIndex,
-               maxLines: maxLines,
-               summary: &summary,
-               body: body
-           ) {
-            summary.stopReason = stopReason
-            return summary
+        if shouldProcessReverseCarry(carry, position: position, handle: handle) {
+            if let stopReason = processJSONLineData(
+                in: carry,
+                range: carry.startIndex..<carry.endIndex,
+                maxLines: maxLines,
+                summary: &summary,
+                body: body
+            ) {
+                summary.stopReason = stopReason
+                return summary
+            }
         }
         summary.stopReason = position == 0 ? .completed : .maxBytes
         return summary
+    }
+
+    nonisolated private static func shouldProcessReverseCarry(
+        _ carry: Data,
+        position: UInt64,
+        handle: FileHandle
+    ) -> Bool {
+        guard !carry.isEmpty else { return false }
+        guard position > 0 else { return true }
+        handle.seek(toFileOffset: position - 1)
+        return handle.readData(ofLength: 1).first == 0x0a
     }
 
     nonisolated private static func processJSONLineData(

@@ -482,7 +482,10 @@ extension SessionIndexStore {
 
         let fm = FileManager.default
         var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
+        var sessionIDsInReverseHistoryOrder: [String] = []
         let scanLimits = antigravityHistoryScanLimits(offset: offset, limit: limit)
+        let requested = offset > Int.max - limit ? Int.max : offset + limit
+        let target = max(1, requested)
 
         for root in roots {
             if Task.isCancelled { break }
@@ -527,24 +530,20 @@ extension SessionIndexStore {
                     modified: modified,
                     fileURL: historyURL
                 )
-                if let existing = latestBySessionID[sessionId] {
-                    if metadata.modified >= existing.modified {
-                        latestBySessionID[sessionId] = metadata
-                    }
-                } else {
-                    latestBySessionID[sessionId] = metadata
+                guard latestBySessionID[sessionId] == nil else {
+                    return false
+                }
+                latestBySessionID[sessionId] = metadata
+                sessionIDsInReverseHistoryOrder.append(sessionId)
+                if sessionIDsInReverseHistoryOrder.count >= target {
+                    return true
                 }
                 return false
             }
         }
 
-        let entries = latestBySessionID.values
-            .sorted {
-                if $0.modified == $1.modified {
-                    return $0.sessionId < $1.sessionId
-                }
-                return $0.modified > $1.modified
-            }
+        let entries = sessionIDsInReverseHistoryOrder
+            .compactMap { latestBySessionID[$0] }
             .map { metadata in
                 SessionEntry(
                     id: "\(registration.id):\(metadata.sessionId)",

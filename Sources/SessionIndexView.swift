@@ -1324,7 +1324,7 @@ private enum SessionTranscriptLoader {
         if didHitTurnLimit
             || streamSummary.stopReason == .maxBytes
             || streamSummary.stopReason == .maxLines {
-            appendTurnLimitMarker(to: &turns, id: turns.count)
+            turns.insert(turnLimitMarker(id: -1), at: 0)
         }
         return coalesce(turns)
     }
@@ -1904,12 +1904,14 @@ private enum SessionTranscriptLoader {
     }
 
     private static func appendTurnLimitMarker(to turns: inout [SessionTranscriptTurn], id: Int) {
-        turns.append(
-            SessionTranscriptTurn(
-                id: id,
-                role: .event,
-                text: String(localized: "sessionIndex.preview.truncated", defaultValue: "Preview truncated")
-            )
+        turns.append(turnLimitMarker(id: id))
+    }
+
+    private static func turnLimitMarker(id: Int) -> SessionTranscriptTurn {
+        SessionTranscriptTurn(
+            id: id,
+            role: .event,
+            text: String(localized: "sessionIndex.preview.truncated", defaultValue: "Preview truncated")
         )
     }
 }
