@@ -24829,23 +24829,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
                 let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
                 let savedSubagentSuppression = mapped.isRestorable == false
-                let suppressVisibleMutations = suppressRestoreTakeover
-                    || savedSubagentSuppression
+                let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
+                let suppressVisibleMutations = suppressRestorableRecord
                     || shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
                 if suppressVisibleMutations {
-                    try? store.upsert(
-                        sessionId: sessionId,
-                        parentSessionId: input.parentSessionId ?? mapped.parentSessionId,
-                        workspaceId: mapped.workspaceId,
-                        surfaceId: mapped.surfaceId,
-                        cwd: hookCwd ?? mapped.cwd,
-                        transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
-                        pid: mapped.pid,
-                        launchCommand: mapped.launchCommand,
-                        isRestorable: (suppressRestoreTakeover || savedSubagentSuppression) ? false : nil,
-                        runtimeStatus: nil,
-                        updateRuntimeStatus: true
-                    )
+                    if suppressRestorableRecord {
+                        try? store.upsert(
+                            sessionId: sessionId,
+                            parentSessionId: input.parentSessionId ?? mapped.parentSessionId,
+                            workspaceId: mapped.workspaceId,
+                            surfaceId: mapped.surfaceId,
+                            cwd: hookCwd ?? mapped.cwd,
+                            transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
+                            pid: mapped.pid,
+                            launchCommand: mapped.launchCommand,
+                            isRestorable: false,
+                            runtimeStatus: nil,
+                            updateRuntimeStatus: true
+                        )
+                    }
                     telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
                 } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                     clearAgentSurfaceResumeBinding(
