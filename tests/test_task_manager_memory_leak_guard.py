@@ -315,10 +315,13 @@ def rss_bytes(pid: int) -> int:
     text = result.stdout.strip()
     if not text:
         raise RuntimeError(f"ps returned no RSS for pid {pid}")
-    return int(text.splitlines()[-1].strip()) * 1024
+    rss = int(text.splitlines()[-1].strip()) * 1024
+    if rss <= 0:
+        raise RuntimeError(f"ps returned non-positive RSS for pid {pid}: {rss}")
+    return rss
 
 
-def collect_samples(pid: int, duration: float, interval: float) -> list[MemorySample]:
+def collect_samples(proc: subprocess.Popen[str], duration: float, interval: float) -> list[MemorySample]:
     samples: list[MemorySample] = []
     started = time.monotonic()
     next_sample = started
@@ -328,7 +331,9 @@ def collect_samples(pid: int, duration: float, interval: float) -> list[MemorySa
             time.sleep(next_sample - now)
             continue
         elapsed = time.monotonic() - started
-        samples.append(MemorySample(elapsed_seconds=elapsed, rss_bytes=rss_bytes(pid)))
+        if proc.poll() is not None:
+            raise RuntimeError(f"cmux exited during memory sampling, exit={proc.returncode}")
+        samples.append(MemorySample(elapsed_seconds=elapsed, rss_bytes=rss_bytes(proc.pid)))
         if elapsed >= duration:
             return samples
         next_sample += interval
@@ -411,6 +416,25 @@ def detector_self_check(max_growth_mb: float, max_slope_mb_per_min: float) -> No
     )
 
 
+def sampler_exit_self_check() -> None:
+    proc = subprocess.Popen(["/bin/sh", "-c", "exit 42"])
+    try:
+        for _ in range(20):
+            if proc.poll() is not None:
+                break
+            time.sleep(0.01)
+        try:
+            collect_samples(proc, duration=0, interval=1)
+        except RuntimeError as exc:
+            if "cmux exited during memory sampling" in str(exc):
+                print("PASS: sampler rejects exited app process")
+                return
+            raise
+        raise RuntimeError("sampler accepted an exited app process")
+    finally:
+        proc.wait(timeout=1)
+
+
 def write_artifacts(
     artifacts_dir: Path | None,
     samples: list[MemorySample],
@@ -445,6 +469,7 @@ def tail_file(path: Path, line_count: int = 80) -> str:
 
 def run_guard(args: argparse.Namespace) -> int:
     detector_self_check(args.max_growth_mb, args.max_slope_mb_per_min)
+    sampler_exit_self_check()
 
     app_path = resolve_app_path(args.app)
     run_id = uuid.uuid4().hex[:8]
@@ -478,7 +503,7 @@ def run_guard(args: argparse.Namespace) -> int:
             f"task_manager_workspaces={data_snapshot.get('workspace_count')}"
         )
         time.sleep(args.warmup_seconds)
-        samples = collect_samples(proc.pid, args.duration_seconds, args.sample_interval_seconds)
+        samples = collect_samples(proc, args.duration_seconds, args.sample_interval_seconds)
         trend = classify_trend(samples, args.max_growth_mb, args.max_slope_mb_per_min)
         print(
             "Task Manager memory guard result: "
@@ -543,6 +568,7 @@ def main(argv: list[str]) -> int:
         raise SystemExit("--workspace-count must be positive")
     if args.self_check_only:
         detector_self_check(args.max_growth_mb, args.max_slope_mb_per_min)
+        sampler_exit_self_check()
         return 0
     return run_guard(args)
 
