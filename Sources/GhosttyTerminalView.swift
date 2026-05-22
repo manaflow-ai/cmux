@@ -2016,6 +2016,23 @@ class GhosttyApp {
     }
     #endif
 
+    private static func reportInitializationFailure(
+        _ message: String,
+        data: [String: Any] = [:]
+    ) {
+        if data.isEmpty {
+            NSLog("[Ghostty] %@", message)
+        } else {
+            NSLog("[Ghostty] %@ %@", message, String(describing: data))
+        }
+        sentryCaptureError(
+            message,
+            category: "terminal",
+            data: data,
+            contextKey: "ghostty.initialization"
+        )
+    }
+
     private func initializeGhostty() {
         // Ensure TUI apps can use colors even if NO_COLOR is set in the launcher env.
         if getenv("NO_COLOR") != nil {
@@ -2028,6 +2045,10 @@ class GhosttyApp {
             #if DEBUG
             cmuxDebugLog("ghostty.initialize.failed result=\(result)")
             #endif
+            Self.reportInitializationFailure(
+                "ghostty.initialize.failed",
+                data: ["result": Int(result)]
+            )
             return
         }
 
@@ -2036,6 +2057,7 @@ class GhosttyApp {
             #if DEBUG
             cmuxDebugLog("ghostty.initialize.config.failed")
             #endif
+            Self.reportInitializationFailure("ghostty.initialize.config.failed")
             return
         }
 
@@ -2173,6 +2195,7 @@ class GhosttyApp {
                 #if DEBUG
                 cmuxDebugLog("ghostty.initialize.fallbackConfig.failed")
                 #endif
+                Self.reportInitializationFailure("ghostty.initialize.fallbackConfig.failed")
                 return
             }
 
@@ -2214,6 +2237,7 @@ class GhosttyApp {
                 #if DEBUG
                 cmuxDebugLog("ghostty.initialize.app.failed")
                 #endif
+                Self.reportInitializationFailure("ghostty.initialize.app.failed")
                 ghostty_config_free(fallbackConfig)
                 return
             }

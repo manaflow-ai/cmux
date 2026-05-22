@@ -505,6 +505,17 @@ private enum TextBoxSubmissionFormatter {
     static func formattedText(from attributed: NSAttributedString) -> String {
         formattedText(from: parts(from: attributed))
     }
+
+    static func hasSubmittableContent(_ parts: [TextBoxSubmissionPart]) -> Bool {
+        parts.contains { part in
+            switch part {
+            case .text(let text):
+                return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            case .attachment:
+                return true
+            }
+        }
+    }
 }
 
 struct TextBoxPasteboardRestorationToken: Equatable {
@@ -2986,6 +2997,10 @@ struct TextBoxInputContainer: View {
 
         let submittedParts = textViewReference.textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
+        guard TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts) else {
+            NSSound.beep()
+            return
+        }
         let submittedTextView = textViewReference.textView
         let preservedContent = submittedTextView?.attributedContentForPreservation()
         submittedTextView?.prepareForSubmit()
@@ -3899,6 +3914,10 @@ final class TextBoxInputTextView: NSTextView {
         TextBoxSubmissionFormatter.parts(from: attributedString())
     }
 
+    func hasSubmittableContent() -> Bool {
+        TextBoxSubmissionFormatter.hasSubmittableContent(submissionParts())
+    }
+
     func refreshInlineAttachmentCells(font: NSFont, foregroundColor: NSColor) {
         let attributed = attributedString()
         attributed.enumerateAttribute(
@@ -4576,6 +4595,10 @@ final class TextBoxInputTextView: NSTextView {
 
     private func submitIfAllowed() {
         guard !hasPendingAttachmentUploadPlaceholder() else {
+            NSSound.beep()
+            return
+        }
+        guard hasSubmittableContent() else {
             NSSound.beep()
             return
         }

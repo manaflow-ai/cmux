@@ -8646,6 +8646,37 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(submitCount, 1)
     }
 
+    func testTextBoxReturnDoesNotSubmitEmptyContent() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        var submitCount = 0
+        textView.onSubmit = {
+            submitCount += 1
+        }
+
+        guard let returnEvent = makeKeyDownEvent(
+            key: "\r",
+            modifiers: [],
+            keyCode: UInt16(kVK_Return),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Return event")
+            return
+        }
+
+        textView.keyDown(with: returnEvent)
+        XCTAssertEqual(submitCount, 0)
+
+        textView.string = "  \n\t  "
+        textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
+        textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(submitCount, 0)
+
+        textView.string = "hello"
+        textView.setSelectedRange(NSRange(location: ("hello" as NSString).length, length: 0))
+        textView.keyDown(with: returnEvent)
+        XCTAssertEqual(submitCount, 1)
+    }
+
     func testTextBoxEscapeDoesNotLeaveIMEComposition() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         var escapeCount = 0
