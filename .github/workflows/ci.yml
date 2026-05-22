@@ -635,6 +635,123 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
+  task-manager-memory-leak:
+    name: Task Manager memory leak (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-15
+            os: warp-macos-15-arm64-6x
+            virtual_display: true
+            skip_zig: false
+          - label: macos-26
+            os: warp-macos-26-arm64-6x
+            virtual_display: false
+            skip_zig: true
+    env:
+      CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+          sw_vers
+
+      - name: Download pre-built GhosttyKit.xcframework
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install zig
+        if: ${{ !matrix.skip_zig }}
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-source-packages
+          key: spm-memory-leak-${{ matrix.label }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-memory-leak-${{ matrix.label }}-
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -resolvePackageDependencies
+
+      - name: Build app
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            -derivedDataPath "build-memory-leak-${{ matrix.label }}" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" build
+
+      - name: Create virtual display
+        if: matrix.virtual_display
+        run: |
+          set -euo pipefail
+          clang -framework Foundation -framework CoreGraphics \
+            -o /tmp/create-virtual-display scripts/create-virtual-display.m
+          /tmp/create-virtual-display &
+          echo "VDISPLAY_PID=$!" >> "$GITHUB_ENV"
+          sleep 3
+
+      - name: Run two-minute Task Manager memory leak guard
+        run: |
+          set -euo pipefail
+          APP="build-memory-leak-${{ matrix.label }}/Build/Products/Debug/cmux DEV.app"
+          python3 tests/test_task_manager_memory_leak_guard.py \
+            --app "$APP" \
+            --duration-seconds 120 \
+            --artifacts "memory-leak-artifacts-${{ matrix.label }}"
+
+      - name: Upload memory samples
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: task-manager-memory-${{ matrix.label }}
+          path: |
+            memory-leak-artifacts-${{ matrix.label }}
+            /tmp/cmux-memory-guard-*.log
+          if-no-files-found: ignore
+
+      - name: Cleanup virtual display
+        if: always() && matrix.virtual_display
+        run: |
+          if [ -n "${VDISPLAY_PID:-}" ]; then
+            kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+          fi
+          rm -f /tmp/create-virtual-display
+
   ui-regressions:
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25

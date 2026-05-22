@@ -210,6 +210,7 @@ class TerminalController {
         "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate",
+        "debug.task_manager.show",
         "debug.right_sidebar.focus",
         "feed.jump"
     ]
@@ -3201,6 +3202,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugType(params: params))
         case "debug.app.activate":
             return v2Result(id: id, self.v2DebugActivateApp())
+        case "debug.task_manager.show":
+            return v2Result(id: id, self.v2DebugTaskManagerShow())
         case "debug.command_palette.toggle":
             return v2Result(id: id, self.v2DebugToggleCommandPalette(params: params))
         case "debug.command_palette.rename_tab.open":
@@ -3464,6 +3467,7 @@ class TerminalController {
             "debug.shortcut.simulate",
             "debug.type",
             "debug.app.activate",
+            "debug.task_manager.show",
             "debug.command_palette.toggle",
             "debug.command_palette.rename_tab.open",
             "debug.command_palette.visible",
@@ -13754,6 +13758,15 @@ class TerminalController {
     private func v2DebugActivateApp() -> V2CallResult {
         let resp = activateApp()
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugTaskManagerShow() -> V2CallResult {
+        var visible = false
+        v2MainSync {
+            TaskManagerWindowController.shared.show()
+            visible = TaskManagerWindowController.shared.window?.isVisible == true
+        }
+        return .ok(["visible": visible])
     }
 
     private func v2DebugToggleCommandPalette(params: [String: Any]) -> V2CallResult {
