@@ -8503,14 +8503,14 @@ struct CMUXCLI {
         arguments: [String],
         stdinText: String? = nil,
         timeout: TimeInterval? = nil
-    ) -> (status: Int32, stdout: String, stderr: String) {
+    ) -> (status: Int32, stdout: String, stderr: String, timedOut: Bool) {
         let result = CLIProcessRunner.runProcess(
             executablePath: executablePath,
             arguments: arguments,
             stdinText: stdinText,
             timeout: timeout
         )
-        return (result.status, result.stdout, result.stderr)
+        return (result.status, result.stdout, result.stderr, result.timedOut)
     }
 
     private func runBrowserCommand(
