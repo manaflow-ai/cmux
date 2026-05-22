@@ -1518,6 +1518,53 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexStopWithUnseenTurnIdNotSuppressedAtIdleDepth() throws {
+        let context = try makeClaudeHookContext(name: "codex-unseen-turn-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "unseen-turn-stop-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let oldPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
+        XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
+
+        let oldStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(oldStop.timedOut, oldStop.stderr)
+        XCTAssertEqual(oldStop.status, 0, oldStop.stderr)
+
+        let unseenStopStart = context.state.commands.count
+        let unseenStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"new-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"new done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(unseenStop.timedOut, unseenStop.stderr)
+        XCTAssertEqual(unseenStop.status, 0, unseenStop.stderr)
+        let unseenStopCommands = Array(context.state.commands.dropFirst(unseenStopStart))
+
+        XCTAssertTrue(
+            unseenStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A Stop with a missed prompt-submit must still notify at idle depth, saw \(unseenStopCommands)"
+        )
+        XCTAssertTrue(
+            unseenStopCommands.contains { $0.hasPrefix("set_status codex ") },
+            "A Stop with a missed prompt-submit must still update Codex status, saw \(unseenStopCommands)"
+        )
+    }
+
     func testManagedCodexSubagentStopDoesNotReplaceResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "codex-managed-resume-guard")
         defer { context.cleanup() }
