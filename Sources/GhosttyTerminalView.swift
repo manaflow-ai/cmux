@@ -4098,7 +4098,7 @@ class GhosttyApp {
                 if let tabId,
                    let surfaceId,
                    let workspace = AppDelegate.shared?.tabManagerFor(tabId: tabId)?.tabs.first(where: { $0.id == tabId }),
-                   workspace.panels[surfaceId] == nil {
+                   workspace.isWarmTerminalPoolPanel(surfaceId) {
                     return
                 }
                 self.ringBell()
@@ -4240,11 +4240,11 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             performOnMain {
                 let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
-                guard let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
-                      workspace.panels[surfaceId] != nil else {
+                let workspace = owningManager?.tabs.first(where: { $0.id == tabId })
+                if workspace?.isWarmTerminalPoolPanel(surfaceId) == true {
                     return
                 }
-                if workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
+                if workspace?.suppressesRawTerminalNotification(panelId: surfaceId) == true {
                     return
                 }
                 let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"

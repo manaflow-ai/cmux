@@ -10529,7 +10529,7 @@ final class Workspace: Identifiable, ObservableObject {
         return cmuxSurfaceContextName(lhs) == cmuxSurfaceContextName(rhs)
     }
 
-    @MainActor private func isWarmTerminalPoolPanel(_ panelId: UUID) -> Bool {
+    @MainActor func isWarmTerminalPoolPanel(_ panelId: UUID) -> Bool {
         if Self.warmTerminalPoolOwnerWorkspaceId == id,
            Self.warmTerminalPoolPanel?.id == panelId {
             return true
