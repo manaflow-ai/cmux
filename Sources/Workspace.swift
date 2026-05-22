@@ -1785,6 +1785,16 @@ private final class WorkspaceRemoteDaemonRPCClient {
         ptySubscriptions.removeAll(keepingCapacity: false)
     }
 
+    private func failPTYSubscriptionsLocked(_ detail: String) {
+        let subscriptions = Array(ptySubscriptions.values)
+        ptySubscriptions.removeAll(keepingCapacity: false)
+        for subscription in subscriptions {
+            subscription.queue.async {
+                subscription.handler(.error(detail))
+            }
+        }
+    }
+
     private func startViaSSHExec() throws {
         let process = Process()
         let stdinPipe = Pipe()
@@ -2491,7 +2501,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
         stderrHandle?.readabilityHandler = nil
         stderrHandle = nil
         streamSubscriptions.removeAll(keepingCapacity: false)
-        ptySubscriptions.removeAll(keepingCapacity: false)
+        failPTYSubscriptionsLocked(detail)
         signalPendingFailureLocked(detail)
 
         guard shouldNotify else { return }
@@ -2508,7 +2518,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
         webSocketSession = nil
         webSocketDelegate = nil
         streamSubscriptions.removeAll(keepingCapacity: false)
-        ptySubscriptions.removeAll(keepingCapacity: false)
+        failPTYSubscriptionsLocked(detail)
         signalPendingFailureLocked(detail)
         capturedTask?.cancel(with: .normalClosure, reason: nil)
         capturedSession?.invalidateAndCancel()
@@ -2546,7 +2556,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
             webSocketSession = nil
             webSocketDelegate = nil
             streamSubscriptions.removeAll(keepingCapacity: false)
-            ptySubscriptions.removeAll(keepingCapacity: false)
+            failPTYSubscriptionsLocked(detail)
             return (
                 capturedProcess,
                 capturedStdin,

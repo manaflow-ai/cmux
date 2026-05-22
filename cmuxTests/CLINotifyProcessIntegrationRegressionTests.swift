@@ -2023,6 +2023,154 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("remote connection is not active"), result.stderr)
     }
 
+    func testSSHSessionCleanupAllWorkspacesAllRejectsMissingWorkspaceID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshcleanallmissing")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let sessionId = "ssh-session-missing-workspace"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.remote.pty_sessions":
+                XCTAssertEqual(params["all_workspaces"] as? Bool, true)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "sessions": [
+                            [
+                                "workspace_ref": "workspace:missing",
+                                "session_id": sessionId,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.remote.pty_close":
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_close", "message": "cleanup sent unscoped close"]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-session-cleanup",
+                "--all-workspaces",
+                "--all",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertFalse(state.snapshot().contains { $0.contains("workspace.remote.pty_close") })
+        XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 1 persisted SSH PTY session"), result.stderr)
+        XCTAssertTrue(result.stderr.contains(sessionId), result.stderr)
+        XCTAssertTrue(result.stderr.contains("workspace:missing"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("missing workspace_id in SSH PTY session list response"), result.stderr)
+    }
+
+    func testSSHSessionCleanupAllWorkspacesSessionIDRejectsMissingWorkspaceID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshcleansessionmissing")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let sessionId = "ssh-session-missing-workspace"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.remote.pty_sessions":
+                XCTAssertEqual(params["all_workspaces"] as? Bool, true)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "sessions": [
+                            [
+                                "workspace_ref": "workspace:missing",
+                                "session_id": sessionId,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.remote.pty_close":
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_close", "message": "cleanup sent unscoped close"]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-session-cleanup",
+                "--all-workspaces",
+                "--session-id", sessionId,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertFalse(state.snapshot().contains { $0.contains("workspace.remote.pty_close") })
+        XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 1 persisted SSH PTY session"), result.stderr)
+        XCTAssertTrue(result.stderr.contains(sessionId), result.stderr)
+        XCTAssertTrue(result.stderr.contains("workspace:missing"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("missing workspace_id in SSH PTY session list response"), result.stderr)
+    }
+
     func testRightSidebarCLIResolvesWindowAndWorkspaceHandlesBeforeForwarding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rs-target")

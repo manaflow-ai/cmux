@@ -5485,6 +5485,15 @@ struct CMUXCLI {
         return String(describing: value)
     }
 
+    private func trimmedDebugString(_ value: Any?) -> String? {
+        guard let string = debugString(value)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !string.isEmpty else {
+            return nil
+        }
+        return string
+    }
+
     private func debugBool(_ value: Any?) -> Bool? {
         if let bool = value as? Bool {
             return bool
@@ -8194,20 +8203,18 @@ struct CMUXCLI {
             errors.append(contentsOf: sshSessionCleanupListErrors(listResponse["errors"] as? [[String: Any]] ?? []))
             let sessions = listResponse["sessions"] as? [[String: Any]] ?? []
             for session in sessions {
-                guard let sessionID = (session["session_id"] as? String)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                      !sessionID.isEmpty else {
+                guard let sessionID = trimmedDebugString(session["session_id"]) else {
                     continue
                 }
-                var params: [String: Any] = [:]
-                if let workspaceID = (session["workspace_id"] as? String)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                   !workspaceID.isEmpty {
-                    params["workspace_id"] = workspaceID
-                } else if let workspaceID = baseParams["workspace_id"] {
-                    params["workspace_id"] = workspaceID
+                guard let workspaceID = trimmedDebugString(session["workspace_id"])
+                    ?? trimmedDebugString(baseParams["workspace_id"]) else {
+                    errors.append(sshSessionCleanupMissingWorkspaceError(sessionID: sessionID, session: session))
+                    continue
                 }
-                params["session_id"] = sessionID
+                let params: [String: Any] = [
+                    "workspace_id": workspaceID,
+                    "session_id": sessionID,
+                ]
                 do {
                     _ = try client.sendV2(method: "workspace.remote.pty_close", params: params)
                     closed.append(sessionID)
@@ -8228,12 +8235,11 @@ struct CMUXCLI {
                     sessionID: sessionID
                 ))
                 let sessions = (listResponse["sessions"] as? [[String: Any]] ?? []).filter {
-                    (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
+                    trimmedDebugString($0["session_id"]) == sessionID
                 }
                 for session in sessions {
-                    guard let workspaceID = (session["workspace_id"] as? String)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines),
-                          !workspaceID.isEmpty else {
+                    guard let workspaceID = trimmedDebugString(session["workspace_id"]) else {
+                        errors.append(sshSessionCleanupMissingWorkspaceError(sessionID: sessionID, session: session))
                         continue
                     }
                     do {
@@ -8282,6 +8288,18 @@ struct CMUXCLI {
         }
     }
 
+    private func sshSessionCleanupMissingWorkspaceError(sessionID: String, session: [String: Any]) -> [String: Any] {
+        var error: [String: Any] = [
+            "session_id": sessionID,
+            "workspace_id": NSNull(),
+            "error": "missing workspace_id in SSH PTY session list response",
+        ]
+        if let workspaceRef = trimmedDebugString(session["workspace_ref"]) {
+            error["workspace_ref"] = workspaceRef
+        }
+        return error
+    }
+
     private func sshSessionCleanupListErrors(_ listErrors: [[String: Any]], sessionID: String? = nil) -> [[String: Any]] {
         listErrors.map { error in
             let workspaceValue: Any
@@ -8304,7 +8322,8 @@ struct CMUXCLI {
         let summary = "ssh-session-cleanup failed for \(count) persisted SSH PTY session\(count == 1 ? "" : "s")"
         let details = errors.map { error in
             let sessionID = debugString(error["session_id"]) ?? "unknown"
-            let workspaceID = debugString(error["workspace_id"]).map { " workspace=\($0)" } ?? ""
+            let workspaceID = (debugString(error["workspace_ref"]) ?? debugString(error["workspace_id"]))
+                .map { " workspace=\($0)" } ?? ""
             let message = debugString(error["error"]) ?? "unknown error"
             return "- \(sessionID)\(workspaceID): \(message)"
         }
