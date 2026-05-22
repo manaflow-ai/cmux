@@ -128,7 +128,7 @@ enum AntigravityTranscriptPreview {
             }
         case "tool_use", "tool-call", "tool_call", "function_call":
             return toolCallFragments(from: object)
-        case "tool_result", "tool-result", "tool_result", "function_call_output":
+        case "tool_result", "tool-result", "function_call_output":
             let fragments = textFragments(from: object["content"] ?? object["output"] ?? object["result"])
             if !fragments.isEmpty {
                 return fragments
