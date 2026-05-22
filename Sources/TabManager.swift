@@ -5535,7 +5535,10 @@ class TabManager: ObservableObject {
 
     func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        guard tab.panels[surfaceId] != nil else { return }
+        guard tab.panels[surfaceId] != nil else {
+            _ = tab.bufferWarmTerminalDirectoryIfNeeded(panelId: surfaceId, directory: directory)
+            return
+        }
         let previousDirectory = gitProbeDirectory(for: tab, panelId: surfaceId)
         let normalized = normalizeDirectory(directory)
         tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
@@ -5565,10 +5568,23 @@ class TabManager: ObservableObject {
         isDirty: Bool?
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        guard tab.panels[surfaceId] != nil else { return }
         let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
         guard sidebarGitMetadataWatchEnabled else {
-            clearWorkspaceGitMetadata(for: probeKey)
+            if tab.panels[surfaceId] != nil {
+                clearWorkspaceGitMetadata(for: probeKey)
+            } else {
+                _ = tab.bufferWarmTerminalGitClearIfNeeded(panelId: surfaceId)
+            }
+            return
+        }
+        guard tab.panels[surfaceId] != nil else {
+            let normalizedBranch = Self.normalizedBranchName(branch) ?? branch
+            let bufferedIsDirty = isDirty ?? false
+            _ = tab.bufferWarmTerminalGitBranchIfNeeded(
+                panelId: surfaceId,
+                branch: normalizedBranch,
+                isDirty: bufferedIsDirty
+            )
             return
         }
         let current = tab.panelGitBranches[surfaceId]
@@ -5595,7 +5611,10 @@ class TabManager: ObservableObject {
 
     func clearSurfaceGitBranch(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        guard tab.panels[surfaceId] != nil else { return }
+        guard tab.panels[surfaceId] != nil else {
+            _ = tab.bufferWarmTerminalGitClearIfNeeded(panelId: surfaceId)
+            return
+        }
         let hadBranch = tab.panelGitBranches[surfaceId] != nil
         let hadPullRequest = tab.panelPullRequests[surfaceId] != nil
         guard hadBranch || hadPullRequest else { return }
@@ -5621,7 +5640,10 @@ class TabManager: ObservableObject {
         state: Workspace.PanelShellActivityState
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        guard tab.panels[surfaceId] != nil else { return }
+        guard tab.panels[surfaceId] != nil else {
+            _ = tab.bufferWarmTerminalShellActivityIfNeeded(panelId: surfaceId, state: state)
+            return
+        }
         tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
         if state == .promptIdle {
             scheduleWorkspacePullRequestRefresh(

@@ -7420,10 +7420,20 @@ final class Workspace: Identifiable, ObservableObject {
     /// a panel is explicitly re-zoomed by the user.
     var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
 
+    private struct WarmTerminalPoolBufferedMetadata {
+        var panelId: UUID?
+        var directory: String?
+        var didReportGitBranch = false
+        var gitBranch: SidebarGitBranchState?
+        var shellActivityRawValue: String?
+        var ttyName: String?
+    }
+
     @MainActor private static var warmTerminalPoolPanel: TerminalPanel?
     @MainActor private static var warmTerminalPoolOwnerWorkspaceId: UUID?
     @MainActor private static var warmTerminalPoolStartupSignature: TerminalWarmPtyPoolStartupSignature?
     @MainActor private static var warmTerminalPoolContext: ghostty_surface_context_e?
+    @MainActor private static var warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
     @MainActor private static var warmTerminalPoolSettingsObserver: NSObjectProtocol?
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
@@ -8075,6 +8085,7 @@ final class Workspace: Identifiable, ObservableObject {
             ) {
                 surfaceIdToPanelId[tabId] = terminalPanel.id
                 initialTabId = tabId
+                applyBufferedWarmTerminalMetadataIfNeeded(to: terminalPanel)
             }
         }
 
@@ -10458,6 +10469,7 @@ final class Workspace: Identifiable, ObservableObject {
         warmTerminalPoolOwnerWorkspaceId = nil
         warmTerminalPoolStartupSignature = nil
         warmTerminalPoolContext = nil
+        warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
         guard let panel else { return }
 #if DEBUG
         cmuxDebugLog(
@@ -10496,6 +10508,117 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> Bool {
         guard let lhs else { return false }
         return cmuxSurfaceContextName(lhs) == cmuxSurfaceContextName(rhs)
+    }
+
+    @MainActor private func isWarmTerminalPoolPanel(_ panelId: UUID) -> Bool {
+        Self.warmTerminalPoolOwnerWorkspaceId == id &&
+            Self.warmTerminalPoolPanel?.id == panelId
+    }
+
+    @MainActor private func updateWarmTerminalBufferedMetadata(
+        panelId: UUID,
+        _ update: (inout WarmTerminalPoolBufferedMetadata) -> Void
+    ) -> Bool {
+        guard isWarmTerminalPoolPanel(panelId) else { return false }
+        if Self.warmTerminalPoolBufferedMetadata.panelId != panelId {
+            Self.warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata(panelId: panelId)
+        }
+        update(&Self.warmTerminalPoolBufferedMetadata)
+        return true
+    }
+
+    @MainActor func bufferWarmTerminalDirectoryIfNeeded(panelId: UUID, directory: String) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.directory = directory
+        }
+    }
+
+    @MainActor func bufferWarmTerminalGitBranchIfNeeded(
+        panelId: UUID,
+        branch: String,
+        isDirty: Bool
+    ) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.didReportGitBranch = true
+            metadata.gitBranch = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+        }
+    }
+
+    @MainActor func bufferWarmTerminalGitClearIfNeeded(panelId: UUID) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.didReportGitBranch = true
+            metadata.gitBranch = nil
+        }
+    }
+
+    @MainActor func bufferWarmTerminalShellActivityIfNeeded(
+        panelId: UUID,
+        state: PanelShellActivityState
+    ) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.shellActivityRawValue = state.rawValue
+        }
+    }
+
+    @MainActor func bufferWarmTerminalTTYIfNeeded(panelId: UUID, ttyName: String) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.ttyName = ttyName
+        }
+    }
+
+    @MainActor private static func clearWarmTerminalBufferedMetadata(panelId: UUID) {
+        guard warmTerminalPoolBufferedMetadata.panelId == panelId else { return }
+        warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
+    }
+
+    @MainActor private func applyBufferedWarmTerminalMetadataIfNeeded(to panel: TerminalPanel) {
+        let metadata = Self.warmTerminalPoolBufferedMetadata
+        guard metadata.panelId == panel.id else { return }
+        Self.warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
+
+        if let directory = metadata.directory {
+            if let owningTabManager {
+                owningTabManager.updateSurfaceDirectory(tabId: id, surfaceId: panel.id, directory: directory)
+            } else {
+                updatePanelDirectory(panelId: panel.id, directory: directory)
+            }
+            panel.updateDirectory(directory)
+        }
+
+        if metadata.didReportGitBranch {
+            if let gitBranch = metadata.gitBranch {
+                if let owningTabManager {
+                    owningTabManager.updateSurfaceGitBranch(
+                        tabId: id,
+                        surfaceId: panel.id,
+                        branch: gitBranch.branch,
+                        isDirty: gitBranch.isDirty
+                    )
+                } else {
+                    updatePanelGitBranch(panelId: panel.id, branch: gitBranch.branch, isDirty: gitBranch.isDirty)
+                }
+            } else if let owningTabManager {
+                owningTabManager.clearSurfaceGitBranch(tabId: id, surfaceId: panel.id)
+            } else {
+                clearPanelGitBranch(panelId: panel.id)
+            }
+        }
+
+        if let rawState = metadata.shellActivityRawValue,
+           let state = PanelShellActivityState(rawValue: rawState) {
+            updatePanelShellActivityState(panelId: panel.id, state: state)
+        }
+
+        if let ttyName = metadata.ttyName {
+            surfaceTTYNames[panel.id] = ttyName
+            if isRemoteWorkspace {
+                syncRemotePortScanTTYs()
+                _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panel.id)
+            } else {
+                PortScanner.shared.registerTTY(workspaceId: id, panelId: panel.id, ttyName: ttyName)
+                PortScanner.shared.kick(workspaceId: id, panelId: panel.id)
+            }
+        }
     }
 
     private static func shellSingleQuoted(_ value: String) -> String {
@@ -10956,6 +11079,7 @@ final class Workspace: Identifiable, ObservableObject {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            Self.clearWarmTerminalBufferedMetadata(panelId: newPanel.id)
             refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "newTerminalSplit.layoutFailed")
             return nil
         }
@@ -10995,6 +11119,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
+        applyBufferedWarmTerminalMetadataIfNeeded(to: newPanel)
         owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: id,
             panelId: newPanel.id,
@@ -11079,6 +11204,7 @@ final class Workspace: Identifiable, ObservableObject {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            Self.clearWarmTerminalBufferedMetadata(panelId: newPanel.id)
             refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "newTerminalSurface.layoutFailed")
             return nil
         }
@@ -11102,6 +11228,7 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
+        applyBufferedWarmTerminalMetadataIfNeeded(to: newPanel)
         owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: id,
             panelId: newPanel.id,
@@ -15223,6 +15350,7 @@ extension Workspace: BonsplitDelegate {
             panelTitles.removeValue(forKey: newPanel.id)
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             newPanel.close()
+            Self.clearWarmTerminalBufferedMetadata(panelId: newPanel.id)
             refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "uiSplitAutoCreate.layoutFailed")
             return
         }
@@ -15230,6 +15358,7 @@ extension Workspace: BonsplitDelegate {
         surfaceIdToPanelId[newTabId] = newPanel.id
         normalizePinnedTabs(in: newPane)
         publishCmuxSplitCreated(newPane, sourcePaneId: originalPane, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "ui_split", focused: true)
+        applyBufferedWarmTerminalMetadataIfNeeded(to: newPanel)
 #if DEBUG
         cmuxDebugLog(
             "split.didSplit.autoCreate.done pane=\(newPane.id.uuidString.prefix(5)) " +

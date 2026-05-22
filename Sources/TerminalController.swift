@@ -18264,9 +18264,20 @@ class TerminalController {
                 }
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-                guard validSurfaceIds.contains(scope.panelId) else { return }
                 guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
-                    tabManager.clearSurfaceGitBranch(tabId: scope.workspaceId, surfaceId: scope.panelId)
+                    if validSurfaceIds.contains(scope.panelId) {
+                        tabManager.clearSurfaceGitBranch(tabId: scope.workspaceId, surfaceId: scope.panelId)
+                    } else {
+                        _ = tab.bufferWarmTerminalGitClearIfNeeded(panelId: scope.panelId)
+                    }
+                    return
+                }
+                guard validSurfaceIds.contains(scope.panelId) else {
+                    _ = tab.bufferWarmTerminalGitBranchIfNeeded(
+                        panelId: scope.panelId,
+                        branch: branch,
+                        isDirty: isDirty ?? false
+                    )
                     return
                 }
                 tabManager.updateSurfaceGitBranch(
@@ -18313,7 +18324,10 @@ class TerminalController {
                 }
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-                guard validSurfaceIds.contains(scope.panelId) else { return }
+                guard validSurfaceIds.contains(scope.panelId) else {
+                    _ = tab.bufferWarmTerminalGitClearIfNeeded(panelId: scope.panelId)
+                    return
+                }
                 tabManager.clearSurfaceGitBranch(tabId: scope.workspaceId, surfaceId: scope.panelId)
             }
             return "OK"
@@ -18478,7 +18492,10 @@ class TerminalController {
                 }
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-                guard validSurfaceIds.contains(scope.panelId) else { return }
+                guard validSurfaceIds.contains(scope.panelId) else {
+                    _ = tab.bufferWarmTerminalDirectoryIfNeeded(panelId: scope.panelId, directory: directory)
+                    return
+                }
                 tabManager.updateSurfaceDirectory(tabId: scope.workspaceId, surfaceId: scope.panelId, directory: directory)
             }
             return "OK"
@@ -18671,7 +18688,10 @@ class TerminalController {
                 }
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-                guard validSurfaceIds.contains(scope.panelId) else { return }
+                guard validSurfaceIds.contains(scope.panelId) else {
+                    _ = tab.bufferWarmTerminalTTYIfNeeded(panelId: scope.panelId, ttyName: ttyName)
+                    return
+                }
                 tab.surfaceTTYNames[scope.panelId] = ttyName
                 if tab.isRemoteWorkspace {
                     tab.syncRemotePortScanTTYs()
