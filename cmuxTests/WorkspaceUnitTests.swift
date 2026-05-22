@@ -3828,29 +3828,27 @@ final class SidebarWorkspaceDoubleClickRenamePolicyTests: XCTestCase {
         )
     }
 
-    func testPrimarySingleClickSelectsWithoutNotificationDismissal() {
-        XCTAssertEqual(
-            SidebarWorkspaceDoubleClickRenamePolicy.mouseDownAction(
+    func testPrimarySingleClickDoesNotBeginInlineRename() {
+        XCTAssertFalse(
+            SidebarWorkspaceDoubleClickRenamePolicy.shouldBeginRename(
                 clickCount: 1,
                 at: CGPoint(x: 80, y: 44),
                 rowBounds: CGRect(x: 0, y: 0, width: 180, height: 72),
                 excludedRegions: [],
                 inlineRenameActive: false
-            ),
-            .select(dismissNotificationOnDirectInteraction: false)
+            )
         )
     }
 
     func testPrimaryDoubleClickBeginsRename() {
-        XCTAssertEqual(
-            SidebarWorkspaceDoubleClickRenamePolicy.mouseDownAction(
+        XCTAssertTrue(
+            SidebarWorkspaceDoubleClickRenamePolicy.shouldBeginRename(
                 clickCount: 2,
                 at: CGPoint(x: 80, y: 44),
                 rowBounds: CGRect(x: 0, y: 0, width: 180, height: 72),
                 excludedRegions: [],
                 inlineRenameActive: false
-            ),
-            .rename
+            )
         )
     }
 }

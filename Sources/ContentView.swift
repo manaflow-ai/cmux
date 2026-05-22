@@ -12324,39 +12324,17 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
 }
 
 enum SidebarWorkspaceDoubleClickRenamePolicy {
-    enum MouseDownAction: Equatable {
-        case select(dismissNotificationOnDirectInteraction: Bool)
-        case rename
-    }
-
     static let excludedRegionHitSlop: CGFloat = 2
 
-    static func mouseDownAction(
+    static func shouldBeginRename(
         clickCount: Int,
         at point: CGPoint,
         rowBounds: CGRect,
         excludedRegions: [CGRect],
         inlineRenameActive: Bool
-    ) -> MouseDownAction? {
-        guard shouldHandlePrimaryClick(
-            at: point,
-            rowBounds: rowBounds,
-            excludedRegions: excludedRegions,
-            inlineRenameActive: inlineRenameActive
-        ) else { return nil }
-        if clickCount >= 2 {
-            return .rename
-        }
-        return .select(dismissNotificationOnDirectInteraction: false)
-    }
-
-    static func shouldBeginRename(
-        at point: CGPoint,
-        rowBounds: CGRect,
-        excludedRegions: [CGRect],
-        inlineRenameActive: Bool
     ) -> Bool {
-        shouldHandlePrimaryClick(
+        guard clickCount >= 2 else { return false }
+        return shouldBeginRename(
             at: point,
             rowBounds: rowBounds,
             excludedRegions: excludedRegions,
@@ -12364,7 +12342,7 @@ enum SidebarWorkspaceDoubleClickRenamePolicy {
         )
     }
 
-    private static func shouldHandlePrimaryClick(
+    static func shouldBeginRename(
         at point: CGPoint,
         rowBounds: CGRect,
         excludedRegions: [CGRect],
@@ -13446,7 +13424,6 @@ private struct TabItemView: View, Equatable {
                 SidebarWorkspaceDoubleClickCapture(
                     excludedRegions: doubleClickExcludedRegions,
                     inlineRenameActive: inlineRenameInitialTitle != nil,
-                    onSingleClick: selectFromMouseDown,
                     onDoubleClick: beginRenameFromDoubleClick
                 )
             }
@@ -13593,10 +13570,6 @@ private struct TabItemView: View, Equatable {
         draggedTabId = tab.id
         dropIndicator = nil
         return SidebarTabDragPayload.provider(for: tab.id)
-    }
-
-    private func selectFromMouseDown(dismissNotificationOnDirectInteraction: Bool) {
-        updateSelection(dismissNotificationOnDirectInteraction: dismissNotificationOnDirectInteraction)
     }
 
     private func handleImmediateSidebarObservation(_ value: Void) {
@@ -15508,14 +15481,12 @@ private struct MiddleClickCapture: NSViewRepresentable {
 private struct SidebarWorkspaceDoubleClickCapture: NSViewRepresentable {
     let excludedRegions: [CGRect]
     let inlineRenameActive: Bool
-    let onSingleClick: (_ dismissNotificationOnDirectInteraction: Bool) -> Void
     let onDoubleClick: () -> Void
 
     func makeNSView(context: Context) -> SidebarWorkspaceDoubleClickCaptureView {
         let view = SidebarWorkspaceDoubleClickCaptureView()
         view.excludedRegions = excludedRegions
         view.inlineRenameActive = inlineRenameActive
-        view.onSingleClick = onSingleClick
         view.onDoubleClick = onDoubleClick
         return view
     }
@@ -15523,7 +15494,6 @@ private struct SidebarWorkspaceDoubleClickCapture: NSViewRepresentable {
     func updateNSView(_ nsView: SidebarWorkspaceDoubleClickCaptureView, context: Context) {
         nsView.excludedRegions = excludedRegions
         nsView.inlineRenameActive = inlineRenameActive
-        nsView.onSingleClick = onSingleClick
         nsView.onDoubleClick = onDoubleClick
     }
 }
@@ -15531,49 +15501,60 @@ private struct SidebarWorkspaceDoubleClickCapture: NSViewRepresentable {
 private final class SidebarWorkspaceDoubleClickCaptureView: NSView {
     var excludedRegions: [CGRect] = []
     var inlineRenameActive = false
-    var onSingleClick: ((_ dismissNotificationOnDirectInteraction: Bool) -> Void)?
     var onDoubleClick: (() -> Void)?
+    private var localMouseMonitor: Any?
 
     override var isFlipped: Bool { true }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let event = NSApp.currentEvent,
-              event.type == .leftMouseDown,
-              event.buttonNumber == 0,
-              event.clickCount >= 1 else {
-            return nil
-        }
-        let action = SidebarWorkspaceDoubleClickRenamePolicy.mouseDownAction(
-            clickCount: event.clickCount,
-            at: point,
-            rowBounds: bounds,
-            excludedRegions: excludedRegions,
-            inlineRenameActive: inlineRenameActive
-        )
-        return action == nil ? nil : self
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refreshLocalMouseMonitor()
     }
 
-    override func mouseDown(with event: NSEvent) {
-        guard event.buttonNumber == 0 else {
-            super.mouseDown(with: event)
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview == nil {
+            removeLocalMouseMonitor()
+        }
+    }
+
+    deinit {
+        removeLocalMouseMonitor()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    private func refreshLocalMouseMonitor() {
+        removeLocalMouseMonitor()
+        guard window != nil else { return }
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            self?.handleLocalMouseDown(event)
+            return event
+        }
+    }
+
+    private func removeLocalMouseMonitor() {
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+            self.localMouseMonitor = nil
+        }
+    }
+
+    private func handleLocalMouseDown(_ event: NSEvent) {
+        guard event.window === window,
+              event.buttonNumber == 0,
+              SidebarWorkspaceDoubleClickRenamePolicy.shouldBeginRename(
+                  clickCount: event.clickCount,
+                  at: convert(event.locationInWindow, from: nil),
+                  rowBounds: bounds,
+                  excludedRegions: excludedRegions,
+                  inlineRenameActive: inlineRenameActive
+              ) else {
             return
         }
-        guard let action = SidebarWorkspaceDoubleClickRenamePolicy.mouseDownAction(
-            clickCount: event.clickCount,
-            at: convert(event.locationInWindow, from: nil),
-            rowBounds: bounds,
-            excludedRegions: excludedRegions,
-            inlineRenameActive: inlineRenameActive
-        ) else {
-            super.mouseDown(with: event)
-            return
-        }
-        switch action {
-        case .select(let dismissNotificationOnDirectInteraction):
-            onSingleClick?(dismissNotificationOnDirectInteraction)
-        case .rename:
-            onDoubleClick?()
-        }
+        onDoubleClick?()
     }
 }
 
