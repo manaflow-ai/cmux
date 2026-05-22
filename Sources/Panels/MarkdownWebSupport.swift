@@ -56,8 +56,8 @@ struct MarkdownRendererDiagnosticsSnapshot: Equatable {
             navigationFailureCount
     }
 
-    func fields(prefix: String) -> [String: String] {
-        [
+    func fields(prefix: String, includeExistingPanelFlickerSignalCount: Bool) -> [String: String] {
+        var fields = [
             "\(prefix)MakeNSViewCount": String(makeNSViewCount),
             "\(prefix)ReuseNSViewCount": String(reuseNSViewCount),
             "\(prefix)WebViewCreateCount": String(webViewCreateCount),
@@ -69,8 +69,11 @@ struct MarkdownRendererDiagnosticsSnapshot: Equatable {
             "\(prefix)DidFinishCount": String(didFinishCount),
             "\(prefix)WebContentProcessTerminationCount": String(webContentProcessTerminationCount),
             "\(prefix)NavigationFailureCount": String(navigationFailureCount),
-            "\(prefix)FlickerSignalCount": String(existingPanelFlickerSignalCount),
         ]
+        if includeExistingPanelFlickerSignalCount {
+            fields["\(prefix)FlickerSignalCount"] = String(existingPanelFlickerSignalCount)
+        }
+        return fields
     }
 }
 #endif

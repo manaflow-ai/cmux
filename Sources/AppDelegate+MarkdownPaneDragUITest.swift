@@ -179,8 +179,12 @@ extension AppDelegate {
                 "primaryFlickerDetected": violationReasons.isEmpty ? "0" : "1",
                 "primaryFlickerReasons": violationReasons.joined(separator: ","),
             ]
-            updates.merge(primaryDiagnostics.fields(prefix: "primary")) { _, new in new }
-            updates.merge(droppedDiagnostics.fields(prefix: "dropped")) { _, new in new }
+            updates.merge(
+                primaryDiagnostics.fields(prefix: "primary", includeExistingPanelFlickerSignalCount: true)
+            ) { _, new in new }
+            updates.merge(
+                droppedDiagnostics.fields(prefix: "dropped", includeExistingPanelFlickerSignalCount: false)
+            ) { _, new in new }
             writeMarkdownPaneDragUITestData(updates, at: manifestPath)
             cmuxDebugLog(
                 "markdown.dragUITest.drop.done scenario=\(scenario) handled=\(handled ? 1 : 0) " +
