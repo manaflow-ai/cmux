@@ -65,7 +65,7 @@ const settingsFileExample = `{
 
   // "terminal": {
   //   "showScrollBar": false,
-  //   "warmPtyPool": true,
+  //   "warmPtyPool": false,
   //   "autoResumeAgentSessions": true
   // },
 

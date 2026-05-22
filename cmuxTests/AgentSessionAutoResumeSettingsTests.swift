@@ -14,7 +14,7 @@ final class TerminalWarmPtyPoolSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertEqual(TerminalWarmPtyPoolSettings.enabledKey, "terminal.warmPtyPool")
-        XCTAssertTrue(TerminalWarmPtyPoolSettings.isEnabled(defaults: defaults))
+        XCTAssertFalse(TerminalWarmPtyPoolSettings.isEnabled(defaults: defaults))
 
         let notificationCenter = NotificationCenter()
         var notificationCount = 0
@@ -28,15 +28,15 @@ final class TerminalWarmPtyPoolSettingsTests: XCTestCase {
         defer { notificationCenter.removeObserver(observer) }
 
         TerminalWarmPtyPoolSettings.setEnabled(
-            false,
+            true,
             defaults: defaults,
             notificationCenter: notificationCenter
         )
-        XCTAssertFalse(TerminalWarmPtyPoolSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(TerminalWarmPtyPoolSettings.isEnabled(defaults: defaults))
         XCTAssertEqual(notificationCount, 1)
 
         TerminalWarmPtyPoolSettings.setEnabled(
-            false,
+            true,
             defaults: defaults,
             notificationCenter: notificationCenter
         )
@@ -46,7 +46,7 @@ final class TerminalWarmPtyPoolSettingsTests: XCTestCase {
             defaults: defaults,
             notificationCenter: notificationCenter
         ))
-        XCTAssertTrue(TerminalWarmPtyPoolSettings.isEnabled(defaults: defaults))
+        XCTAssertFalse(TerminalWarmPtyPoolSettings.isEnabled(defaults: defaults))
         XCTAssertEqual(notificationCount, 2)
 
         XCTAssertFalse(TerminalWarmPtyPoolSettings.reset(

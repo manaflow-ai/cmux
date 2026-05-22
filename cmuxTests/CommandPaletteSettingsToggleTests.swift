@@ -83,11 +83,11 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             }
             defer { notificationCenter.removeObserver(token) }
 
-            XCTAssertTrue(descriptor.isOn(defaults))
+            XCTAssertFalse(descriptor.isOn(defaults))
             descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
 
-            XCTAssertEqual(defaults.object(forKey: TerminalWarmPtyPoolSettings.enabledKey) as? Bool, false)
-            XCTAssertFalse(descriptor.isOn(defaults))
+            XCTAssertEqual(defaults.object(forKey: TerminalWarmPtyPoolSettings.enabledKey) as? Bool, true)
+            XCTAssertTrue(descriptor.isOn(defaults))
             XCTAssertTrue(didNotify)
         }
     }

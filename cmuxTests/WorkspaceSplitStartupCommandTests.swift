@@ -128,6 +128,95 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertTrue(input.contains("CMUX_PORT_RANGE='\(portValues.portRange)'"), input)
     }
 
+    func testWarmTerminalStartupSignatureTracksZshStartupFileChanges() throws {
+        let fileManager = FileManager.default
+        let root = try makeTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let zdotdir = root.appendingPathComponent("zdotdir", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: zdotdir, withIntermediateDirectories: true)
+        let zshrc = zdotdir.appendingPathComponent(".zshrc")
+        try "export CMUX_TEST=1\n".write(to: zshrc, atomically: true, encoding: .utf8)
+
+        let environment = [
+            "HOME": home.path,
+            "SHELL": "/bin/zsh",
+            "ZDOTDIR": zdotdir.path
+        ]
+        let first = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+
+        try "export CMUX_TEST=123456\n".write(to: zshrc, atomically: true, encoding: .utf8)
+
+        let second = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+        XCTAssertNotEqual(first, second)
+    }
+
+    func testWarmTerminalStartupSignatureTracksFishConfDAdditions() throws {
+        let fileManager = FileManager.default
+        let root = try makeTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let configHome = root.appendingPathComponent("xdg", isDirectory: true)
+        let confD = configHome.appendingPathComponent("fish/conf.d", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: confD, withIntermediateDirectories: true)
+
+        let environment = [
+            "HOME": home.path,
+            "SHELL": "/opt/homebrew/bin/fish",
+            "XDG_CONFIG_HOME": configHome.path
+        ]
+        let first = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+
+        let prompt = confD.appendingPathComponent("prompt.fish")
+        try "set -gx CMUX_TEST 1\n".write(to: prompt, atomically: true, encoding: .utf8)
+
+        let second = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+        XCTAssertNotEqual(first, second)
+    }
+
+    func testWarmTerminalStartupSignatureTracksUnknownShellGenericRc() throws {
+        let fileManager = FileManager.default
+        let root = try makeTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+
+        let environment = [
+            "HOME": home.path,
+            "SHELL": "/opt/custom/bin/myshell"
+        ]
+        let first = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+
+        try "set prompt ready\n".write(
+            to: home.appendingPathComponent(".myshellrc"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let second = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+        XCTAssertNotEqual(first, second)
+    }
+
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -182,5 +271,12 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panel.id })
         XCTAssertNil(panelSnapshot.terminal?.tmuxStartCommand)
         XCTAssertNil(Workspace.restorableTmuxStartCommand(genericCommand))
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-warm-pty-signature-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 }

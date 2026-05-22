@@ -7422,6 +7422,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     @MainActor private static var warmTerminalPoolPanel: TerminalPanel?
     @MainActor private static var warmTerminalPoolOwnerWorkspaceId: UUID?
+    @MainActor private static var warmTerminalPoolStartupSignature: TerminalWarmPtyPoolStartupSignature?
     @MainActor private static var warmTerminalPoolSettingsObserver: NSObjectProtocol?
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
@@ -10449,9 +10450,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor private static func discardWarmTerminalPool(reason: String) {
-        guard let panel = warmTerminalPoolPanel else { return }
+        let panel = warmTerminalPoolPanel
         warmTerminalPoolPanel = nil
         warmTerminalPoolOwnerWorkspaceId = nil
+        warmTerminalPoolStartupSignature = nil
+        guard let panel else { return }
 #if DEBUG
         cmuxDebugLog(
             "terminal.warmPool.discard panel=\(panel.id.uuidString.prefix(5)) reason=\(reason)"
@@ -10588,6 +10591,10 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         guard let panel = Self.warmTerminalPoolPanel else { return nil }
+        guard Self.warmTerminalPoolStartupSignature == TerminalWarmPtyPoolStartupSignature.current() else {
+            Self.discardWarmTerminalPool(reason: "take.startupSignatureChanged")
+            return nil
+        }
         guard let liveSurface = panel.surface.liveSurfaceForGhosttyAccess(reason: "warmPool.take") else {
             Self.discardWarmTerminalPool(reason: "take.surfaceUnavailable")
             return nil
@@ -10600,6 +10607,7 @@ final class Workspace: Identifiable, ObservableObject {
         Self.warmTerminalPoolPanel = nil
         let previousOwner = Self.warmTerminalPoolOwnerWorkspaceId
         Self.warmTerminalPoolOwnerWorkspaceId = nil
+        Self.warmTerminalPoolStartupSignature = nil
         let shouldRefreshWorkspaceEnvironment = previousOwner != id
         panel.updateWorkspaceId(id)
         configureTerminalPanel(panel)
@@ -10706,6 +10714,7 @@ final class Workspace: Identifiable, ObservableObject {
                 inPane: $0
             )
         } ?? Self.normalizedWarmTerminalDirectory(currentDirectory)
+        let startupSignature = TerminalWarmPtyPoolStartupSignature.current()
         let panel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -10716,6 +10725,7 @@ final class Workspace: Identifiable, ObservableObject {
         configureTerminalPanel(panel)
         Self.warmTerminalPoolPanel = panel
         Self.warmTerminalPoolOwnerWorkspaceId = id
+        Self.warmTerminalPoolStartupSignature = startupSignature
         panel.surface.requestBackgroundSurfaceStartIfNeeded()
 #if DEBUG
         cmuxDebugLog(
