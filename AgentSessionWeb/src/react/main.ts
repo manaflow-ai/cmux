@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { subscribeToAgentEvents } from "../shared/bridge";
 import {
   initialState,
+  autoStartProvider,
   loadInitialData,
   reduceSession,
   sendInput,
@@ -23,10 +24,17 @@ function useNativeEvents(dispatch: React.Dispatch<Action>) {
   useEffect(() => subscribeToAgentEvents((event) => dispatch({ type: "event", event })), [dispatch]);
 }
 
+function useAutoStart(state: SessionState, dispatch: React.Dispatch<Action>) {
+  useEffect(() => {
+    void autoStartProvider(state, dispatch);
+  }, [state, dispatch]);
+}
+
 function App() {
   const [state, dispatch] = useReducer(reduceSession, initialState("react"));
   useInitialData(dispatch);
   useNativeEvents(dispatch);
+  useAutoStart(state, dispatch);
   return React.createElement(SessionSurface, { state, dispatch, renderer: "React" });
 }
 
@@ -42,6 +50,7 @@ function SessionSurface({
   const provider = state.providers.find((item) => item.id === state.selectedProviderId);
   const canStart = state.status === "idle" || state.status === "failed";
   const canSend = state.status === "running" && state.input.trim().length > 0;
+  const showStart = canStart && provider?.autoStart !== true;
   return React.createElement(
     "section",
     { className: "agent-shell" },
@@ -49,6 +58,12 @@ function SessionSurface({
       "header",
       { className: "toolbar" },
       React.createElement("div", { className: "renderer-mark" }, renderer),
+      React.createElement(
+        "div",
+        { className: "session-title" },
+        React.createElement("span", { className: "provider-name" }, provider?.displayName ?? ""),
+        React.createElement("span", { className: "transport" }, provider?.transportKind ?? ""),
+      ),
       React.createElement(
         "select",
         {
@@ -63,7 +78,8 @@ function SessionSurface({
         ),
       ),
       React.createElement("span", { className: `status-pill ${state.status}` }, state.status),
-      React.createElement(
+      showStart
+        ? React.createElement(
         "button",
         {
           className: "toolbar-button",
@@ -71,8 +87,8 @@ function SessionSurface({
           onClick: () => void startProvider(state, dispatch),
         },
         state.context?.copy.start ?? "Start",
-      ),
-      React.createElement("div", { className: "transport" }, provider?.transportKind ?? ""),
+          )
+        : React.createElement("span", { className: "autostart-note", "aria-hidden": true }),
       React.createElement(
         "button",
         {

@@ -1,5 +1,6 @@
-import type { AgentEvent } from "./types";
+import type { AgentEvent, AgentSessionTheme } from "./types";
 import { makeClientId } from "./ids";
+import { applyAgentTheme } from "./theme";
 
 type NativeReply<T> =
   | { ok: true; value: T }
@@ -10,6 +11,7 @@ type EventListener = (event: AgentEvent) => void;
 declare global {
   interface Window {
     cmuxAgentBridge?: {
+      applyTheme(theme: AgentSessionTheme): void;
       receive(event: AgentEvent): void;
     };
     webkit?: {
@@ -26,7 +28,13 @@ const listeners = new Set<EventListener>();
 
 if (typeof window !== "undefined") {
   window.cmuxAgentBridge = {
+    applyTheme(theme: AgentSessionTheme) {
+      applyAgentTheme(theme);
+    },
     receive(event: AgentEvent) {
+      if (event.type === "app.theme") {
+        applyAgentTheme(event.theme);
+      }
       for (const listener of [...listeners]) {
         listener(event);
       }

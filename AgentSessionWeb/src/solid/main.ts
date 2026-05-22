@@ -3,6 +3,7 @@ import { render } from "solid-js/web";
 import { subscribeToAgentEvents } from "../shared/bridge";
 import {
   initialState,
+  autoStartProvider,
   loadInitialData,
   reduceSession,
   sendInput,
@@ -23,6 +24,9 @@ function App() {
 
   createEffect(() => {
     document.documentElement.dataset.status = state().status;
+  });
+  createEffect(() => {
+    void autoStartProvider(state(), dispatch);
   });
 
   return SessionSurface({ state, dispatch, renderer: "Solid" });
@@ -51,6 +55,23 @@ function SessionSurface({
   rendererMark.className = "renderer-mark";
   rendererMark.textContent = renderer;
   toolbar.append(rendererMark);
+
+  const sessionTitle = document.createElement("div");
+  sessionTitle.className = "session-title";
+  toolbar.append(sessionTitle);
+
+  const providerName = document.createElement("span");
+  providerName.className = "provider-name";
+  sessionTitle.append(providerName);
+
+  const transport = document.createElement("span");
+  transport.className = "transport";
+  sessionTitle.append(transport);
+
+  createEffect(() => {
+    providerName.textContent = provider()?.displayName ?? "";
+    transport.textContent = provider()?.transportKind ?? "";
+  });
 
   const select = document.createElement("select");
   select.className = "provider-select";
@@ -82,16 +103,16 @@ function SessionSurface({
   start.className = "toolbar-button";
   start.addEventListener("click", () => void startProvider(state(), dispatch));
   toolbar.append(start);
+  const autoStartSpacer = document.createElement("span");
+  autoStartSpacer.className = "autostart-note";
+  autoStartSpacer.setAttribute("aria-hidden", "true");
+  toolbar.append(autoStartSpacer);
   createEffect(() => {
     start.textContent = state().context?.copy.start ?? "Start";
-    start.disabled = !canStart();
-  });
-
-  const transport = document.createElement("div");
-  transport.className = "transport";
-  toolbar.append(transport);
-  createEffect(() => {
-    transport.textContent = provider()?.transportKind ?? "";
+    const showStart = canStart() && provider()?.autoStart !== true;
+    start.hidden = !showStart;
+    start.disabled = !showStart;
+    autoStartSpacer.hidden = showStart;
   });
 
   const stop = document.createElement("button");

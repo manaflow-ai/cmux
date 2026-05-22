@@ -1,5 +1,6 @@
 import { callNative } from "./bridge";
 import { makeClientId } from "./ids";
+import { applyAgentTheme } from "./theme";
 import type { AgentEvent, AppContext, ProviderId, ProviderInfo } from "./types";
 
 export type LogEntry = {
@@ -16,6 +17,7 @@ export type SessionState = {
   status: "loading" | "idle" | "starting" | "running" | "failed";
   input: string;
   log: LogEntry[];
+  autoStartAttemptedProviderId?: ProviderId;
 };
 
 export type Action =
@@ -23,6 +25,7 @@ export type Action =
   | { type: "providers"; providers: ProviderInfo[] }
   | { type: "selectProvider"; providerId: ProviderId }
   | { type: "setInput"; input: string }
+  | { type: "autoStartAttempted"; providerId: ProviderId }
   | { type: "starting" }
   | { type: "failed"; message: string }
   | { type: "stopped" }
@@ -57,9 +60,16 @@ export function reduceSession(state: SessionState, action: Action): SessionState
     case "providers":
       return { ...state, providers: action.providers };
     case "selectProvider":
-      return { ...state, selectedProviderId: action.providerId };
+      return {
+        ...state,
+        selectedProviderId: action.providerId,
+        autoStartAttemptedProviderId:
+          action.providerId === state.autoStartAttemptedProviderId ? state.autoStartAttemptedProviderId : undefined,
+      };
     case "setInput":
       return { ...state, input: action.input };
+    case "autoStartAttempted":
+      return { ...state, autoStartAttemptedProviderId: action.providerId };
     case "starting":
       return { ...state, status: "starting", log: appendLog(state, "info", "starting") };
     case "failed":
@@ -79,6 +89,7 @@ export async function loadInitialData(dispatch: (action: Action) => void): Promi
       callNative<AppContext>("app.context"),
       callNative<ProviderInfo[]>("provider.list"),
     ]);
+    applyAgentTheme(context.theme);
     dispatch({ type: "context", context });
     dispatch({ type: "providers", providers });
   } catch (error) {
@@ -91,6 +102,34 @@ export async function startProvider(state: SessionState, dispatch: (action: Acti
   try {
     await callNative("provider.start", {
       providerId: state.selectedProviderId,
+      workingDirectory: state.context?.workingDirectory,
+    });
+  } catch (error) {
+    dispatch({ type: "failed", message: messageForError(error) });
+  }
+}
+
+export function shouldAutoStartProvider(state: SessionState): boolean {
+  if (state.status !== "idle" || state.runningSessionId || !state.context) {
+    return false;
+  }
+  if (state.autoStartAttemptedProviderId === state.selectedProviderId) {
+    return false;
+  }
+  const provider = state.providers.find((item) => item.id === state.selectedProviderId);
+  return provider?.autoStart === true;
+}
+
+export async function autoStartProvider(state: SessionState, dispatch: (action: Action) => void): Promise<void> {
+  if (!shouldAutoStartProvider(state)) {
+    return;
+  }
+  const providerId = state.selectedProviderId;
+  dispatch({ type: "autoStartAttempted", providerId });
+  dispatch({ type: "starting" });
+  try {
+    await callNative("provider.start", {
+      providerId,
       workingDirectory: state.context?.workingDirectory,
     });
   } catch (error) {
@@ -130,6 +169,17 @@ export async function stopProvider(state: SessionState, dispatch: (action: Actio
 
 function applyEvent(state: SessionState, event: AgentEvent): SessionState {
   switch (event.type) {
+    case "app.theme":
+      if (!state.context) {
+        return state;
+      }
+      return {
+        ...state,
+        context: {
+          ...state.context,
+          theme: event.theme,
+        },
+      };
     case "provider.started":
       return {
         ...state,

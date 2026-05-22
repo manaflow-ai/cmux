@@ -56,6 +56,15 @@ enum AgentSessionProviderID: String, CaseIterable, Codable, Identifiable, Sendab
             return "http-loopback"
         }
     }
+
+    var shouldAutoStartSession: Bool {
+        switch self {
+        case .codex, .opencode:
+            return true
+        case .claude:
+            return false
+        }
+    }
 }
 
 enum AgentSessionRendererKind: String, CaseIterable, Codable, Identifiable, Sendable {

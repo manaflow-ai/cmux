@@ -13,7 +13,8 @@ struct AgentSessionPanelView: View {
             if isVisibleInUI {
                 AgentSessionWebRenderer(
                     panel: panel,
-                    backgroundColor: .clear,
+                    backgroundColor: appearance.contentBackgroundColor,
+                    theme: AgentSessionWebTheme.resolve(appearance: appearance),
                     onRequestPanelFocus: onRequestPanelFocus
                 )
                 .id(panel.id)

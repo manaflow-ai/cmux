@@ -6,8 +6,26 @@ export type ProviderInfo = {
   id: ProviderId;
   displayName: string;
   executableName: string;
-  transportKind: "stdio-jsonl" | "http-loopback";
+  transportKind: "stdio-jsonrpc" | "stdio-jsonl" | "http-loopback";
   arguments: string[];
+  autoStart: boolean;
+};
+
+export type AgentSessionTheme = {
+  isDark: boolean;
+  pageBackground: string;
+  surfaceBackground: string;
+  surfaceElevatedBackground: string;
+  inputBackground: string;
+  border: string;
+  borderStrong: string;
+  text: string;
+  mutedText: string;
+  softText: string;
+  accent: string;
+  accentSoft: string;
+  danger: string;
+  shadow: string;
 };
 
 export type AppContext = {
@@ -17,6 +35,7 @@ export type AppContext = {
   initialProviderId: ProviderId;
   workingDirectory?: string;
   copy: AgentSessionCopy;
+  theme: AgentSessionTheme;
 };
 
 export type AgentSessionCopy = {
@@ -27,6 +46,10 @@ export type AgentSessionCopy = {
 };
 
 export type AgentEvent =
+  | {
+      type: "app.theme";
+      theme: AgentSessionTheme;
+    }
   | {
       type: "provider.started";
       sessionId: string;

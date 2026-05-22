@@ -5,6 +5,7 @@ import WebKit
 struct AgentSessionWebRenderer: NSViewRepresentable {
     let panel: AgentSessionPanel
     let backgroundColor: NSColor
+    let theme: AgentSessionWebTheme
     let onRequestPanelFocus: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -13,7 +14,8 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             workspaceId: panel.workspaceId,
             rendererKind: panel.rendererKind,
             initialProviderID: panel.initialProviderID,
-            workingDirectory: panel.workingDirectory
+            workingDirectory: panel.workingDirectory,
+            theme: theme
         )
     }
 
@@ -34,7 +36,8 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             workspaceId: panel.workspaceId,
             rendererKind: panel.rendererKind,
             initialProviderID: panel.initialProviderID,
-            workingDirectory: panel.workingDirectory
+            workingDirectory: panel.workingDirectory,
+            theme: theme
         )
         nsView.backgroundColor = backgroundColor
         nsView.onVisibleBounds = { [weak coordinator = context.coordinator] in
@@ -63,7 +66,14 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         webView.underPageBackgroundColor = backgroundColor
         webView.wantsLayer = true
         webView.layer?.backgroundColor = backgroundColor.cgColor
-        webView.layer?.isOpaque = false
+        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
+    }
+
+    private func applyAppearance(to webView: WKWebView) {
+        let appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        if webView.appearance !== appearance {
+            webView.appearance = appearance
+        }
     }
 
     private func attachWebView(to hostView: AgentSessionWebHostView, context: Context) {
@@ -72,7 +82,95 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         applyBackground(to: webView)
+        applyAppearance(to: webView)
         hostView.attach(webView)
+    }
+}
+
+struct AgentSessionWebTheme: Equatable {
+    let isDark: Bool
+    let pageBackground: String
+    let surfaceBackground: String
+    let surfaceElevatedBackground: String
+    let inputBackground: String
+    let border: String
+    let borderStrong: String
+    let text: String
+    let mutedText: String
+    let softText: String
+    let accent: String
+    let accentSoft: String
+    let danger: String
+    let shadow: String
+
+    var dictionary: [String: Any] {
+        [
+            "isDark": isDark,
+            "pageBackground": pageBackground,
+            "surfaceBackground": surfaceBackground,
+            "surfaceElevatedBackground": surfaceElevatedBackground,
+            "inputBackground": inputBackground,
+            "border": border,
+            "borderStrong": borderStrong,
+            "text": text,
+            "mutedText": mutedText,
+            "softText": softText,
+            "accent": accent,
+            "accentSoft": accentSoft,
+            "danger": danger,
+            "shadow": shadow
+        ]
+    }
+
+    static func resolve(appearance: PanelAppearance) -> AgentSessionWebTheme {
+        let base = appearance.backgroundColor.markdownOpaqueSRGB
+        let isDark = !base.isLightColor
+        let overlay: NSColor = isDark ? .white : .black
+        let inverseOverlay: NSColor = isDark ? .black : .white
+        let contentBackground = appearance.contentBackgroundColor
+        let transparentContent = contentBackground.alphaComponent < 0.001
+        let baseSurfaceAlpha: CGFloat = appearance.drawsContentBackground ? 0.72 : 0.34
+        let elevatedSurfaceAlpha: CGFloat = appearance.drawsContentBackground ? 0.84 : 0.48
+        let inputAlpha: CGFloat = appearance.drawsContentBackground ? 0.60 : 0.36
+        let border = base.markdownThemeOverlay(
+            targetContrast: isDark ? 1.62 : 1.34,
+            of: overlay
+        )
+        let borderStrong = base.markdownThemeOverlay(
+            targetContrast: isDark ? 2.12 : 1.64,
+            of: overlay
+        )
+        let surface = base
+            .blended(withFraction: isDark ? 0.05 : 0.03, of: overlay)?
+            .withAlphaComponent(baseSurfaceAlpha)
+            ?? base.withAlphaComponent(baseSurfaceAlpha)
+        let surfaceElevated = base
+            .blended(withFraction: isDark ? 0.08 : 0.05, of: overlay)?
+            .withAlphaComponent(elevatedSurfaceAlpha)
+            ?? base.withAlphaComponent(elevatedSurfaceAlpha)
+        let input = base
+            .blended(withFraction: isDark ? 0.18 : 0.10, of: inverseOverlay)?
+            .withAlphaComponent(inputAlpha)
+            ?? base.withAlphaComponent(inputAlpha)
+        let foreground = appearance.foregroundColor
+        let accent = cmuxAccentNSColor()
+        let danger = (NSColor(hex: isDark ? "#FF8D7E" : "#B3261E") ?? .systemRed)
+        return AgentSessionWebTheme(
+            isDark: isDark,
+            pageBackground: transparentContent ? "transparent" : contentBackground.markdownCSSColor,
+            surfaceBackground: surface.markdownCSSColor,
+            surfaceElevatedBackground: surfaceElevated.markdownCSSColor,
+            inputBackground: input.markdownCSSColor,
+            border: border.withAlphaComponent(border.alphaComponent * 0.72).markdownCSSColor,
+            borderStrong: borderStrong.markdownCSSColor,
+            text: foreground.markdownCSSColor,
+            mutedText: foreground.withAlphaComponent(0.58).markdownCSSColor,
+            softText: foreground.withAlphaComponent(0.78).markdownCSSColor,
+            accent: accent.markdownCSSColor,
+            accentSoft: accent.withAlphaComponent(isDark ? 0.20 : 0.16).markdownCSSColor,
+            danger: danger.markdownCSSColor,
+            shadow: isDark ? "rgba(0, 0, 0, 0.20)" : "rgba(0, 0, 0, 0.10)"
+        )
     }
 }
 
@@ -166,14 +264,16 @@ final class AgentSessionWebRendererSession {
         workspaceId: UUID,
         rendererKind: AgentSessionRendererKind,
         initialProviderID: AgentSessionProviderID,
-        workingDirectory: String?
+        workingDirectory: String?,
+        theme: AgentSessionWebTheme
     ) -> AgentSessionWebRenderer.Coordinator {
         ownedCoordinator.bind(
             panelId: panelId,
             workspaceId: workspaceId,
             rendererKind: rendererKind,
             initialProviderID: initialProviderID,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            theme: theme
         )
         return ownedCoordinator
     }
@@ -196,6 +296,9 @@ extension AgentSessionWebRenderer {
         private var rendererKind: AgentSessionRendererKind = .react
         private var initialProviderID: AgentSessionProviderID = .codex
         private var workingDirectory: String?
+        private var theme: AgentSessionWebTheme = .resolve(
+            appearance: .fromConfig(GhosttyConfig.load())
+        )
         private var loadedRendererKind: AgentSessionRendererKind?
         private var hasFinishedNavigation = false
         private var hasCompletedVisiblePaintFlush = false
@@ -206,7 +309,8 @@ extension AgentSessionWebRenderer {
             workspaceId: UUID,
             rendererKind: AgentSessionRendererKind,
             initialProviderID: AgentSessionProviderID,
-            workingDirectory: String?
+            workingDirectory: String?,
+            theme: AgentSessionWebTheme
         ) {
             self.panelId = panelId
             self.workspaceId = workspaceId
@@ -218,6 +322,11 @@ extension AgentSessionWebRenderer {
             self.rendererKind = rendererKind
             self.initialProviderID = initialProviderID
             self.workingDirectory = workingDirectory
+            let themeChanged = self.theme != theme
+            self.theme = theme
+            if themeChanged {
+                applyThemeToLoadedPage()
+            }
             processStore.eventSink = { [weak self] event in
                 self?.sendEvent(event)
             }
@@ -331,6 +440,7 @@ extension AgentSessionWebRenderer {
             cmuxDebugLog("agentSession.web.didFinish renderer=\(rendererKind.rawValue)")
 #endif
             hasFinishedNavigation = true
+            applyThemeToLoadedPage()
             flushInitialPaint(for: webView)
         }
 
@@ -388,6 +498,27 @@ extension AgentSessionWebRenderer {
             }
         }
 
+        private func applyThemeToLoadedPage() {
+            guard let webView,
+                  let data = try? JSONSerialization.data(withJSONObject: theme.dictionary),
+                  let json = String(data: data, encoding: .utf8) else {
+                return
+            }
+            webView.evaluateJavaScript("window.cmuxAgentBridge?.applyTheme(\(json));") { _, error in
+#if DEBUG
+                if let error {
+                    cmuxDebugLog("agentSession.web.theme.failed error=\(error.localizedDescription)")
+                }
+#else
+                _ = error
+#endif
+            }
+            sendEvent([
+                "type": "app.theme",
+                "theme": theme.dictionary
+            ])
+        }
+
         private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
             switch request.method {
             case "app.context":
@@ -396,6 +527,7 @@ extension AgentSessionWebRenderer {
                     "workspaceId": workspaceId.uuidString,
                     "renderer": rendererKind.rawValue,
                     "initialProviderId": initialProviderID.rawValue,
+                    "theme": theme.dictionary,
                     "copy": [
                         "start": String(localized: "agentSession.web.start", defaultValue: "Start"),
                         "stop": String(localized: "agentSession.web.stop", defaultValue: "Stop"),
@@ -417,7 +549,8 @@ extension AgentSessionWebRenderer {
                         "displayName": provider.displayName,
                         "executableName": provider.executableName,
                         "transportKind": provider.transportKind,
-                        "arguments": provider.launchArguments
+                        "arguments": provider.launchArguments,
+                        "autoStart": provider.shouldAutoStartSession
                     ] as [String: Any]
                 }
             case "provider.start":
