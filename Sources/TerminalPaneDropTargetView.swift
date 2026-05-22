@@ -283,7 +283,8 @@ final class PaneDropTargetView: NSView {
             )
         }
 
-        guard let tabId = workspace.bonsplitController.selectedTab(inPane: context.paneId)?.id,
+        let controller = workspace.bonsplitController(containingPane: context.paneId) ?? workspace.bonsplitController
+        guard let tabId = controller.selectedTab(inPane: context.paneId)?.id,
               let panelId = workspace.panelIdFromSurfaceId(tabId),
               let panel = workspace.panels[panelId] else {
             return false
@@ -350,6 +351,14 @@ final class PaneDropTargetView: NSView {
         workspace: Workspace
     ) -> FileDropTextDestinationKind? {
         fileDropTextDestinationKind(context: context, workspace: workspace)
+    }
+
+    func debugHandleFileDropAsText(
+        _ urls: [URL],
+        context: PaneDropContext,
+        workspace: Workspace
+    ) -> Bool {
+        handleFileDropAsText(urls, context: context, workspace: workspace)
     }
 #endif
 
