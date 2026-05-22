@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import SwiftUI
 import WebKit
 
@@ -18,6 +19,7 @@ import WebKit
 ///     is reading.
 struct MarkdownPanelView: View {
     @ObservedObject var panel: MarkdownPanel
+    let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
@@ -87,8 +89,11 @@ struct MarkdownPanelView: View {
                 backgroundColor: appearance.contentBackgroundColor,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
+                paneId: paneId,
                 filePath: panel.filePath,
                 session: panel.rendererSession,
+                visibleInUI: isVisibleInUI && panel.displayMode == .preview,
+                portalPriority: portalPriority,
                 onRequestPanelFocus: onRequestPanelFocus
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

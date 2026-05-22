@@ -31,6 +31,37 @@ final class MarkdownWebView: WKWebView {
     }
 }
 
+@MainActor
+final class MarkdownWebPortalHostView: NSView {
+    var onDidMoveToWindow: (() -> Void)?
+    var onGeometryChanged: (() -> Void)?
+
+    override var isOpaque: Bool {
+        layer?.isOpaque == true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onDidMoveToWindow?()
+        onGeometryChanged?()
+    }
+
+    override func layout() {
+        super.layout()
+        onGeometryChanged?()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        onGeometryChanged?()
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        onGeometryChanged?()
+    }
+}
+
 #if DEBUG
 struct MarkdownRendererDiagnosticsSnapshot: Equatable {
     var makeNSViewCount: Int = 0
@@ -44,9 +75,11 @@ struct MarkdownRendererDiagnosticsSnapshot: Equatable {
     var didFinishCount: Int = 0
     var webContentProcessTerminationCount: Int = 0
     var navigationFailureCount: Int = 0
+    var portalBindCount: Int = 0
+    var portalHideCount: Int = 0
 
     var existingPanelFlickerSignalCount: Int {
-        makeNSViewCount +
+        webViewCreateCount +
             webViewReattachCount +
             dismantleRetainedWebViewCount +
             loadShellCount +
@@ -69,6 +102,8 @@ struct MarkdownRendererDiagnosticsSnapshot: Equatable {
             "\(prefix)DidFinishCount": String(didFinishCount),
             "\(prefix)WebContentProcessTerminationCount": String(webContentProcessTerminationCount),
             "\(prefix)NavigationFailureCount": String(navigationFailureCount),
+            "\(prefix)PortalBindCount": String(portalBindCount),
+            "\(prefix)PortalHideCount": String(portalHideCount),
         ]
         if includeExistingPanelFlickerSignalCount {
             fields["\(prefix)FlickerSignalCount"] = String(existingPanelFlickerSignalCount)

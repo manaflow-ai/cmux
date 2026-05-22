@@ -59,6 +59,7 @@ struct PanelContentView: View {
             if let markdownPanel = panel as? MarkdownPanel {
                 MarkdownPanelView(
                     panel: markdownPanel,
+                    paneId: paneId,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,

@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import SwiftUI
 import WebKit
 
@@ -11,30 +12,100 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let backgroundColor: NSColor
     let panelId: UUID
     let workspaceId: UUID
+    let paneId: PaneID
     let filePath: String
     let session: MarkdownRendererSession
+    let visibleInUI: Bool
+    let portalPriority: Int
     let onRequestPanelFocus: () -> Void
 
     func makeCoordinator() -> Coordinator {
         session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
     }
 
-    func makeNSView(context: Context) -> WKWebView {
-#if DEBUG
-        context.coordinator.recordMakeNSView()
-#endif
-        if let webView = context.coordinator.webView {
-            if webView.superview != nil {
-                webView.removeFromSuperview()
-            }
-            webView.onPointerDown = onRequestPanelFocus
-            webView.navigationDelegate = context.coordinator
-            webView.uiDelegate = context.coordinator
-            applyBackground(to: webView)
-            applyAppearance(to: webView, isDark: theme.isDark)
-            return webView
-        }
+    func makeNSView(context: Context) -> MarkdownWebPortalHostView {
+        let host = MarkdownWebPortalHostView(frame: .zero)
+        applyBackground(to: host)
+        let reusedWebView = context.coordinator.webView != nil
+        let webView = context.coordinator.webView ?? makeWebView(context: context)
 
+        webView.onPointerDown = onRequestPanelFocus
+        applyBackground(to: webView)
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+#if DEBUG
+        context.coordinator.recordMakeNSView(reusedWebView: reusedWebView)
+#endif
+        applyAppearance(to: webView, isDark: theme.isDark)
+
+        configurePortalHost(host, coordinator: context.coordinator)
+        context.coordinator.bindPortal(
+            to: host,
+            visibleInUI: visibleInUI,
+            zPriority: portalPriority,
+            dropContext: BrowserPaneDropContext(workspaceId: workspaceId, panelId: panelId, paneId: paneId),
+            reason: "makeNSView"
+        )
+        return host
+    }
+
+    func updateNSView(_ nsView: MarkdownWebPortalHostView, context: Context) {
+        // Re-bind panel metadata in case SwiftUI recreated the wrapper while
+        // the panel-owned renderer session kept the same coordinator.
+        context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+#if DEBUG
+        context.coordinator.recordUpdateNSView()
+#endif
+        applyBackground(to: nsView)
+        let webView = context.coordinator.ensureWebView(make: { makeWebView(context: context) })
+        webView.onPointerDown = onRequestPanelFocus
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        applyBackground(to: webView)
+        applyAppearance(to: webView, isDark: theme.isDark)
+        configurePortalHost(nsView, coordinator: context.coordinator)
+        context.coordinator.bindPortal(
+            to: nsView,
+            visibleInUI: visibleInUI,
+            zPriority: portalPriority,
+            dropContext: BrowserPaneDropContext(workspaceId: workspaceId, panelId: panelId, paneId: paneId),
+            reason: "updateNSView"
+        )
+        context.coordinator.update(markdown: markdown, theme: theme)
+    }
+
+    static func dismantleNSView(_ nsView: MarkdownWebPortalHostView, coordinator: Coordinator) {
+        nsView.onDidMoveToWindow = nil
+        nsView.onGeometryChanged = nil
+        // The WKWebView is panel-owned and portal-hosted. Do not detach it here:
+        // Bonsplit can rebuild the lightweight SwiftUI host during split changes,
+        // and the portal preserves the visible WebKit surface until the new host binds.
+    }
+
+    /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's
+    /// effective NSAppearance. Forcing it here lets us decouple the markdown
+    /// panel from the system appearance and follow the cmux color scheme.
+    private func applyAppearance(to webView: WKWebView, isDark: Bool) {
+        let appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+        if webView.appearance !== appearance {
+            webView.appearance = appearance
+        }
+    }
+
+    private func applyBackground(to webView: WKWebView) {
+        webView.underPageBackgroundColor = backgroundColor
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = backgroundColor.cgColor
+        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
+    }
+
+    private func applyBackground(to hostView: NSView) {
+        hostView.wantsLayer = true
+        hostView.layer?.backgroundColor = backgroundColor.cgColor
+        hostView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
+    }
+
+    private func makeWebView(context: Context) -> MarkdownWebView {
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
         // Bridge: JS posts to `cmuxLib` to request lazy-loaded libraries
@@ -65,54 +136,28 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
         }
         applyAppearance(to: webView, isDark: theme.isDark)
-
-        context.coordinator.webView = webView
-        context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
+        context.coordinator.installWebView(webView, theme: theme, initialMarkdown: markdown)
         return webView
     }
 
-    func updateNSView(_ nsView: WKWebView, context: Context) {
-        // Re-bind panel metadata in case SwiftUI recreated the wrapper while
-        // the panel-owned renderer session kept the same coordinator.
-        context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
-#if DEBUG
-        context.coordinator.recordUpdateNSView()
-#endif
-        (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
-        applyBackground(to: nsView)
-        applyAppearance(to: nsView, isDark: theme.isDark)
-        context.coordinator.update(markdown: markdown, theme: theme)
-    }
-
-    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
-        if let retainedWebView = coordinator.webView, retainedWebView === nsView {
-#if DEBUG
-            coordinator.recordDismantleRetainedWebView()
-#endif
-            return
+    private func configurePortalHost(
+        _ host: MarkdownWebPortalHostView,
+        coordinator: Coordinator
+    ) {
+        host.onDidMoveToWindow = { [weak host, weak coordinator] in
+            guard let host, let coordinator else { return }
+            coordinator.bindPortal(
+                to: host,
+                visibleInUI: visibleInUI,
+                zPriority: portalPriority,
+                dropContext: BrowserPaneDropContext(workspaceId: workspaceId, panelId: panelId, paneId: paneId),
+                reason: "hostMovedToWindow"
+            )
         }
-        nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
-        nsView.navigationDelegate = nil
-        nsView.uiDelegate = nil
-        (nsView as? MarkdownWebView)?.onPointerDown = nil
-        coordinator.cancelImageLoads()
-    }
-
-    /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's
-    /// effective NSAppearance. Forcing it here lets us decouple the markdown
-    /// panel from the system appearance and follow the cmux color scheme.
-    private func applyAppearance(to webView: WKWebView, isDark: Bool) {
-        let appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
-        if webView.appearance !== appearance {
-            webView.appearance = appearance
+        host.onGeometryChanged = { [weak host, weak coordinator] in
+            guard let host, let coordinator else { return }
+            coordinator.synchronizePortal(for: host)
         }
-    }
-
-    private func applyBackground(to webView: WKWebView) {
-        webView.underPageBackgroundColor = backgroundColor
-        webView.wantsLayer = true
-        webView.layer?.backgroundColor = backgroundColor.cgColor
-        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
     }
 
     @MainActor
@@ -170,18 +215,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             cmuxDebugLog("markdown.renderer.diagnostics.reset panel=\(panelId.uuidString.prefix(5)) file=\(debugFileName) reason=\(reason)")
         }
 
-        func recordMakeNSView() {
-            let reused = webView != nil
-            let hadSuperview = webView?.superview != nil
+        func recordMakeNSView(reusedWebView: Bool) {
             recordDiagnosticsEvent("makeNSView") { snapshot in
                 snapshot.makeNSViewCount += 1
-                if reused {
+                if reusedWebView {
                     snapshot.reuseNSViewCount += 1
                 } else {
                     snapshot.webViewCreateCount += 1
-                }
-                if hadSuperview {
-                    snapshot.webViewReattachCount += 1
                 }
             }
         }
@@ -195,6 +235,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         func recordDismantleRetainedWebView() {
             recordDiagnosticsEvent("dismantleRetainedWebView") { snapshot in
                 snapshot.dismantleRetainedWebViewCount += 1
+            }
+        }
+
+        func recordPortalBind(reason: String, visibleInUI: Bool) {
+            recordDiagnosticsEvent("portalBind reason=\(reason) visible=\(visibleInUI ? 1 : 0)") { snapshot in
+                snapshot.portalBindCount += 1
+                if !visibleInUI {
+                    snapshot.portalHideCount += 1
+                }
             }
         }
 
@@ -216,7 +265,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     "dismantleRetained=\(diagnostics.dismantleRetainedWebViewCount) " +
                     "loadShell=\(diagnostics.loadShellCount) push=\(diagnostics.pushMarkdownCount) " +
                     "didFinish=\(diagnostics.didFinishCount) terminate=\(diagnostics.webContentProcessTerminationCount) " +
-                    "navFail=\(diagnostics.navigationFailureCount)"
+                    "navFail=\(diagnostics.navigationFailureCount) " +
+                    "portalBind=\(diagnostics.portalBindCount) portalHide=\(diagnostics.portalHideCount)"
             )
         }
 #endif
@@ -227,8 +277,63 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             self.filePath = filePath
         }
 
+        func installWebView(
+            _ webView: MarkdownWebView,
+            theme: MarkdownWebTheme,
+            initialMarkdown: String
+        ) {
+            guard self.webView == nil else { return }
+            self.webView = webView
+            loadShell(theme: theme, initialMarkdown: initialMarkdown)
+        }
+
+        func ensureWebView(make: () -> MarkdownWebView) -> MarkdownWebView {
+            if let webView {
+                return webView
+            }
+            return make()
+        }
+
+        func bindPortal(
+            to host: MarkdownWebPortalHostView,
+            visibleInUI: Bool,
+            zPriority: Int,
+            dropContext: BrowserPaneDropContext,
+            reason: String
+        ) {
+            guard let webView else { return }
+            guard host.window != nil else {
+                if !visibleInUI {
+                    BrowserWindowPortalRegistry.hide(webView: webView, source: "markdown.\(reason).hiddenOffWindow")
+#if DEBUG
+                    recordPortalBind(reason: reason, visibleInUI: false)
+#endif
+                }
+                return
+            }
+            BrowserWindowPortalRegistry.bind(
+                webView: webView,
+                to: host,
+                visibleInUI: visibleInUI,
+                zPriority: zPriority
+            )
+            BrowserWindowPortalRegistry.updatePaneDropContext(
+                for: webView,
+                context: visibleInUI ? dropContext : nil
+            )
+#if DEBUG
+            recordPortalBind(reason: reason, visibleInUI: visibleInUI)
+#endif
+        }
+
+        func synchronizePortal(for host: MarkdownWebPortalHostView) {
+            guard webView != nil, host.window != nil else { return }
+            BrowserWindowPortalRegistry.synchronizeForAnchor(host)
+        }
+
         func close() {
             if let webView {
+                BrowserWindowPortalRegistry.discard(webView: webView, source: "markdown.close")
                 webView.stopLoading()
                 webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
                 webView.navigationDelegate = nil
