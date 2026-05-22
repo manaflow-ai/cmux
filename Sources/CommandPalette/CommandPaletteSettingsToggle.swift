@@ -305,14 +305,16 @@ enum CommandPaletteSettingsToggleCommands {
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "warnBeforeQuit",
-                settingsKey: "app.warnBeforeQuit",
+                settingsKey: "app.confirmQuit",
                 title: {
                     String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit")
                 },
                 sectionTitle: app,
-                keywords: ["app.warnBeforeQuit", "warn", "quit", "confirmation", "cmd-q", "exit"],
-                defaultValue: QuitWarningSettings.defaultWarnBeforeQuit,
-                defaultsKey: QuitWarningSettings.warnBeforeQuitKey
+                keywords: ["app.confirmQuit", "app.warnBeforeQuit", "warn", "quit", "confirmation", "cmd-q", "exit"],
+                isOn: { defaults in QuitWarningSettings.isEnabled(defaults: defaults) },
+                setOn: { newValue, defaults, _ in
+                    QuitWarningSettings.setEnabled(newValue, defaults: defaults)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "warnBeforeClosingTab",
