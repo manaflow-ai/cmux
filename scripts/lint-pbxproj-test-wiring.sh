@@ -59,26 +59,78 @@ if [ ! -d "$TESTS_DIR" ]; then
   exit 2
 fi
 
+# Locate the cmuxTests PBXNativeTarget and resolve its Sources build phase
+# UUID. We then slice out just that build phase block and look for files inside
+# it — which is exactly the set of files Xcode compiles into cmuxTests.
+#
+# Targeting the cmuxTests Sources phase specifically (instead of the whole
+# pbxproj) catches three failure modes:
+#   1. File missing entirely (no `<file>.swift in Sources` anywhere).
+#   2. File has a PBXFileReference + group child but no PBXBuildFile /
+#      Sources phase entry (in the project tree but not a member of any
+#      target).
+#   3. File is a member of the wrong target (e.g. cmuxUITests or cmux). Its
+#      `<file>.swift in Sources` lines exist in the pbxproj, so a global grep
+#      would pass, but they are not inside the cmuxTests Sources block.
+# `/* cmuxTests */ = {` appears twice in a typical pbxproj: once for the
+# PBXGroup that holds the test files, and once for the PBXNativeTarget. We
+# only care about the native-target block. Use awk to capture every
+# `/* cmuxTests */ = { ... };` block and keep only the one whose `isa =
+# PBXNativeTarget;` line is present.
+tests_target_block="$(awk '
+  /\/\* cmuxTests \*\/ = \{/ { capture = 1; buf = "" }
+  capture { buf = buf $0 "\n" }
+  capture && /^[[:space:]]*\};[[:space:]]*$/ {
+    if (buf ~ /isa = PBXNativeTarget;/) {
+      print buf
+      exit
+    }
+    capture = 0
+    buf = ""
+  }
+' "$PBXPROJ")"
+
+if [ -z "$tests_target_block" ]; then
+  echo "lint-pbxproj-test-wiring: could not locate cmuxTests PBXNativeTarget in $PBXPROJ" >&2
+  exit 2
+fi
+
+# Xcode UUIDs are conventionally 24 uppercase hex chars, but hand-edited
+# pbxprojs occasionally use 24-char identifiers that include other uppercase
+# letters or digits. Match both.
+tests_sources_uuid="$(printf '%s\n' "$tests_target_block" \
+  | grep -oE '[A-Z0-9]{24} /\* Sources \*/' \
+  | head -n 1 \
+  | awk '{print $1}')"
+
+if [ -z "$tests_sources_uuid" ]; then
+  echo "lint-pbxproj-test-wiring: cmuxTests target has no Sources build phase reference" >&2
+  exit 2
+fi
+
+# Slice the PBXSourcesBuildPhase block whose UUID matches the cmuxTests
+# target's Sources phase reference. The block begins with the UUID/Sources
+# header and ends at the next standalone "};" line.
+tests_sources_block="$(awk -v uuid="$tests_sources_uuid" '
+  $0 ~ uuid " /\\* Sources \\*/ = \\{" { capture = 1 }
+  capture { print }
+  capture && /^[[:space:]]*\};[[:space:]]*$/ { exit }
+' "$PBXPROJ")"
+
+if [ -z "$tests_sources_block" ]; then
+  echo "lint-pbxproj-test-wiring: could not slice cmuxTests Sources build phase (uuid=$tests_sources_uuid)" >&2
+  exit 2
+fi
+
 missing=()
 checked=0
 
 while IFS= read -r -d '' file; do
   base="$(basename "$file")"
   checked=$((checked + 1))
-  # Target membership is what determines whether Xcode actually compiles/runs
-  # the file. Only two pbxproj entries prove target membership, and both carry
-  # the literal `<basename> in Sources` suffix:
-  #   1. PBXBuildFile:           "<UUID> /* <base> in Sources */ = { ... };"
-  #   2. PBXSourcesBuildPhase:   "<UUID> /* <base> in Sources */," (inside the
-  #                              cmuxTests target's Sources build phase)
-  # The bare filename also appears in PBXFileReference + group children, but
-  # those entries are present even when the file is in the project tree but
-  # NOT a member of the cmuxTests target — which is the silently-skipped case
-  # that prompted this lint. Counting only `in Sources` lines guarantees we
-  # catch missing target membership.
-  hits="$(grep -c -- "$base in Sources" "$PBXPROJ" || true)"
-  if [ "$hits" -lt 2 ]; then
-    missing+=("$base (in-Sources hits=$hits)")
+  # Look for the file's entry inside the cmuxTests Sources phase only.
+  if ! printf '%s\n' "$tests_sources_block" | grep -q -- "$base in Sources"; then
+    missing+=("$base")
   fi
 done < <(find "$TESTS_DIR" -maxdepth 1 -type f -name '*.swift' -print0)
 
@@ -87,19 +139,23 @@ if [ "${#missing[@]}" -eq 0 ]; then
   exit 0
 fi
 
-echo "lint-pbxproj-test-wiring: ${#missing[@]} test file(s) not a member of the cmuxTests target in cmux.xcodeproj/project.pbxproj"
+echo "lint-pbxproj-test-wiring: ${#missing[@]} test file(s) not a member of the cmuxTests target's Sources build phase (uuid=$tests_sources_uuid) in cmux.xcodeproj/project.pbxproj"
 for entry in "${missing[@]}"; do
   echo "  - $entry"
 done
 echo ""
-echo "Each cmuxTests/<file>.swift must appear in cmux.xcodeproj/project.pbxproj as:"
+echo "Each cmuxTests/<file>.swift must be wired into cmux.xcodeproj/project.pbxproj"
+echo "as a full target member of cmuxTests:"
 echo "  1. a PBXBuildFile entry (line ends with '<file>.swift in Sources */ = { ... };')"
 echo "  2. a PBXFileReference entry"
 echo "  3. an entry in the cmuxTests group children list"
 echo "  4. an entry in the cmuxTests target's PBXSourcesBuildPhase files"
 echo "     (line ends with '<file>.swift in Sources */,')"
 echo ""
-echo "Entries 1 and 4 are the target-membership lines this lint counts."
+echo "This lint slices the cmuxTests Sources phase and looks for entry 4 there."
+echo "Files wired only into cmuxUITests, cmux, or the project tree (without"
+echo "cmuxTests target membership) are silently skipped by Xcode and will be"
+echo "flagged here."
 echo ""
 echo "Add via Xcode (drag the file into the cmuxTests target) or hand-edit"
 echo "the four blocks (see any wired sibling test as a template)."
