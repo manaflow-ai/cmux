@@ -8926,17 +8926,17 @@ extension TabManager {
                     notificationStore?.notifications(forTabId: workspace.id, surfaceId: panelId) ?? [],
                     into: &hasher
                 )
-                Self.hashRestorableAgentSnapshot(
-                    restorableAgentIndex.snapshot(
-                        workspaceId: workspace.id,
-                        panelId: panelId
-                    ),
-                    into: &hasher
+                let restorableAgent = restorableAgentIndex.snapshot(
+                    workspaceId: workspace.id,
+                    panelId: panelId
                 )
+                Self.hashRestorableAgentSnapshot(restorableAgent, into: &hasher)
                 Self.hashSurfaceResumeBindingSnapshot(
                     workspace.effectiveSurfaceResumeBinding(
                         panelId: panelId,
-                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+                        restorableAgent: restorableAgent,
+                        restorableAgentIndexWasScanned: true
                     ),
                     into: &hasher
                 )

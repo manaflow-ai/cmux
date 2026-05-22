@@ -170,6 +170,10 @@ extension Workspace {
         if let surfaceResumeBindingIndex {
             reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
         }
+        if let restorableAgentIndex {
+            reconcileRestoredAgentSnapshots(using: restorableAgentIndex)
+            reconcileAgentHookSurfaceResumeBindings(using: restorableAgentIndex)
+        }
 
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
@@ -183,14 +187,18 @@ extension Workspace {
 
         let panelSnapshots = allPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
-            .compactMap { panelId in
-                sessionPanelSnapshot(
+            .compactMap { panelId -> SessionPanelSnapshot? in
+                let restorableAgent = restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId)
+                return sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId),
+                    restorableAgent: restorableAgent,
+                    restorableAgentIndexWasScanned: restorableAgentIndex != nil,
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
-                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+                        restorableAgent: restorableAgent,
+                        restorableAgentIndexWasScanned: restorableAgentIndex != nil
                     )
                 )
             }
@@ -407,6 +415,7 @@ extension Workspace {
         panelId: UUID,
         includeScrollback: Bool,
         restorableAgent: SessionRestorableAgentSnapshot?,
+        restorableAgentIndexWasScanned: Bool,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
@@ -424,6 +433,12 @@ extension Workspace {
                 }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
             }
+        } else if restorableAgentIndexWasScanned {
+            if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
+                clearRestoredAgentResumeBinding(panelId: panelId, restoredAgent: restoredAgent)
+            }
+            clearRestoredAgentSnapshot(panelId: panelId)
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         let effectiveRestorableAgent = restoredAgentSnapshotsByPanelId[panelId]
 
@@ -884,21 +899,82 @@ extension Workspace {
         }
     }
 
+    func reconcileRestoredAgentSnapshots(using restorableAgentIndex: RestorableAgentSessionIndex) {
+        for panelId in panels.keys {
+            guard let restoredAgent = restoredAgentSnapshotsByPanelId[panelId],
+                  restorableAgentIndex.snapshot(workspaceId: id, panelId: panelId) == nil else {
+                continue
+            }
+            clearRestoredAgentResumeBinding(panelId: panelId, restoredAgent: restoredAgent)
+            clearRestoredAgentSnapshot(panelId: panelId)
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+        }
+    }
+
+    func reconcileAgentHookSurfaceResumeBindings(using restorableAgentIndex: RestorableAgentSessionIndex) {
+        for (panelId, binding) in Array(surfaceResumeBindingsByPanelId) where binding.isAgentHookBinding {
+            let restorableAgent = restorableAgentIndex.snapshot(workspaceId: id, panelId: panelId)
+            if !agentHookBinding(binding, matches: restorableAgent) {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+            }
+        }
+    }
+
     func effectiveSurfaceResumeBinding(
         panelId: UUID,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        restorableAgent: SessionRestorableAgentSnapshot? = nil,
+        restorableAgentIndexWasScanned: Bool = false
     ) -> SurfaceResumeBindingSnapshot? {
         let storedBinding = surfaceResumeBindingsByPanelId[panelId]
-        guard let surfaceResumeBindingIndex else {
-            return storedBinding
+        let binding: SurfaceResumeBindingSnapshot?
+        if let surfaceResumeBindingIndex {
+            let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
+            if let storedBinding {
+                if let detectedBinding {
+                    if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) {
+                        binding = detectedBinding
+                    } else if storedBinding.isProcessDetected {
+                        binding = nil
+                    } else {
+                        binding = storedBinding
+                    }
+                } else {
+                    binding = storedBinding.isProcessDetected ? nil : storedBinding
+                }
+            } else {
+                binding = detectedBinding
+            }
+        } else {
+            binding = storedBinding
         }
 
-        let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
-        guard let storedBinding else { return detectedBinding }
-        guard let detectedBinding else { return storedBinding.isProcessDetected ? nil : storedBinding }
-        if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) { return detectedBinding }
-        if storedBinding.isProcessDetected { return nil }
-        return storedBinding
+        guard let binding else { return nil }
+        if restorableAgentIndexWasScanned,
+           binding.isAgentHookBinding,
+           !agentHookBinding(binding, matches: restorableAgent) {
+            return nil
+        }
+        return binding
+    }
+
+    private func agentHookBinding(
+        _ binding: SurfaceResumeBindingSnapshot,
+        matches restorableAgent: SessionRestorableAgentSnapshot?
+    ) -> Bool {
+        guard binding.isAgentHookBinding else { return true }
+        guard let restorableAgent else { return false }
+        if let checkpointId = binding.checkpointId,
+           checkpointId != restorableAgent.sessionId {
+            return false
+        }
+        if let kind = binding.kind {
+            if let restorableKind = RestorableAgentKind(rawValue: kind) {
+                return restorableKind == restorableAgent.kind
+            }
+            return kind.compare(restorableAgent.kind.rawValue, options: [.caseInsensitive, .literal]) == .orderedSame
+        }
+        return true
     }
 
     private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
