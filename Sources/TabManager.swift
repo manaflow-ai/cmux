@@ -3012,7 +3012,10 @@ class TabManager: ObservableObject {
         var isDirectory: ObjCBool = false
 
         if !fileManager.fileExists(atPath: currentURL.path, isDirectory: &isDirectory) || !isDirectory.boolValue {
-            currentURL.deleteLastPathComponent()
+            guard let parentURL = parentDirectoryURL(for: currentURL) else {
+                return nil
+            }
+            currentURL = parentURL
         }
 
         while true {
@@ -3035,12 +3038,30 @@ class TabManager: ObservableObject {
                 }
             }
 
-            let parentURL = currentURL.deletingLastPathComponent()
-            if parentURL.path == currentURL.path {
+            guard let parentURL = parentDirectoryURL(for: currentURL) else {
                 return nil
             }
             currentURL = parentURL
         }
+    }
+
+    private nonisolated static func parentDirectoryURL(for url: URL) -> URL? {
+        let currentPath = url.standardizedFileURL.path
+        guard currentPath != "/" else {
+            return nil
+        }
+
+        var components = currentPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard !components.isEmpty else {
+            return nil
+        }
+        components.removeLast()
+
+        let parentPath = components.isEmpty ? "/" : "/" + components.joined(separator: "/")
+        guard parentPath != currentPath else {
+            return nil
+        }
+        return URL(fileURLWithPath: parentPath, isDirectory: true).standardizedFileURL
     }
 
     private nonisolated static func gitDirectoryFromDotGitFile(
