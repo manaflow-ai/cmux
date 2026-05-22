@@ -9794,6 +9794,8 @@ final class Workspace: Identifiable, ObservableObject {
             })
         } else {
             replaceRemoteTerminalDirectorySurfaceIds([])
+            clearSidebarGitMetadata()
+            owningTabManager?.clearWorkspaceLocalGitTrackingForRemoteConfiguration(workspaceId: id)
         }
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         clearRemoteDetectedSurfacePorts()

@@ -2768,6 +2768,11 @@ class TabManager: ObservableObject {
         clearWorkspacePullRequestTracking(workspaceId: workspaceId)
     }
 
+    func clearWorkspaceLocalGitTrackingForRemoteConfiguration(workspaceId: UUID) {
+        clearWorkspaceGitProbes(workspaceId: workspaceId)
+        clearWorkspacePullRequestTracking(workspaceId: workspaceId)
+    }
+
     private func applyWorkspaceGitMetadataSnapshot(
         _ snapshot: InitialWorkspaceGitMetadataSnapshot,
         probeKey: WorkspaceGitProbeKey,

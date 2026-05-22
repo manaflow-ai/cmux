@@ -617,8 +617,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.updatePanelGitBranch(panelId: panelID, branch: "local-main", isDirty: false)
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        XCTAssertNil(workspace.panelGitBranches[panelID])
 
         manager.updateSurfaceDirectory(
             tabId: workspace.id,
