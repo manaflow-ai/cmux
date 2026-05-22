@@ -2449,6 +2449,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "cc_version",
             "cc_entrypoint",
             "cch=",
+            "\\u00e2\\u0089\\u00a4",
+            "\\u00e2\\u0086\\u0092",
             "quota",
             "subscription",
         ] {
@@ -2490,6 +2492,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         url: entry.request.url,
                         requestBody: Data(requestBody.utf8),
                         responseStatus: entry.response.status,
+                        requestHeaders: entry.request.headers.reduce(into: [:]) { result, header in
+                            result[header.name] = header.value
+                        },
                         responseHeaders: entry.response.headers.reduce(into: [:]) { result, header in
                             result[header.name] = header.value
                         },
@@ -2512,22 +2517,46 @@ extension CLINotifyProcessIntegrationRegressionTests {
             var request = URLRequest(url: try XCTUnwrap(URL(string: replay.url)))
             request.httpMethod = replay.method
             request.httpBody = replay.requestBody
+            request.allHTTPHeaderFields = replay.requestHeaders
+            var replayResult: (data: Data?, response: URLResponse?, error: Error?)?
+            let resultLock = NSLock()
 
             let task = session.dataTask(with: request) { data, response, error in
-                defer { expectation.fulfill() }
-                XCTAssertNil(error)
-                let httpResponse = response as? HTTPURLResponse
-                XCTAssertEqual(httpResponse?.statusCode, replay.responseStatus)
-                XCTAssertEqual(data ?? Data(), replay.responseBody)
+                resultLock.lock()
+                replayResult = (data: data, response: response, error: error)
+                resultLock.unlock()
+                expectation.fulfill()
             }
             task.resume()
             wait(for: [expectation], timeout: 3)
+
+            resultLock.lock()
+            let result = replayResult
+            resultLock.unlock()
+
+            XCTAssertNil(result?.error)
+            let httpResponse = result?.response as? HTTPURLResponse
+            XCTAssertEqual(httpResponse?.statusCode, replay.responseStatus)
+            XCTAssertEqual(result?.data ?? Data(), replay.responseBody)
+            assertHeaders(
+                normalizedAgentNetworkHeaderFields(httpResponse?.allHeaderFields ?? [:]),
+                contain: replay.responseHeaders,
+                context: "response \(replay.method) \(replay.url)"
+            )
         }
 
-        XCTAssertEqual(
-            AgentNetworkReplayURLProtocol.observedRequests(),
-            replayResponses.map { AgentNetworkObservedRequest(method: $0.method, url: $0.url, body: $0.requestBody) }
-        )
+        let observedRequests = AgentNetworkReplayURLProtocol.observedRequests()
+        XCTAssertEqual(observedRequests.count, replayResponses.count)
+        for (observed, replay) in zip(observedRequests, replayResponses) {
+            XCTAssertEqual(observed.method, replay.method)
+            XCTAssertEqual(observed.url, replay.url)
+            XCTAssertEqual(observed.body, replay.requestBody)
+            assertHeaders(
+                observed.headers,
+                contain: replay.requestHeaders,
+                context: "request \(replay.method) \(replay.url)"
+            )
+        }
     }
 
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {
@@ -2938,6 +2967,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         return result
     }
+
+    private func assertHeaders(
+        _ actual: [String: String],
+        contain expected: [String: String],
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let normalizedExpected = normalizedAgentNetworkHeaders(expected)
+        for (name, value) in normalizedExpected {
+            XCTAssertEqual(actual[name], value, "\(context) header \(name)", file: file, line: line)
+        }
+    }
 }
 
 private struct AgentNetworkReplayResponse: Equatable {
@@ -2945,6 +2987,7 @@ private struct AgentNetworkReplayResponse: Equatable {
     let url: String
     let requestBody: Data
     let responseStatus: Int
+    let requestHeaders: [String: String]
     let responseHeaders: [String: String]
     let responseBody: Data
 }
@@ -2952,7 +2995,20 @@ private struct AgentNetworkReplayResponse: Equatable {
 private struct AgentNetworkObservedRequest: Equatable {
     let method: String
     let url: String
+    let headers: [String: String]
     let body: Data
+}
+
+private func normalizedAgentNetworkHeaders(_ headers: [String: String]) -> [String: String] {
+    headers.reduce(into: [:]) { result, item in
+        result[item.key.lowercased()] = item.value
+    }
+}
+
+private func normalizedAgentNetworkHeaderFields(_ headers: [AnyHashable: Any]) -> [String: String] {
+    headers.reduce(into: [:]) { result, item in
+        result[String(describing: item.key).lowercased()] = String(describing: item.value)
+    }
 }
 
 private final class AgentNetworkReplayURLProtocol: URLProtocol {
@@ -3008,7 +3064,14 @@ private final class AgentNetworkReplayURLProtocol: URLProtocol {
         let body = Self.bodyData(from: request)
         Self.lock.lock()
         let response = Self.responses[Self.key(method: method, url: url)]
-        Self.observed.append(AgentNetworkObservedRequest(method: method, url: url, body: body))
+        Self.observed.append(
+            AgentNetworkObservedRequest(
+                method: method,
+                url: url,
+                headers: normalizedAgentNetworkHeaders(request.allHTTPHeaderFields ?? [:]),
+                body: body
+            )
+        )
         Self.lock.unlock()
 
         guard let response else {

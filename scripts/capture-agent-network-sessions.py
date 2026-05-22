@@ -29,6 +29,8 @@ PROMPT = "Reply with exactly: cmux-network-capture-ok"
 MARKER = "cmux-network-capture-ok"
 MAX_BODY_BYTES = 12_000
 DEFAULT_OUTPUT = pathlib.Path("cmuxTests/Fixtures/AgentNetworkCaptures.json")
+CAPTURE_ROOT_REPLACEMENTS: set[str] = set()
+UTF8_MOJIBAKE_RE = re.compile(r"(?:[\u00C2\u00C3][\u0080-\u00BF]|\u00E2[\u0080-\u00BF]{2})")
 
 
 @dataclass
@@ -53,6 +55,25 @@ def repo_root() -> pathlib.Path:
 
 def which(name: str) -> str | None:
     return shutil.which(name)
+
+
+def register_capture_root(path: pathlib.Path) -> None:
+    CAPTURE_ROOT_REPLACEMENTS.add(str(path))
+    try:
+        CAPTURE_ROOT_REPLACEMENTS.add(str(path.resolve()))
+    except OSError:
+        pass
+
+
+def repair_utf8_mojibake(value: str) -> str:
+    def replacement(match: re.Match[str]) -> str:
+        matched = match.group(0)
+        try:
+            return matched.encode("latin-1").decode("utf-8")
+        except UnicodeError:
+            return matched
+
+    return UTF8_MOJIBAKE_RE.sub(replacement, value)
 
 
 def run_text(argv: list[str], timeout: int = 10) -> str:
@@ -124,10 +145,15 @@ def sanitize_text(value: str) -> str:
         (home, "${HOME}"),
         (os.environ.get("CLAUDE_CONFIG_DIR", ""), "${CLAUDE_CONFIG_DIR}"),
     ]
+    replacements.extend(
+        (path, "${CAPTURE_ROOT}")
+        for path in sorted(CAPTURE_ROOT_REPLACEMENTS, key=len, reverse=True)
+    )
     result = value
     for old, new in replacements:
         if old:
             result = result.replace(old, new)
+    result = repair_utf8_mojibake(result)
 
     patterns = [
         (r"/var/folders/[^\"'\s]+/cmux-agent-network-captures\.[^/\"'\s]+", "${CAPTURE_ROOT}"),
@@ -573,6 +599,7 @@ def main() -> int:
     root = repo_root()
     output = args.output if args.output.is_absolute() else root / args.output
     capture_root = pathlib.Path(tempfile.mkdtemp(prefix="cmux-agent-network-captures."))
+    register_capture_root(capture_root)
 
     specs, unavailable = agent_specs()
     if args.agent:
