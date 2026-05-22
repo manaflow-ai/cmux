@@ -3370,6 +3370,10 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
         )
 
+        return makeWebView(configuration: config)
+    }
+
+    private static func makeWebView(configuration config: WKWebViewConfiguration) -> CmuxWebView {
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {
@@ -3469,6 +3473,50 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
+        BrowserWebExtensionSupport.register(panel: self)
+    }
+
+    func loadWebExtensionPage(_ url: URL, webViewConfiguration configuration: WKWebViewConfiguration) {
+        let previousWebView = webView
+        let desiredZoom = max(minPageZoom, min(maxPageZoom, previousWebView.pageZoom))
+
+        invalidateSearchFocusRequests(reason: "webExtensionPage")
+        searchState = nil
+        loadingEndWorkItem?.cancel()
+        loadingEndWorkItem = nil
+        faviconTask?.cancel()
+        faviconTask = nil
+        faviconRefreshGeneration &+= 1
+        loadingGeneration &+= 1
+        cancelPendingInteractiveBrowserPrompts(reason: "webExtensionPage")
+
+        webViewObservers.removeAll()
+        webViewCancellables.removeAll()
+        closeBackgroundPreloadHost(reason: "webExtensionPage")
+        BrowserWindowPortalRegistry.detach(webView: previousWebView)
+        previousWebView.stopLoading()
+        isMainFrameProvisionalNavigationActive = false
+        previousWebView.navigationDelegate = nil
+        previousWebView.uiDelegate = nil
+        if let previousCmuxWebView = previousWebView as? CmuxWebView {
+            previousCmuxWebView.onContextMenuDownloadStateChanged = nil
+            previousCmuxWebView.onContextMenuOpenLinkInNewTab = nil
+        }
+
+        let replacement = Self.makeWebView(configuration: configuration)
+        replacement.pageZoom = desiredZoom
+        webViewInstanceID = UUID()
+        resetWebViewLifecycleMetadata(resetVisibility: false)
+        webView = replacement
+        currentURL = url
+        shouldRenderWebView = true
+        nativeCanGoBack = false
+        nativeCanGoForward = false
+        refreshWebViewLifecycleState()
+
+        bindWebView(replacement)
+        applyBrowserThemeModeIfNeeded()
+        navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -3684,7 +3732,6 @@ final class BrowserPanel: Panel, ObservableObject {
         self.uiDelegate = browserUIDelegate
 
         bindWebView(webView)
-        BrowserWebExtensionSupport.register(panel: self)
         installDetachedDeveloperToolsWindowCloseObserver()
         installHiddenWebViewDiscardPolicyObserver()
         applyBrowserThemeModeIfNeeded()
@@ -4024,7 +4071,6 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshWebViewLifecycleState()
 
         bindWebView(replacement)
-        BrowserWebExtensionSupport.register(panel: self)
         applyBrowserThemeModeIfNeeded()
 
         if !history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty {

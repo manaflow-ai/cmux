@@ -277,19 +277,87 @@ struct BrowserWebExtensionInstallResult: Equatable, Sendable {
 struct BrowserWebExtensionProfileState: Codable, Equatable, Sendable {
     var isEnabled: Bool
     var grantedPermissions: [String]
+    var deniedPermissions: [String]
+    var grantedPermissionURLs: [String]
+    var deniedPermissionURLs: [String]
     var grantedPermissionMatchPatterns: [String]
+    var deniedPermissionMatchPatterns: [String]
     var lastError: String?
 
+    init(
+        isEnabled: Bool,
+        grantedPermissions: [String],
+        grantedPermissionMatchPatterns: [String],
+        deniedPermissions: [String] = [],
+        grantedPermissionURLs: [String] = [],
+        deniedPermissionURLs: [String] = [],
+        deniedPermissionMatchPatterns: [String] = [],
+        lastError: String? = nil
+    ) {
+        self.isEnabled = isEnabled
+        self.grantedPermissions = grantedPermissions
+        self.deniedPermissions = deniedPermissions
+        self.grantedPermissionURLs = grantedPermissionURLs
+        self.deniedPermissionURLs = deniedPermissionURLs
+        self.grantedPermissionMatchPatterns = grantedPermissionMatchPatterns
+        self.deniedPermissionMatchPatterns = deniedPermissionMatchPatterns
+        self.lastError = lastError
+    }
+
     func sanitized(sourceKind: BrowserWebExtensionInstallRecord.SourceKind) -> BrowserWebExtensionProfileState {
-        BrowserWebExtensionProfileState(
+        let grantedPermissions = Set(browserWebExtensionHostGrantablePermissionNames(
+            from: grantedPermissions,
+            sourceKind: sourceKind
+        ))
+        let deniedPermissions = Set(browserWebExtensionHostGrantablePermissionNames(
+            from: deniedPermissions,
+            sourceKind: sourceKind
+        )).subtracting(grantedPermissions)
+        let grantedPermissionURLs = Set(grantedPermissionURLs)
+        let deniedPermissionURLs = Set(deniedPermissionURLs).subtracting(grantedPermissionURLs)
+        let grantedPermissionMatchPatterns = Set(grantedPermissionMatchPatterns)
+        let deniedPermissionMatchPatterns = Set(deniedPermissionMatchPatterns)
+            .subtracting(grantedPermissionMatchPatterns)
+
+        return BrowserWebExtensionProfileState(
             isEnabled: isEnabled,
-            grantedPermissions: browserWebExtensionHostGrantablePermissionNames(
-                from: grantedPermissions,
-                sourceKind: sourceKind
-            ).sorted(),
+            grantedPermissions: grantedPermissions.sorted(),
             grantedPermissionMatchPatterns: grantedPermissionMatchPatterns.sorted(),
+            deniedPermissions: deniedPermissions.sorted(),
+            grantedPermissionURLs: grantedPermissionURLs.sorted(),
+            deniedPermissionURLs: deniedPermissionURLs.sorted(),
+            deniedPermissionMatchPatterns: deniedPermissionMatchPatterns.sorted(),
             lastError: lastError
         )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case isEnabled
+        case grantedPermissions
+        case deniedPermissions
+        case grantedPermissionURLs
+        case deniedPermissionURLs
+        case grantedPermissionMatchPatterns
+        case deniedPermissionMatchPatterns
+        case lastError
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        grantedPermissions = try container.decode([String].self, forKey: .grantedPermissions)
+        deniedPermissions = try container.decodeIfPresent([String].self, forKey: .deniedPermissions) ?? []
+        grantedPermissionURLs = try container.decodeIfPresent([String].self, forKey: .grantedPermissionURLs) ?? []
+        deniedPermissionURLs = try container.decodeIfPresent([String].self, forKey: .deniedPermissionURLs) ?? []
+        grantedPermissionMatchPatterns = try container.decode(
+            [String].self,
+            forKey: .grantedPermissionMatchPatterns
+        )
+        deniedPermissionMatchPatterns = try container.decodeIfPresent(
+            [String].self,
+            forKey: .deniedPermissionMatchPatterns
+        ) ?? []
+        lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
     }
 }
 
@@ -305,7 +373,11 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
     var sourcePath: String
     var isEnabled: Bool
     var grantedPermissions: [String]
+    var deniedPermissions: [String]
+    var grantedPermissionURLs: [String]
+    var deniedPermissionURLs: [String]
     var grantedPermissionMatchPatterns: [String]
+    var deniedPermissionMatchPatterns: [String]
     var profileStates: [String: BrowserWebExtensionProfileState]
 
     init(
@@ -317,6 +389,10 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
         isEnabled: Bool,
         grantedPermissions: [String],
         grantedPermissionMatchPatterns: [String],
+        deniedPermissions: [String] = [],
+        grantedPermissionURLs: [String] = [],
+        deniedPermissionURLs: [String] = [],
+        deniedPermissionMatchPatterns: [String] = [],
         profileStates: [String: BrowserWebExtensionProfileState] = [:]
     ) {
         self.id = id
@@ -326,7 +402,11 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
         self.sourcePath = sourcePath
         self.isEnabled = isEnabled
         self.grantedPermissions = grantedPermissions
+        self.deniedPermissions = deniedPermissions
+        self.grantedPermissionURLs = grantedPermissionURLs
+        self.deniedPermissionURLs = deniedPermissionURLs
         self.grantedPermissionMatchPatterns = grantedPermissionMatchPatterns
+        self.deniedPermissionMatchPatterns = deniedPermissionMatchPatterns
         self.profileStates = profileStates
     }
 
@@ -335,6 +415,10 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
             isEnabled: isEnabled,
             grantedPermissions: grantedPermissions,
             grantedPermissionMatchPatterns: grantedPermissionMatchPatterns,
+            deniedPermissions: deniedPermissions,
+            grantedPermissionURLs: grantedPermissionURLs,
+            deniedPermissionURLs: deniedPermissionURLs,
+            deniedPermissionMatchPatterns: deniedPermissionMatchPatterns,
             lastError: nil
         )
     }
@@ -359,7 +443,11 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
         case sourcePath
         case isEnabled
         case grantedPermissions
+        case deniedPermissions
+        case grantedPermissionURLs
+        case deniedPermissionURLs
         case grantedPermissionMatchPatterns
+        case deniedPermissionMatchPatterns
         case profileStates
     }
 
@@ -372,7 +460,14 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
         sourcePath = try container.decode(String.self, forKey: .sourcePath)
         isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
         grantedPermissions = try container.decode([String].self, forKey: .grantedPermissions)
+        deniedPermissions = try container.decodeIfPresent([String].self, forKey: .deniedPermissions) ?? []
+        grantedPermissionURLs = try container.decodeIfPresent([String].self, forKey: .grantedPermissionURLs) ?? []
+        deniedPermissionURLs = try container.decodeIfPresent([String].self, forKey: .deniedPermissionURLs) ?? []
         grantedPermissionMatchPatterns = try container.decode([String].self, forKey: .grantedPermissionMatchPatterns)
+        deniedPermissionMatchPatterns = try container.decodeIfPresent(
+            [String].self,
+            forKey: .deniedPermissionMatchPatterns
+        ) ?? []
         profileStates = try container.decodeIfPresent(
             [String: BrowserWebExtensionProfileState].self,
             forKey: .profileStates
@@ -388,7 +483,11 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
     let sourcePath: String
     let isEnabled: Bool
     let grantedPermissions: [String]
+    let deniedPermissions: [String]
+    let grantedPermissionURLs: [String]
+    let deniedPermissionURLs: [String]
     let grantedPermissionMatchPatterns: [String]
+    let deniedPermissionMatchPatterns: [String]
     let profileStates: [String: BrowserWebExtensionProfileState]
 
     func installRecord() -> BrowserWebExtensionInstallRecord? {
@@ -404,6 +503,10 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
             isEnabled: isEnabled,
             grantedPermissions: grantedPermissions,
             grantedPermissionMatchPatterns: grantedPermissionMatchPatterns,
+            deniedPermissions: deniedPermissions,
+            grantedPermissionURLs: grantedPermissionURLs,
+            deniedPermissionURLs: deniedPermissionURLs,
+            deniedPermissionMatchPatterns: deniedPermissionMatchPatterns,
             profileStates: profileStates
         )
     }
@@ -416,7 +519,11 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
         case sourcePath
         case isEnabled
         case grantedPermissions
+        case deniedPermissions
+        case grantedPermissionURLs
+        case deniedPermissionURLs
         case grantedPermissionMatchPatterns
+        case deniedPermissionMatchPatterns
         case profileStates
     }
 
@@ -429,7 +536,14 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
         sourcePath = try container.decode(String.self, forKey: .sourcePath)
         isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
         grantedPermissions = try container.decode([String].self, forKey: .grantedPermissions)
+        deniedPermissions = try container.decodeIfPresent([String].self, forKey: .deniedPermissions) ?? []
+        grantedPermissionURLs = try container.decodeIfPresent([String].self, forKey: .grantedPermissionURLs) ?? []
+        deniedPermissionURLs = try container.decodeIfPresent([String].self, forKey: .deniedPermissionURLs) ?? []
         grantedPermissionMatchPatterns = try container.decode([String].self, forKey: .grantedPermissionMatchPatterns)
+        deniedPermissionMatchPatterns = try container.decodeIfPresent(
+            [String].self,
+            forKey: .deniedPermissionMatchPatterns
+        ) ?? []
         profileStates = try container.decodeIfPresent(
             [String: BrowserWebExtensionProfileState].self,
             forKey: .profileStates
@@ -651,6 +765,10 @@ final class BrowserWebExtensionInstallStore {
             sourceKind: source.kind
         ).sorted()
         let sanitizedMatchPatterns = grantedPermissionMatchPatterns.sorted()
+        let deniedPermissions = existingRecord?.deniedPermissions ?? []
+        let grantedPermissionURLs = existingRecord?.grantedPermissionURLs ?? []
+        let deniedPermissionURLs = existingRecord?.deniedPermissionURLs ?? []
+        let deniedPermissionMatchPatterns = existingRecord?.deniedPermissionMatchPatterns ?? []
         let profileStates = Dictionary(
             uniqueKeysWithValues: (existingRecord?.profileStates ?? [:]).map { key, state in
                 (
@@ -659,6 +777,10 @@ final class BrowserWebExtensionInstallStore {
                         isEnabled: state.isEnabled,
                         grantedPermissions: sanitizedPermissions,
                         grantedPermissionMatchPatterns: sanitizedMatchPatterns,
+                        deniedPermissions: state.deniedPermissions,
+                        grantedPermissionURLs: state.grantedPermissionURLs,
+                        deniedPermissionURLs: state.deniedPermissionURLs,
+                        deniedPermissionMatchPatterns: state.deniedPermissionMatchPatterns,
                         lastError: state.lastError
                     ).sanitized(sourceKind: source.kind)
                 )
@@ -674,6 +796,10 @@ final class BrowserWebExtensionInstallStore {
             isEnabled: existingRecord?.isEnabled ?? true,
             grantedPermissions: sanitizedPermissions,
             grantedPermissionMatchPatterns: sanitizedMatchPatterns,
+            deniedPermissions: deniedPermissions,
+            grantedPermissionURLs: grantedPermissionURLs,
+            deniedPermissionURLs: deniedPermissionURLs,
+            deniedPermissionMatchPatterns: deniedPermissionMatchPatterns,
             profileStates: profileStates
         )
 
@@ -714,6 +840,56 @@ final class BrowserWebExtensionInstallStore {
         if isEnabled {
             state.lastError = nil
         }
+        nextRecords[index].setProfileState(state, for: profileID)
+        try persist(nextRecords)
+        records = nextRecords
+    }
+
+    func recordRuntimePermissionDecision(
+        granted: Bool,
+        permissions: [String] = [],
+        permissionURLs: [String] = [],
+        permissionMatchPatterns: [String] = [],
+        for recordID: UUID,
+        profileID: UUID
+    ) throws {
+        guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
+        var nextRecords = records
+        var state = nextRecords[index].profileState(for: profileID)
+        let sourceKind = nextRecords[index].sourceKind
+        let grantablePermissions = browserWebExtensionHostGrantablePermissionNames(
+            from: permissions,
+            sourceKind: sourceKind
+        )
+
+        if granted {
+            state.grantedPermissions = Self.union(state.grantedPermissions, grantablePermissions)
+            state.deniedPermissions = Self.subtract(state.deniedPermissions, grantablePermissions)
+            state.grantedPermissionURLs = Self.union(state.grantedPermissionURLs, permissionURLs)
+            state.deniedPermissionURLs = Self.subtract(state.deniedPermissionURLs, permissionURLs)
+            state.grantedPermissionMatchPatterns = Self.union(
+                state.grantedPermissionMatchPatterns,
+                permissionMatchPatterns
+            )
+            state.deniedPermissionMatchPatterns = Self.subtract(
+                state.deniedPermissionMatchPatterns,
+                permissionMatchPatterns
+            )
+        } else {
+            state.deniedPermissions = Self.union(state.deniedPermissions, grantablePermissions)
+            state.grantedPermissions = Self.subtract(state.grantedPermissions, grantablePermissions)
+            state.deniedPermissionURLs = Self.union(state.deniedPermissionURLs, permissionURLs)
+            state.grantedPermissionURLs = Self.subtract(state.grantedPermissionURLs, permissionURLs)
+            state.deniedPermissionMatchPatterns = Self.union(
+                state.deniedPermissionMatchPatterns,
+                permissionMatchPatterns
+            )
+            state.grantedPermissionMatchPatterns = Self.subtract(
+                state.grantedPermissionMatchPatterns,
+                permissionMatchPatterns
+            )
+        }
+
         nextRecords[index].setProfileState(state, for: profileID)
         try persist(nextRecords)
         records = nextRecords
@@ -844,13 +1020,32 @@ final class BrowserWebExtensionInstallStore {
             from: record.grantedPermissions,
             sourceKind: record.sourceKind
         ).sorted()
+        record.deniedPermissions = browserWebExtensionHostGrantablePermissionNames(
+            from: record.deniedPermissions,
+            sourceKind: record.sourceKind
+        ).filter { !record.grantedPermissions.contains($0) }.sorted()
+        record.grantedPermissionURLs = Array(Set(record.grantedPermissionURLs)).sorted()
+        record.deniedPermissionURLs = Array(Set(record.deniedPermissionURLs))
+            .filter { !record.grantedPermissionURLs.contains($0) }
+            .sorted()
         record.grantedPermissionMatchPatterns = record.grantedPermissionMatchPatterns.sorted()
+        record.deniedPermissionMatchPatterns = Array(Set(record.deniedPermissionMatchPatterns))
+            .filter { !record.grantedPermissionMatchPatterns.contains($0) }
+            .sorted()
         record.profileStates = Dictionary(
             uniqueKeysWithValues: record.profileStates.map { key, state in
                 (key, state.sanitized(sourceKind: record.sourceKind))
             }
         )
         return record
+    }
+
+    private static func union(_ lhs: [String], _ rhs: [String]) -> [String] {
+        Array(Set(lhs).union(rhs)).sorted()
+    }
+
+    private static func subtract(_ lhs: [String], _ rhs: [String]) -> [String] {
+        Array(Set(lhs).subtracting(rhs)).sorted()
     }
 
     private static func firstWebExtensionAppExtension(
@@ -1130,7 +1325,6 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     func register(panel: BrowserPanel) {
-        let profileID = panel.profileID
         let key = runtimeKey(for: panel)
         let controller = ensureController(
             runtimeKey: key,
@@ -1343,6 +1537,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         if isEnabled, let record = store.records.first(where: { $0.id == id }) {
             try await load(record: record, profileID: profileID)
         } else {
+            closeActionPopups(recordID: id, profileID: profileID)
+            closeAuxiliaryWindows(recordID: id, profileID: profileID)
             unload(recordID: id, profileID: profileID)
         }
         postDidChange()
@@ -1352,6 +1548,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     func removeExtension(id: UUID) throws {
         cancelRuntimePermissionPrompts()
         closeAllActionPopups()
+        closeAuxiliaryWindows(recordID: id)
         for runtimeKey in controllersByRuntimeKey.keys {
             unload(recordID: id, runtimeKey: runtimeKey)
         }
@@ -1473,6 +1670,18 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             }
         }
         return nil
+    }
+
+    private func extensionWebViewConfiguration(
+        for url: URL?,
+        context: WKWebExtensionContext
+    ) -> WKWebViewConfiguration? {
+        guard let url,
+              let targetContext = context.webExtensionController?.extensionContext(for: url),
+              targetContext === context else {
+            return nil
+        }
+        return context.webViewConfiguration
     }
 
     private func auxiliaryWebViewConfiguration(
@@ -1599,9 +1808,33 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 for: WKWebExtension.Permission(rawPermission)
             )
         }
+        for rawPermission in browserWebExtensionHostGrantablePermissionNames(
+            from: profileState.deniedPermissions,
+            sourceKind: record.sourceKind
+        ) {
+            context.setPermissionStatus(
+                .deniedExplicitly,
+                for: WKWebExtension.Permission(rawPermission)
+            )
+        }
+        for rawURL in profileState.grantedPermissionURLs {
+            if let url = URL(string: rawURL) {
+                context.setPermissionStatus(.grantedExplicitly, for: url)
+            }
+        }
+        for rawURL in profileState.deniedPermissionURLs {
+            if let url = URL(string: rawURL) {
+                context.setPermissionStatus(.deniedExplicitly, for: url)
+            }
+        }
         for rawPattern in profileState.grantedPermissionMatchPatterns {
             if let pattern = try? WKWebExtension.MatchPattern(string: rawPattern) {
                 context.setPermissionStatus(.grantedExplicitly, for: pattern)
+            }
+        }
+        for rawPattern in profileState.deniedPermissionMatchPatterns {
+            if let pattern = try? WKWebExtension.MatchPattern(string: rawPattern) {
+                context.setPermissionStatus(.deniedExplicitly, for: pattern)
             }
         }
         contextsByRuntimeKey[runtimeKey, default: [:]][record.id] = context
@@ -1800,6 +2033,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         let window = BrowserWebExtensionAuxiliaryWindowAdapter(
             runtime: self,
             runtimeKey: runtimeKey,
+            recordID: recordID(for: context),
             configuration: configuration,
             webViewConfiguration: webViewConfiguration,
             customUserAgent: BrowserUserAgentSettings.safariUserAgent,
@@ -1837,15 +2071,28 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             completionHandler(nil, nil)
             return
         }
+        let extensionConfiguration = extensionWebViewConfiguration(
+            for: configuration.url,
+            context: context
+        )
+        let opensExtensionURL = configuration.url.map { url in
+            context.webExtensionController?.extensionContext(for: url) === context
+        } ?? false
+        guard !opensExtensionURL || extensionConfiguration != nil else {
+            completionHandler(nil, nil)
+            return
+        }
         let createdPanel = workspace.newBrowserSurface(
             inPane: paneId,
-            url: configuration.url,
+            url: opensExtensionURL ? nil : configuration.url,
             focus: configuration.shouldBeActive,
             insertAtEnd: true,
             preferredProfileID: opener.profileID
         )
-        if let createdPanel {
-            register(panel: createdPanel)
+        if let createdPanel,
+           let extensionConfiguration,
+           let url = configuration.url {
+            createdPanel.loadWebExtensionPage(url, webViewConfiguration: extensionConfiguration)
         }
         completionHandler(createdPanel.flatMap { tabAdaptersByPanelID[$0.id] }, nil)
     }
@@ -1870,6 +2117,15 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     private func closeAllAuxiliaryWindows() {
         let windows = Array(auxiliaryWindowAdaptersByID.values)
+        for window in windows {
+            window.closeWindow()
+        }
+    }
+
+    private func closeAuxiliaryWindows(recordID: UUID, profileID: UUID? = nil) {
+        let windows = auxiliaryWindowAdaptersByID.values.filter { window in
+            window.recordID == recordID && (profileID == nil || window.profileID == profileID)
+        }
         for window in windows {
             window.closeWindow()
         }
@@ -1911,6 +2167,21 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             postDidChange()
         }
         actionPopupPresentationsByID.removeAll()
+    }
+
+    private func closeActionPopups(recordID: UUID, profileID: UUID? = nil) {
+        let presentations = actionPopupPresentationsByID.values.filter { presentation in
+            guard presentation.actionID == recordID else { return false }
+            guard let profileID else { return true }
+            guard let panelID = presentation.panelID,
+                  let adapter = tabAdaptersByPanelID[panelID] else {
+                return false
+            }
+            return adapter.runtimeKey.profileID == profileID
+        }
+        for presentation in presentations {
+            presentation.close()
+        }
     }
 
     private func showActionPopup(
@@ -2002,7 +2273,20 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             return
         }
         let message = grantablePermissions.map { String($0.rawValue) }.sorted().joined(separator: ", ")
-        promptForRuntimePermission(message: message) { allowed in
+        let recordID = recordID(for: context)
+        let profileID = profileID(for: context)
+        promptForRuntimePermission(message: message) { [weak self] allowed in
+            if let self,
+               let recordID,
+               let profileID {
+                try? self.store.recordRuntimePermissionDecision(
+                    granted: allowed,
+                    permissions: grantablePermissions.map { String($0.rawValue) },
+                    for: recordID,
+                    profileID: profileID
+                )
+                self.postDidChange()
+            }
             completionHandler(allowed ? grantablePermissions : [], nil)
         }
     }
@@ -2023,7 +2307,20 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         completionHandler: @escaping (Set<URL>, Date?) -> Void
     ) {
         let message = urls.map(\.absoluteString).sorted().joined(separator: ", ")
-        promptForRuntimePermission(message: message) { allowed in
+        let recordID = recordID(for: context)
+        let profileID = profileID(for: context)
+        promptForRuntimePermission(message: message) { [weak self] allowed in
+            if let self,
+               let recordID,
+               let profileID {
+                try? self.store.recordRuntimePermissionDecision(
+                    granted: allowed,
+                    permissionURLs: urls.map(\.absoluteString),
+                    for: recordID,
+                    profileID: profileID
+                )
+                self.postDidChange()
+            }
             completionHandler(allowed ? urls : [], nil)
         }
     }
@@ -2036,7 +2333,20 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         completionHandler: @escaping (Set<WKWebExtension.MatchPattern>, Date?) -> Void
     ) {
         let message = matchPatterns.map(\.string).sorted().joined(separator: ", ")
-        promptForRuntimePermission(message: message) { allowed in
+        let recordID = recordID(for: context)
+        let profileID = profileID(for: context)
+        promptForRuntimePermission(message: message) { [weak self] allowed in
+            if let self,
+               let recordID,
+               let profileID {
+                try? self.store.recordRuntimePermissionDecision(
+                    granted: allowed,
+                    permissionMatchPatterns: matchPatterns.map(\.string),
+                    for: recordID,
+                    profileID: profileID
+                )
+                self.postDidChange()
+            }
             completionHandler(allowed ? matchPatterns : [], nil)
         }
     }
@@ -2391,6 +2701,7 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
     let createdAt = Date()
     let runtimeKey: BrowserWebExtensionRuntimeKey
     let profileID: UUID
+    let recordID: UUID?
     let tabAdapter: BrowserWebExtensionAuxiliaryTabAdapter
 
     private weak var runtime: BrowserWebExtensionRuntime?
@@ -2415,6 +2726,7 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
     init(
         runtime: BrowserWebExtensionRuntime,
         runtimeKey: BrowserWebExtensionRuntimeKey,
+        recordID: UUID?,
         configuration: WKWebExtension.WindowConfiguration,
         webViewConfiguration: WKWebViewConfiguration,
         customUserAgent: String,
@@ -2424,6 +2736,7 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
         self.runtime = runtime
         self.runtimeKey = runtimeKey
         self.profileID = runtimeKey.profileID
+        self.recordID = recordID
         self.windowType = configuration.windowType
         self.isPrivateWindow = configuration.shouldBePrivate
 

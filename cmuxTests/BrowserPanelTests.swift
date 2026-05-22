@@ -358,6 +358,59 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertNil(reloaded.summaries(profileID: profileA).first?.lastError)
     }
 
+    func testRuntimePermissionDecisionsPersistPerProfile() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registryURL = root.appendingPathComponent("registry.json")
+        let store = BrowserWebExtensionInstallStore(registryURL: registryURL)
+        let appexURL = root.appendingPathComponent("Bitwarden.appex", isDirectory: true)
+        try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
+        let record = try store.installRecord(
+            from: try store.discoverSource(from: appexURL, developerModeEnabled: true),
+            displayName: "Bitwarden",
+            displayVersion: "1.0",
+            grantedPermissions: ["storage"],
+            grantedPermissionMatchPatterns: []
+        )
+        let profileA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let profileB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+
+        try store.recordRuntimePermissionDecision(
+            granted: true,
+            permissions: ["tabs", "madeUpPermission"],
+            permissionURLs: ["https://vault.example/account"],
+            permissionMatchPatterns: ["https://vault.example/*"],
+            for: record.id,
+            profileID: profileA
+        )
+        try store.recordRuntimePermissionDecision(
+            granted: false,
+            permissions: ["clipboardRead"],
+            permissionURLs: ["https://blocked.example/login"],
+            permissionMatchPatterns: ["https://blocked.example/*"],
+            for: record.id,
+            profileID: profileA
+        )
+
+        let reloaded = BrowserWebExtensionInstallStore(registryURL: registryURL)
+        let profileAState = try XCTUnwrap(reloaded.records.first?.profileState(for: profileA))
+        XCTAssertEqual(profileAState.grantedPermissions, ["storage", "tabs"])
+        XCTAssertEqual(profileAState.deniedPermissions, ["clipboardRead"])
+        XCTAssertEqual(profileAState.grantedPermissionURLs, ["https://vault.example/account"])
+        XCTAssertEqual(profileAState.deniedPermissionURLs, ["https://blocked.example/login"])
+        XCTAssertEqual(profileAState.grantedPermissionMatchPatterns, ["https://vault.example/*"])
+        XCTAssertEqual(profileAState.deniedPermissionMatchPatterns, ["https://blocked.example/*"])
+
+        let profileBState = try XCTUnwrap(reloaded.records.first?.profileState(for: profileB))
+        XCTAssertEqual(profileBState.grantedPermissions, ["storage"])
+        XCTAssertTrue(profileBState.deniedPermissions.isEmpty)
+        XCTAssertTrue(profileBState.grantedPermissionURLs.isEmpty)
+        XCTAssertTrue(profileBState.deniedPermissionURLs.isEmpty)
+        XCTAssertTrue(profileBState.grantedPermissionMatchPatterns.isEmpty)
+        XCTAssertTrue(profileBState.deniedPermissionMatchPatterns.isEmpty)
+    }
+
     func testReloadClearsRecordsWhenRegistryIsMissing() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
