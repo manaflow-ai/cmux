@@ -14,6 +14,7 @@ struct CmuxTaskManagerRow: Identifiable {
         case process
         case programAggregate
         case codingAgentAggregate
+        case childMemoryAggregate
 
         var systemImage: String {
             switch self {
@@ -27,6 +28,7 @@ struct CmuxTaskManagerRow: Identifiable {
             case .process: return "gearshape"
             case .programAggregate: return "gearshape.2"
             case .codingAgentAggregate: return "sparkles"
+            case .childMemoryAggregate: return "memorychip"
             }
         }
 
@@ -42,6 +44,7 @@ struct CmuxTaskManagerRow: Identifiable {
             case .process: return .secondary
             case .programAggregate: return .accentColor
             case .codingAgentAggregate: return .accentColor
+            case .childMemoryAggregate: return .pink
             }
         }
     }
@@ -320,6 +323,123 @@ struct CmuxTaskManagerResources {
     }
 }
 
+struct CmuxTaskManagerMemoryDiagnostic: Sendable {
+    let summary: String
+    let appFootprintBytes: Int64
+    let appResidentBytes: Int64
+    let childRSSBytes: Int64
+    let childProcessCount: Int
+    let groups: [CmuxTaskManagerMemoryGroup]
+
+    init?(_ payload: [String: Any]?) {
+        guard let payload else { return nil }
+        let app = payload["app"] as? [String: Any] ?? [:]
+        let children = payload["children"] as? [String: Any] ?? [:]
+        self.summary = Self.string(payload["summary"]) ?? ""
+        self.appFootprintBytes = Self.int64(app["physical_footprint_bytes"])
+        self.appResidentBytes = Self.int64(app["resident_bytes"])
+        self.childRSSBytes = Self.int64(children["recursive_rss_bytes"])
+        self.childProcessCount = Self.int(children["process_count"]) ?? 0
+        self.groups = (children["groups"] as? [[String: Any]] ?? [])
+            .compactMap(CmuxTaskManagerMemoryGroup.init)
+    }
+
+    static func string(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func int64(_ raw: Any?) -> Int64 {
+        if let value = raw as? Int64 { return value }
+        if let value = raw as? Int { return Int64(value) }
+        if let value = raw as? NSNumber { return value.int64Value }
+        if let value = raw as? String,
+           let parsed = Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return parsed
+        }
+        return 0
+    }
+
+    static func int(_ raw: Any?) -> Int? {
+        if let value = raw as? Int { return value }
+        if let value = raw as? NSNumber { return value.intValue }
+        if let value = raw as? String {
+            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
+    }
+
+    static func intArray(_ raw: Any?) -> [Int] {
+        if let values = raw as? [Int] { return values }
+        guard let values = raw as? [Any] else { return [] }
+        return values.compactMap(int)
+    }
+}
+
+struct CmuxTaskManagerMemoryGroup: Sendable {
+    let id: String
+    let name: String
+    let rssBytes: Int64
+    let processCount: Int
+    let processIds: [Int]
+    let topAttribution: CmuxTaskManagerMemoryAttribution?
+
+    init?(_ payload: [String: Any]) {
+        guard let name = CmuxTaskManagerMemoryDiagnostic.string(payload["name"]) else {
+            return nil
+        }
+        let processCount = CmuxTaskManagerMemoryDiagnostic.int(payload["process_count"]) ?? 0
+        guard processCount > 0 else { return nil }
+        self.id = CmuxTaskManagerMemoryDiagnostic.string(payload["id"]) ?? name.lowercased()
+        self.name = name
+        self.rssBytes = CmuxTaskManagerMemoryDiagnostic.int64(payload["rss_bytes"])
+        self.processCount = processCount
+        self.processIds = CmuxTaskManagerMemoryDiagnostic.intArray(payload["pids"])
+        self.topAttribution = CmuxTaskManagerMemoryAttribution(payload["top_attribution"] as? [String: Any])
+    }
+}
+
+struct CmuxTaskManagerMemoryAttribution: Sendable {
+    let workspaceId: UUID?
+    let workspaceRef: String?
+    let paneId: UUID?
+    let paneRef: String?
+    let surfaceId: UUID?
+    let surfaceRef: String?
+    let surfaceType: String?
+
+    init?(_ payload: [String: Any]?) {
+        guard let payload else { return nil }
+        self.workspaceId = Self.uuid(payload["workspace_id"])
+        self.workspaceRef = CmuxTaskManagerMemoryDiagnostic.string(payload["workspace_ref"])
+        self.paneId = Self.uuid(payload["pane_id"])
+        self.paneRef = CmuxTaskManagerMemoryDiagnostic.string(payload["pane_ref"])
+        self.surfaceId = Self.uuid(payload["surface_id"])
+        self.surfaceRef = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_ref"])
+        self.surfaceType = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_type"])
+        if workspaceId == nil,
+           workspaceRef == nil,
+           paneId == nil,
+           paneRef == nil,
+           surfaceId == nil,
+           surfaceRef == nil,
+           surfaceType == nil {
+            return nil
+        }
+    }
+
+    private static func uuid(_ raw: Any?) -> UUID? {
+        if let value = raw as? UUID {
+            return value
+        }
+        guard let value = CmuxTaskManagerMemoryDiagnostic.string(raw) else {
+            return nil
+        }
+        return UUID(uuidString: value)
+    }
+}
+
 enum CmuxTaskManagerFormat {
     private static let isoFormatter = ISO8601DateFormatter()
     private static let timeFormatter: DateFormatter = {
@@ -439,6 +559,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             launchKinds: ["gemini"],
             directBasenames: ["gemini"],
             argumentNeedles: ["gemini"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "antigravity",
+            displayName: "Antigravity",
+            assetName: "AgentIcons/Antigravity",
+            launchKinds: ["antigravity", "agy"],
+            directBasenames: ["agy", "antigravity"],
+            argumentNeedles: ["antigravity-cli", "antigravity"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
             id: "rovodev",

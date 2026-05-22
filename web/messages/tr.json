@@ -300,7 +300,12 @@
       "browserHostsEmbed": "Gömülü Tarayıcıda Açılacak Ana Bilgisayarlar: terminal çıktısından tıklanan bağlantılara uygulanır. Bu listedeki ana bilgisayarlar cmux'ta açılır; diğer ana bilgisayarlar varsayılan tarayıcınızda açılır. Satır başına bir ana bilgisayar veya joker karakter destekler (örneğin: example.com, *.internal.example).",
       "browserHostsHttp": "Gömülü Tarayıcıda İzin Verilen HTTP Ana Bilgisayarları: yalnızca HTTP (HTTPS olmayan) URL'lere uygulanır. Bu listedeki ana bilgisayarlar cmux'ta uyarı istemeden açılabilir. Varsayılanlar localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 ve *.localtest.me'yi içerir.",
       "exampleConfig": "Örnek yapılandırma",
-      "metaTitle": "Yapılandırma"
+      "metaTitle": "Yapılandırma",
+      "schemaDescriptions": {
+        "automation": {
+          "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar."
+        }
+      }
     },
     "customCommands": {
       "title": "Özel Komutlar",

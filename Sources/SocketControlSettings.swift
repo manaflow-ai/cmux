@@ -505,10 +505,30 @@ struct SocketControlSettings {
         if isTruthy(environment[allowSocketPathOverrideKey]) {
             return true
         }
+        if inheritedBundleIdentifierConflicts(environment: environment, bundleIdentifier: bundleIdentifier) {
+            return false
+        }
         if isDebugLikeBundleIdentifier(bundleIdentifier) || isStagingBundleIdentifier(bundleIdentifier) {
             return true
         }
         return isDebugBuild
+    }
+
+    private static func inheritedBundleIdentifierConflicts(
+        environment: [String: String],
+        bundleIdentifier: String?
+    ) -> Bool {
+        guard let inheritedBundleIdentifier = normalizedBundleIdentifier(environment["CMUX_BUNDLE_ID"]),
+              let bundleIdentifier = normalizedBundleIdentifier(bundleIdentifier) else {
+            return false
+        }
+        return inheritedBundleIdentifier != bundleIdentifier
+    }
+
+    private static func normalizedBundleIdentifier(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     static func isDebugLikeBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
