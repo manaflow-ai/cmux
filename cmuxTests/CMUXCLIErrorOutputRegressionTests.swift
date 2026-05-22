@@ -173,6 +173,44 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
+    func testBundledCLIHonorsAllowedEnvironmentSocketOverrideBeforeRecovery() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-override-\(UUID().uuidString.lowercased())"
+        let taggedSocketPath = try taggedSocketURL(tagSlug: tagSlug).path
+        let overrideSocketPath = "/tmp/cmux-override-\(UUID().uuidString).sock"
+        try? FileManager.default.removeItem(atPath: overrideSocketPath)
+
+        let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "TAGGED")
+        defer { taggedResponder.stop() }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.debug.\(tagSlug.replacingOccurrences(of: "-", with: "."))"
+        environment["CMUX_WORKSPACE_ID"] = UUID().uuidString
+        environment["CMUX_SOCKET_PATH"] = overrideSocketPath
+        environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains(overrideSocketPath), result.stdout)
+        XCTAssertEqual(taggedResponder.receivedRequests, [])
+    }
+
     func testThemesSetReloadsRunningAppAfterEveryThemeWrite() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default

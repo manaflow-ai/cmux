@@ -80,6 +80,7 @@ enum CLISocketPathSource {
 }
 
 enum CLISocketPathResolver {
+    private static let allowSocketPathOverrideKey = "CMUX_ALLOW_SOCKET_OVERRIDE"
     private static let appSupportDirectoryName = "cmux"
     private static let stableSocketFileName = SocketPathMarkerFiles.stableSocketFileName
     private static let legacyAppSupportSocketFileName = "cmux.sock"
@@ -128,13 +129,17 @@ enum CLISocketPathResolver {
             return requestedPath
         }
 
-        if source == .environment && canConnect(to: requestedPath) {
+        if source == .environment && isTruthy(environment[allowSocketPathOverrideKey]) {
             return requestedPath
         }
 
         if source == .environment && !shouldRecoverEnvironmentSocketPath(
             environment: environment
         ) {
+            return requestedPath
+        }
+
+        if source == .environment && canConnect(to: requestedPath) {
             return requestedPath
         }
 
@@ -418,6 +423,16 @@ enum CLISocketPathResolver {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func isTruthy(_ raw: String?) -> Bool {
+        guard let raw else { return false }
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func stableSocketDirectoryURL() -> URL? {
