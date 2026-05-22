@@ -5701,7 +5701,11 @@ struct CMUXCLI {
         let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
         let workspaceHandles = try rawRefs.map { rawRef in
             guard let workspaceHandle = try normalizeWorkspaceHandle(rawRef, client: client, windowHandle: windowHandle) else {
-                throw CLIError(message: "Workspace not found: \(rawRef)")
+                let messageFormat = String(
+                    localized: "cli.reorderWorkspaces.error.workspaceNotFound",
+                    defaultValue: "Workspace not found: %@"
+                )
+                throw CLIError(message: String(format: messageFormat, rawRef))
             }
             return workspaceHandle
         }
@@ -5726,14 +5730,20 @@ struct CMUXCLI {
         dryRun: Bool
     ) -> [String] {
         let planItems = payload["plan"] as? [[String: Any]] ?? [payload]
-        let prefix = dryRun
-            ? String(localized: "cli.reorderWorkspaces.result.planPrefix", defaultValue: "OK plan")
-            : String(localized: "common.ok", defaultValue: "OK")
+        let lineFormat = dryRun
+            ? String(
+                localized: "cli.reorderWorkspaces.result.planLine",
+                defaultValue: "OK plan workspace=%@ window=%@ index=%@"
+            )
+            : String(
+                localized: "cli.reorderWorkspaces.result.appliedLine",
+                defaultValue: "OK workspace=%@ window=%@ index=%@"
+            )
         return planItems.map { item in
             let workspace = formatHandle(item, kind: "workspace", idFormat: idFormat) ?? "unknown"
             let window = formatHandle(item, kind: "window", idFormat: idFormat) ?? "unknown"
             let index = item["to_index"] ?? item["index"] ?? "?"
-            return "\(prefix) workspace=\(workspace) window=\(window) index=\(index)"
+            return String(format: lineFormat, workspace, window, String(describing: index))
         }
     }
 
