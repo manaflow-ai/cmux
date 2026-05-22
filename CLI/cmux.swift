@@ -436,6 +436,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastEmittedNotificationAt: TimeInterval?
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
+    var activePromptTurnId: String?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
 }
@@ -534,6 +535,7 @@ private final class ClaudeHookSessionStore {
         surfaceId: String,
         cwd: String?,
         transcriptPath: String? = nil,
+        turnId: String? = nil,
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
@@ -567,6 +569,16 @@ private final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
+            let normalizedTurnId = normalizeOptional(turnId)
+            if let normalizedTurnId {
+                let activeTurnId = normalizeOptional(record.activePromptTurnId)
+                if activeTurnId != nil, activeTurnId != normalizedTurnId {
+                    record.activePromptDepth = nil
+                } else if activeTurnId == nil, max(0, record.activePromptDepth ?? 0) > 0 {
+                    record.activePromptDepth = nil
+                }
+                record.activePromptTurnId = normalizedTurnId
+            }
             record.activePromptDepth = max(0, record.activePromptDepth ?? 0) + 1
             state.sessions[normalized] = record
             return (record.activePromptDepth ?? 0) > 1
@@ -580,6 +592,7 @@ private final class ClaudeHookSessionStore {
         surfaceId: String,
         cwd: String?,
         transcriptPath: String? = nil,
+        turnId: String? = nil,
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         lastSubtitle: String?,
@@ -619,7 +632,33 @@ private final class ClaudeHookSessionStore {
                 now: now
             )
             let depthAfterStop = max(0, depthBeforeStop - 1)
-            record.activePromptDepth = depthAfterStop == 0 ? nil : depthAfterStop
+            let normalizedTurnId = normalizeOptional(turnId)
+            let activeTurnId = normalizeOptional(record.activePromptTurnId)
+            let hasStalePromptDepthForDifferentTurn: Bool
+            if let normalizedTurnId {
+                if let activeTurnId {
+                    hasStalePromptDepthForDifferentTurn = activeTurnId != normalizedTurnId
+                } else {
+                    hasStalePromptDepthForDifferentTurn = depthBeforeStop > 0
+                }
+            } else {
+                hasStalePromptDepthForDifferentTurn = false
+            }
+            if hasStalePromptDepthForDifferentTurn {
+                record.activePromptDepth = nil
+                record.activePromptTurnId = nil
+                state.sessions[normalized] = record
+                return false
+            }
+            if depthAfterStop == 0 {
+                record.activePromptDepth = nil
+                record.activePromptTurnId = nil
+            } else {
+                record.activePromptDepth = depthAfterStop
+                if let normalizedTurnId {
+                    record.activePromptTurnId = normalizedTurnId
+                }
+            }
             state.sessions[normalized] = record
             return depthBeforeStop > 1
         }
@@ -664,6 +703,7 @@ private final class ClaudeHookSessionStore {
                 lastEmittedNotificationAt: nil,
                 runtimeStatus: nil,
                 activePromptDepth: nil,
+                activePromptTurnId: nil,
                 startedAt: now,
                 updatedAt: now
             )
@@ -719,6 +759,7 @@ private final class ClaudeHookSessionStore {
             lastEmittedNotificationAt: nil,
             runtimeStatus: nil,
             activePromptDepth: nil,
+            activePromptTurnId: nil,
             startedAt: now,
             updatedAt: now
         )
@@ -24314,6 +24355,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    turnId: input.turnId,
                     pid: pid,
                     launchCommand: launchCommand
                 )) ?? false
@@ -24508,6 +24550,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     surfaceId: surfaceId,
                     cwd: cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    turnId: input.turnId,
                     pid: pid,
                     launchCommand: launchCommand,
                     lastSubtitle: nil,
