@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CMUXWorkstream
 import CoreFoundation
 import CryptoKit
 import Darwin
@@ -19336,7 +19337,15 @@ struct CMUXCLI {
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
-            "additional_details", "additionalDetails", "description",
+            "additional_details", "additionalDetails", "description", "model", "subagent_model", "subagentModel",
+            "parent_workstream_id", "parentWorkstreamId", "parent_workstream", "parentWorkstream",
+            "parent_session_id", "parentSessionId", "parentSessionID",
+            "child_workstream_id", "childWorkstreamId", "child_session_id", "childSessionId", "childSessionID",
+            "subagent_workstream_id", "subagentWorkstreamId", "subagent_session_id", "subagentSessionId",
+            "parent_source", "parentSource", "parent_agent_source", "parentAgentSource",
+            "child_source", "childSource", "subagent_source", "subagentSource",
+            "subagent_type", "subagentType", "agent_type", "agentType",
+            "task_description", "taskDescription", "name",
         ] {
             if let value = compactClaudeHookValue(object[key], key: key) {
                 compact[key] = value
@@ -19345,7 +19354,18 @@ struct CMUXCLI {
 
         if let toolInput = object["tool_input"] as? [String: Any] {
             var compactToolInput: [String: Any] = [:]
-            for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
+            for key in [
+                "file_path", "command", "pattern", "description", "query", "plan", "planFilePath",
+                "prompt", "message", "model", "subagent_model", "subagentModel",
+                "parent_workstream_id", "parentWorkstreamId", "parent_workstream", "parentWorkstream",
+                "parent_session_id", "parentSessionId", "parentSessionID",
+                "child_workstream_id", "childWorkstreamId", "child_session_id", "childSessionId", "childSessionID",
+                "subagent_workstream_id", "subagentWorkstreamId", "subagent_session_id", "subagentSessionId",
+                "parent_source", "parentSource", "parent_agent_source", "parentAgentSource",
+                "child_source", "childSource", "subagent_source", "subagentSource",
+                "subagent_type", "subagentType", "agent_type", "agentType",
+                "task_description", "taskDescription", "title", "name",
+            ] {
                 if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
                     compactToolInput[key] = value
                 }
@@ -19412,7 +19432,7 @@ struct CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source":
+        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "model", "subagent_model", "subagentModel", "subagent_type", "subagentType", "agent_type", "agentType":
             return 80
         case "transcript_path", "transcriptPath":
             return 240
@@ -25211,6 +25231,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         ) {
             event["context"] = context
         }
+        copyAgentGraphMetadata(to: &event, rawObject: parsedInput.object, toolName: toolName)
         enrichUserPromptSubmitFeedEvent(
             &event,
             hookEventName: hookEventName,
@@ -25299,6 +25320,56 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return true
         default:
             return false
+        }
+    }
+
+    private func copyAgentGraphMetadata(
+        to event: inout [String: Any],
+        rawObject: [String: Any]?,
+        toolName: String?
+    ) {
+        guard let rawObject else { return }
+        let graphKeys = [
+            "parent_workstream_id", "parentWorkstreamId", "parent_workstream", "parentWorkstream",
+            "parent_session_id", "parentSessionId", "parentSessionID",
+            "child_workstream_id", "childWorkstreamId", "subagent_workstream_id", "subagentWorkstreamId",
+            "child_session_id", "childSessionId", "childSessionID", "subagent_session_id", "subagentSessionId",
+            "parent_source", "parentSource", "parent_agent_source", "parentAgentSource",
+            "child_source", "childSource", "subagent_source", "subagentSource",
+            "subagent_type", "subagentType", "agent_type", "agentType",
+            "model", "subagent_model", "subagentModel",
+            "task_description", "taskDescription",
+        ]
+        let genericKeys = ["description", "title", "name"]
+
+        func copyValue(_ raw: Any?, key: String) {
+            guard event[key] == nil else { return }
+            if let value = raw as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    event[key] = trimmed
+                }
+            } else if let value = raw as? NSNumber {
+                event[key] = value.stringValue
+            }
+        }
+
+        for key in graphKeys {
+            copyValue(rawObject[key], key: key)
+        }
+
+        let isSpawnTool = toolName.map(WorkstreamAgentSpawnTool.isSpawnToolName) ?? false
+        if isSpawnTool {
+            for key in genericKeys {
+                copyValue(rawObject[key], key: key)
+            }
+        }
+
+        guard isSpawnTool,
+              let toolInput = feedToolInputDictionary(rawObject["tool_input"])
+        else { return }
+        for key in graphKeys + genericKeys + ["prompt", "message"] {
+            copyValue(toolInput[key], key: key)
         }
     }
 
@@ -27159,6 +27230,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         ) {
             eventDict["context"] = context
         }
+        copyAgentGraphMetadata(to: &eventDict, rawObject: stdinObj, toolName: toolName)
         enrichUserPromptSubmitFeedEvent(
             &eventDict,
             hookEventName: hookEventName,

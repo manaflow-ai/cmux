@@ -2,12 +2,6 @@ import AppKit
 import Bonsplit
 import CMUXWorkstream
 import SwiftUI
-#if DEBUG
-private func feedDebugResponderSummary(_ responder: NSResponder?) -> String {
-    guard let responder else { return "nil" }
-    return String(describing: type(of: responder))
-}
-#endif
 
 private extension WorkstreamPermissionMode {
     var displayLabel: String {
@@ -54,6 +48,7 @@ struct FeedPanelView: View {
     enum Filter: String, CaseIterable, Identifiable {
         case actionable
         case activity
+        case agentTree
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -61,18 +56,21 @@ struct FeedPanelView: View {
                 return String(localized: "feed.filter.actionable", defaultValue: "Actionable")
             case .activity:
                 return String(localized: "feed.filter.activity", defaultValue: "All Activity")
+            case .agentTree:
+                return String(localized: "feed.filter.agentTree", defaultValue: "Tree")
             }
         }
         var symbolName: String {
             switch self {
             case .actionable: return "exclamationmark.circle"
             case .activity: return "checklist"
+            case .agentTree: return "point.3.connected.trianglepath.dotted"
             }
         }
     }
 
     @State private var filter: Filter = .actionable
-    @StateObject private var viewModel = FeedPanelViewModel()
+    @State private var viewModel = FeedPanelViewModel()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -80,10 +78,17 @@ struct FeedPanelView: View {
             FeedListView(
                 filter: filter,
                 items: viewModel.items,
+                agentGraphSnapshot: viewModel.agentGraphSnapshot,
                 hasMorePersistedItems: viewModel.hasMorePersistedItems,
                 isLoadingOlderItems: viewModel.isLoadingOlderItems,
                 onLoadOlderItems: viewModel.loadOlderItems
             )
+        }
+        .onAppear {
+            viewModel.setAgentTreeActive(filter == .agentTree)
+        }
+        .onChange(of: filter) { _, filter in
+            viewModel.setAgentTreeActive(filter == .agentTree)
         }
     }
 
@@ -154,6 +159,7 @@ private struct FeedSecondaryFilterButton: View {
 private struct FeedListView: View {
     let filter: FeedPanelView.Filter
     let items: [WorkstreamItem]
+    let agentGraphSnapshot: WorkstreamAgentGraphSnapshot
     let hasMorePersistedItems: Bool
     let isLoadingOlderItems: Bool
     let onLoadOlderItems: () -> Void
@@ -162,27 +168,58 @@ private struct FeedListView: View {
     @State private var scrollRequest: FeedScrollRequest?
     @State private var scrollRequestSequence = 0
     @State private var stopDrafts: [UUID: FeedStopDraft] = [:]
+    @State private var agentTreeController = FeedAgentTreeController()
 
     var body: some View {
-        let snapshots = visibleSnapshots(items)
+        let rowActions = FeedRowActions.bound()
+        let snapshots = filter == .agentTree ? [] : visibleSnapshots(items)
         let activityGroups = filter == .activity ? activitySnapshotGroups(snapshots) : nil
         let focusSnapshots = activityGroups?.ordered ?? snapshots
-        let rowActions = FeedRowActions.bound()
+        let visibleAgentTree = agentTreeController.visibleSnapshot(from: agentGraphSnapshot)
         ScrollViewReader { proxy in
             Group {
-                if snapshots.isEmpty && !shouldShowActivityHistoryLoader {
-                    emptyState
-                } else {
-                    contentBody(
-                        snapshots: snapshots,
-                        activityGroups: activityGroups,
-                        actions: rowActions
+                if filter == .agentTree {
+                    FeedAgentTreeView(
+                        graph: agentGraphSnapshot,
+                        rows: visibleAgentTree.rows,
+                        actions: rowActions,
+                        collapsedNodeIds: agentTreeController.collapsedNodeIds,
+                        selectedNodeId: agentTreeController.selectedNodeId,
+                        isKeyboardActive: focusSnapshot.isKeyboardActive,
+                        scrollRequest: agentTreeController.scrollRequest,
+                        showsLoadMore: hasMorePersistedItems,
+                        isLoadingOlderItems: isLoadingOlderItems,
+                        onLoadOlderItems: onLoadOlderItems,
+                        onToggle: { nodeId in
+                            agentTreeController.toggle(nodeId)
+                            let updatedVisibleTree = agentTreeController.visibleSnapshot(from: agentGraphSnapshot)
+                            agentTreeController.reconcileSelection(with: updatedVisibleTree)
+                        },
+                        onSelect: { node in
+                            applyAgentTreeSelectionEffect(
+                                agentTreeController.select(node, focusFeed: false)
+                            )
+                        }
                     )
+                } else {
+                    if snapshots.isEmpty && !shouldShowActivityHistoryLoader {
+                        emptyState
+                    } else {
+                        contentBody(
+                            snapshots: snapshots,
+                            activityGroups: activityGroups,
+                            actions: rowActions
+                        )
+                    }
                 }
             }
-            .onChange(of: scrollRequest) { request in
+            .onChange(of: scrollRequest) { _, request in
                 guard let request else { return }
                 proxy.scrollTo(request.id, anchor: .top)
+            }
+            .onChange(of: agentGraphSnapshot) { _, newSnapshot in
+                let updatedVisibleTree = agentTreeController.visibleSnapshot(from: newSnapshot)
+                agentTreeController.reconcileSelection(with: updatedVisibleTree)
             }
             .background(
                 FeedKeyboardFocusBridge(
@@ -194,13 +231,39 @@ private struct FeedListView: View {
                         syncFeedFocusSnapshot(window: window)
                     },
                     onMoveSelection: { delta in
-                        moveSelection(in: focusSnapshots, delta: delta)
+                        if filter == .agentTree {
+                            if let effect = agentTreeController.move(in: visibleAgentTree.focusTargets, delta: delta) {
+                                applyAgentTreeSelectionEffect(effect)
+                            }
+                        } else {
+                            moveSelection(in: focusSnapshots, delta: delta)
+                        }
                     },
                     onActivateSelection: {
-                        activateSelection(in: focusSnapshots, actions: rowActions)
+                        if filter == .agentTree {
+                            if let effect = agentTreeController.activate(in: visibleAgentTree.focusTargets) {
+                                applyAgentTreeSelectionEffect(effect)
+                                if let workstreamId = effect.jumpWorkstreamId {
+                                    rowActions.jump(workstreamId)
+                                }
+                            }
+                        } else {
+                            activateSelection(in: focusSnapshots, actions: rowActions)
+                        }
                     },
                     onFocusFirstItemRequested: {
-                        focusFirstVisibleItem(in: focusSnapshots, focusHost: false)
+                        if filter == .agentTree {
+                            if let effect = agentTreeController.focusFirst(
+                                in: visibleAgentTree.focusTargets,
+                                focusHost: false
+                            ) {
+                                applyAgentTreeSelectionEffect(effect)
+                            } else {
+                                updateAgentTreeFocusIntent(focusHost: false)
+                            }
+                        } else {
+                            focusFirstVisibleItem(in: focusSnapshots, focusHost: false)
+                        }
                     },
                     onFocusChanged: { focused in
                         let window = activeFeedWindow()
@@ -236,6 +299,8 @@ private struct FeedListView: View {
                 actions: actions,
                 showsLoadMore: hasMorePersistedItems
             )
+        case .agentTree:
+            EmptyView()
         }
     }
 
@@ -394,7 +459,7 @@ private struct FeedListView: View {
         switch filter {
         case .actionable:
             base = items.filter { $0.kind.isActionable }
-        case .activity:
+        case .activity, .agentTree:
             // Actionable kinds + todos + stop. Tool use, user prompts,
             // assistant messages, session markers, and raw
             // notifications are intentionally excluded — they're too
@@ -550,6 +615,33 @@ private struct FeedListView: View {
         actions.jump(snapshot.workstreamId)
     }
 
+    private func applyAgentTreeSelectionEffect(_ effect: FeedAgentTreeSelectionEffect) {
+        updateAgentTreeFocusIntent(focusHost: effect.focusHost)
+        #if DEBUG
+        dlog(
+            "feed.agentTree.focus.select node=\(effect.nodeId.prefix(16)) " +
+            "focusFeed=\(effect.focusHost ? 1 : 0)"
+        )
+        #endif
+    }
+
+    private func updateAgentTreeFocusIntent(focusHost: Bool, window: NSWindow? = nil) {
+        let targetWindow = window ?? activeFeedWindow()
+        if focusHost {
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .feed,
+                focusFirstItem: false,
+                preferredWindow: targetWindow
+            )
+        } else {
+            AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(
+                mode: .feed,
+                in: targetWindow
+            )
+        }
+        syncFeedFocusSnapshot(window: targetWindow)
+    }
+
     private func activeFeedWindow() -> NSWindow? {
         NSApp.keyWindow ?? NSApp.mainWindow
     }
@@ -569,20 +661,34 @@ private struct FeedListView: View {
             .frame(height: 1)
     }
 
+    @ViewBuilder
     private var emptyState: some View {
+        switch filter {
+        case .actionable:
+            emptyStateContent(
+                title: String(localized: "feed.empty.actionable.title",
+                              defaultValue: "No pending decisions"),
+                subtitle: String(localized: "feed.empty.actionable.subtitle",
+                                 defaultValue: "Permission, plan, and question requests from AI agents will appear here.")
+            )
+        case .activity:
+            emptyStateContent(
+                title: String(localized: "feed.empty.activity.title",
+                              defaultValue: "No activity yet"),
+                subtitle: String(localized: "feed.empty.activity.subtitle",
+                                 defaultValue: "Agent decisions and todo-list updates will appear here.")
+            )
+        case .agentTree:
+            EmptyView()
+        }
+    }
+
+    private func emptyStateContent(title: String, subtitle: String) -> some View {
         VStack(spacing: 4) {
-            Text(filter == .actionable
-                 ? String(localized: "feed.empty.actionable.title",
-                          defaultValue: "No pending decisions")
-                 : String(localized: "feed.empty.activity.title",
-                          defaultValue: "No activity yet"))
+            Text(title)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
-            Text(filter == .actionable
-                 ? String(localized: "feed.empty.actionable.subtitle",
-                          defaultValue: "Permission, plan, and question requests from AI agents will appear here.")
-                 : String(localized: "feed.empty.activity.subtitle",
-                          defaultValue: "Agent decisions and todo-list updates will appear here."))
+            Text(subtitle)
                 .font(.system(size: 11))
                 .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -685,7 +791,8 @@ private struct FeedRowSurface: View {
     }
 }
 
-private extension View {
+// Shared by the feed list and the agent tree view.
+extension View {
     @ViewBuilder
     func feedZeroScrollContentMargins() -> some View {
         if #available(macOS 14.0, *) {
@@ -693,189 +800,6 @@ private extension View {
         } else {
             self
         }
-    }
-}
-
-private struct FeedKeyboardFocusBridge: NSViewRepresentable {
-    let onEscape: () -> Void
-    let onMoveSelection: (Int) -> Void
-    let onActivateSelection: () -> Void
-    let onFocusFirstItemRequested: () -> Void
-    let onFocusChanged: (Bool) -> Void
-    let onFocusSnapshotChanged: (FeedFocusSnapshot) -> Void
-
-    func makeNSView(context: Context) -> FeedKeyboardFocusView {
-        let view = FeedKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
-        view.onEscape = onEscape
-        view.onMoveSelection = onMoveSelection
-        view.onActivateSelection = onActivateSelection
-        view.onFocusFirstItemRequested = onFocusFirstItemRequested
-        view.onFocusChanged = onFocusChanged
-        view.onFocusSnapshotChanged = onFocusSnapshotChanged
-        return view
-    }
-
-    func updateNSView(_ nsView: FeedKeyboardFocusView, context: Context) {
-        nsView.onEscape = onEscape
-        nsView.onMoveSelection = onMoveSelection
-        nsView.onActivateSelection = onActivateSelection
-        nsView.onFocusFirstItemRequested = onFocusFirstItemRequested
-        nsView.onFocusChanged = onFocusChanged
-        nsView.onFocusSnapshotChanged = onFocusSnapshotChanged
-        nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
-    }
-}
-
-final class FeedKeyboardFocusView: NSView {
-    var onEscape: (() -> Void)?
-    var onMoveSelection: ((Int) -> Void)?
-    var onActivateSelection: (() -> Void)?
-    var onFocusFirstItemRequested: (() -> Void)?
-    var onFocusChanged: ((Bool) -> Void)?
-    var onFocusSnapshotChanged: ((FeedFocusSnapshot) -> Void)?
-
-    override var acceptsFirstResponder: Bool { true }
-    override var canBecomeKeyView: Bool { true }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard let window else { return }
-        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFeedHost(self)
-#if DEBUG
-        dlog("feed.focus.host attach window=\(ObjectIdentifier(window))")
-#endif
-    }
-
-    func registerWithKeyboardFocusCoordinatorIfNeeded() {
-        guard let window else { return }
-        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFeedHost(self)
-    }
-
-    override func layout() {
-        super.layout()
-        registerWithKeyboardFocusCoordinatorIfNeeded()
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.type == .keyDown, event.keyCode == 53 {
-#if DEBUG
-            dlog(
-                "feed.focus.host escape window=\(window.map { String(describing: ObjectIdentifier($0)) } ?? "nil") " +
-                "fr=\(feedDebugResponderSummary(window?.firstResponder))"
-            )
-#endif
-            onEscape?()
-            return true
-        }
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
-            onMoveSelection?(delta)
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-
-    override func keyDown(with event: NSEvent) {
-#if DEBUG
-        let chars = event.charactersIgnoringModifiers ?? ""
-        dlog(
-            "feed.focus.host keyDown key=\(event.keyCode) chars=\(chars) " +
-            "fr=\(feedDebugResponderSummary(window?.firstResponder))"
-        )
-#endif
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
-            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                mode: mode,
-                focusFirstItem: true,
-                preferredWindow: window
-            )
-            return
-        }
-
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
-            onMoveSelection?(delta)
-            return
-        }
-
-        let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let hasShortcutModifier = !normalizedFlags.intersection([.command, .control, .option]).isEmpty
-        guard !hasShortcutModifier else {
-            super.keyDown(with: event)
-            return
-        }
-
-        switch event.keyCode {
-        case 36, 76:
-            onActivateSelection?()
-            return
-        case 53:
-            onEscape?()
-            return
-        default:
-            break
-        }
-
-        if let characters = event.charactersIgnoringModifiers, !characters.isEmpty {
-            return
-        }
-        super.keyDown(with: event)
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        let result = super.becomeFirstResponder()
-        if result {
-            onFocusChanged?(true)
-        }
-#if DEBUG
-        dlog(
-            "feed.focus.host become result=\(result ? 1 : 0) " +
-            "window=\(window.map { String(describing: ObjectIdentifier($0)) } ?? "nil") " +
-            "fr=\(feedDebugResponderSummary(window?.firstResponder))"
-        )
-#endif
-        return result
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let result = super.resignFirstResponder()
-        if result {
-            onFocusChanged?(false)
-        }
-#if DEBUG
-        dlog(
-            "feed.focus.host resign result=\(result ? 1 : 0) " +
-            "window=\(window.map { String(describing: ObjectIdentifier($0)) } ?? "nil") " +
-            "fr=\(feedDebugResponderSummary(window?.firstResponder))"
-        )
-#endif
-        return result
-    }
-
-    func focusFirstItemFromCoordinator() {
-        onFocusFirstItemRequested?()
-    }
-
-    func focusHostFromCoordinator() -> Bool {
-        guard let window else { return false }
-#if DEBUG
-        let before = feedDebugResponderSummary(window.firstResponder)
-#endif
-        let result = window.makeFirstResponder(self)
-#if DEBUG
-        dlog(
-            "feed.focus.host request result=\(result ? 1 : 0) " +
-            "window=\(ObjectIdentifier(window)) before=\(before) " +
-            "after=\(feedDebugResponderSummary(window.firstResponder))"
-        )
-#endif
-        return result
-    }
-
-    func applyFocusSnapshotFromController(_ snapshot: FeedFocusSnapshot) {
-        onFocusSnapshotChanged?(snapshot)
-    }
-
-    func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
-        responder === self || responder is FeedKeyboardFocusResponder
     }
 }
 

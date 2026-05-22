@@ -3,15 +3,25 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// Bridges the `@Observable` WorkstreamStore to a Combine `@Published`
-/// snapshot so SwiftUI reliably re-renders the Feed panel on every
-/// mutation.
+/// Bridges the `@Observable` WorkstreamStore to a panel-owned
+/// observation snapshot so SwiftUI re-renders the Feed panel on every
+/// relevant mutation.
 @MainActor
-final class FeedPanelViewModel: ObservableObject {
-    @Published private(set) var items: [WorkstreamItem] = []
-    @Published private(set) var hasMorePersistedItems = false
-    @Published private(set) var isLoadingOlderItems = false
-    private var storeInstalledObserver: NSObjectProtocol?
+@Observable
+final class FeedPanelViewModel {
+    private(set) var items: [WorkstreamItem] = []
+    private(set) var agentGraphSnapshot: WorkstreamAgentGraphSnapshot = .empty
+    private(set) var hasMorePersistedItems = false
+    private(set) var isLoadingOlderItems = false
+    @ObservationIgnored private var storeInstalledObserver: NSObjectProtocol?
+    @ObservationIgnored private var graphBuildWorker = FeedAgentGraphBuildWorker()
+    @ObservationIgnored private var graphBuildTask: Task<Void, Never>?
+    @ObservationIgnored private var graphBuildSequence = 0
+    @ObservationIgnored private var pendingGraphBuildRequest: AgentGraphBuildRequest?
+    @ObservationIgnored private var activeGraphBuildSequence: Int?
+    @ObservationIgnored private var isAgentTreeActive = false
+    @ObservationIgnored private var loadOlderItemsTask: Task<Void, Never>?
+    @ObservationIgnored private var loadOlderItemsSequence = 0
 
     init() {
         storeInstalledObserver = NotificationCenter.default.addObserver(
@@ -27,6 +37,8 @@ final class FeedPanelViewModel: ObservableObject {
     }
 
     deinit {
+        graphBuildTask?.cancel()
+        loadOlderItemsTask?.cancel()
         if let storeInstalledObserver {
             NotificationCenter.default.removeObserver(storeInstalledObserver)
         }
@@ -34,22 +46,137 @@ final class FeedPanelViewModel: ObservableObject {
 
     private func arm() {
         guard let store = FeedCoordinator.shared.store else { return }
-        withObservationTracking {
-            items = store.items
-            hasMorePersistedItems = store.hasMorePersistedItems
-            isLoadingOlderItems = store.isLoadingOlderItems
+        let storeSnapshot = withObservationTracking {
+            FeedStoreObservationSnapshot(
+                items: store.items,
+                hasMorePersistedItems: store.hasMorePersistedItems,
+                isLoadingOlderItems: store.isLoadingOlderItems
+            )
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.arm()
             }
         }
+        applyStoreObservationSnapshot(storeSnapshot)
     }
 
-    nonisolated func loadOlderItems() {
-        Task { @MainActor [weak self] in
-            guard let self, !self.isLoadingOlderItems, self.hasMorePersistedItems else { return }
+    private func applyStoreObservationSnapshot(_ snapshot: FeedStoreObservationSnapshot) {
+        let previousItems = items
+        items = snapshot.items
+        if snapshot.items != previousItems {
+            scheduleAgentGraphRebuildIfNeeded(from: snapshot.items)
+        }
+        hasMorePersistedItems = snapshot.hasMorePersistedItems
+        isLoadingOlderItems = snapshot.isLoadingOlderItems
+    }
+
+    func loadOlderItems() {
+        guard !isLoadingOlderItems,
+              hasMorePersistedItems,
+              loadOlderItemsTask == nil
+        else { return }
+        loadOlderItemsSequence &+= 1
+        let sequence = loadOlderItemsSequence
+        loadOlderItemsTask = Task { @MainActor [weak self, sequence] in
+            guard let self, !Task.isCancelled else { return }
+            defer {
+                if self.loadOlderItemsSequence == sequence {
+                    self.loadOlderItemsTask = nil
+                }
+            }
             await FeedCoordinator.shared.store?.loadOlderItems()
         }
+    }
+
+    func setAgentTreeActive(_ active: Bool) {
+        guard isAgentTreeActive != active else { return }
+        isAgentTreeActive = active
+        if active {
+            scheduleAgentGraphRebuildIfNeeded(from: items)
+        } else {
+            graphBuildSequence &+= 1
+            graphBuildTask?.cancel()
+            graphBuildTask = nil
+            pendingGraphBuildRequest = nil
+            activeGraphBuildSequence = nil
+            agentGraphSnapshot = .empty
+        }
+    }
+
+    private func scheduleAgentGraphRebuildIfNeeded(from currentItems: [WorkstreamItem]) {
+        guard isAgentTreeActive else {
+            graphBuildTask?.cancel()
+            graphBuildTask = nil
+            pendingGraphBuildRequest = nil
+            activeGraphBuildSequence = nil
+            if !agentGraphSnapshot.isEmpty {
+                agentGraphSnapshot = .empty
+            }
+            return
+        }
+
+        graphBuildSequence &+= 1
+        pendingGraphBuildRequest = AgentGraphBuildRequest(
+            sequence: graphBuildSequence,
+            items: currentItems
+        )
+        startNextAgentGraphBuildIfNeeded()
+    }
+
+    private func startNextAgentGraphBuildIfNeeded() {
+        guard isAgentTreeActive,
+              activeGraphBuildSequence == nil,
+              let request = pendingGraphBuildRequest
+        else { return }
+
+        pendingGraphBuildRequest = nil
+        activeGraphBuildSequence = request.sequence
+        graphBuildTask = Task { [weak self, request] in
+            guard let self, !Task.isCancelled else { return }
+            guard let snapshot = await self.graphBuildWorker.snapshot(from: request.items) else {
+                self.completeAgentGraphBuild(sequence: request.sequence, snapshot: nil)
+                return
+            }
+            self.completeAgentGraphBuild(
+                sequence: request.sequence,
+                snapshot: Task.isCancelled ? nil : snapshot
+            )
+        }
+    }
+
+    private func completeAgentGraphBuild(
+        sequence: Int,
+        snapshot: WorkstreamAgentGraphSnapshot?
+    ) {
+        guard activeGraphBuildSequence == sequence else { return }
+        activeGraphBuildSequence = nil
+        graphBuildTask = nil
+
+        if let snapshot,
+           isAgentTreeActive,
+           graphBuildSequence == sequence {
+            agentGraphSnapshot = snapshot
+        }
+
+        startNextAgentGraphBuildIfNeeded()
+    }
+}
+
+private struct AgentGraphBuildRequest {
+    let sequence: Int
+    let items: [WorkstreamItem]
+}
+
+private struct FeedStoreObservationSnapshot {
+    let items: [WorkstreamItem]
+    let hasMorePersistedItems: Bool
+    let isLoadingOlderItems: Bool
+}
+
+private actor FeedAgentGraphBuildWorker {
+    func snapshot(from items: [WorkstreamItem]) -> WorkstreamAgentGraphSnapshot? {
+        guard !Task.isCancelled else { return nil }
+        return WorkstreamAgentGraphBuilder.snapshot(from: items)
     }
 }
 

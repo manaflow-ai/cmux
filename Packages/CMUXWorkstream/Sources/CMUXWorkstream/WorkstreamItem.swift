@@ -38,11 +38,16 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
     public let kind: WorkstreamKind
     public let createdAt: Date
     public var updatedAt: Date
+    public var workspaceId: String?
     public var cwd: String?
     public var title: String?
     public var status: WorkstreamStatus
     public var payload: WorkstreamPayload
     public var context: WorkstreamContext?
+    /// Unknown hook fields preserved from the inbound event. Agent tree
+    /// derivation reads explicit parent/child metadata from this JSON when
+    /// an agent emits it, while older events simply leave it nil.
+    public var extraFieldsJSON: String?
     /// PID of the agent process that emitted the event (hook's parent
     /// pid). When non-nil, pending items get expired automatically as
     /// soon as the agent process is gone — a crashed/killed `claude`
@@ -57,11 +62,13 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         kind: WorkstreamKind,
         createdAt: Date = Date(),
         updatedAt: Date? = nil,
+        workspaceId: String? = nil,
         cwd: String? = nil,
         title: String? = nil,
         status: WorkstreamStatus? = nil,
         payload: WorkstreamPayload,
         context: WorkstreamContext? = nil,
+        extraFieldsJSON: String? = nil,
         ppid: Int? = nil
     ) {
         self.id = id
@@ -70,12 +77,14 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         self.kind = kind
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
+        self.workspaceId = workspaceId?.isEmpty == false ? workspaceId : nil
         self.cwd = cwd
         self.title = title
         let resolvedStatus = status ?? (kind.isActionable ? .pending : .telemetry)
         self.status = kind.isActionable ? resolvedStatus : .telemetry
         self.payload = payload
         self.context = context?.isEmpty == true ? nil : context
+        self.extraFieldsJSON = extraFieldsJSON?.isEmpty == false ? extraFieldsJSON : nil
         self.ppid = ppid
     }
 }
