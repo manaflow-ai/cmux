@@ -8,8 +8,8 @@
   "rules": [
     {
       "id": "cmux-agent-hook-standardization",
-      "rule": "Flag agent hook install, uninstall, command generation, Feed bridge, hook config writer, hook docs, or hook test changes that bypass the shared AgentHookDef and hook command generator path, add agent-specific pinned dispatch without behavior coverage proving the shared CMUX_* env path cannot work, hardcode app bundle paths, socket paths, or release channel names outside the shared pinned dispatch path, or weaken owned-hook markers, install-time CLI/socket pinning, Feed timeout routing, or legacy cmux-owned hook pruning.",
-      "scope": ["CLI/CMUXCLI+AgentHookDefinitions.swift", "CLI/cmux.swift", "Packages/CMUXAgentLaunch/**", "cmuxTests/**/*Hook*.swift", "docs/agent-hooks.md", "docs/feed.md"],
+      "rule": "Flag agent hook install, uninstall, command generation, Feed bridge, hook config writer, hook docs, or hook test changes that bypass the shared AgentHookDef and hook command generator path, add agent-specific pinned dispatch without behavior coverage proving the shared CMUX_* env path cannot work, hardcode app bundle paths, socket paths, or release channel names outside the shared pinned dispatch path, or weaken owned-hook markers, install-time CLI/socket pinning, fallback to command -v cmux, disable-env handling, Feed timeout routing, or legacy cmux-owned hook pruning.",
+      "scope": ["CLI/CMUXCLI+AgentHookDefinitions.swift", "CLI/CMUXCLI+AmpExtension.swift", "CLI/CMUXCLI+HermesAgentHooks.swift", "CLI/cmux.swift", "Packages/CMUXAgentLaunch/**", "cmuxTests/**/*Hook*.swift", "docs/agent-hooks.md", "docs/feed.md"],
       "severity": "high"
     },
     {

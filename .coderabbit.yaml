@@ -46,6 +46,12 @@ reviews:
     - path: "CLI/CMUXCLI+AgentHookDefinitions.swift"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Agent hook commands should stay on the shared `AgentHookDef` and hook command generator path; require behavior coverage before adding or changing pinned dispatch.
+    - path: "CLI/CMUXCLI+AmpExtension.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Amp hook installation, command wiring, and extension dispatch changes.
+    - path: "CLI/CMUXCLI+HermesAgentHooks.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Hermes hook installation, command wiring, and config writer changes.
     - path: "CLI/cmux.swift"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook setup, uninstall, Feed bridge, and agent lifecycle command changes.
@@ -60,14 +66,14 @@ reviews:
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Hook docs should describe shared setup commands and avoid hardcoded app bundle or socket paths.
     - path: "docs/feed.md"
       instructions: |
-        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Hook docs should describe shared setup commands and avoid hardcoded app bundle or socket paths.
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Hook docs should describe shared setup commands and avoid hardcoded app bundle or socket paths. For Feed bridge event docs, verify the longer Feed timeout and source/event routing through `cmux hooks feed --source <agent> --event <event>` are preserved.
 
   pre_merge_checks:
     custom_checks:
       - name: "cmux agent hook standardization"
         mode: error
         instructions: |
-          For agent hook install, uninstall, command generation, Feed bridge, hook config writer, hook docs, and hook tests, fail when the diff violates `.github/review-bot-rules/agent-hook-standardization.md`: new hook integrations must use shared `AgentHookDef` metadata and shared command generation, pinned dispatch needs agent-specific behavior coverage, and hook code/docs/tests must not hardcode app bundle paths, socket paths, or release channel names outside the shared pinned hook path. Pass for agent-native config writers that still call shared command helpers and for existing complexity not worsened by the PR.
+          For agent hook install, uninstall, command generation, Feed bridge, hook config writer, hook docs, and hook tests, fail when the diff violates `.github/review-bot-rules/agent-hook-standardization.md`: new hook integrations must use shared `AgentHookDef` metadata and shared command generation, pinned dispatch needs agent-specific behavior coverage, and hook code/docs/tests must not hardcode app bundle paths, socket paths, or release channel names outside the shared pinned hook path. Pinned dispatch must preserve owned-hook markers, install-time CLI/socket pinning, fallback to `command -v cmux`, disable-env handling, longer Feed timeouts, and legacy cmux-owned hook pruning. Pass for agent-native config writers that still call shared command helpers and for existing complexity not worsened by the PR.
       - name: "cmux Swift actor isolation"
         mode: error
         instructions: |
