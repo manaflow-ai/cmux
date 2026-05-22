@@ -265,6 +265,19 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.source,
                 "agent-hook"
             )
+
+            let postRestoreScanSnapshot = restored.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty
+            )
+            XCTAssertEqual(
+                postRestoreScanSnapshot.panels.first?.terminal?.agent?.sessionId,
+                "codex-exited-binding-session"
+            )
+            XCTAssertEqual(
+                postRestoreScanSnapshot.panels.first?.terminal?.resumeBinding?.source,
+                "agent-hook"
+            )
         }
     }
 

@@ -903,7 +903,7 @@ extension Workspace {
         for panelId in panels.keys {
             guard let restoredAgent = restoredAgentSnapshotsByPanelId[panelId],
                   restorableAgentIndex.snapshot(workspaceId: id, panelId: panelId) == nil,
-                  !shouldPreserveRestoredAgentWhileResumeStarts(panelId: panelId) else {
+                  !shouldPreserveRestoredAgentWithoutLiveMatch(panelId: panelId) else {
                 continue
             }
             clearRestoredAgentResumeBinding(panelId: panelId, restoredAgent: restoredAgent)
@@ -918,7 +918,7 @@ extension Workspace {
             if agentHookBinding(binding, matches: restorableAgent) {
                 continue
             }
-            if shouldPreserveRestoredAgentWhileResumeStarts(panelId: panelId),
+            if shouldPreserveRestoredAgentWithoutLiveMatch(panelId: panelId),
                agentHookBinding(binding, matches: restoredAgentSnapshotsByPanelId[panelId]) {
                 continue
             }
@@ -959,7 +959,7 @@ extension Workspace {
         if restorableAgentIndexWasScanned,
            binding.isAgentHookBinding,
            !agentHookBinding(binding, matches: restorableAgent) {
-            if shouldPreserveRestoredAgentWhileResumeStarts(panelId: panelId),
+            if shouldPreserveRestoredAgentWithoutLiveMatch(panelId: panelId),
                agentHookBinding(binding, matches: restoredAgentSnapshotsByPanelId[panelId]) {
                 return binding
             }
@@ -987,11 +987,11 @@ extension Workspace {
         return true
     }
 
-    private func shouldPreserveRestoredAgentWhileResumeStarts(panelId: UUID) -> Bool {
+    private func shouldPreserveRestoredAgentWithoutLiveMatch(panelId: UUID) -> Bool {
         switch restoredAgentResumeStatesByPanelId[panelId] {
-        case .some(.awaitingAutoResumeCommand), .some(.autoResumeCommandRunning):
+        case .some(.manualResumeAvailable), .some(.awaitingAutoResumeCommand), .some(.autoResumeCommandRunning):
             return true
-        case .some(.manualResumeAvailable), .some(.observedAgentCommandRunning), nil:
+        case .some(.observedAgentCommandRunning), nil:
             return false
         }
     }
