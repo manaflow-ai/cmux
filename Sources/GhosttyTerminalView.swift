@@ -3208,6 +3208,10 @@ class GhosttyApp {
         ghostty_app_tick(app)
         let elapsedMs = (CACurrentMediaTime() - start) * 1000
 
+        MainActor.assumeIsolated {
+            TerminalSurfaceRegistry.shared.flushPendingSocketInputIfReady()
+        }
+
         // Track lag during scrolling
         if isScrolling {
             scrollLagSampleCount += 1
@@ -4630,6 +4634,7 @@ final class TerminalSurfaceRegistry {
     private let surfaces = NSHashTable<AnyObject>.weakObjects()
     private var runtimeSurfaceOwners: [UInt: UUID] = [:]
     private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
+    private var pendingSocketInputSurfaceIds = Set<UUID>()
 
     private init() {}
 
@@ -4644,6 +4649,7 @@ final class TerminalSurfaceRegistry {
         lock.lock()
         surfaces.remove(surface)
         surfaceFocusPlacements.removeValue(forKey: surface.id)
+        pendingSocketInputSurfaceIds.remove(surface.id)
         lock.unlock()
 
         Task { @MainActor in
@@ -4692,6 +4698,35 @@ final class TerminalSurfaceRegistry {
         lock.unlock()
         return objects.sorted { lhs, rhs in
             lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    func setSurfaceHasPendingSocketInput(_ surface: TerminalSurface, _ hasPendingInput: Bool) {
+        lock.lock()
+        if hasPendingInput {
+            pendingSocketInputSurfaceIds.insert(surface.id)
+        } else {
+            pendingSocketInputSurfaceIds.remove(surface.id)
+        }
+        lock.unlock()
+    }
+
+    func pendingSocketInputSurfaces() -> [TerminalSurface] {
+        lock.lock()
+        let pendingIds = pendingSocketInputSurfaceIds
+        guard !pendingIds.isEmpty else {
+            lock.unlock()
+            return []
+        }
+        let objects = surfaces.allObjects.compactMap { $0 as? TerminalSurface }
+        lock.unlock()
+        return objects.filter { pendingIds.contains($0.id) }
+    }
+
+    @MainActor
+    func flushPendingSocketInputIfReady() {
+        for surface in pendingSocketInputSurfaces() {
+            surface.flushPendingSocketInputIfReady(reason: "ghostty.tick")
         }
     }
 }
@@ -4748,6 +4783,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 return event.queuedByteCost
             }
         }
+    }
+
+    private enum SocketInputReadiness {
+        case ready
+        case notReady
+        case processExited
     }
 
     private enum ParsedSocketInput {
@@ -5982,7 +6023,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // surface was being initialized.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
 
-        flushPendingSocketInputIfNeeded()
+        flushPendingSocketInputIfReady(reason: "surface.create")
 
         // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
         // miss the first vsync callback and sit on a blank frame until another focus/visibility
@@ -6183,7 +6224,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendText") else {
             return false
         }
-        guard !ghostty_surface_process_exited(liveSurface) else { return false }
+        switch socketInputReadiness(for: liveSurface) {
+        case .ready:
+            break
+        case .notReady:
+            return enqueuePendingSocketInput(.pasteText(data))
+        case .processExited:
+            return false
+        }
         writeTextData(data, to: liveSurface)
         return true
     }
@@ -6201,7 +6249,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendNamedKey") else {
             return .surfaceUnavailable
         }
-        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
+        switch socketInputReadiness(for: liveSurface) {
+        case .ready:
+            break
+        case .notReady:
+            return enqueuePendingSocketInput(.key(event)) ? .queued : .inputQueueFull
+        case .processExited:
+            return .processExited
+        }
         sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
         return .sent
     }
@@ -6231,7 +6286,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendInput") else {
             return .surfaceUnavailable
         }
-        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
+        switch socketInputReadiness(for: liveSurface) {
+        case .ready:
+            break
+        case .notReady:
+            let queued = enqueuePendingSocketInput(text)
+            return queued ? .queued : .inputQueueFull
+        case .processExited:
+            return .processExited
+        }
         sendInput(text, to: liveSurface)
         return .sent
     }
@@ -6353,6 +6416,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     private func liveSurfaceForSocketWrite(reason: String) -> ghostty_surface_t? {
         return liveSurfaceForGhosttyAccess(reason: reason)
+    }
+
+    private func socketInputReadiness(for surface: ghostty_surface_t) -> SocketInputReadiness {
+        guard !ghostty_surface_process_exited(surface) else { return .processExited }
+        guard ghostty_surface_foreground_pid(surface) != 0,
+              Self.nonEmptyGhosttyString(ghostty_surface_tty_name(surface)) != nil else {
+            return .notReady
+        }
+        return .ready
     }
 
     // Socket/API operations are an explicit runtime demand: they must be able to
@@ -6578,6 +6650,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         pendingSocketInputQueue.append(contentsOf: inputs)
         pendingSocketInputBytes += incomingBytes
+        TerminalSurfaceRegistry.shared.setSurfaceHasPendingSocketInput(self, true)
 #if DEBUG
         let pendingKeys = pendingSocketInputQueue.reduce(into: 0) { count, item in
             if case .key = item {
@@ -6593,12 +6666,32 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
-    private func flushPendingSocketInputIfNeeded() {
+    func flushPendingSocketInputIfReady(reason: String) {
         guard let surface = liveSurfaceForSocketWrite(reason: "socket.flushPendingInput") else { return }
+        switch socketInputReadiness(for: surface) {
+        case .ready:
+            break
+        case .notReady:
+            return
+        case .processExited:
+            let dropped = pendingSocketInputQueue.count
+            pendingSocketInputQueue.removeAll(keepingCapacity: false)
+            pendingSocketInputBytes = 0
+            TerminalSurfaceRegistry.shared.setSurfaceHasPendingSocketInput(self, false)
+#if DEBUG
+            if dropped > 0 {
+                cmuxDebugLog(
+                    "surface.socket_input.drop surface=\(id.uuidString.prefix(8)) reason=\(reason) items=\(dropped)"
+                )
+            }
+#endif
+            return
+        }
         let queued = pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
+        TerminalSurfaceRegistry.shared.setSurfaceHasPendingSocketInput(self, false)
         guard !queued.isEmpty else { return }
 
         var queuedKeys = 0
