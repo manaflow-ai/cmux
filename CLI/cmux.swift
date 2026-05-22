@@ -586,21 +586,32 @@ private final class ClaudeHookSessionStore {
                     return true
                 } else if let activeTurnId = turnStack.last,
                           activeTurnId != normalizedTurnId {
+                    var removedTurnCount = 0
                     if previousActivePromptTurnIsTerminal {
                         turnStack.removeLast()
+                        removedTurnCount += 1
                         while let activeTurnId = turnStack.last,
                               terminalActivePromptTurnIds.contains(activeTurnId) {
                             turnStack.removeLast()
+                            removedTurnCount += 1
                         }
                     }
+                    let totalDepth = max(0, max(legacyDepth, turnStack.count + removedTurnCount) - removedTurnCount) + 1
+                    turnStack.append(normalizedTurnId)
+                    setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
+                    record.lastPromptTurnId = normalizedTurnId
+                    state.sessions[normalized] = record
+                    return totalDepth > 1
                 }
+                let totalDepth = max(legacyDepth, turnStack.count) + 1
                 turnStack.append(normalizedTurnId)
-                setActivePromptTurnStack(turnStack, on: &record)
+                setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
                 record.lastPromptTurnId = normalizedTurnId
                 state.sessions[normalized] = record
-                return turnStack.count > 1
+                return totalDepth > 1
             }
-            record.activePromptDepth = max(0, record.activePromptDepth ?? 0) + 1
+            let existingTurnStackDepth = activePromptTurnStack(from: record).count
+            record.activePromptDepth = max(max(0, record.activePromptDepth ?? 0), existingTurnStackDepth) + 1
             state.sessions[normalized] = record
             return (record.activePromptDepth ?? 0) > 1
         }
@@ -656,17 +667,26 @@ private final class ClaudeHookSessionStore {
             let normalizedTurnId = normalizeOptional(turnId)
             if let normalizedTurnId {
                 var turnStack = activePromptTurnStack(from: record)
+                let totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
                 if let lastTurnId = turnStack.last {
                     if lastTurnId == normalizedTurnId {
-                        let nested = turnStack.count > 1
+                        let nested = totalDepthBeforeStop > 1
                         turnStack.removeLast()
-                        setActivePromptTurnStack(turnStack, on: &record)
+                        setActivePromptTurnStack(
+                            turnStack,
+                            totalDepth: max(0, totalDepthBeforeStop - 1),
+                            on: &record
+                        )
                         state.sessions[normalized] = record
                         return nested
                     }
                     if let staleIndex = turnStack.lastIndex(of: normalizedTurnId) {
                         turnStack.remove(at: staleIndex)
-                        setActivePromptTurnStack(turnStack, on: &record)
+                        setActivePromptTurnStack(
+                            turnStack,
+                            totalDepth: max(0, totalDepthBeforeStop - 1),
+                            on: &record
+                        )
                     }
                     state.sessions[normalized] = record
                     return true
@@ -695,7 +715,11 @@ private final class ClaudeHookSessionStore {
             } else {
                 let turnStack = activePromptTurnStack(from: record)
                 if !turnStack.isEmpty {
-                    setActivePromptTurnStack(Array(turnStack.prefix(depthAfterStop)), on: &record)
+                    setActivePromptTurnStack(
+                        Array(turnStack.prefix(depthAfterStop)),
+                        totalDepth: depthAfterStop,
+                        on: &record
+                    )
                 } else {
                     record.activePromptDepth = depthAfterStop
                 }
@@ -827,15 +851,17 @@ private final class ClaudeHookSessionStore {
         return []
     }
 
-    private func setActivePromptTurnStack(_ stack: [String], on record: inout ClaudeHookSessionRecord) {
-        if stack.isEmpty {
+    private func setActivePromptTurnStack(_ stack: [String], totalDepth: Int? = nil, on record: inout ClaudeHookSessionRecord) {
+        let normalizedStack = stack.compactMap { normalizeOptional($0) }
+        let resolvedDepth = max(max(0, totalDepth ?? normalizedStack.count), normalizedStack.count)
+        if resolvedDepth == 0 {
             record.activePromptDepth = nil
             record.activePromptTurnId = nil
             record.activePromptTurnIds = nil
         } else {
-            record.activePromptDepth = stack.count
-            record.activePromptTurnId = stack.last
-            record.activePromptTurnIds = stack
+            record.activePromptDepth = resolvedDepth
+            record.activePromptTurnId = normalizedStack.last
+            record.activePromptTurnIds = normalizedStack.isEmpty ? nil : normalizedStack
         }
     }
 
