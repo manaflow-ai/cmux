@@ -357,6 +357,16 @@ extension SessionRemoteWorkspaceSnapshot {
             skipDaemonBootstrap != true &&
             SSHPTYAttachStartupCommandBuilder.sshOptionsSupportReusableForegroundAuth(optionsWithRestoreControlDefaults)
         let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : normalizedOptions
+        let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
+        let foregroundAuth = foregroundAuthToken.map {
+            SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
+                destination: normalizedDestination,
+                port: normalizedPort,
+                identityFile: Self.normalizedIdentityPath(identityFile),
+                sshOptions: restoredSSHOptions,
+                token: $0
+            )
+        }
         return WorkspaceRemoteConfiguration(
             transport: transport,
             destination: normalizedDestination,
@@ -369,12 +379,15 @@ extension SessionRemoteWorkspaceSnapshot {
             relayToken: nil,
             localSocketPath: nil,
             terminalStartupCommand: preservePTYSession
-                ? SSHPTYAttachStartupCommandBuilder.command(requireExisting: false)
+                ? SSHPTYAttachStartupCommandBuilder.command(
+                    foregroundAuth: foregroundAuth,
+                    requireExisting: false
+                )
                 : sshReconnectCommand(
                     destination: normalizedDestination,
                     port: normalizedPort
                 ),
-            foregroundAuthToken: nil,
+            foregroundAuthToken: foregroundAuthToken,
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession,
             skipDaemonBootstrap: skipDaemonBootstrap == true

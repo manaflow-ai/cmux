@@ -5789,7 +5789,7 @@ class TerminalController {
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
-            v2NotifyRemotePTYControllerAvailabilityChanged()
+            notifyRemotePTYControllerAvailabilityChanged()
 
             let windowId = v2ResolveWindowId(tabManager: owner)
             result = .ok([
@@ -5874,7 +5874,7 @@ class TerminalController {
             }
 
             workspace.reconnectRemoteConnection()
-            v2NotifyRemotePTYControllerAvailabilityChanged()
+            notifyRemotePTYControllerAvailabilityChanged()
             let windowId = v2ResolveWindowId(tabManager: owner)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -5914,7 +5914,7 @@ class TerminalController {
             }
 
             workspace.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
-            v2NotifyRemotePTYControllerAvailabilityChanged()
+            notifyRemotePTYControllerAvailabilityChanged()
             let windowId = v2ResolveWindowId(tabManager: owner)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -6116,7 +6116,7 @@ class TerminalController {
         return (target, nil)
     }
 
-    private nonisolated func v2NotifyRemotePTYControllerAvailabilityChanged() {
+    nonisolated func notifyRemotePTYControllerAvailabilityChanged() {
         remotePTYControllerAvailabilityCondition.lock()
         remotePTYControllerAvailabilityGeneration &+= 1
         remotePTYControllerAvailabilityCondition.broadcast()

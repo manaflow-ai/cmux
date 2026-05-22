@@ -11202,6 +11202,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
+        defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         if previousConfiguration != nil, previousConfiguration != configuration {
@@ -11294,6 +11295,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false) {
+        defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let shouldCleanupControlMaster =
             clearConfiguration
             && !isDetachingCloseTransaction
