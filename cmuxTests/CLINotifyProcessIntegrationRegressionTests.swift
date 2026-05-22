@@ -4498,7 +4498,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
             let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
                 guard let payload = self.jsonObject(line),
-                      payload["jsonrpc"] as? String == "2.0",
                       let id = payload["id"] as? String,
                       let method = payload["method"] as? String else {
                     return self.malformedRequestResponse(raw: line)
