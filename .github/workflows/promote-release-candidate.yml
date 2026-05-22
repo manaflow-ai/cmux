@@ -98,6 +98,22 @@ jobs:
                 repo,
                 tag: stableTag,
               });
+              let existingTagSha;
+              try {
+                existingTagSha = await resolveTagSha(stableTag);
+              } catch (tagError) {
+                core.setFailed(
+                  `Release ${stableTag} exists but refs/tags/${stableTag} could not be resolved: ${tagError.message}`
+                );
+                return;
+              }
+              if (existingTagSha !== candidateSha) {
+                core.setFailed(
+                  `Release ${stableTag} already points to ${existingTagSha}, ` +
+                  `not candidate ${candidateSha}. Publish a new stable version instead of replacing it.`
+                );
+                return;
+              }
               const existingAssetNames = (release.data.assets || []).map((asset) => asset.name);
               const {
                 conflicts,
@@ -118,14 +134,6 @@ jobs:
               }
 
               if (shouldSkipBuildAndUpload) {
-                const existingTagSha = await resolveTagSha(stableTag);
-                if (existingTagSha !== candidateSha) {
-                  core.setFailed(
-                    `Release ${stableTag} already has complete immutable assets from ${existingTagSha}, ` +
-                    `not candidate ${candidateSha}. Publish a new stable version instead of replacing it.`
-                  );
-                  return;
-                }
                 core.notice(`Release ${stableTag} already has complete immutable assets. Skipping upload.`);
                 core.setOutput('skip_upload', 'true');
                 return;
