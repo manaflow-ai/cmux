@@ -928,6 +928,85 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexDepthOnlySiblingStaysNestedAfterChildTerminalTranscript() throws {
+        let context = try makeClaudeHookContext(name: "codex-depth-only-child-terminal")
+        defer { context.cleanup() }
+
+        let sessionId = "depth-only-child-terminal-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-depth-only-child-terminal.jsonl")
+        try [
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"child-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 2,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let siblingPromptStart = context.state.commands.count
+        let siblingPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"sibling-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"sibling"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(siblingPrompt.timedOut, siblingPrompt.stderr)
+        XCTAssertEqual(siblingPrompt.status, 0, siblingPrompt.stderr)
+        let siblingPromptCommands = Array(context.state.commands.dropFirst(siblingPromptStart))
+        XCTAssertFalse(
+            siblingPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A sibling prompt must stay nested while the depth-only parent remains active, saw \(siblingPromptCommands)"
+        )
+        XCTAssertFalse(
+            siblingPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "A sibling prompt must not rewrite parent Running status while the depth-only parent remains active, saw \(siblingPromptCommands)"
+        )
+
+        let siblingStopStart = context.state.commands.count
+        let siblingStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"sibling-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"sibling done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(siblingStop.timedOut, siblingStop.stderr)
+        XCTAssertEqual(siblingStop.status, 0, siblingStop.stderr)
+        let siblingStopCommands = Array(context.state.commands.dropFirst(siblingStopStart))
+        XCTAssertFalse(
+            siblingStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A sibling Stop must stay nested while the depth-only parent remains active, saw \(siblingStopCommands)"
+        )
+    }
+
     func testCodexDepthOnlyTerminalPriorTurnResetsForCurrentNotification() throws {
         let context = try makeClaudeHookContext(name: "codex-depth-only-terminal-reset")
         defer { context.cleanup() }
