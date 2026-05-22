@@ -3036,11 +3036,15 @@ class TabManager: ObservableObject {
             }
 
             let parentURL = currentURL.deletingLastPathComponent()
-            if parentURL.path == currentURL.path {
+            if Self.shouldStopGitRepositorySearch(currentURL: currentURL, parentURL: parentURL) {
                 return nil
             }
             currentURL = parentURL
         }
+    }
+
+    nonisolated static func shouldStopGitRepositorySearch(currentURL: URL, parentURL: URL) -> Bool {
+        parentURL.path == currentURL.path
     }
 
     private nonisolated static func gitDirectoryFromDotGitFile(
