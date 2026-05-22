@@ -31,18 +31,53 @@ log() {
   printf '[macfleet-ci] %s\n' "$*"
 }
 
+run_in_new_session() {
+  # macOS does not ship setsid(1), so use Perl's POSIX wrapper.
+  /usr/bin/perl -MPOSIX=setsid -e 'setsid() or die "setsid: $!"; exec @ARGV or die "exec: $!"' -- "$@"
+}
+
+process_group_pids() {
+  local pgid="$1"
+  ps -axo pid=,pgid= | awk -v pgid="$pgid" '$2 == pgid { print $1 }'
+}
+
+process_group_has_members() {
+  [ -n "$(process_group_pids "$1")" ]
+}
+
+kill_process_group() {
+  local pgid="$1"
+  local signal="${2:-TERM}"
+  kill "-$signal" -- "-$pgid" >/dev/null 2>&1 || kill "-$signal" "$pgid" >/dev/null 2>&1 || true
+}
+
+kill_pid_list() {
+  local signal="$1"
+  local pids="$2"
+  local pid
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    kill "-$signal" "$pid" >/dev/null 2>&1 || true
+  done <<< "$pids"
+}
+
 cleanup_current_run() {
   local code=$?
   if [ -f "$pid_file" ]; then
     while IFS= read -r pid; do
       [ -n "$pid" ] || continue
+      kill_process_group "$pid" TERM
       pkill -TERM -P "$pid" >/dev/null 2>&1 || true
       kill "$pid" >/dev/null 2>&1 || true
     done < "$pid_file"
   fi
-  pkill -TERM -f "$derived" >/dev/null 2>&1 || true
-  sleep 1
-  pkill -KILL -f "$derived" >/dev/null 2>&1 || true
+  local derived_pids
+  derived_pids="$(pgrep -f "$derived" || true)"
+  if [ -n "$derived_pids" ]; then
+    kill_pid_list TERM "$derived_pids"
+    derived_pids="$(pgrep -f "$derived" || true)"
+    [ -z "$derived_pids" ] || kill_pid_list KILL "$derived_pids"
+  fi
   if [ -d "$postgres_data" ]; then
     pg_ctl -D "$postgres_data" -m fast -w stop >/dev/null 2>&1 || true
     rm -rf "$postgres_data" || true
@@ -72,8 +107,9 @@ run_with_timeout() {
   local timeout_seconds="$1"
   shift
 
-  "$@" &
+  run_in_new_session "$@" &
   local pid=$!
+  local pgid="$pid"
   track_pid "$pid"
   local timeout_marker="$tmp_root/timeout-$pid.log"
   local restore_errexit=0
@@ -83,11 +119,12 @@ run_with_timeout() {
 
   (
     sleep "$timeout_seconds"
-    if kill -0 "$pid" >/dev/null 2>&1; then
+    if process_group_has_members "$pgid"; then
       echo "command timed out after ${timeout_seconds}s: $*" > "$timeout_marker"
-      kill "$pid" >/dev/null 2>&1 || true
-      sleep 5
-      kill -KILL "$pid" >/dev/null 2>&1 || true
+      kill_process_group "$pgid" TERM
+      if process_group_has_members "$pgid"; then
+        kill_process_group "$pgid" KILL
+      fi
     fi
   ) >/dev/null 2>&1 &
   local watcher=$!
@@ -168,6 +205,7 @@ resolve_packages() {
   mkdir -p "$spm"
   for attempt in 1 2 3; do
     if run_with_timeout 600 xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
+      -derivedDataPath "$derived" \
       -clonedSourcePackagesDirPath "$spm" \
       -resolvePackageDependencies; then
       return 0
@@ -177,7 +215,6 @@ resolve_packages() {
       exit 1
     fi
     log "Package resolution failed on attempt $attempt, retrying..."
-    sleep $((attempt * 5))
   done
 }
 
