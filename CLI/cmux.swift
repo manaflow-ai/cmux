@@ -24065,11 +24065,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 onlyNewerThanExcludedSession: true
             )) == true
         }
-        func shouldSuppressSubagentRestoreTakeover() -> Bool {
+        func subagentParentSessionId(mapped: ClaudeHookSessionRecord?) -> String? {
             guard !sessionId.isEmpty,
-                  let parentSessionId = normalizedHookValue(input.parentSessionId),
-                  parentSessionId != sessionId else { return false }
-            return true
+                  let parentSessionId = normalizedHookValue(input.parentSessionId)
+                    ?? normalizedHookValue(mapped?.parentSessionId),
+                  parentSessionId != sessionId else { return nil }
+            return parentSessionId
+        }
+        func shouldSuppressSubagentRestoreTakeover(mapped: ClaudeHookSessionRecord?) -> Bool {
+            subagentParentSessionId(mapped: mapped) != nil
         }
         func repairSuppressedSubagentResumeBinding(
             workspaceId: String,
@@ -24077,9 +24081,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             mapped: ClaudeHookSessionRecord?
         ) {
             guard !sessionId.isEmpty else { return }
-            guard let parentSessionId = normalizedHookValue(input.parentSessionId)
-                    ?? normalizedHookValue(mapped?.parentSessionId),
-                  parentSessionId != sessionId else {
+            guard let parentSessionId = subagentParentSessionId(mapped: mapped) else {
                 return
             }
             var ancestorSessionId = parentSessionId
@@ -24303,7 +24305,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
-            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(mapped: mapped)
             let savedSubagentSuppression = mapped?.isRestorable == false
             let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -24323,7 +24325,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     launchCommand: launchCommand,
                     isRestorable: suppressRestorableRecord ? false : nil,
                     runtimeStatus: suppressVisibleMutations ? nil : .running,
-                    updateRuntimeStatus: !suppressVisibleMutations
+                    updateRuntimeStatus: suppressRestorableRecord || !suppressVisibleMutations
                 )
                 if suppressVisibleMutations {
                     repairSuppressedSubagentResumeBinding(
@@ -24368,7 +24370,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
-            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(mapped: mapped)
             let savedSubagentSuppression = mapped?.isRestorable == false
             let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
             let nestedPromptSubmit: Bool
@@ -24571,7 +24573,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: cwd
             )
-            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(mapped: mapped)
             let savedSubagentSuppression = mapped?.isRestorable == false
             let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
             let nestedPromptStop: Bool
@@ -24817,7 +24819,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
+                let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(mapped: mapped)
                 let savedSubagentSuppression = mapped?.isRestorable == false
                 suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
                 suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -24842,7 +24844,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     runtimeStatus: runtimeStatus(for: summary.status),
                     updateRuntimeStatus: summary.status != nil && !suppressVisibleMutations
                 )
-                if suppressRestorableRecord {
+                if suppressRestorableRecord && !suppressVisibleMutations {
                     repairSuppressedSubagentResumeBinding(
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -24947,7 +24949,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-                let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
+                let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(mapped: mapped)
                 let savedSubagentSuppression = mapped.isRestorable == false
                 let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
