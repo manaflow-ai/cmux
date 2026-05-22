@@ -5206,10 +5206,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return surface
     }
 
-    private func liveSurfaceForMainThreadGhosttyAccess(reason: String) -> ghostty_surface_t? {
+    @discardableResult
+    private func withLiveSurfaceForMainThreadGhosttyAccess<T>(
+        reason: String,
+        _ body: (ghostty_surface_t) -> T
+    ) -> T? {
         guard Thread.isMainThread else { return nil }
         return MainActor.assumeIsolated {
-            liveSurfaceForGhosttyAccess(reason: reason)
+            guard let surface = liveSurfaceForGhosttyAccess(reason: reason) else { return nil }
+            return body(surface)
         }
     }
 
@@ -6002,45 +6007,46 @@ final class TerminalSurface: Identifiable, ObservableObject {
         layerScale: CGFloat,
         backingSize: CGSize? = nil
     ) -> Bool {
-        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.updateSize") else { return false }
-        _ = layerScale
+        return withLiveSurfaceForMainThreadGhosttyAccess(reason: "surface.updateSize") { surface in
+            _ = layerScale
 
-        let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
-        let resolvedBackingHeight = backingSize?.height ?? (height * yScale)
-        let wpx = pixelDimension(from: resolvedBackingWidth)
-        let hpx = pixelDimension(from: resolvedBackingHeight)
-        guard wpx > 0, hpx > 0 else { return false }
+            let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
+            let resolvedBackingHeight = backingSize?.height ?? (height * yScale)
+            let wpx = pixelDimension(from: resolvedBackingWidth)
+            let hpx = pixelDimension(from: resolvedBackingHeight)
+            guard wpx > 0, hpx > 0 else { return false }
 
-        let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) || !scaleApproximatelyEqual(yScale, lastYScale)
-        let sizeChanged = wpx != lastPixelWidth || hpx != lastPixelHeight
+            let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) || !scaleApproximatelyEqual(yScale, lastYScale)
+            let sizeChanged = wpx != lastPixelWidth || hpx != lastPixelHeight
 
-        #if DEBUG
-        Self.sizeLog("updateSize-call surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) changed=\((scaleChanged || sizeChanged) ? 1 : 0)")
-        #endif
+#if DEBUG
+            Self.sizeLog("updateSize-call surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) changed=\((scaleChanged || sizeChanged) ? 1 : 0)")
+#endif
 
-        guard scaleChanged || sizeChanged else { return false }
+            guard scaleChanged || sizeChanged else { return false }
 
-        #if DEBUG
-        if sizeChanged {
-            let win = attachedView?.window != nil ? "1" : "0"
-            Self.sizeLog("updateSize surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) win=\(win)")
-        }
-        #endif
+#if DEBUG
+            if sizeChanged {
+                let win = attachedView?.window != nil ? "1" : "0"
+                Self.sizeLog("updateSize surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) win=\(win)")
+            }
+#endif
 
-        if scaleChanged {
-            ghostty_surface_set_content_scale(surface, xScale, yScale)
-            lastXScale = xScale
-            lastYScale = yScale
-        }
+            if scaleChanged {
+                ghostty_surface_set_content_scale(surface, xScale, yScale)
+                lastXScale = xScale
+                lastYScale = yScale
+            }
 
-        if sizeChanged {
-            ghostty_surface_set_size(surface, wpx, hpx)
-            lastPixelWidth = wpx
-            lastPixelHeight = hpx
-        }
+            if sizeChanged {
+                ghostty_surface_set_size(surface, wpx, hpx)
+                lastPixelWidth = wpx
+                lastPixelHeight = hpx
+            }
 
-        // Let Ghostty continue rendering on its own wakeups for steady-state frames.
-        return true
+            // Let Ghostty continue rendering on its own wakeups for steady-state frames.
+            return true
+        } ?? false
     }
 
     /// Force a full size recalculation and surface redraw.
@@ -6120,25 +6126,27 @@ final class TerminalSurface: Identifiable, ObservableObject {
         desiredFocusState = focused
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
-        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.setFocus") else { return }
-        ghostty_surface_set_focus(surface, focused)
+        withLiveSurfaceForMainThreadGhosttyAccess(reason: "surface.setFocus") { surface in
+            ghostty_surface_set_focus(surface, focused)
 
-        // If we focus a surface while it is being rapidly reparented (closing splits, etc),
-        // Ghostty's CVDisplayLink can end up started before the display id is valid, leaving
-        // hasVsync() true but with no callbacks ("stuck-vsync-no-frames"). Reasserting the
-        // display id *after* focusing lets Ghostty restart the display link when needed.
-        if focused {
-            if let view = attachedView,
-               let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
-               displayID != 0 {
-                ghostty_surface_set_display_id(surface, displayID)
+            // If we focus a surface while it is being rapidly reparented (closing splits, etc),
+            // Ghostty's CVDisplayLink can end up started before the display id is valid, leaving
+            // hasVsync() true but with no callbacks ("stuck-vsync-no-frames"). Reasserting the
+            // display id *after* focusing lets Ghostty restart the display link when needed.
+            if focused {
+                if let view = attachedView,
+                   let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
+                   displayID != 0 {
+                    ghostty_surface_set_display_id(surface, displayID)
+                }
             }
         }
     }
 
     func setOcclusion(_ visible: Bool) {
-        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.setOcclusion") else { return }
-        ghostty_surface_set_occlusion(surface, visible)
+        withLiveSurfaceForMainThreadGhosttyAccess(reason: "surface.setOcclusion") { surface in
+            ghostty_surface_set_occlusion(surface, visible)
+        }
     }
 
     func needsConfirmClose() -> Bool {
@@ -6147,8 +6155,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return needsConfirmCloseOverrideForTesting
         }
 #endif
-        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.needsConfirmClose") else { return false }
-        return ghostty_surface_needs_confirm_quit(surface)
+        return withLiveSurfaceForMainThreadGhosttyAccess(reason: "surface.needsConfirmClose") { surface in
+            ghostty_surface_needs_confirm_quit(surface)
+        } ?? false
     }
 
     @MainActor
@@ -6591,10 +6600,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func performBindingAction(_ action: String) -> Bool {
-        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.performBindingAction") else { return false }
-        return action.withCString { cString in
-            ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
-        }
+        return withLiveSurfaceForMainThreadGhosttyAccess(reason: "surface.performBindingAction") { surface in
+            action.withCString { cString in
+                ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
+            }
+        } ?? false
     }
 
     @discardableResult
@@ -6621,8 +6631,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func hasSelection() -> Bool {
-        guard let surface = liveSurfaceForMainThreadGhosttyAccess(reason: "surface.hasSelection") else { return false }
-        return ghostty_surface_has_selection(surface)
+        return withLiveSurfaceForMainThreadGhosttyAccess(reason: "surface.hasSelection") { surface in
+            ghostty_surface_has_selection(surface)
+        } ?? false
     }
 
 #if DEBUG
