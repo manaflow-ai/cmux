@@ -2727,6 +2727,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
     private final class SnapshotMutatingTabManager: TabManager {
         var afterCaptureWorkspaceCreationSnapshot: (() -> Void)?
         var beforeCreateWorkspace: (() -> Void)?
+        var capturedWarmTerminalPoolSourceWorkspaceIds: [UUID?] = []
 
         override func didCaptureWorkspaceCreationSnapshot() {
             afterCaptureWorkspaceCreationSnapshot?()
@@ -2739,8 +2740,10 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
-            initialTerminalEnvironment: [String: String]
+            initialTerminalEnvironment: [String: String],
+            warmTerminalPoolSourceWorkspaceId: UUID?
         ) -> Workspace {
+            capturedWarmTerminalPoolSourceWorkspaceIds.append(warmTerminalPoolSourceWorkspaceId)
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
                 title: title,
@@ -2749,7 +2752,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 configTemplate: configTemplate,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                warmTerminalPoolSourceWorkspaceId: warmTerminalPoolSourceWorkspaceId
             )
         }
     }
@@ -2872,6 +2876,28 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != inserted.id }, baselineOrder)
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, inserted.id])
         XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    func testSelectedNewWorkspaceReceivesWarmTerminalPoolSourceWorkspaceId() throws {
+        let manager = SnapshotMutatingTabManager()
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+
+        let inserted = manager.addWorkspace(select: true)
+
+        let capturedSource = try XCTUnwrap(manager.capturedWarmTerminalPoolSourceWorkspaceIds.last)
+        XCTAssertEqual(capturedSource, sourceWorkspace.id)
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    func testUnselectedNewWorkspaceDoesNotReceiveWarmTerminalPoolSourceWorkspaceId() throws {
+        let manager = SnapshotMutatingTabManager()
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+
+        _ = manager.addWorkspace(select: false)
+
+        let capturedSource = try XCTUnwrap(manager.capturedWarmTerminalPoolSourceWorkspaceIds.last)
+        XCTAssertNil(capturedSource)
+        XCTAssertEqual(manager.selectedTabId, sourceWorkspace.id)
     }
 
     func testAddWorkspaceAfterCurrentDoesNotReinsertClosedWorkspaceCapturedInSnapshot() {
@@ -3038,7 +3064,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
-            initialTerminalEnvironment: [String: String]
+            initialTerminalEnvironment: [String: String],
+            warmTerminalPoolSourceWorkspaceId: UUID?
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
             return super.makeWorkspaceForCreation(
@@ -3048,7 +3075,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 configTemplate: configTemplate,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                warmTerminalPoolSourceWorkspaceId: warmTerminalPoolSourceWorkspaceId
             )
         }
     }
