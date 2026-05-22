@@ -24300,10 +24300,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
             let savedSubagentSuppression = mapped?.isRestorable == false
-            let nestedAgentSuppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
-                currentAgentPID: pid,
-                env: env
-            )
             let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
             let nestedPromptSubmit: Bool
             if !sessionId.isEmpty {
@@ -24504,11 +24500,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
             let savedSubagentSuppression = mapped?.isRestorable == false
-            let nestedAgentSuppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
-                currentAgentPID: pid,
-                transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
-                env: env
-            )
             let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
             let nestedPromptStop: Bool
             if !sessionId.isEmpty {
