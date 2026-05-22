@@ -2172,7 +2172,11 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         }
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let params = request["params"] as? [String: Any] ?? [:]
-        if params["workspaceID"] != nil || params["terminalID"] != nil {
+        let workspaceSelection = stringParamSelection(params, keys: ["workspace_id"])
+        let terminalSelection = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
+        if workspaceSelection.hasConflict ||
+            terminalSelection.hasConflict ||
+            containsIgnoredAliasParameters(params) {
             return true
         }
 
@@ -2181,10 +2185,15 @@ final class MobileCoreRPCClient: @unchecked Sendable {
             return false
         case "workspace.create":
             return false
-        case "mobile.terminal.create", "terminal.create",
-             "mobile.terminal.snapshot", "terminal.snapshot",
-             "mobile.terminal.input", "terminal.input":
+        case "mobile.terminal.create", "terminal.create":
             return false
+        case "mobile.terminal.snapshot", "terminal.snapshot",
+             "mobile.terminal.input", "terminal.input":
+            return !ticketCoversTerminalRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: terminalSelection.value
+            )
         default:
             return true
         }
@@ -2193,6 +2202,51 @@ final class MobileCoreRPCClient: @unchecked Sendable {
     private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return method != "mobile.host.status"
+    }
+
+    private static func ticketCoversTerminalRequest(
+        ticket: CmxAttachTicket,
+        workspaceSelection: String?,
+        terminalSelection: String?
+    ) -> Bool {
+        if let workspaceSelection, workspaceSelection != ticket.workspaceID {
+            return false
+        }
+
+        if let ticketTerminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !ticketTerminalID.isEmpty {
+            return terminalSelection == ticketTerminalID
+        }
+
+        return workspaceSelection == ticket.workspaceID
+    }
+
+    private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
+        params["workspaceID"] != nil || params["terminalID"] != nil
+    }
+
+    private static func stringParamSelection(
+        _ params: [String: Any],
+        keys: [String]
+    ) -> StringParamSelection {
+        var selected: String?
+        for key in keys {
+            if let value = params[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    if let selected, selected != trimmed {
+                        return StringParamSelection(value: selected, hasConflict: true)
+                    }
+                    selected = selected ?? trimmed
+                }
+            }
+        }
+        return StringParamSelection(value: selected, hasConflict: false)
+    }
+
+    private struct StringParamSelection {
+        let value: String?
+        let hasConflict: Bool
     }
 
     private func receiveFrame(from transport: any CmxByteTransport) async throws -> Data {

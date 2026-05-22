@@ -432,6 +432,9 @@ final class cmuxMobileUITests: XCTestCase {
         line: UInt = #line
     ) {
         let error = app.staticTexts["MobilePairingError"]
+        if !error.waitForExistence(timeout: 4) {
+            app.swipeUp()
+        }
         XCTAssertTrue(error.waitForExistence(timeout: 4), file: file, line: line)
         XCTAssertTrue(error.label.contains(expectedText), file: file, line: line)
     }
@@ -480,6 +483,10 @@ final class cmuxMobileUITests: XCTestCase {
     ) {
         XCTAssertTrue(element.waitForExistence(timeout: 4), file: file, line: line)
         dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: true)
+        if element.isHittable {
+            element.tap()
+            return
+        }
         guard let frame = waitForUsableFrame(of: element, timeout: 4) else {
             XCTFail("Element has no usable frame: \(element.debugDescription)", file: file, line: line)
             return
