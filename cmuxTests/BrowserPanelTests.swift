@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Darwin
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -258,6 +259,12 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
+    private func trustedDiffViewerTestRoot() -> URL {
+        URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
     func testDiffViewerSchemeRegistrationIsIdempotentForCopiedConfiguration() {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(
@@ -275,9 +282,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 
     func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
         let token = UUID().uuidString.lowercased()
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-diff-viewer", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let rootURL = trustedDiffViewerTestRoot()
         let assetURL = rootURL
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("mod.mjs", isDirectory: false)
@@ -352,9 +357,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let token = UUID().uuidString.lowercased()
         let temporaryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-diff-viewer-security-\(UUID().uuidString)", isDirectory: true)
-        let trustedRootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-diff-viewer", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let trustedRootURL = trustedDiffViewerTestRoot()
         let outsideURL = temporaryURL.appendingPathComponent("outside.html", isDirectory: false)
         let linkURL = trustedRootURL.appendingPathComponent("link.html", isDirectory: false)
         try FileManager.default.createDirectory(at: temporaryURL, withIntermediateDirectories: true)

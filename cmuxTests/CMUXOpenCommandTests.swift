@@ -556,6 +556,59 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.stdout.contains("surface="), result.stdout)
     }
 
+    func testDiffCommandDoesNotFallbackFromEmptyLastTurnDiff() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let stateURL = rootURL.appendingPathComponent("hook-state", isDirectory: true)
+        let fileURL = repoURL.appendingPathComponent("story.txt")
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["checkout", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try runGit(["remote", "add", "origin", rootURL.appendingPathComponent("origin.git").path], in: repoURL)
+        try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+        let initialCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
+        try runGit(["update-ref", "refs/remotes/origin/main", initialCommit], in: repoURL)
+        try runGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], in: repoURL)
+        try runGit(["checkout", "-b", "feature/diff-source"], in: repoURL)
+        try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+        try runGit(["commit", "-m", "feature change"], in: repoURL)
+        let featureCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
+        let workspaceId = UUID().uuidString.lowercased()
+        let surfaceId = UUID().uuidString.lowercased()
+        try writeDiffBaselineStore(
+            stateDirectoryURL: stateURL,
+            repoURL: repoURL,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            baseCommit: featureCommit
+        )
+
+        let result = runDiffCLIExpectingNoOpen(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn"],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId
+            ],
+            currentDirectoryURL: repoURL
+        )
+
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("No last-turn changes to diff."), result.stderr)
+        XCTAssertFalse(result.stdout.contains("surface="), result.stdout)
+    }
+
     func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory

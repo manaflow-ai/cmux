@@ -2311,6 +2311,9 @@ extension CMUXCLI {
         do {
             selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: selectedContext)
         } catch let error as EmptyDiffSourceError {
+            guard selectedSource != .lastTurn else {
+                throw CLIError(message: error.message)
+            }
             var fallback: (source: DiffSource, context: DiffSourceContext, input: DiffInput)?
             for candidate in DiffSource.allCases where candidate != selectedSource {
                 guard let candidateContext = try? sourceContext(for: candidate, repoRoot: repoRoot),
