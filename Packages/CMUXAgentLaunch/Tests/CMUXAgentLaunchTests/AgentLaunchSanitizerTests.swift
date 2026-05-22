@@ -156,6 +156,36 @@ struct AgentLaunchSanitizerTests {
                 "--yolo",
             ]
         )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.bun/install/global/node_modules/@openai/codex/vendor/universal-apple-darwin/bin/codex",
+                    "--yolo",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--yolo",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    vendorExecutable,
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                ],
+                launcher: "codexTeams",
+                fallbackKind: "codex"
+            ) == [
+                "cmux",
+                "codex-teams",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
     }
 
     @Test("Drops Claude startup files")

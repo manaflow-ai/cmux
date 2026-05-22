@@ -41,7 +41,7 @@ public enum AgentLaunchSanitizer {
                 tail.removeFirst()
             }
             guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
-            return [executable, "codex-teams"] + preserved
+            return [restorableExecutable(capturedExecutable: executable, fallbackExecutable: "cmux"), "codex-teams"] + preserved
         case "omo":
             if tail.first == "omo" {
                 tail.removeFirst()
@@ -380,17 +380,17 @@ public enum AgentLaunchSanitizer {
         guard !fallbackBasename.isEmpty else { return false }
 
         switch fallbackBasename {
-        case "codex":
-            return isVersionedCodexVendorExecutable(executable)
+        case "codex", "cmux":
+            return isCodexPackageVendorExecutable(executable)
         default:
             return false
         }
     }
 
-    private static func isVersionedCodexVendorExecutable(_ executable: String) -> Bool {
+    private static func isCodexPackageVendorExecutable(_ executable: String) -> Bool {
         let path = executable.replacingOccurrences(of: "\\", with: "/")
         guard lastPathComponent(path) == "codex" else { return false }
-        return path.contains("/node_modules/@openai/codex-darwin-")
+        return path.contains("/node_modules/@openai/codex")
             && path.contains("/vendor/")
     }
 
