@@ -4241,7 +4241,7 @@ extension SessionPersistenceTests {
     func testSurfaceResumeApprovalWritesRecordsIntoCmuxJSON() throws {
         let settingsURL = try makeSurfaceResumeApprovalCmuxSettingsURL()
         let secret = Data("approval-secret".utf8)
-        try """
+        let initialSettings = """
         {
           "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
           // keep root comment
@@ -4251,7 +4251,8 @@ extension SessionPersistenceTests {
             "showScrollBar": false
           }
         }
-        """.write(to: settingsURL, atomically: true, encoding: .utf8)
+        """.replacingOccurrences(of: "\n", with: "\r\n")
+        try initialSettings.write(to: settingsURL, atomically: true, encoding: .utf8)
 
         let binding = SurfaceResumeBindingSnapshot(
             name: "tmux work",
@@ -4279,6 +4280,7 @@ extension SessionPersistenceTests {
         let updatedSettings = try String(contentsOf: settingsURL, encoding: .utf8)
         XCTAssertTrue(updatedSettings.contains("// keep root comment"))
         XCTAssertTrue(updatedSettings.contains("// keep terminal comment"))
+        XCTAssertTrue(updatedSettings.contains("\r\n    \"resumeCommands\""))
 
         let validRecords = SurfaceResumeApprovalStore.validRecords(
             fileURL: settingsURL,
@@ -4286,6 +4288,49 @@ extension SessionPersistenceTests {
         )
         XCTAssertEqual(validRecords.map(\.id), [record.id])
         XCTAssertEqual(validRecords.first?.policy, .auto)
+    }
+
+    func testSurfaceResumeApprovalWritesNonUTF8CmuxJSON() throws {
+        let settingsURL = try makeSurfaceResumeApprovalCmuxSettingsURL()
+        let secret = Data("approval-secret".utf8)
+        let initialSettings = """
+        {
+          "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+          // keep utf16 comment
+          "schemaVersion": 1,
+          "terminal": {
+            "showScrollBar": false
+          }
+        }
+        """
+        try XCTUnwrap(initialSettings.data(using: .utf16LittleEndian))
+            .write(to: settingsURL, options: [.atomic])
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: settingsURL,
+            signingSecret: secret
+        ))
+
+        let updatedData = try Data(contentsOf: settingsURL)
+        let updatedSettings = try XCTUnwrap(String(data: updatedData, encoding: .utf16LittleEndian))
+        XCTAssertTrue(updatedSettings.contains("// keep utf16 comment"))
+        XCTAssertTrue(updatedSettings.contains("\"resumeCommands\""))
+        let root = try jsonObject(at: settingsURL)
+        let terminal = try XCTUnwrap(root["terminal"] as? [String: Any])
+        let storedRecords = try XCTUnwrap(terminal["resumeCommands"] as? [[String: Any]])
+        XCTAssertEqual(storedRecords.first?["id"] as? String, record.id)
     }
 
     func testSurfaceResumeApprovalMigratesLegacyRecordsIntoCmuxJSON() throws {

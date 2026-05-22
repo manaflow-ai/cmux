@@ -9,13 +9,13 @@ enum JSONCParser {
         return Data(normalized.utf8)
     }
 
-    private static func sourceString(from data: Data) throws -> String {
+    static func source(data: Data) throws -> (text: String, encoding: String.Encoding) {
         if let encoding = detectedJSONEncoding(for: data),
            let source = String(data: data, encoding: encoding) {
-            return source
+            return (source, encoding)
         }
         if let source = String(data: data, encoding: .utf8) {
-            return source
+            return (source, .utf8)
         }
 
         var convertedString: NSString?
@@ -38,15 +38,20 @@ enum JSONCParser {
         )
 
         if let convertedString, !usedLossyConversion.boolValue {
-            return convertedString as String
+            let stringEncoding = encoding == 0 ? String.Encoding.utf8 : String.Encoding(rawValue: encoding)
+            return (convertedString as String, stringEncoding)
         }
         if encoding != 0, !usedLossyConversion.boolValue {
             let stringEncoding = String.Encoding(rawValue: encoding)
-            if let source = String(data: data, encoding: stringEncoding) {
-                return source
+            if let string = String(data: data, encoding: stringEncoding) {
+                return (string, stringEncoding)
             }
         }
         throw JSONCError.invalidTextEncoding
+    }
+
+    private static func sourceString(from data: Data) throws -> String {
+        try source(data: data).text
     }
 
     private static func detectedJSONEncoding(for data: Data) -> String.Encoding? {
@@ -225,6 +230,7 @@ enum JSONCObjectEditor {
         in source: String
     ) -> String? {
         guard let root = rootObject(in: source) else { return nil }
+        let newline = preferredNewline(in: source)
 
         if let parent = root.property(named: parentKey) {
             let parentValueStart = skipWhitespaceAndComments(in: source, from: parent.valueStart)
@@ -233,7 +239,10 @@ enum JSONCObjectEditor {
                let parentObject = parseObject(in: source, at: parentValueStart) {
                 if let child = parentObject.property(named: childKey) {
                     let childIndent = indentationBeforeLine(containing: child.keyStart, in: source)
-                    let replacement = valueJSONForProperty(childValueJSON, propertyIndent: childIndent)
+                    let replacement = withPreferredNewline(
+                        valueJSONForProperty(childValueJSON, propertyIndent: childIndent),
+                        newline: newline
+                    )
                     return replacing(source, from: child.valueStart, to: child.valueEnd, with: replacement)
                 }
 
@@ -245,7 +254,7 @@ enum JSONCObjectEditor {
             let parentIndent = indentationBeforeLine(containing: parent.keyStart, in: source)
             let childIndent = parentIndent + "  "
             let childProperty = propertyText(key: childKey, valueJSON: childValueJSON, indent: childIndent)
-            let replacement = "{\n\(childProperty)\n\(parentIndent)}"
+            let replacement = withPreferredNewline("{\n\(childProperty)\n\(parentIndent)}", newline: newline)
             return replacing(source, from: parent.valueStart, to: parent.valueEnd, with: replacement)
         }
 
@@ -515,6 +524,21 @@ enum JSONCObjectEditor {
         return ([first] + lines.dropFirst().map { propertyIndent + $0 }).joined(separator: "\n")
     }
 
+    private static func preferredNewline(in source: String) -> String {
+        if source.contains("\r\n") {
+            return "\r\n"
+        }
+        if source.contains("\r") {
+            return "\r"
+        }
+        return "\n"
+    }
+
+    private static func withPreferredNewline(_ text: String, newline: String) -> String {
+        guard newline != "\n" else { return text }
+        return text.replacingOccurrences(of: "\n", with: newline)
+    }
+
     private static func replacing(
         _ source: String,
         from start: String.Index,
@@ -530,6 +554,8 @@ enum JSONCObjectEditor {
         var updated = source
         let closeOffset = source.distance(from: source.startIndex, to: object.closeBrace)
         let closingIndent = indentationBeforeLine(containing: object.closeBrace, in: source)
+        let newline = preferredNewline(in: source)
+        let normalizedPropertyText = withPreferredNewline(propertyText, newline: newline)
 
         if let lastProperty = object.properties.last,
            !hasTrailingComma(after: lastProperty, before: object.closeBrace, in: source) {
@@ -540,7 +566,7 @@ enum JSONCObjectEditor {
 
         let adjustedCloseOffset = closeOffset + (object.properties.isEmpty || hasTrailingComma(after: object.properties.last, before: object.closeBrace, in: source) ? 0 : 1)
         let closeIndex = updated.index(updated.startIndex, offsetBy: adjustedCloseOffset)
-        updated.insert(contentsOf: "\n\(propertyText)\n\(closingIndent)", at: closeIndex)
+        updated.insert(contentsOf: "\(newline)\(normalizedPropertyText)\(newline)\(closingIndent)", at: closeIndex)
         return updated
     }
 

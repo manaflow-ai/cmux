@@ -1067,21 +1067,24 @@ enum SurfaceResumeApprovalStore {
                 return false
             case .parsed:
                 guard let existingData = fileManager.contents(atPath: fileURL.path),
-                      let source = String(data: existingData, encoding: .utf8),
+                      let decodedSource = try? JSONCParser.source(data: existingData),
                       let updatedSource = JSONCObjectEditor.setNestedObjectProperty(
                           parentKey: settingsTerminalSectionKey,
                           childKey: settingsRecordsKey,
                           childValueJSON: recordsJSON,
-                          in: source
+                          in: decodedSource.text
                       ) else {
                     return false
                 }
-                let sanitized = try JSONCParser.preprocess(data: Data(updatedSource.utf8))
+                guard let updatedData = updatedSource.data(using: decodedSource.encoding) else {
+                    return false
+                }
+                let sanitized = try JSONCParser.preprocess(data: updatedData)
                 guard let root = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any],
                       JSONSerialization.isValidJSONObject(root) else {
                     return false
                 }
-                data = Data(updatedSource.utf8)
+                data = updatedData
             }
 
             try fileManager.createDirectory(
