@@ -2,6 +2,18 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.9] - 2026-05-21
+
+### Fixed
+- Stop unbounded Git repository search past filesystem root so non-Git workspaces no longer grow RSS from ~450MB to 8GB and trigger the OOM killer ([#4557](https://github.com/manaflow-ai/cmux/pull/4557)) -- thanks @Luciferxie for the report!
+- Restore the Browser Memory Saver default to on (discards hidden browser webview renderers after the discard delay) to mitigate the 0.64.8 memory regression ([#4545](https://github.com/manaflow-ai/cmux/pull/4545)) -- thanks @Luciferxie for the report!
+
+### Thanks to 3 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+- [@Luciferxie](https://github.com/Luciferxie)
+
 ## [0.64.8] - 2026-05-21
 
 ### Added
