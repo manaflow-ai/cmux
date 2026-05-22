@@ -241,6 +241,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let cases: [(payload: String, subtitle: String, bodyFragment: String)] = [
             (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","message":"grep error.log"}"#,
+                "Permission request",
+                "grep error.log"
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Bash","message":"grep error.log"}"#,
+                "Tool approval",
+                "grep error.log"
+            ),
+            (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Edit","notification_type":"approval","message":"Approve Edit to update Sources/AppDelegate.swift"}"#,
                 "Tool approval",
                 "Approve Edit to update Sources/AppDelegate.swift"
@@ -284,7 +294,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "permission-request"],
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"git status --short","allowedPrompts":[{"prompt":"Allow Bash to run git status --short?"}]}}"#
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"grep error.log","allowed_prompts":[{"prompt":"Allow Bash to inspect grep error.log?"}]}}"#
         )
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
@@ -293,7 +303,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
         let command = try XCTUnwrap(notifyCommands.last)
         XCTAssertTrue(command.contains("Claude Workspace - Claude waiting|Permission request|"), command)
-        XCTAssertTrue(command.contains("Allow Bash to run git status --short?"), command)
+        XCTAssertTrue(command.contains("Allow Bash to inspect grep error.log?"), command)
+
+        let permissionPromptCommandStart = context.state.commands.count
+        let permissionPromptResult = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"grep error.log","permission_prompt":"Allow Bash to scan grep error.log?"}}"#
+        )
+        XCTAssertFalse(permissionPromptResult.timedOut, permissionPromptResult.stderr)
+        XCTAssertEqual(permissionPromptResult.status, 0, permissionPromptResult.stderr)
+
+        let permissionPromptNotifyCommands = Array(context.state.commands.dropFirst(permissionPromptCommandStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let permissionPromptCommand = try XCTUnwrap(permissionPromptNotifyCommands.last)
+        XCTAssertTrue(permissionPromptCommand.contains("Claude Workspace - Claude waiting|Permission request|"), permissionPromptCommand)
+        XCTAssertTrue(permissionPromptCommand.contains("Allow Bash to scan grep error.log?"), permissionPromptCommand)
     }
 
     func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {

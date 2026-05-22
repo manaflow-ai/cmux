@@ -2191,27 +2191,28 @@ struct CMUXCLI {
         ) -> ClaudeWaitingNotificationReason {
             let event = hookEventName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
             let tool = toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-            let lower = "\(event) \(tool) \(signal) \(message)".lowercased()
+            let metadata = "\(event) \(tool) \(signal)".lowercased()
+            let lower = "\(metadata) \(message)".lowercased()
 
-            if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
-                return .error
-            }
             if event == "askuserquestion" || tool == "askuserquestion" || lower.contains("askuserquestion") {
                 return .question
             }
-            if event == "permissionrequest" || lower.contains("permissionrequest") || lower.contains("permission_prompt") || lower.contains("permission request") || lower.contains("permission") {
+            if event == "permissionrequest" || metadata.contains("permissionrequest") || metadata.contains("permission_prompt") || metadata.contains("permission request") || metadata.contains("permission") {
                 return .permissionRequest
             }
-            if event == "pretooluse", !tool.isEmpty, lower.contains("approve") || lower.contains("approval") {
+            if event == "pretooluse", !tool.isEmpty {
                 return .toolApproval
             }
             if event == "stop" || lower.contains("idle") || lower.contains("waiting") || lower.contains("awaiting") || lower.contains("needs input") || lower.contains("needs your input") {
                 return .idlePrompt
             }
+            if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
+                return .error
+            }
             if lower.contains("question") || lower.contains("answer") || lower.contains("respond") || lower.contains("reply") || message.contains("?") {
                 return .question
             }
-            if !tool.isEmpty && event == "pretooluse" {
+            if metadata.contains("approve") || metadata.contains("approval") {
                 return .toolApproval
             }
             return .idlePrompt
@@ -19207,12 +19208,16 @@ struct CMUXCLI {
 
         if let toolInput = object["tool_input"] as? [String: Any] {
             var compactToolInput: [String: Any] = [:]
-            for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
+            for key in [
+                "file_path", "command", "pattern", "description", "query", "url", "path",
+                "plan", "planFilePath", "permission_prompt", "permissionPrompt",
+            ] {
                 if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
                     compactToolInput[key] = value
                 }
             }
-            if let allowedPrompts = toolInput["allowedPrompts"] as? [[String: Any]] {
+            if let allowedPrompts = (toolInput["allowedPrompts"] as? [[String: Any]])
+                ?? (toolInput["allowed_prompts"] as? [[String: Any]]) {
                 let compactPrompts: [[String: String]] = allowedPrompts.compactMap { prompt in
                     guard let promptText = compactClaudeHookStringValue(prompt["prompt"], maxLength: 220) else {
                         return nil
@@ -20756,7 +20761,7 @@ struct CMUXCLI {
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title", "reason"]),
             describeAskUserQuestion(object),
             describeClaudeAllowedPrompt(toolInput),
-            firstString(in: toolInput, keys: ["message", "body", "text", "prompt", "summary", "description", "command", "file_path", "pattern", "query", "url"]),
+            firstString(in: toolInput, keys: ["message", "body", "text", "prompt", "permission_prompt", "permissionPrompt", "summary", "description", "command", "file_path", "pattern", "query", "url"]),
             describeToolApprovalPrompt(object),
         ]
         return messageCandidates.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
