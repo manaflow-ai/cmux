@@ -379,6 +379,15 @@ class TerminalController {
         return terminalPanel.surface.ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: reason)
     }
 
+    @MainActor
+    private func v1TerminalAutomationReadinessError(workspace: Workspace, surfaceId: UUID, reason: String) -> String? {
+        guard v2EnsureTerminalAutomationReady(workspace: workspace, surfaceId: surfaceId, reason: reason) else {
+            _ = workspace.closePanel(surfaceId, force: true)
+            return "ERROR: Failed to start terminal automation surface"
+        }
+        return nil
+    }
+
     func v2TerminalAutomationReadinessFailure(workspace: Workspace, surfaceId: UUID, reason: String) -> V2CallResult {
         _ = workspace.closePanel(surfaceId, force: true)
         return .err(code: "internal_error", message: "Failed to start terminal automation surface", data: [
@@ -15568,13 +15577,19 @@ class TerminalController {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         let title: String? = trimmed.isEmpty ? nil : trimmed
 
-        var newTabId: UUID?
+        var result = "ERROR: Failed to create workspace"
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
             let workspace = tabManager.addWorkspace(title: title, select: focus, eagerLoadTerminal: !focus)
-            newTabId = workspace.id
+            if !focus,
+               !workspace.requestBackgroundPrimeTerminalSurfaceStartIfNeeded(includeIdleTerminals: true) {
+                tabManager.closeWorkspace(workspace)
+                result = "ERROR: Failed to start workspace terminal automation surfaces"
+                return
+            }
+            result = "OK \(workspace.id.uuidString)"
         }
-        return "OK \(newTabId?.uuidString ?? "unknown")"
+        return result
     }
 
     private func newSplit(_ args: String) -> String {
@@ -15618,6 +15633,14 @@ class TerminalController {
             }
 
             if let newPanelId = tabManager.newSplit(tabId: tabId, surfaceId: targetSurface, direction: direction) {
+                if let error = v1TerminalAutomationReadinessError(
+                    workspace: tab,
+                    surfaceId: newPanelId,
+                    reason: "socket.v1.new_split"
+                ) {
+                    result = error
+                    return
+                }
                 result = "OK \(newPanelId.uuidString)"
             }
         }
@@ -17372,6 +17395,15 @@ class TerminalController {
             }
 
             if let id = newPanelId {
+                if panelType == .terminal,
+                   let error = v1TerminalAutomationReadinessError(
+                       workspace: tab,
+                       surfaceId: id,
+                       reason: "socket.v1.new_pane"
+                   ) {
+                    result = error
+                    return
+                }
                 result = "OK \(id.uuidString)"
             }
         }
@@ -19035,6 +19067,15 @@ class TerminalController {
             }
 
             if let id = newPanelId {
+                if panelType == .terminal,
+                   let error = v1TerminalAutomationReadinessError(
+                       workspace: tab,
+                       surfaceId: id,
+                       reason: "socket.v1.new_surface"
+                   ) {
+                    result = error
+                    return
+                }
                 result = "OK \(id.uuidString)"
             }
         }

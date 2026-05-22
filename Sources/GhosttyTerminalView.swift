@@ -6217,7 +6217,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
-                requestBackgroundSurfaceStartIfNeeded()
+                guard ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: "socket.sendText") else {
+                    dropPendingSocketInput(reason: "socket.sendText.startFailed")
+                    return false
+                }
             }
             return queued
         }
@@ -6243,7 +6246,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
-            requestBackgroundSurfaceStartIfNeeded()
+            guard ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: "socket.sendNamedKey") else {
+                dropPendingSocketInput(reason: "socket.sendNamedKey.startFailed")
+                return .surfaceUnavailable
+            }
             return .queued
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendNamedKey") else {
@@ -6279,7 +6285,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(text)
             if queued {
-                requestBackgroundSurfaceStartIfNeeded()
+                guard ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: "socket.sendInput") else {
+                    dropPendingSocketInput(reason: "socket.sendInput.startFailed")
+                    return .surfaceUnavailable
+                }
             }
             return queued ? .queued : .inputQueueFull
         }
@@ -6439,8 +6448,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
 
-        guard allowsRuntimeSurfaceCreation() else { return }
-        guard surface == nil else { return }
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
 
@@ -6448,23 +6455,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             guard let self else { return }
             MainActor.assumeIsolated {
                 self.backgroundSurfaceStartQueued = false
-                guard self.allowsRuntimeSurfaceCreation() else { return }
-                guard self.surface == nil else { return }
-            #if DEBUG
-                let startedAt = ProcessInfo.processInfo.systemUptime
-            #endif
-                if let view = self.attachedView, view.window != nil {
-                    self.createSurface(for: view)
-                } else {
-                    self.scheduleHeadlessRuntimeStartIfNeeded(reason: "background-input")
-                }
-            #if DEBUG
-                let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
-                let view = self.attachedView ?? self.surfaceView
-                cmuxDebugLog(
-                    "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
-                )
-            #endif
+                _ = self.startRuntimeSurfaceForAutomationIfNeeded(reason: "background-input")
             }
         }
     }
@@ -6472,16 +6463,35 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     @discardableResult
     func ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: String) -> Bool {
-        guard !hasLiveSurface else { return true }
+        startRuntimeSurfaceForAutomationIfNeeded(reason: reason)
+    }
+
+    @MainActor
+    @discardableResult
+    private func startRuntimeSurfaceForAutomationIfNeeded(reason: String) -> Bool {
+        if liveSurfaceForGhosttyAccess(reason: reason) != nil { return true }
         guard allowsRuntimeSurfaceCreation() else { return false }
         guard surface == nil else { return false }
 
+#if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+#endif
         if let view = attachedView, view.window != nil {
             createSurface(for: view)
         } else {
             startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
         }
-        return hasLiveSurface
+        let started = liveSurfaceForGhosttyAccess(reason: "\(reason).postStart") != nil
+#if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+        let view = attachedView ?? surfaceView
+        cmuxDebugLog(
+            "surface.background_start surface=\(id.uuidString.prefix(8)) " +
+            "reason=\(reason) inWindow=\(view.window != nil ? 1 : 0) " +
+            "ready=\(started ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
+        )
+#endif
+        return started
     }
 
     private func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
@@ -6666,6 +6676,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
+    private func dropPendingSocketInput(reason: String) {
+        let dropped = pendingSocketInputQueue.count
+        guard dropped > 0 || pendingSocketInputBytes > 0 else { return }
+        pendingSocketInputQueue.removeAll(keepingCapacity: false)
+        pendingSocketInputBytes = 0
+        TerminalSurfaceRegistry.shared.setSurfaceHasPendingSocketInput(self, false)
+#if DEBUG
+        cmuxDebugLog(
+            "surface.socket_input.drop surface=\(id.uuidString.prefix(8)) " +
+            "reason=\(reason) items=\(dropped)"
+        )
+#endif
+    }
+
+    @MainActor
     func flushPendingSocketInputIfReady(reason: String) {
         guard let surface = liveSurfaceForSocketWrite(reason: "socket.flushPendingInput") else { return }
         switch socketInputReadiness(for: surface) {
@@ -6674,17 +6699,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         case .notReady:
             return
         case .processExited:
-            let dropped = pendingSocketInputQueue.count
-            pendingSocketInputQueue.removeAll(keepingCapacity: false)
-            pendingSocketInputBytes = 0
-            TerminalSurfaceRegistry.shared.setSurfaceHasPendingSocketInput(self, false)
-#if DEBUG
-            if dropped > 0 {
-                cmuxDebugLog(
-                    "surface.socket_input.drop surface=\(id.uuidString.prefix(8)) reason=\(reason) items=\(dropped)"
-                )
-            }
-#endif
+            dropPendingSocketInput(reason: reason)
             return
         }
         let queued = pendingSocketInputQueue
