@@ -87,10 +87,6 @@ enum CLISocketPathResolver {
     private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
 
-    private struct SocketPathCandidate {
-        let path: String
-    }
-
     static func defaultSocketPath(
         bundleIdentifier: String?,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -149,14 +145,14 @@ enum CLISocketPathResolver {
                 warningSink: warningSink ?? writeStandardErrorLine
             )
         }
-        return resolved.path
+        return resolved
     }
 
     private static func resolveFromCandidateChain(
         requestedPath: String,
         environment: [String: String],
         bundleIdentifier: String?
-    ) -> SocketPathCandidate {
+    ) -> String {
         let candidates = dedupe(candidatePaths(
             requestedPath: requestedPath,
             environment: environment,
@@ -164,49 +160,45 @@ enum CLISocketPathResolver {
         ))
 
         // Prefer sockets that are currently accepting connections.
-        for candidate in candidates where canConnect(to: candidate.path) {
+        for candidate in candidates where canConnect(to: candidate) {
             return candidate
         }
 
         // If the listener is still starting, prefer existing socket files.
-        for candidate in candidates where isSocketFile(candidate.path) {
+        for candidate in candidates where isSocketFile(candidate) {
             return candidate
         }
 
-        return SocketPathCandidate(path: requestedPath)
+        return requestedPath
     }
 
     private static func candidatePaths(
         requestedPath: String,
         environment: [String: String],
         bundleIdentifier: String?
-    ) -> [SocketPathCandidate] {
-        var candidates: [SocketPathCandidate] = []
+    ) -> [String] {
+        var candidates: [String] = []
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
 
-        candidates.append(SocketPathCandidate(path: defaultPath))
+        candidates.append(defaultPath)
         if let last = readLastSocketPath(bundleIdentifier: bundleIdentifier, environment: environment) {
-            candidates.append(SocketPathCandidate(path: last))
+            candidates.append(last)
         }
         if shouldIncludeImplicitRequestedPath(
             requestedPath,
             defaultPath: defaultPath,
             variant: variant
         ) {
-            candidates.append(SocketPathCandidate(path: requestedPath))
+            candidates.append(requestedPath)
         }
-        candidates.append(contentsOf: implicitFallbackCandidatePaths(for: variant).map {
-            SocketPathCandidate(path: $0)
-        })
+        candidates.append(contentsOf: implicitFallbackCandidatePaths(for: variant))
         if shouldDiscoverTaggedSockets(
             variant: variant,
             bundleIdentifier: bundleIdentifier,
             environment: environment
         ) {
-            candidates.append(contentsOf: discoverTaggedSockets(limit: 12).map {
-                SocketPathCandidate(path: $0)
-            })
+            candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
         }
         return candidates
     }
@@ -439,24 +431,12 @@ enum CLISocketPathResolver {
         return ordered
     }
 
-    private static func dedupe(_ candidates: [SocketPathCandidate]) -> [SocketPathCandidate] {
-        var seen: Set<String> = []
-        var ordered: [SocketPathCandidate] = []
-        ordered.reserveCapacity(candidates.count)
-        for candidate in candidates where !candidate.path.isEmpty {
-            if seen.insert(candidate.path).inserted {
-                ordered.append(candidate)
-            }
-        }
-        return ordered
-    }
-
     private static func emitEnvironmentSocketFallbackWarning(
         requestedPath: String,
-        resolved: SocketPathCandidate,
+        resolved: String,
         warningSink: (String) -> Void
     ) {
-        if resolved.path == requestedPath {
+        if resolved == requestedPath {
             let message = String(
                 localized: "cli.socketPath.environment.unreachable.noFallback",
                 defaultValue: "cmux: CMUX_SOCKET_PATH=\(requestedPath) is unreachable; no fallback socket found"
@@ -467,7 +447,7 @@ enum CLISocketPathResolver {
 
         let message = String(
             localized: "cli.socketPath.environment.unreachable",
-            defaultValue: "cmux: CMUX_SOCKET_PATH=\(requestedPath) is unreachable; using \(resolved.path)"
+            defaultValue: "cmux: CMUX_SOCKET_PATH=\(requestedPath) is unreachable; using \(resolved)"
         )
         warningSink(message + "\n")
     }
