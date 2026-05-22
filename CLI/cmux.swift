@@ -18456,7 +18456,11 @@ struct CMUXCLI {
             // instead of the generic "Claude Code needs your attention".
             if let toolName = parsedInput.object?["tool_name"] as? String,
                toolName == "AskUserQuestion",
-               let question = describeAskUserQuestion(parsedInput.object),
+               let summary = summarizeClaudePendingNotification(
+                    hookEventName: "AskUserQuestion",
+                    toolName: toolName,
+                    toolInput: parsedInput.object?["tool_input"]
+               ),
                let sessionId = parsedInput.sessionId {
                 // Preserve a non-empty surfaceId from SessionStart; passing ""
                 // would overwrite it and cause notifications to target the wrong workspace.
@@ -18467,8 +18471,8 @@ struct CMUXCLI {
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    lastSubtitle: "Waiting",
-                    lastBody: question
+                    lastSubtitle: summary.subtitle,
+                    lastBody: summary.body
                 )
                 // Don't clear notifications or set status here.
                 // The Notification hook fires right after and will use the saved question.
@@ -18839,6 +18843,96 @@ struct CMUXCLI {
             ?? nested["tool_input"]
             ?? nested["toolInput"]
         return summarizeClaudePermissionNotification(toolName: toolName, toolInput: toolInput)
+    }
+
+    private func summarizeClaudePendingNotification(
+        hookEventName rawHookEventName: String?,
+        toolName rawToolName: String?,
+        toolInput rawToolInput: Any?
+    ) -> (subtitle: String, body: String)? {
+        let toolName = nonEmptyClaudeHookIdentifier(rawToolName)
+        let hookEventName = claudePendingNotificationHookEventName(
+            hookEventName: rawHookEventName,
+            toolName: toolName
+        )
+
+        switch hookEventName {
+        case "ExitPlanMode":
+            return summarizeClaudeExitPlanNotification(toolInput: rawToolInput)
+                ?? summarizeClaudePermissionNotification(toolName: toolName, toolInput: rawToolInput)
+        case "AskUserQuestion":
+            return summarizeClaudeAskUserQuestionNotification(toolInput: rawToolInput)
+        case "PermissionRequest":
+            return summarizeClaudePermissionNotification(toolName: toolName, toolInput: rawToolInput)
+        default:
+            return nil
+        }
+    }
+
+    private func summarizeClaudePendingNotification(object: [String: Any]?) -> (subtitle: String, body: String)? {
+        guard let object else { return nil }
+        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        let hookEventName = firstString(in: object, keys: ["hook_event_name", "hookEventName", "event_name", "event", "type", "kind"])
+            ?? firstString(in: nested, keys: ["hook_event_name", "hookEventName", "event_name", "event", "type", "kind"])
+        let toolName = firstString(in: object, keys: ["tool_name", "toolName"])
+            ?? firstString(in: nested, keys: ["tool_name", "toolName"])
+        let toolInput = object["tool_input"]
+            ?? object["toolInput"]
+            ?? nested["tool_input"]
+            ?? nested["toolInput"]
+        return summarizeClaudePendingNotification(
+            hookEventName: hookEventName,
+            toolName: toolName,
+            toolInput: toolInput
+        )
+    }
+
+    private func claudePendingNotificationHookEventName(hookEventName: String?, toolName: String?) -> String? {
+        let toolName = nonEmptyClaudeHookIdentifier(toolName)
+        if toolName == "ExitPlanMode" {
+            return "ExitPlanMode"
+        }
+        if toolName == "AskUserQuestion" {
+            return "AskUserQuestion"
+        }
+
+        let hookEventName = nonEmptyClaudeHookIdentifier(hookEventName)
+        switch hookEventName {
+        case "PermissionRequest", "ExitPlanMode", "AskUserQuestion":
+            return hookEventName
+        default:
+            return nil
+        }
+    }
+
+    private func summarizeClaudeExitPlanNotification(toolInput rawToolInput: Any?) -> (subtitle: String, body: String)? {
+        let input = Self.jsonDictionary(from: rawToolInput) ?? [:]
+        let detail = firstString(in: input, keys: ["planSummary", "plan_summary", "summary", "description"])
+            ?? firstString(in: input, keys: ["plan"]).flatMap { feedPlanSummary(from: $0) }
+            ?? compactPermissionToolInput(rawToolInput)
+
+        guard let detail = detail.map({ normalizedSingleLine($0) }), !detail.isEmpty else {
+            return nil
+        }
+        return (
+            subtitle: String(localized: "feed.kind.exitPlan", defaultValue: "Exit plan"),
+            body: truncate(detail, maxLength: 180)
+        )
+    }
+
+    private func summarizeClaudeAskUserQuestionNotification(toolInput rawToolInput: Any?) -> (subtitle: String, body: String)? {
+        let input = Self.jsonDictionary(from: rawToolInput) ?? [:]
+        let detail = describeAskUserQuestion(["tool_input": input])
+            ?? firstString(in: input, keys: ["question", "prompt", "message", "description"])
+            ?? compactPermissionToolInput(rawToolInput)
+
+        guard let detail = detail.map({ normalizedSingleLine($0) }), !detail.isEmpty else {
+            return nil
+        }
+        return (
+            subtitle: String(localized: "feed.kind.question", defaultValue: "Question"),
+            body: truncate(detail, maxLength: 180)
+        )
     }
 
     private func compactPermissionToolInput(_ rawToolInput: Any?) -> String? {
@@ -20624,8 +20718,8 @@ struct CMUXCLI {
         let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
         let normalizedMessage = normalizedSingleLine(message)
         if isGenericClaudeNotificationBody(normalizedMessage),
-           let permissionSummary = summarizeClaudePermissionNotification(object: object) {
-            return permissionSummary
+           let pendingSummary = summarizeClaudePendingNotification(object: object) {
+            return pendingSummary
         }
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
@@ -26854,10 +26948,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         eventDict["_opencode_request_id"] = requestId
 
         if source == "claude",
-           hookEventName == "PermissionRequest",
+           ["PermissionRequest", "ExitPlanMode", "AskUserQuestion"].contains(hookEventName),
            let workspaceId = nonEmptyClaudeHookIdentifier(eventDict["workspace_id"] as? String),
            let surfaceId = nonEmptyClaudeHookIdentifier(env["CMUX_SURFACE_ID"]),
-           let summary = summarizeClaudePermissionNotification(
+           let summary = summarizeClaudePendingNotification(
+                hookEventName: hookEventName,
                 toolName: toolName.isEmpty ? nil : toolName,
                 toolInput: eventDict["tool_input"]
            ) {
