@@ -1236,6 +1236,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var tmuxStartCommand: String?
     var resumeBinding: SurfaceResumeBindingSnapshot?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
+    var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
@@ -1247,6 +1248,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         tmuxStartCommand: String? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
+        remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
@@ -1255,6 +1257,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.tmuxStartCommand = tmuxStartCommand
         self.resumeBinding = resumeBinding
         self.textBoxDraft = textBoxDraft
+        self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
     }
 }

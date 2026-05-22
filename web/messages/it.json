@@ -490,6 +490,10 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "Nasconde le notifiche visibili di completamento e le modifiche di stato degli agenti figli Codex o Claude annidati, mantenendo i loro eventi nella telemetria Feed."
+        },
+        "app": {
+          "confirmQuit": "Controlla quando cmux chiede conferma prima di uscire. Le build DEV escono sempre immediatamente indipendentemente da questa impostazione. Il vecchio app.warnBeforeQuit è ancora accettato come fallback booleano.",
+          "warnBeforeQuit": "Fallback booleano legacy per la conferma di uscita. Usa app.confirmQuit per le nuove configurazioni."
         }
       }
     },

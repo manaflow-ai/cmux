@@ -490,6 +490,10 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "Masque les notifications visibles de fin et les changements d’état des agents enfants Codex ou Claude imbriqués, tout en conservant leurs événements dans la télémétrie Feed."
+        },
+        "app": {
+          "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
+          "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations."
         }
       }
     },
