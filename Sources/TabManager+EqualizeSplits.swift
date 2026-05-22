@@ -19,5 +19,4 @@ extension TabManager {
             controller: tab.bonsplitController
         )
     }
-
 }

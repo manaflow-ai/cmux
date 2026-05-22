@@ -300,7 +300,12 @@
       "browserHostsEmbed": "내장 브라우저에서 열 호스트: 터미널 출력에서 클릭한 링크에 적용됩니다. 이 목록의 호스트는 cmux에서 열리고, 다른 호스트는 기본 브라우저에서 열립니다. 줄당 하나의 호스트 또는 와일드카드를 지원합니다(예: example.com, *.internal.example).",
       "browserHostsHttp": "내장 브라우저에서 허용되는 HTTP 호스트: HTTP(비 HTTPS) URL에만 적용됩니다. 이 목록의 호스트는 경고 프롬프트 없이 cmux에서 열 수 있습니다. 기본값에는 localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me가 포함됩니다.",
       "exampleConfig": "예시 설정",
-      "metaTitle": "설정"
+      "metaTitle": "설정",
+      "schemaDescriptions": {
+        "automation": {
+          "suppressSubagentNotifications": "중첩된 Codex 또는 Claude 하위 에이전트의 표시되는 완료 알림과 상태 변경을 억제하면서 해당 이벤트는 Feed 텔레메트리에 유지합니다."
+        }
+      }
     },
     "customCommands": {
       "title": "사용자 정의 명령어",
