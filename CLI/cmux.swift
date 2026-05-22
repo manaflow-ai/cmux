@@ -24384,7 +24384,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand,
-                    isRestorable: suppressRestorableRecord ? false : nil
+                    isRestorable: suppressRestorableRecord ? false : nil,
+                    runtimeStatus: nil,
+                    updateRuntimeStatus: suppressRestorableRecord
                 )) ?? false
             } else {
                 nestedPromptSubmit = false
@@ -24841,8 +24843,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     lastBody: summary.body,
                     lastNotificationStatus: summary.status,
                     updateLastNotificationStatus: true,
-                    runtimeStatus: runtimeStatus(for: summary.status),
-                    updateRuntimeStatus: summary.status != nil && !suppressVisibleMutations
+                    runtimeStatus: suppressRestorableRecord ? nil : runtimeStatus(for: summary.status),
+                    updateRuntimeStatus: suppressRestorableRecord || (summary.status != nil && !suppressVisibleMutations)
                 )
                 if suppressRestorableRecord && !suppressVisibleMutations {
                     repairSuppressedSubagentResumeBinding(
@@ -24968,8 +24970,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         pid: mapped.pid,
                         launchCommand: mapped.launchCommand,
                         isRestorable: false,
-                        runtimeStatus: suppressVisibleMutations ? nil : mapped.runtimeStatus,
-                        updateRuntimeStatus: suppressVisibleMutations
+                        runtimeStatus: suppressRestorableRecord || suppressVisibleMutations ? nil : mapped.runtimeStatus,
+                        updateRuntimeStatus: suppressRestorableRecord || suppressVisibleMutations
                     )
                     repairSuppressedSubagentResumeBinding(
                         workspaceId: mapped.workspaceId,
