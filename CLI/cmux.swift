@@ -14312,17 +14312,73 @@ struct CMUXCLI {
         fallback: String
     ) -> String {
         guard let format, !format.isEmpty else { return fallback }
-        var rendered = format
-        for (key, value) in context {
-            rendered = rendered.replacingOccurrences(of: "#{\(key)}", with: value)
+        let shortAliases: [Character: String] = [
+            "S": "session_name",
+            "I": "window_index",
+            "W": "window_name",
+            "P": "pane_index",
+            "T": "pane_title",
+            "D": "pane_id",
+        ]
+        var rendered = ""
+        var index = format.startIndex
+        while index < format.endIndex {
+            let character = format[index]
+            guard character == "#" else {
+                rendered.append(character)
+                index = format.index(after: index)
+                continue
+            }
+
+            let nextIndex = format.index(after: index)
+            guard nextIndex < format.endIndex else {
+                rendered.append(character)
+                index = nextIndex
+                continue
+            }
+
+            let next = format[nextIndex]
+            if next == "#" {
+                rendered.append("#")
+                index = format.index(after: nextIndex)
+                continue
+            }
+
+            if next == "{",
+               let closeIndex = format[nextIndex...].firstIndex(of: "}") {
+                let keyStart = format.index(after: nextIndex)
+                let key = String(format[keyStart..<closeIndex])
+                rendered += context[key] ?? ""
+                index = format.index(after: closeIndex)
+                continue
+            }
+
+            if let key = shortAliases[next] {
+                rendered += context[key] ?? ""
+                index = format.index(after: nextIndex)
+                continue
+            }
+
+            rendered.append(character)
+            index = nextIndex
         }
-        rendered = rendered.replacingOccurrences(
-            of: "#\\{[^}]+\\}",
-            with: "",
-            options: .regularExpression
-        )
         let trimmed = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed
+    }
+
+    private func tmuxCompatOptionValue(_ optionName: String) -> String? {
+        switch optionName {
+        case "default-terminal":
+            return "tmux-256color"
+        case "extended-keys":
+            return "on"
+        case "extended-keys-format":
+            return "csi-u"
+        case "status":
+            return "on"
+        default:
+            return nil
+        }
     }
 
     private func tmuxFormatContext(
@@ -14334,6 +14390,11 @@ struct CMUXCLI {
         let canonicalWorkspaceId = try resolveWorkspaceId(workspaceId, client: client)
         var context: [String: String] = [
             "session_name": "cmux",
+            "session_id": "$0",
+            "session_attached": "1",
+            "client_attached": "1",
+            "client_name": "cmux",
+            "client_tty": ProcessInfo.processInfo.environment["TTY"] ?? "",
             "window_id": "@\(canonicalWorkspaceId)",
             "window_uuid": canonicalWorkspaceId
         ]
@@ -17211,10 +17272,12 @@ struct CMUXCLI {
                 boolFlags: ["-g", "-q", "-s", "-v", "-w"]
             )
             let optionName = parsed.positional.last ?? ""
-            guard optionName == "extended-keys" else {
+            guard let value = tmuxCompatOptionValue(optionName) else {
+                if parsed.hasFlag("-q") {
+                    return
+                }
                 throw CLIError(message: "Unsupported tmux compatibility command: \(command) \(optionName)")
             }
-            let value = "on"
             if parsed.hasFlag("-v") {
                 print(value)
             } else {
