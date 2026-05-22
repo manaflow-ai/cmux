@@ -1609,6 +1609,11 @@ final class WindowBrowserSlotView: NSView {
         return hostedWebView
     }
 
+    func hostedTextDropWebViewForFileDrop(at localPoint: NSPoint) -> WKWebView? {
+        guard paneDropTargetView.dropContext?.allowsHostedWebViewTextDrop == true else { return nil }
+        return hostedWebViewForFileDrop(at: localPoint)
+    }
+
     func setPaneTopChromeHeight(_ height: CGFloat) {
         let resolvedHeight = max(0, height)
         guard abs(paneTopChromeHeight - resolvedHeight) > 0.5 else { return }
@@ -3953,6 +3958,21 @@ final class WindowBrowserPortal: NSObject {
         return nil
     }
 
+    func textDropWebViewAtWindowPoint(_ windowPoint: NSPoint) -> WKWebView? {
+        guard ensureInstalled() else { return nil }
+        let point = hostView.convert(windowPoint, from: nil)
+        for subview in hostView.subviews.reversed() {
+            guard let container = subview as? WindowBrowserSlotView else { continue }
+            guard !container.isHidden else { continue }
+            guard container.frame.contains(point) else { continue }
+            let pointInContainer = container.convert(point, from: hostView)
+            if let webView = container.hostedTextDropWebViewForFileDrop(at: pointInContainer) {
+                return webView
+            }
+        }
+        return nil
+    }
+
     func browserPaneDropTargetAtWindowPoint(_ windowPoint: NSPoint) -> BrowserPaneDropTargetView? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
@@ -4186,6 +4206,12 @@ enum BrowserWindowPortalRegistry {
         let windowId = ObjectIdentifier(window)
         guard let portal = portalsByWindowId[windowId] else { return nil }
         return portal.webViewAtWindowPoint(windowPoint)
+    }
+
+    static func textDropWebViewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> WKWebView? {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.textDropWebViewAtWindowPoint(windowPoint)
     }
 
     static func browserPaneDropTargetAtWindowPoint(

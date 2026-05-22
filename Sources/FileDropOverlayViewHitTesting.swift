@@ -31,7 +31,7 @@ extension FileDropOverlayView {
                 activePaneDropTarget = paneDropTarget
                 return paneDropTarget.fileDropDraggingEntered(sender)
             }
-            if let webView = webViewUnderPoint(loc) {
+            if let webView = textDropWebViewUnderPoint(loc) {
                 if activeDragWebView !== webView {
                     if let prev = activeDragWebView {
                         prev.draggingExited(sender)
@@ -139,7 +139,7 @@ extension FileDropOverlayView {
         if editableTextViewUnderPoint(windowPoint) != nil {
             return .editor
         }
-        if webViewUnderPoint(windowPoint) != nil {
+        if textDropWebViewUnderPoint(windowPoint) != nil {
             return .editor
         }
         if terminalUnderPoint(windowPoint) != nil {
@@ -227,6 +227,19 @@ extension FileDropOverlayView {
             return portalWebView
         }
 
+        return inlineWebViewUnderPoint(windowPoint)
+    }
+
+    func textDropWebViewUnderPoint(_ windowPoint: NSPoint) -> WKWebView? {
+        if let window,
+           let portalWebView = BrowserWindowPortalRegistry.textDropWebViewAtWindowPoint(windowPoint, in: window) {
+            return portalWebView
+        }
+
+        return inlineWebViewUnderPoint(windowPoint)
+    }
+
+    private func inlineWebViewUnderPoint(_ windowPoint: NSPoint) -> WKWebView? {
         guard let window, let contentView = window.contentView else { return nil }
         isHidden = true
         defer { isHidden = false }
