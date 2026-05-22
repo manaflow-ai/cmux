@@ -580,7 +580,7 @@ private final class ClaudeHookSessionStore {
                 } else if let activeTurnId = turnStack.last,
                           activeTurnId != normalizedTurnId,
                           previousActivePromptTurnIsTerminal {
-                    turnStack.removeAll()
+                    turnStack.removeLast()
                 }
                 turnStack.append(normalizedTurnId)
                 setActivePromptTurnStack(turnStack, on: &record)
