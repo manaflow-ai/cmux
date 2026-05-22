@@ -723,6 +723,40 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTopLevelSessionIgnoresUnrelatedNestedParentMetadata() throws {
+        let context = try makeClaudeHookContext(name: "codex-unrelated-nested-parent-metadata")
+        defer { context.cleanup() }
+
+        let sessionId = "top-level-session-with-metadata"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","metadata":{"prior_invocation":{"parent_thread_id":"unrelated-parent-thread"}}}"#
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == sessionId
+            },
+            "Unrelated nested parent metadata should not suppress a top-level Codex resume binding, saw \(context.state.commands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        let savedSession = try XCTUnwrap(savedSessions[sessionId] as? [String: Any])
+        XCTAssertNil(savedSession["parentSessionId"])
+        XCTAssertNil(savedSession["isRestorable"])
+    }
+
     func testCodexTransientVisibleSuppressionDoesNotPersistUnrestorableState() throws {
         let context = try makeClaudeHookContext(name: "codex-transient-visible-suppression")
         defer { context.cleanup() }
