@@ -432,7 +432,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let parentPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"spawn subagent"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"spawn subagent"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
@@ -446,7 +446,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let childPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"return 1+1"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"return 1+1"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
@@ -465,7 +465,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let childStop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"2"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"2"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(childStop.timedOut, childStop.stderr)
@@ -488,7 +488,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let parentStop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
