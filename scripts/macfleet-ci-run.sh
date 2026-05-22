@@ -25,6 +25,7 @@ postgres_sock="$tmp_root/pg-socket"
 postgres_log="$tmp_root/postgres.log"
 pid_file="$tmp_root/pids"
 pgid_file="$tmp_root/pgids"
+run_lock="$tmp_root/run.lock"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export PATH="/opt/homebrew/opt/postgresql@16/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
@@ -95,10 +96,22 @@ cleanup_current_run() {
   if [ "$keep_derived" != "1" ] && [ -d "$derived" ]; then
     rm -rf "$derived" || true
   fi
+  rm -f "$run_lock" || true
   rm -rf "$tmp_root" || true
   exit "$code"
 }
 trap cleanup_current_run EXIT
+
+register_current_run() {
+  mkdir -p "$tmp_root"
+  {
+    printf 'pid=%s\n' "$$"
+    printf 'mode=%s\n' "$mode"
+    printf 'run_id=%s\n' "$run_id"
+    printf 'root=%s\n' "$root"
+    printf 'derived=%s\n' "$derived"
+  } > "$run_lock"
+}
 
 track_pid() {
   mkdir -p "$tmp_root"
@@ -726,6 +739,7 @@ workflow_guards() {
   ./tests/test_ci_swift_warning_budget.sh
   ./tests/test_ci_swift_file_length_budget.sh
   ./tests/test_ci_auxiliary_window_close_shortcuts.sh
+  ./tests/test_macfleet_cleanup_active_run_guard.sh
   node scripts/release_asset_guard.test.js
 }
 
@@ -810,6 +824,7 @@ if [ "$mode" = "cleanup" ]; then
   exit 0
 fi
 
+register_current_run
 ensure_checkout
 
 case "$mode" in
