@@ -828,6 +828,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     return false
                 }
                 return params["checkpoint_id"] as? String == parentSessionId
+                    && params["expected_checkpoint_id"] as? String == childSessionId
+                    && params["expected_source"] as? String == "agent-hook"
             },
             "Late subagent metadata should repair the stale child resume binding by restoring the parent binding, saw \(childStopCommands)"
         )
@@ -842,6 +844,73 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let child = try XCTUnwrap(savedSessions[childSessionId] as? [String: Any])
         XCTAssertEqual(child["parentSessionId"] as? String, parentSessionId)
         XCTAssertEqual(child["isRestorable"] as? Bool, false)
+    }
+
+    func testCodexLateSubagentRepairDoesNotReplaceNewerTopLevelResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-late-subagent-newer-parent")
+        defer { context.cleanup() }
+
+        let parentSessionId = "stale-parent-thread"
+        let childSessionId = "stale-child-thread"
+        let newerSessionId = "newer-top-level-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let parentStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: parentSessionId)
+        )
+        XCTAssertFalse(parentStart.timedOut, parentStart.stderr)
+        XCTAssertEqual(parentStart.status, 0, parentStart.stderr)
+
+        let childStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: childSessionId)
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+
+        let newerStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(newerSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: newerSessionId)
+        )
+        XCTAssertFalse(newerStart.timedOut, newerStart.stderr)
+        XCTAssertEqual(newerStart.status, 0, newerStart.stderr)
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, newerSessionId)
+
+        let childStopIndex = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}"#
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertTrue(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == parentSessionId
+                    && params["expected_checkpoint_id"] as? String == childSessionId
+                    && params["expected_source"] as? String == "agent-hook"
+            },
+            "Late repair should be guarded by the child checkpoint, saw \(childStopCommands)"
+        )
+        XCTAssertEqual(
+            context.state.resumeBindingCheckpointId,
+            newerSessionId,
+            "A late child hook must not replace a newer top-level resume binding."
+        )
     }
 
     func testCodexSubagentStopWithSuppressionDisabledStillProtectsParentResumeBinding() throws {
@@ -891,6 +960,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     return false
                 }
                 return params["checkpoint_id"] as? String == parentSessionId
+                    && params["expected_checkpoint_id"] as? String == childSessionId
+                    && params["expected_source"] as? String == "agent-hook"
             },
             "Disabling subagent notification suppression should still repair the parent resume binding, saw \(childStopCommands)"
         )
@@ -4734,9 +4805,28 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
         case "surface.resume.set":
-            return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            let params = payload["params"] as? [String: Any] ?? [:]
+            let binding = context.state.setResumeBinding(
+                params,
+                expectedCheckpointId: params["expected_checkpoint_id"] as? String,
+                expectedSource: params["expected_source"] as? String
+            )
+            let responseBinding: Any = binding.map { $0 as Any } ?? NSNull()
+            return v2Response(id: id, ok: true, result: ["resume_binding": responseBinding])
+        case "surface.resume.get":
+            let responseBinding: Any = context.state.currentResumeBinding().map { $0 as Any } ?? NSNull()
+            return v2Response(id: id, ok: true, result: ["resume_binding": responseBinding])
         case "surface.resume.clear":
-            return v2Response(id: id, ok: true, result: ["cleared": true])
+            let params = payload["params"] as? [String: Any] ?? [:]
+            let cleared = context.state.clearResumeBinding(
+                expectedCheckpointId: params["checkpoint_id"] as? String,
+                expectedSource: params["source"] as? String
+            )
+            let responseBinding: Any = cleared.binding.map { $0 as Any } ?? NSNull()
+            return v2Response(id: id, ok: true, result: [
+                "cleared": cleared.cleared,
+                "resume_binding": responseBinding,
+            ])
         default:
             return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }
