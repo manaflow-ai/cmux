@@ -4937,6 +4937,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
+        let webkitExtension = try XCTUnwrap(URL(string: "webkit-extension://extension-id/options.html"))
 
         XCTAssertFalse(browserShouldOpenURLExternally(https))
         XCTAssertFalse(browserShouldOpenURLExternally(http))
@@ -4946,6 +4947,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(blob))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
+        XCTAssertFalse(browserShouldOpenURLExternally(webkitExtension))
     }
 
     func testCustomAppSchemesRouteExternallyFromSubframes() throws {

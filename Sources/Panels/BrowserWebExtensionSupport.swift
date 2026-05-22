@@ -3299,7 +3299,9 @@ private final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWi
     }
 
     func focus(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        runtime?.activeTabAdapter(runtimeKey: runtimeKey)?.panel?.focus()
+        if let panel = runtime?.activeTabAdapter(runtimeKey: runtimeKey)?.panel {
+            BrowserWebExtensionTabAdapter.activateOwningBrowserPanel(panel)
+        }
         completionHandler(nil)
     }
 
@@ -3393,8 +3395,26 @@ private final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     }
 
     func activate(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        panel?.focus()
+        if let panel {
+            Self.activateOwningBrowserPanel(panel)
+        }
         completionHandler(nil)
+    }
+
+    static func activateOwningBrowserPanel(_ panel: BrowserPanel) {
+        guard let located = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panel.id,
+            preferredWorkspaceId: panel.workspaceId
+        ) else {
+            panel.focus()
+            return
+        }
+        located.tabManager.focusTab(
+            located.workspace.id,
+            surfaceId: panel.id,
+            suppressFlash: true,
+            focusIntent: .browser(.webView)
+        )
     }
 
     func isSelected(for context: WKWebExtensionContext) -> Bool {
