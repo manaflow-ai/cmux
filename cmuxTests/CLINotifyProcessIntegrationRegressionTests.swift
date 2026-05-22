@@ -785,6 +785,77 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexDepthOnlyHistoricalTerminalDoesNotResetActiveParent() throws {
+        let context = try makeClaudeHookContext(name: "codex-depth-only-history")
+        defer { context.cleanup() }
+
+        let sessionId = "depth-only-history-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-depth-only-history.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"old-turn"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"parent-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A historical terminal turn must not make an active depth-only parent look finished, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "A historical terminal turn must not let the child rewrite parent Running status, saw \(childPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "A historical terminal turn must not let a child Stop notify while the parent is active, saw \(childStopCommands)"
+        )
+    }
+
     func testCodexDepthOnlyParentStopNotifiesAfterChildTurnStops() throws {
         let context = try makeClaudeHookContext(name: "codex-depth-only-parent-stop")
         defer { context.cleanup() }
