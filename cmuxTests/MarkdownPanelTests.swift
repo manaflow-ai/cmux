@@ -1148,6 +1148,7 @@ final class MarkdownPanelTests: XCTestCase {
         webView.removeFromSuperview()
         window.orderOut(nil)
         window.contentView = nil
+        window.close()
         Self.retainedHostedWebViews.append(HostedWebViewFixture(webView: webView, window: window))
         drainAppHostTeardown()
     }
