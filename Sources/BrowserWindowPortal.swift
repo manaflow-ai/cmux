@@ -1334,6 +1334,19 @@ struct BrowserPaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID
     let paneId: PaneID
+    let allowsHostedWebViewTextDrop: Bool
+
+    init(
+        workspaceId: UUID,
+        panelId: UUID,
+        paneId: PaneID,
+        allowsHostedWebViewTextDrop: Bool = true
+    ) {
+        self.workspaceId = workspaceId
+        self.panelId = panelId
+        self.paneId = paneId
+        self.allowsHostedWebViewTextDrop = allowsHostedWebViewTextDrop
+    }
 }
 
 struct BrowserPaneDragTransfer: Equatable {

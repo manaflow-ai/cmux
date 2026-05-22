@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Combine
 import WebKit
 import XCTest
@@ -189,6 +190,7 @@ final class MarkdownPanelTests: XCTestCase {
         let filePath = FileManager.default.temporaryDirectory
             .appendingPathComponent("stable-renderer.md")
             .path
+        let paneId = PaneID()
         let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
 
         let firstRenderer = MarkdownWebRenderer(
@@ -197,8 +199,11 @@ final class MarkdownPanelTests: XCTestCase {
             backgroundColor: .windowBackgroundColor,
             panelId: panelId,
             workspaceId: workspaceId,
+            paneId: paneId,
             filePath: filePath,
             session: session,
+            visibleInUI: true,
+            portalPriority: 0,
             onRequestPanelFocus: {}
         )
         let firstCoordinator = firstRenderer.makeCoordinator()
@@ -209,8 +214,11 @@ final class MarkdownPanelTests: XCTestCase {
             backgroundColor: .windowBackgroundColor,
             panelId: panelId,
             workspaceId: workspaceId,
+            paneId: paneId,
             filePath: filePath,
             session: session,
+            visibleInUI: true,
+            portalPriority: 0,
             onRequestPanelFocus: {}
         )
         let recreatedCoordinator = recreatedRenderer.makeCoordinator()
@@ -221,35 +229,17 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
-    func testMarkdownRendererDismantleKeepsPointerHandlerForReusedWebView() {
+    func testMarkdownRendererDismantleClearsPortalHostCallbacksOnly() {
         let coordinator = MarkdownWebRenderer.Coordinator()
-        let reusedWebView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        coordinator.webView = reusedWebView
+        let hostView = MarkdownWebPortalHostView(frame: .zero)
 
-        var reusedPointerDownCount = 0
-        reusedWebView.onPointerDown = {
-            reusedPointerDownCount += 1
-        }
+        hostView.onDidMoveToWindow = {}
+        hostView.onGeometryChanged = {}
 
-        MarkdownWebRenderer.dismantleNSView(reusedWebView, coordinator: coordinator)
-        reusedWebView.onPointerDown?()
+        MarkdownWebRenderer.dismantleNSView(hostView, coordinator: coordinator)
 
-        XCTAssertEqual(
-            reusedPointerDownCount,
-            1,
-            "SwiftUI teardown for an old renderer wrapper must not clear the pointer handler on the reused markdown web view."
-        )
-
-        let discardedWebView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        var discardedPointerDownCount = 0
-        discardedWebView.onPointerDown = {
-            discardedPointerDownCount += 1
-        }
-
-        MarkdownWebRenderer.dismantleNSView(discardedWebView, coordinator: coordinator)
-        discardedWebView.onPointerDown?()
-
-        XCTAssertEqual(discardedPointerDownCount, 0)
+        XCTAssertNil(hostView.onDidMoveToWindow)
+        XCTAssertNil(hostView.onGeometryChanged)
     }
 
     func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {

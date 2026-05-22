@@ -19,6 +19,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
 
+    private var paneDropContext: BrowserPaneDropContext {
+        BrowserPaneDropContext(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            paneId: paneId,
+            allowsHostedWebViewTextDrop: false
+        )
+    }
+
     func makeCoordinator() -> Coordinator {
         session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
     }
@@ -43,7 +52,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             to: host,
             visibleInUI: visibleInUI,
             zPriority: portalPriority,
-            dropContext: BrowserPaneDropContext(workspaceId: workspaceId, panelId: panelId, paneId: paneId),
+            dropContext: paneDropContext,
             reason: "makeNSView"
         )
         return host
@@ -68,7 +77,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             to: nsView,
             visibleInUI: visibleInUI,
             zPriority: portalPriority,
-            dropContext: BrowserPaneDropContext(workspaceId: workspaceId, panelId: panelId, paneId: paneId),
+            dropContext: paneDropContext,
             reason: "updateNSView"
         )
         context.coordinator.update(markdown: markdown, theme: theme)
@@ -150,7 +159,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 to: host,
                 visibleInUI: visibleInUI,
                 zPriority: portalPriority,
-                dropContext: BrowserPaneDropContext(workspaceId: workspaceId, panelId: panelId, paneId: paneId),
+                dropContext: paneDropContext,
                 reason: "hostMovedToWindow"
             )
         }
@@ -323,6 +332,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             )
 #if DEBUG
             recordPortalBind(reason: reason, visibleInUI: visibleInUI)
+#endif
+        }
+
+        func hidePortal(reason: String) {
+            guard let webView else { return }
+            BrowserWindowPortalRegistry.hide(webView: webView, source: "markdown.\(reason)")
+            BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
+#if DEBUG
+            recordPortalBind(reason: reason, visibleInUI: false)
 #endif
         }
 

@@ -48,7 +48,16 @@ struct MarkdownPanelView: View {
     var body: some View {
         Group {
             if panel.isFileUnavailable {
-                fileUnavailableView
+                ZStack {
+                    fileUnavailableView
+                    MarkdownWebPortalVisibilitySink(
+                        session: panel.rendererSession,
+                        reason: "fileUnavailable"
+                    )
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
             } else {
                 markdownContentView
             }
@@ -265,6 +274,20 @@ struct MarkdownPanelView: View {
         case .easeOut:
             return .easeOut(duration: duration)
         }
+    }
+}
+
+private struct MarkdownWebPortalVisibilitySink: NSViewRepresentable {
+    let session: MarkdownRendererSession
+    let reason: String
+
+    func makeNSView(context: Context) -> NSView {
+        session.hidePortal(reason: reason)
+        return NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        session.hidePortal(reason: reason)
     }
 }
 

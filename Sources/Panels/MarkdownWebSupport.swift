@@ -178,6 +178,10 @@ final class MarkdownRendererSession {
         await ownedCoordinator.renderedText()
     }
 
+    func hidePortal(reason: String) {
+        ownedCoordinator.hidePortal(reason: reason)
+    }
+
 #if DEBUG
     var diagnosticsSnapshot: MarkdownRendererDiagnosticsSnapshot {
         ownedCoordinator.diagnosticsSnapshot
