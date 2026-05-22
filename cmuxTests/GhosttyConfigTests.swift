@@ -1483,6 +1483,14 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] != nil
     }
 
+    private static var hasHiddenDiscardDelayEnvironmentOverride: Bool {
+        ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"] != nil
+    }
+
+    private static var hasHiddenDiscardMaxLiveEnvironmentOverride: Bool {
+        ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_MAX_LIVE_HIDDEN_COUNT"] != nil
+    }
+
     private static var hiddenDiscardEnvironmentOverrideDisablesPolicy: Bool {
         guard let value = ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1495,11 +1503,13 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
     private func withHiddenWebViewDiscardDefaults(
         enabled: Bool?,
         delay: TimeInterval? = nil,
+        maxLiveHiddenCount: Int? = nil,
         _ body: () throws -> Void
     ) rethrows {
         let defaults = UserDefaults.standard
         let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
         let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        let previousMaxLiveHiddenCount = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
         defer {
             if let previousEnabled {
                 defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
@@ -1510,6 +1520,11 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
                 defaults.set(previousDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             } else {
                 defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            }
+            if let previousMaxLiveHiddenCount {
+                defaults.set(previousMaxLiveHiddenCount, forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
             }
         }
 
@@ -1522,6 +1537,11 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             defaults.set(delay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
         } else {
             defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        }
+        if let maxLiveHiddenCount {
+            defaults.set(maxLiveHiddenCount, forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
+        } else {
+            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
         }
 
         try body()
@@ -1549,6 +1569,8 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] != nil
         let hasDelayEnvironmentOverride =
             ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"] != nil
+        let hasMaxLiveEnvironmentOverride =
+            ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_MAX_LIVE_HIDDEN_COUNT"] != nil
 
         if !hasEnabledEnvironmentOverride {
             XCTAssertEqual(
@@ -1562,9 +1584,16 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
                 BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
             )
         }
+        if !hasMaxLiveEnvironmentOverride {
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCount(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultMaxLiveHiddenCount
+            )
+        }
 
         defaults.set(false, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
         defaults.set(42.5, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defaults.set(2, forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
 
         if !hasEnabledEnvironmentOverride {
             XCTAssertEqual(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey) as? Bool, false)
@@ -1585,11 +1614,20 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
                 BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
             )
         }
+        if !hasMaxLiveEnvironmentOverride {
+            XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCount(defaults: defaults), 2)
+
+            defaults.set(101, forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCount(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultMaxLiveHiddenCount
+            )
+        }
     }
 
     func testDefaultMemorySaverPreservesFiveMinuteWorkspaceHideButDiscardsIdleHiddenWebView() throws {
         try XCTSkipIf(
-            Self.hasHiddenDiscardEnabledEnvironmentOverride,
+            Self.hasHiddenDiscardEnabledEnvironmentOverride || Self.hasHiddenDiscardDelayEnvironmentOverride,
             "Environment override makes the default hidden-discard policy unobservable."
         )
 
@@ -1640,6 +1678,75 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             )
             XCTAssertFalse(panel.shouldRenderWebView)
             XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+        }
+    }
+
+    func testLiveHiddenWebViewLimitDiscardsLeastRecentlyActiveHiddenPanel() throws {
+        try XCTSkipIf(
+            Self.hiddenDiscardEnvironmentOverrideDisablesPolicy ||
+                Self.hasHiddenDiscardDelayEnvironmentOverride ||
+                Self.hasHiddenDiscardMaxLiveEnvironmentOverride,
+            "Environment override makes the hidden WebView LRU policy unobservable."
+        )
+
+        try withHiddenWebViewDiscardDefaults(enabled: true, delay: 3600, maxLiveHiddenCount: 2) {
+            let baseDate = Date(timeIntervalSince1970: 10_000)
+            let oldest = BrowserPanel(
+                workspaceId: UUID(),
+                initialURL: URL(string: "about:blank#oldest")!,
+                isRemoteWorkspace: false
+            )
+            let middle = BrowserPanel(
+                workspaceId: UUID(),
+                initialURL: URL(string: "about:blank#middle")!,
+                isRemoteWorkspace: false
+            )
+            let visible = BrowserPanel(
+                workspaceId: UUID(),
+                initialURL: URL(string: "about:blank#visible")!,
+                isRemoteWorkspace: false
+            )
+            let newest = BrowserPanel(
+                workspaceId: UUID(),
+                initialURL: URL(string: "about:blank#newest")!,
+                isRemoteWorkspace: false
+            )
+            let panels = [oldest, middle, visible, newest]
+            defer {
+                panels.forEach { $0.close() }
+            }
+            for panel in panels {
+                waitForBrowserPanelWebViewToFinishLoading(panel)
+            }
+
+            oldest.noteWebViewVisibility(true, reason: "test.visible.oldest", now: baseDate)
+            middle.noteWebViewVisibility(true, reason: "test.visible.middle", now: baseDate.addingTimeInterval(1))
+            visible.noteWebViewVisibility(true, reason: "test.visible.current", now: baseDate.addingTimeInterval(2))
+            newest.noteWebViewVisibility(true, reason: "test.visible.newest", now: baseDate.addingTimeInterval(3))
+
+            let oldestWebView = oldest.webView
+            let middleWebView = middle.webView
+            let visibleWebView = visible.webView
+            let newestWebView = newest.webView
+
+            oldest.noteWebViewVisibility(false, reason: "test.hidden.oldest", now: baseDate.addingTimeInterval(10))
+            middle.noteWebViewVisibility(false, reason: "test.hidden.middle", now: baseDate.addingTimeInterval(20))
+            newest.noteWebViewVisibility(false, reason: "test.hidden.newest", now: baseDate.addingTimeInterval(30))
+
+            BrowserHiddenWebViewDiscardManager.enforceLiveHiddenLimitForTesting(reason: "test.lru_cap")
+
+            XCTAssertFalse(
+                oldest.webView === oldestWebView,
+                "The live-hidden LRU cap should discard the least recently active hidden WebView even before the timer delay expires."
+            )
+            XCTAssertTrue(middle.webView === middleWebView)
+            XCTAssertTrue(visible.webView === visibleWebView, "Visible WebViews are not counted toward the hidden LRU cap.")
+            XCTAssertTrue(newest.webView === newestWebView)
+
+            XCTAssertEqual(oldest.webViewLifecycleState, .discarded)
+            XCTAssertEqual(middle.webViewLifecycleState, .liveHidden)
+            XCTAssertEqual(visible.webViewLifecycleState, .liveVisible)
+            XCTAssertEqual(newest.webViewLifecycleState, .liveHidden)
         }
     }
 

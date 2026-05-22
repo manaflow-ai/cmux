@@ -52,6 +52,10 @@ final class BrowserHiddenWebViewDiscardManager {
         discardTimer != nil
     }
 
+    static func enforceLiveHiddenLimitForTesting(reason: String = "test.lru_cap") {
+        BrowserHiddenWebViewDiscardRegistry.shared.enforceLimitForTesting(reason: reason)
+    }
+
     func blockers(for snapshot: BlockerSnapshot) -> [String] {
         var blockers: [String] = []
         if !BrowserHiddenWebViewDiscardPolicy.isEnabled { blockers.append("policy_disabled") }
@@ -77,8 +81,14 @@ final class BrowserHiddenWebViewDiscardManager {
         discardTimer?.cancel()
         discardTimer = nil
 
-        guard let delegate else { return }
-        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return }
+        guard let delegate else {
+            BrowserHiddenWebViewDiscardRegistry.shared.noteInactive(self)
+            return
+        }
+        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else {
+            BrowserHiddenWebViewDiscardRegistry.shared.noteInactive(self)
+            return
+        }
 
         let observedWebViewInstanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
         let generation = scheduleGeneration
@@ -89,6 +99,8 @@ final class BrowserHiddenWebViewDiscardManager {
             delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
             return
         }
+
+        BrowserHiddenWebViewDiscardRegistry.shared.noteEligibleHidden(self)
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + remaining)
@@ -111,6 +123,7 @@ final class BrowserHiddenWebViewDiscardManager {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
+        BrowserHiddenWebViewDiscardRegistry.shared.noteInactive(self)
     }
 
     func installPolicyObserver() {
@@ -134,6 +147,7 @@ final class BrowserHiddenWebViewDiscardManager {
     }
 
     func markDiscarded(reason: String, now: Date) {
+        BrowserHiddenWebViewDiscardRegistry.shared.noteInactive(self)
         isDiscardedForMemory = true
         discardedAt = now
         lastDiscardReason = reason
@@ -191,9 +205,117 @@ final class BrowserHiddenWebViewDiscardManager {
 
     private func stopOnMainActor() {
         cancel()
+        BrowserHiddenWebViewDiscardRegistry.shared.noteInactive(self)
         if let policyObserver {
             NotificationCenter.default.removeObserver(policyObserver)
             self.policyObserver = nil
         }
+    }
+}
+
+@MainActor
+private final class BrowserHiddenWebViewDiscardRegistry {
+    static let shared = BrowserHiddenWebViewDiscardRegistry()
+
+    private struct Entry {
+        weak var manager: BrowserHiddenWebViewDiscardManager?
+        var hiddenAt: Date
+        var sequence: UInt64
+    }
+
+    private var entries: [ObjectIdentifier: Entry] = [:]
+    private var sequence: UInt64 = 0
+    private var enforcementScheduled = false
+
+    func noteEligibleHidden(_ manager: BrowserHiddenWebViewDiscardManager) {
+        guard BrowserHiddenWebViewDiscardPolicy.isEnabled else {
+            noteInactive(manager)
+            return
+        }
+        guard let delegate = manager.delegate else {
+            noteInactive(manager)
+            return
+        }
+        guard manager.blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else {
+            noteInactive(manager)
+            return
+        }
+
+        sequence &+= 1
+        entries[ObjectIdentifier(manager)] = Entry(
+            manager: manager,
+            hiddenAt: delegate.hiddenWebViewDiscardHiddenAt ?? Date(),
+            sequence: sequence
+        )
+        scheduleLimitEnforcement()
+    }
+
+    func noteInactive(_ manager: BrowserHiddenWebViewDiscardManager) {
+        entries.removeValue(forKey: ObjectIdentifier(manager))
+    }
+
+    func enforceLimitForTesting(reason: String = "test.lru_cap") {
+        enforceLimit(reason: reason)
+    }
+
+    private func scheduleLimitEnforcement() {
+        guard !enforcementScheduled else { return }
+        enforcementScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.enforceLimit(reason: "lru_cap")
+            }
+        }
+    }
+
+    private func enforceLimit(reason: String) {
+        enforcementScheduled = false
+        pruneDeadEntries()
+
+        guard BrowserHiddenWebViewDiscardPolicy.isEnabled else {
+            entries.removeAll()
+            return
+        }
+
+        let maxLiveHiddenCount = BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCount
+        let candidates = liveEligibleEntries()
+        guard candidates.count > maxLiveHiddenCount else { return }
+
+        let oldestFirst = candidates.sorted { lhs, rhs in
+            if lhs.entry.hiddenAt != rhs.entry.hiddenAt {
+                return lhs.entry.hiddenAt < rhs.entry.hiddenAt
+            }
+            return lhs.entry.sequence < rhs.entry.sequence
+        }
+        let discardCount = candidates.count - maxLiveHiddenCount
+        for candidate in oldestFirst.prefix(discardCount) {
+            candidate.manager.delegate?.hiddenWebViewDiscardManagerDidRequestDiscard(
+                candidate.manager,
+                reason: reason
+            )
+        }
+        pruneDeadEntries()
+    }
+
+    private func pruneDeadEntries() {
+        entries = entries.filter { _, entry in
+            entry.manager != nil
+        }
+    }
+
+    private func liveEligibleEntries() -> [(manager: BrowserHiddenWebViewDiscardManager, entry: Entry)] {
+        var nextEntries: [ObjectIdentifier: Entry] = [:]
+        var result: [(manager: BrowserHiddenWebViewDiscardManager, entry: Entry)] = []
+        for (id, entry) in entries {
+            guard let manager = entry.manager else { continue }
+            guard let delegate = manager.delegate,
+                  manager.blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else {
+                continue
+            }
+            nextEntries[id] = entry
+            result.append((manager, entry))
+        }
+        entries = nextEntries
+        return result
     }
 }

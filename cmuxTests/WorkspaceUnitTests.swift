@@ -859,6 +859,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let defaults = UserDefaults.standard
         let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
         let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        let previousMaxLiveHiddenCount = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousEnabled {
@@ -871,6 +872,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             } else {
                 defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             }
+            if let previousMaxLiveHiddenCount {
+                defaults.set(previousMaxLiveHiddenCount, forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
+            }
             if let previousBackups {
                 defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
             } else {
@@ -879,6 +885,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         }
         defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
         defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
@@ -890,7 +897,8 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             {
               "browser": {
                 "discardHiddenWebViews": false,
-                "hiddenWebViewDiscardDelaySeconds": 3600
+                "hiddenWebViewDiscardDelaySeconds": 3600,
+                "maxLiveHiddenWebViews": 7
               }
             }
             """,
@@ -910,6 +918,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(
             defaults.double(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey),
             BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+        )
+        XCTAssertEqual(
+            defaults.integer(forKey: BrowserHiddenWebViewDiscardPolicy.maxLiveHiddenCountKey),
+            7
         )
     }
 

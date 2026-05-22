@@ -730,6 +730,13 @@
           "default": 1800,
           "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
         },
+        "maxLiveHiddenWebViews": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 5,
+          "description": "Maximum hidden browser WebViews to keep alive before evicting the least recently active hidden WebViews."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,
