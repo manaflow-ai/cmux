@@ -63,7 +63,7 @@ Keep the examples library focused on reusable end-user workflows:
 - SSH devbox: remote terminal plus local browser or notes surface.
 - Review PR: GitHub terminal, PR browser, and notes or markdown panel.
 - Docs workspace: docs dev server, browser preview, and markdown viewer.
-- CI watch: GitHub Actions, CircleCI, Feed TUI, and release monitors.
+- CI watch: GitHub Actions, WarpBuild, Feed TUI, and release monitors.
 - Quick agent buttons: Codex and Claude tab bar buttons with Command Palette entries.
 
 Use the Promotion Rule when an example starts to exceed
