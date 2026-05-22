@@ -24084,7 +24084,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         func shouldSuppressSubagentRestoreTakeover() -> Bool {
             guard !sessionId.isEmpty,
-                  let parentSessionId = normalizeOptional(input.parentSessionId),
+                  let parentSessionId = normalizedHookValue(input.parentSessionId),
                   parentSessionId != sessionId else { return false }
             return true
         }
