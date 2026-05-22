@@ -218,12 +218,12 @@ function toolIcon(tool: string): string {
 }
 
 const COLOR = {
-  idle: "adb5bd",
-  thinking: "ffffff",
-  active: "ffd700",
-  done: "50fa7b",
-  error: "ff5555",
-  interrupted: "ffb86c",
+  idle: "#adb5bd",
+  thinking: "#ffffff",
+  active: "#ffd700",
+  done: "#50fa7b",
+  error: "#ff5555",
+  interrupted: "#ffb86c",
 } as const;
 
 function truncate(s: string, max: number): string {
