@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "8B41F6442DEDD0D5001A66F9"
-               BuildableName = "cmuxMobile.app"
-               BlueprintName = "cmuxMobile"
-               ReferencedContainer = "container:cmuxMobile.xcodeproj">
+               BuildableName = "cmux.app"
+               BlueprintName = "cmux"
+               ReferencedContainer = "container:cmux.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -30,7 +30,7 @@
       shouldUseLaunchSchemeArgsEnv = "YES">
       <TestPlans>
          <TestPlanReference
-            reference = "container:cmuxMobile/cmuxMobile.xctestplan"
+            reference = "container:cmux/cmux.xctestplan"
             default = "YES">
          </TestPlanReference>
       </TestPlans>
@@ -40,9 +40,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "8B41F65B2DEDD0D6001A66F9"
-               BuildableName = "cmuxMobile.xctest"
-               BlueprintName = "cmuxMobileUITests"
-               ReferencedContainer = "container:cmuxMobile.xcodeproj">
+               BuildableName = "cmux.xctest"
+               BlueprintName = "cmuxUITests"
+               ReferencedContainer = "container:cmux.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -62,9 +62,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8B41F6442DEDD0D5001A66F9"
-            BuildableName = "cmuxMobile.app"
-            BlueprintName = "cmuxMobile"
-            ReferencedContainer = "container:cmuxMobile.xcodeproj">
+            BuildableName = "cmux.app"
+            BlueprintName = "cmux"
+            ReferencedContainer = "container:cmux.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -79,9 +79,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8B41F6442DEDD0D5001A66F9"
-            BuildableName = "cmuxMobile.app"
-            BlueprintName = "cmuxMobile"
-            ReferencedContainer = "container:cmuxMobile.xcodeproj">
+            BuildableName = "cmux.app"
+            BlueprintName = "cmux"
+            ReferencedContainer = "container:cmux.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

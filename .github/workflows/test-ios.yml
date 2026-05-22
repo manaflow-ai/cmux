@@ -15,7 +15,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "UI test class or class/method, for example cmuxMobileUITests/testSignInPairingAndWorkspaceShell"
+        description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
         required: false
         default: ""
       device_family:
@@ -130,8 +130,8 @@ jobs:
       - name: Resolve packages
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
-          xcodebuild -workspace ios/cmuxMobile.xcworkspace \
-            -scheme cmuxMobile \
+          xcodebuild -workspace ios/cmux.xcworkspace \
+            -scheme cmux \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath /tmp/cmux-ios-${{ matrix.family }} \
             -resolvePackageDependencies
@@ -143,8 +143,8 @@ jobs:
         run: |
           set -euo pipefail
           XCODEBUILD_ARGS=(
-            -workspace ios/cmuxMobile.xcworkspace
-            -scheme cmuxMobile
+            -workspace ios/cmux.xcworkspace
+            -scheme cmux
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
             -derivedDataPath /tmp/cmux-ios-${{ matrix.family }}
           )

@@ -8,7 +8,7 @@
 // Test Target Settings (Customizable by scaffold tool)
 // ==========================================
 PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios
-TEST_TARGET_NAME = cmuxMobile
+TEST_TARGET_NAME = cmux
 
 // Fix duplicate module name issue
 PRODUCT_MODULE_NAME = $(PRODUCT_NAME)UITests

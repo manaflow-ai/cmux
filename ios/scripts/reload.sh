@@ -130,8 +130,8 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-WORKSPACE="$IOS_DIR/cmuxMobile.xcworkspace"
-SCHEME="cmuxMobile"
+WORKSPACE="$IOS_DIR/cmux.xcworkspace"
+SCHEME="cmux"
 TAG_SLUG="$(sanitize_tag "$TAG")"
 DISPLAY_NAME="cmux DEV $TAG"
 BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
@@ -342,7 +342,7 @@ reload_simulator() {
     CODE_SIGNING_ALLOWED=NO \
     build
 
-  APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/cmuxMobile.app"
+  APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/cmux.app"
   if [[ ! -d "$APP_PATH" ]]; then
     echo "error: built app not found at $APP_PATH" >&2
     exit 1
@@ -400,7 +400,7 @@ reload_device() {
   selected_device_id="${selection%%$tab*}"
   selected_device_name="${selection#*$tab}"
   device_destination="platform=iOS,id=$selected_device_id"
-  device_app_path="$DERIVED_DATA/Build/Products/Debug-iphoneos/cmuxMobile.app"
+  device_app_path="$DERIVED_DATA/Build/Products/Debug-iphoneos/cmux.app"
   build_log="${TMPDIR:-/tmp}/cmux-ios-device-build-$TAG_SLUG.log"
 
   echo "==> Building physical device app (tag: $TAG, device: $selected_device_name)"

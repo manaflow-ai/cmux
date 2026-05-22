@@ -1,9 +1,9 @@
 import CMUXMobileCore
 import SwiftUI
-import cmuxMobileFeature
+import cmuxFeature
 
 @main
-struct cmuxMobileApp: App {
+struct cmuxApp: App {
     private static let runtime: CMUXMobileRuntime = {
         #if targetEnvironment(simulator)
         let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]

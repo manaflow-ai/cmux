@@ -2,9 +2,9 @@
 <Workspace
    version = "1.0">
    <FileRef
-      location = "group:cmuxMobilePackage">
+      location = "group:cmuxPackage">
    </FileRef>
    <FileRef
-      location = "container:cmuxMobile.xcodeproj">
+      location = "container:cmux.xcodeproj">
    </FileRef>
 </Workspace>

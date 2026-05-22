@@ -89,13 +89,13 @@ def find_pid(label: str, processes: list[tuple[int, str]]) -> int | None:
     elif label == "iphone":
         candidates: list[int] = []
         for pid, command in processes:
-            if f"/Devices/{IPHONE_SIM_ID}/" in command and "cmuxMobile.app/cmuxMobile" in command:
+            if f"/Devices/{IPHONE_SIM_ID}/" in command and "cmux.app/cmux" in command:
                 candidates.append(pid)
         return max(candidates) if candidates else None
     elif label == "ipad":
         candidates: list[int] = []
         for pid, command in processes:
-            if f"/Devices/{IPAD_SIM_ID}/" in command and "cmuxMobile.app/cmuxMobile" in command:
+            if f"/Devices/{IPAD_SIM_ID}/" in command and "cmux.app/cmux" in command:
                 candidates.append(pid)
         return max(candidates) if candidates else None
     return None

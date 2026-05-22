@@ -2,7 +2,7 @@ import CMUXMobileCore
 import Network
 import XCTest
 
-final class cmuxMobileUITests: XCTestCase {
+final class cmuxUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
     }

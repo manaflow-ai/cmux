@@ -6,7 +6,7 @@ import Testing
 #if canImport(UIKit)
 import UIKit
 #endif
-@testable import cmuxMobileFeature
+@testable import cmuxFeature
 
 @MainActor
 @Test func startsAtSignInWithoutConnection() {

@@ -22,5 +22,5 @@ ios/scripts/reload.sh --tag iossh
 Run package tests:
 
 ```bash
-swift test --package-path ios/cmuxMobilePackage
+swift test --package-path ios/cmuxPackage
 ```

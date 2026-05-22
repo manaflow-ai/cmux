@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		8B41F6832DEDD23B001A66F9 /* cmuxMobileFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* cmuxMobileFeature */; };
-		8B41F6852DEDD25C001A66F9 /* cmuxMobileFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* cmuxMobileFeature */; };
+		8B41F6832DEDD23B001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* cmuxFeature */; };
+		8B41F6852DEDD25C001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* cmuxFeature */; };
 		8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20032DF3A00100A66F90 /* CMUXMobileCore */; };
 		8B7E20022DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20042DF3A00100A66F90 /* CMUXMobileCore */; };
 /* End PBXBuildFile section */
@@ -19,17 +19,17 @@
 			containerPortal = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 8B41F6442DEDD0D5001A66F9;
-			remoteInfo = cmuxMobile;
+			remoteInfo = cmux;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		8B41F6452DEDD0D5001A66F9 /* cmuxMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmuxMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		8B41F65C2DEDD0D6001A66F9 /* cmuxMobile.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxMobile.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B41F6452DEDD0D5001A66F9 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B41F65C2DEDD0D6001A66F9 /* cmux.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmux.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		8BD71C0A2DEE41E000CEDD92 /* Exceptions for "Config" folder in "cmuxMobile" target */ = {
+		8BD71C0A2DEE41E000CEDD92 /* Exceptions for "Config" folder in "cmux" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Debug.xcconfig,
@@ -38,25 +38,25 @@
 				Shared.xcconfig,
 				Tests.xcconfig,
 			);
-			target = 8B41F6442DEDD0D5001A66F9 /* cmuxMobile */;
+			target = 8B41F6442DEDD0D5001A66F9 /* cmux */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		8B41F6472DEDD0D5001A66F9 /* cmuxMobile */ = {
+		8B41F6472DEDD0D5001A66F9 /* cmux */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = cmuxMobile;
+			path = cmux;
 			sourceTree = "<group>";
 		};
-		8B41F65F2DEDD0D6001A66F9 /* cmuxMobileUITests */ = {
+		8B41F65F2DEDD0D6001A66F9 /* cmuxUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = cmuxMobileUITests;
+			path = cmuxUITests;
 			sourceTree = "<group>";
 		};
 		8BD71C052DEE41D800CEDD92 /* Config */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				8BD71C0A2DEE41E000CEDD92 /* Exceptions for "Config" folder in "cmuxMobile" target */,
+				8BD71C0A2DEE41E000CEDD92 /* Exceptions for "Config" folder in "cmux" target */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -68,7 +68,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8B41F6852DEDD25C001A66F9 /* cmuxMobileFeature in Frameworks */,
+				8B41F6852DEDD25C001A66F9 /* cmuxFeature in Frameworks */,
 				8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -77,7 +77,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8B41F6832DEDD23B001A66F9 /* cmuxMobileFeature in Frameworks */,
+				8B41F6832DEDD23B001A66F9 /* cmuxFeature in Frameworks */,
 				8B7E20022DF3A00100A66F90 /* CMUXMobileCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -89,8 +89,8 @@
 			isa = PBXGroup;
 			children = (
 				8BD71C052DEE41D800CEDD92 /* Config */,
-				8B41F6472DEDD0D5001A66F9 /* cmuxMobile */,
-				8B41F65F2DEDD0D6001A66F9 /* cmuxMobileUITests */,
+				8B41F6472DEDD0D5001A66F9 /* cmux */,
+				8B41F65F2DEDD0D6001A66F9 /* cmuxUITests */,
 				8B41F6812DEDD23B001A66F9 /* Frameworks */,
 				8B41F6462DEDD0D5001A66F9 /* Products */,
 			);
@@ -99,8 +99,8 @@
 		8B41F6462DEDD0D5001A66F9 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8B41F6452DEDD0D5001A66F9 /* cmuxMobile.app */,
-				8B41F65C2DEDD0D6001A66F9 /* cmuxMobile.xctest */,
+				8B41F6452DEDD0D5001A66F9 /* cmux.app */,
+				8B41F65C2DEDD0D6001A66F9 /* cmux.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -115,9 +115,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		8B41F6442DEDD0D5001A66F9 /* cmuxMobile */ = {
+		8B41F6442DEDD0D5001A66F9 /* cmux */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 8B41F6662DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "cmuxMobile" */;
+			buildConfigurationList = 8B41F6662DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "cmux" */;
 			buildPhases = (
 				8B41F6412DEDD0D5001A66F9 /* Sources */,
 				8B41F6422DEDD0D5001A66F9 /* Frameworks */,
@@ -128,21 +128,21 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				8B41F6472DEDD0D5001A66F9 /* cmuxMobile */,
+				8B41F6472DEDD0D5001A66F9 /* cmux */,
 				8BD71C052DEE41D800CEDD92 /* Config */,
 			);
-			name = cmuxMobile;
+			name = cmux;
 			packageProductDependencies = (
-				8B41F6842DEDD25C001A66F9 /* cmuxMobileFeature */,
+				8B41F6842DEDD25C001A66F9 /* cmuxFeature */,
 				8B7E20032DF3A00100A66F90 /* CMUXMobileCore */,
 			);
-			productName = cmuxMobile;
-			productReference = 8B41F6452DEDD0D5001A66F9 /* cmuxMobile.app */;
+			productName = cmux;
+			productReference = 8B41F6452DEDD0D5001A66F9 /* cmux.app */;
 			productType = "com.apple.product-type.application";
 		};
-		8B41F65B2DEDD0D6001A66F9 /* cmuxMobileUITests */ = {
+		8B41F65B2DEDD0D6001A66F9 /* cmuxUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 8B41F66C2DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "cmuxMobileUITests" */;
+			buildConfigurationList = 8B41F66C2DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "cmuxUITests" */;
 			buildPhases = (
 				8B41F6582DEDD0D6001A66F9 /* Sources */,
 				8B41F6592DEDD0D6001A66F9 /* Frameworks */,
@@ -154,15 +154,15 @@
 				8B41F65E2DEDD0D6001A66F9 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				8B41F65F2DEDD0D6001A66F9 /* cmuxMobileUITests */,
+				8B41F65F2DEDD0D6001A66F9 /* cmuxUITests */,
 			);
-			name = cmuxMobileUITests;
+			name = cmuxUITests;
 			packageProductDependencies = (
-				8B41F6822DEDD23B001A66F9 /* cmuxMobileFeature */,
+				8B41F6822DEDD23B001A66F9 /* cmuxFeature */,
 				8B7E20042DF3A00100A66F90 /* CMUXMobileCore */,
 			);
-			productName = cmuxMobileUITests;
-			productReference = 8B41F65C2DEDD0D6001A66F9 /* cmuxMobile.xctest */;
+			productName = cmuxUITests;
+			productReference = 8B41F65C2DEDD0D6001A66F9 /* cmux.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -184,7 +184,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "cmuxMobile" */;
+			buildConfigurationList = 8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "cmux" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -198,8 +198,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				8B41F6442DEDD0D5001A66F9 /* cmuxMobile */,
-				8B41F65B2DEDD0D6001A66F9 /* cmuxMobileUITests */,
+				8B41F6442DEDD0D5001A66F9 /* cmux */,
+				8B41F65B2DEDD0D6001A66F9 /* cmuxUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -241,7 +241,7 @@
 /* Begin PBXTargetDependency section */
 		8B41F65E2DEDD0D6001A66F9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 8B41F6442DEDD0D5001A66F9 /* cmuxMobile */;
+			target = 8B41F6442DEDD0D5001A66F9 /* cmux */;
 			targetProxy = 8B41F65D2DEDD0D6001A66F9 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -426,7 +426,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = cmuxMobile;
+				TEST_TARGET_NAME = cmux;
 			};
 			name = Debug;
 		};
@@ -440,14 +440,14 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = cmuxMobile;
+				TEST_TARGET_NAME = cmux;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "cmuxMobile" */ = {
+		8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "cmux" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				8B41F6642DEDD0D6001A66F9 /* Debug */,
@@ -456,7 +456,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		8B41F6662DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "cmuxMobile" */ = {
+		8B41F6662DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "cmux" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				8B41F6672DEDD0D6001A66F9 /* Debug */,
@@ -465,7 +465,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		8B41F66C2DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "cmuxMobileUITests" */ = {
+		8B41F66C2DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "cmuxUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				8B41F66D2DEDD0D6001A66F9 /* Debug */,
@@ -477,13 +477,13 @@
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		8B41F6822DEDD23B001A66F9 /* cmuxMobileFeature */ = {
+		8B41F6822DEDD23B001A66F9 /* cmuxFeature */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = cmuxMobileFeature;
+			productName = cmuxFeature;
 		};
-		8B41F6842DEDD25C001A66F9 /* cmuxMobileFeature */ = {
+		8B41F6842DEDD25C001A66F9 /* cmuxFeature */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = cmuxMobileFeature;
+			productName = cmuxFeature;
 		};
 		8B7E20032DF3A00100A66F90 /* CMUXMobileCore */ = {
 			isa = XCSwiftPackageProductDependency;

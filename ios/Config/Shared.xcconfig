@@ -6,7 +6,7 @@
 // ==========================================
 // Project Identity
 // ==========================================
-PRODUCT_NAME = cmuxMobile
+PRODUCT_NAME = cmux
 PRODUCT_DISPLAY_NAME = cmux
 PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios
 MARKETING_VERSION = 1.0
@@ -32,5 +32,5 @@ INFOPLIST_KEY_NSCameraUsageDescription = Scan cmux pairing QR codes from your Ma
 // ==========================================
 // Entitlements
 // ==========================================
-// AI agents can modify Config/cmuxMobile.entitlements to add capabilities
-CODE_SIGN_ENTITLEMENTS = Config/cmuxMobile.entitlements
+// AI agents can modify Config/cmux.entitlements to add capabilities
+CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements

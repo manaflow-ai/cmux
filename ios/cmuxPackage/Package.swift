@@ -3,15 +3,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "cmuxMobileFeature",
+    name: "cmuxFeature",
     platforms: [
         .iOS(.v18),
         .macOS(.v14),
     ],
     products: [
         .library(
-            name: "cmuxMobileFeature",
-            targets: ["cmuxMobileFeature"]
+            name: "cmuxFeature",
+            targets: ["cmuxFeature"]
         ),
     ],
     dependencies: [
@@ -21,7 +21,7 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "cmuxMobileFeature",
+            name: "cmuxFeature",
             dependencies: [
                 "CMUXAuthCore",
                 "CMUXMobileCore",
@@ -32,9 +32,9 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "cmuxMobileFeatureTests",
+            name: "cmuxFeatureTests",
             dependencies: [
-                "cmuxMobileFeature",
+                "cmuxFeature",
                 "CMUXAuthCore",
                 "CMUXMobileCore",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
