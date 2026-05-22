@@ -10559,6 +10559,26 @@ final class Workspace: Identifiable, ObservableObject {
         return Self.normalizedWarmTerminalDirectory(currentDirectory)
     }
 
+    private func resolvedWorkingDirectoryForTerminalSplit(
+        explicitWorkingDirectory: String?,
+        sourcePanelId: UUID
+    ) -> String? {
+        if let explicitDirectory = Self.normalizedWarmTerminalDirectory(explicitWorkingDirectory) {
+            return explicitDirectory
+        }
+
+        for candidate in [
+            panelDirectories[sourcePanelId],
+            terminalPanel(for: sourcePanelId)?.requestedWorkingDirectory
+        ] {
+            if let directory = Self.normalizedWarmTerminalDirectory(candidate) {
+                return directory
+            }
+        }
+
+        return Self.normalizedWarmTerminalDirectory(currentDirectory)
+    }
+
     private func canUseWarmTerminalPool(
         initialCommand: String?,
         tmuxStartCommand: String?,
@@ -10592,7 +10612,8 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         guard let panel = Self.warmTerminalPoolPanel else { return nil }
-        guard Self.warmTerminalPoolStartupSignature == TerminalWarmPtyPoolStartupSignature.current() else {
+        let startupSignature = Self.warmTerminalPoolStartupSignature
+        guard startupSignature == TerminalWarmPtyPoolStartupSignature.current() else {
             Self.discardWarmTerminalPool(reason: "take.startupSignatureChanged")
             return nil
         }
@@ -10605,11 +10626,21 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        Self.warmTerminalPoolPanel = nil
         let previousOwner = Self.warmTerminalPoolOwnerWorkspaceId
+        let shouldRefreshWorkspaceEnvironment = previousOwner != id
+        let targetDirectory = Self.normalizedWarmTerminalDirectory(workingDirectory)
+        let currentDirectory = Self.normalizedWarmTerminalDirectory(panel.directory)
+            ?? Self.normalizedWarmTerminalDirectory(panel.requestedWorkingDirectory)
+        let shouldChangeDirectory = targetDirectory != nil && currentDirectory != targetDirectory
+        if shouldRefreshWorkspaceEnvironment || shouldChangeDirectory,
+           startupSignature?.supportsBourneWarmActivation != true {
+            Self.discardWarmTerminalPool(reason: "take.unsupportedActivationShell")
+            return nil
+        }
+
+        Self.warmTerminalPoolPanel = nil
         Self.warmTerminalPoolOwnerWorkspaceId = nil
         Self.warmTerminalPoolStartupSignature = nil
-        let shouldRefreshWorkspaceEnvironment = previousOwner != id
         panel.updateWorkspaceId(id)
         configureTerminalPanel(panel)
         prepareWarmTerminalPanelForUse(
@@ -10795,10 +10826,9 @@ final class Workspace: Identifiable, ObservableObject {
         // Inherit working directory: prefer the source panel's reported cwd,
         // then its requested startup cwd if shell integration has not reported
         // back yet, and finally fall back to the workspace's current directory.
-        let splitWorkingDirectory = resolvedWorkingDirectoryForNewTerminal(
+        let splitWorkingDirectory = resolvedWorkingDirectoryForTerminalSplit(
             explicitWorkingDirectory: workingDirectory,
-            preferredPanelId: panelId,
-            inPane: paneId
+            sourcePanelId: panelId
         )
 #if DEBUG
         cmuxDebugLog(

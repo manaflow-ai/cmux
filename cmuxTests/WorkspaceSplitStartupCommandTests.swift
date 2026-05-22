@@ -110,6 +110,30 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(surface.requestedWorkingDirectory, focusedDirectory)
     }
 
+    func testSplitFallsBackToWorkspaceDirectoryNotSiblingTabDirectory() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let workspaceDirectory = "/tmp/cmux-split-workspace-\(UUID().uuidString)"
+        let siblingDirectory = "/tmp/cmux-split-sibling-\(UUID().uuidString)"
+        workspace.currentDirectory = workspaceDirectory
+        let siblingPanel = try XCTUnwrap(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: siblingDirectory
+        ))
+        workspace.updatePanelDirectory(panelId: siblingPanel.id, directory: siblingDirectory)
+
+        let split = try XCTUnwrap(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .vertical,
+            insertFirst: false,
+            focus: false
+        ))
+
+        XCTAssertEqual(split.requestedWorkingDirectory, workspaceDirectory)
+    }
+
     func testWarmTerminalCrossWorkspaceActivationRefreshesPortEnvironment() throws {
         let workspaceId = try XCTUnwrap(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
         let portOrdinal = 3
@@ -156,6 +180,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             fileManager: fileManager
         )
         XCTAssertNotEqual(first, second)
+        XCTAssertTrue(second.supportsBourneWarmActivation)
     }
 
     func testWarmTerminalStartupSignatureTracksFishConfDAdditions() throws {
@@ -186,6 +211,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             fileManager: fileManager
         )
         XCTAssertNotEqual(first, second)
+        XCTAssertFalse(second.supportsBourneWarmActivation)
     }
 
     func testWarmTerminalStartupSignatureTracksUnknownShellGenericRc() throws {
