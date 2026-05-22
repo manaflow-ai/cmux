@@ -1008,6 +1008,7 @@ private final class ClaudeHookSessionStore {
             record.lastSubtitle = nil
             record.lastBody = nil
             record.lastNotificationStatus = nil
+            record.runtimeStatus = nil
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -20321,9 +20322,10 @@ struct CMUXCLI {
         guard let detail = detail.map({ normalizedSingleLine($0) }), !detail.isEmpty else {
             return nil
         }
+        let sanitizedDetail = sanitizedClaudePermissionDetail(detail)
         return (
             subtitle: String(localized: "feed.kind.exitPlan", defaultValue: "Exit plan"),
-            body: truncate(detail, maxLength: 180)
+            body: truncate(sanitizedDetail, maxLength: 180)
         )
     }
 
@@ -20336,9 +20338,10 @@ struct CMUXCLI {
         guard let detail = detail.map({ normalizedSingleLine($0) }), !detail.isEmpty else {
             return nil
         }
+        let sanitizedDetail = sanitizedClaudePermissionDetail(detail)
         return (
             subtitle: String(localized: "feed.kind.question", defaultValue: "Question"),
-            body: truncate(detail, maxLength: 180)
+            body: truncate(sanitizedDetail, maxLength: 180)
         )
     }
 
@@ -20407,15 +20410,7 @@ struct CMUXCLI {
         if genericBodies.contains(normalized) {
             return true
         }
-        let genericFragments = [
-            "needs your attention",
-            "needs your input",
-            "needs your permission",
-            "waiting for input",
-            "approval needed",
-            "permission needed",
-        ]
-        return genericFragments.contains { normalized.contains($0) }
+        return false
     }
 
     private func shortenPath(_ path: String) -> String {

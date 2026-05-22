@@ -188,6 +188,20 @@ def main() -> int:
                 "expected": "Claude Code|Permission|Bash: Remove stale build artifacts",
             },
             {
+                "name": "detailed permission message",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": os.getcwd(),
+                    "tool_name": "Bash",
+                    "tool_input": {
+                        "command": "rm -rf .build",
+                        "description": "Remove stale build artifacts",
+                    },
+                },
+                "notification_message": "Permission needed: Bash: npm publish",
+                "expected": "Claude Code|Permission|Permission needed: Bash: npm publish",
+            },
+            {
                 "name": "redacted permission",
                 "feed_payload": {
                     "hook_event_name": "PermissionRequest",
@@ -268,6 +282,19 @@ def main() -> int:
                 "expected": "Claude Code|Exit plan|Improve notification summaries",
             },
             {
+                "name": "redacted exit plan",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": os.getcwd(),
+                    "tool_name": "ExitPlanMode",
+                    "tool_input": {
+                        "plan": "1. Rotate API_KEY=secret-value\n2. Continue notification tests",
+                    },
+                },
+                "notification_message": "Claude needs your permission",
+                "expected": "Claude Code|Exit plan|Sensitive content removed",
+            },
+            {
                 "name": "question",
                 "feed_payload": {
                     "hook_event_name": "PermissionRequest",
@@ -288,6 +315,27 @@ def main() -> int:
                 },
                 "notification_message": "Claude needs your input",
                 "expected": "Claude Code|Question|Which notification style should cmux use? [Detailed] [Compact]",
+            },
+            {
+                "name": "redacted question",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": os.getcwd(),
+                    "tool_name": "AskUserQuestion",
+                    "tool_input": {
+                        "questions": [
+                            {
+                                "question": "Use token sk-testsecret123456 for setup?",
+                                "options": [
+                                    {"label": "Yes"},
+                                    {"label": "No"},
+                                ],
+                            }
+                        ],
+                    },
+                },
+                "notification_message": "Claude needs your input",
+                "expected": "Claude Code|Question|Sensitive content removed",
             },
         ]
 
