@@ -1117,6 +1117,42 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testMemoryTrimRejectsZeroGraceBeforeSocketAccess() throws {
+        let cliPath = try bundledCLIPath()
+        let missingSocketPath = makeSocketPath("mem-trim-zero-grace")
+        unlink(missingSocketPath)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:7",
+                "--agent",
+                "claude",
+                "--grace-seconds",
+                "0",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(
+            result.stderr.contains("--grace-seconds must be a positive duration"),
+            result.stderr
+        )
+    }
+
     func testMemoryTrimSendsGracefulExitToSurfaceUUID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("mem-trim-send")
