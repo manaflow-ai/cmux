@@ -436,6 +436,10 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastEmittedNotificationAt: TimeInterval?
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
+    var activePromptTurnId: String?
+    var activePromptTurnIds: [String]?
+    var lastPromptTurnId: String?
+    var terminalPromptTurnIds: [String]?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
 }
@@ -494,6 +498,7 @@ private struct ClaudeHookSessionStoreFile: Codable {
 private final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+    private static let maxRememberedTerminalPromptTurnIds = 32
 
     private let statePath: String
     private let fileManager: FileManager
@@ -534,6 +539,9 @@ private final class ClaudeHookSessionStore {
         surfaceId: String,
         cwd: String?,
         transcriptPath: String? = nil,
+        turnId: String? = nil,
+        previousActivePromptTurnIsTerminal: Bool = false,
+        terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
@@ -567,7 +575,48 @@ private final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
-            record.activePromptDepth = max(0, record.activePromptDepth ?? 0) + 1
+            let normalizedTurnId = normalizeOptional(turnId)
+            if let normalizedTurnId {
+                markPromptTurnActive(normalizedTurnId, on: &record)
+                var turnStack = activePromptTurnStack(from: record)
+                let legacyDepth = max(0, record.activePromptDepth ?? 0)
+                if turnStack.isEmpty, legacyDepth > 0 {
+                    record.activePromptDepth = legacyDepth + 1
+                    record.activePromptTurnId = nil
+                    record.activePromptTurnIds = nil
+                    record.lastPromptTurnId = normalizedTurnId
+                    state.sessions[normalized] = record
+                    return true
+                } else if let activeTurnId = turnStack.last,
+                          activeTurnId != normalizedTurnId {
+                    var removedTurnCount = 0
+                    var removedTerminalTurnIds: [String] = []
+                    if previousActivePromptTurnIsTerminal {
+                        removedTerminalTurnIds.append(turnStack.removeLast())
+                        removedTurnCount += 1
+                        while let activeTurnId = turnStack.last,
+                              terminalActivePromptTurnIds.contains(activeTurnId) {
+                            removedTerminalTurnIds.append(turnStack.removeLast())
+                            removedTurnCount += 1
+                        }
+                    }
+                    let totalDepth = max(0, max(legacyDepth, turnStack.count + removedTurnCount) - removedTurnCount) + 1
+                    turnStack.append(normalizedTurnId)
+                    setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
+                    markPromptTurnsTerminal(removedTerminalTurnIds, on: &record)
+                    record.lastPromptTurnId = normalizedTurnId
+                    state.sessions[normalized] = record
+                    return totalDepth > 1
+                }
+                let totalDepth = max(legacyDepth, turnStack.count) + 1
+                turnStack.append(normalizedTurnId)
+                setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
+                record.lastPromptTurnId = normalizedTurnId
+                state.sessions[normalized] = record
+                return totalDepth > 1
+            }
+            let existingTurnStackDepth = activePromptTurnStack(from: record).count
+            record.activePromptDepth = max(max(0, record.activePromptDepth ?? 0), existingTurnStackDepth) + 1
             state.sessions[normalized] = record
             return (record.activePromptDepth ?? 0) > 1
         }
@@ -580,6 +629,8 @@ private final class ClaudeHookSessionStore {
         surfaceId: String,
         cwd: String?,
         transcriptPath: String? = nil,
+        turnId: String? = nil,
+        terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         lastSubtitle: String?,
@@ -619,7 +670,98 @@ private final class ClaudeHookSessionStore {
                 now: now
             )
             let depthAfterStop = max(0, depthBeforeStop - 1)
-            record.activePromptDepth = depthAfterStop == 0 ? nil : depthAfterStop
+            let normalizedTurnId = normalizeOptional(turnId)
+            if let normalizedTurnId {
+                var turnStack = activePromptTurnStack(from: record)
+                var totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
+                let terminalTurnIdsToPrune = terminalActivePromptTurnIds.subtracting([normalizedTurnId])
+                if !terminalTurnIdsToPrune.isEmpty {
+                    var removedTerminalTurnIds: [String] = []
+                    turnStack.removeAll { activeTurnId in
+                        if terminalTurnIdsToPrune.contains(activeTurnId) {
+                            removedTerminalTurnIds.append(activeTurnId)
+                            return true
+                        }
+                        return false
+                    }
+                    if !removedTerminalTurnIds.isEmpty {
+                        totalDepthBeforeStop = max(0, totalDepthBeforeStop - removedTerminalTurnIds.count)
+                        setActivePromptTurnStack(turnStack, totalDepth: totalDepthBeforeStop, on: &record)
+                        markPromptTurnsTerminal(removedTerminalTurnIds, on: &record)
+                    }
+                }
+                if let lastTurnId = turnStack.last {
+                    if lastTurnId == normalizedTurnId {
+                        let nested = totalDepthBeforeStop > 1
+                        turnStack.removeLast()
+                        setActivePromptTurnStack(
+                            turnStack,
+                            totalDepth: max(0, totalDepthBeforeStop - 1),
+                            on: &record
+                        )
+                        markPromptTurnTerminal(normalizedTurnId, on: &record)
+                        state.sessions[normalized] = record
+                        return nested
+                    }
+                    if let staleIndex = turnStack.lastIndex(of: normalizedTurnId) {
+                        turnStack.remove(at: staleIndex)
+                        setActivePromptTurnStack(
+                            turnStack,
+                            totalDepth: max(0, totalDepthBeforeStop - 1),
+                            on: &record
+                        )
+                        markPromptTurnTerminal(normalizedTurnId, on: &record)
+                    } else if depthBeforeStop > turnStack.count {
+                        setActivePromptTurnStack(
+                            turnStack,
+                            totalDepth: max(0, totalDepthBeforeStop - 1),
+                            on: &record
+                        )
+                        markPromptTurnTerminal(normalizedTurnId, on: &record)
+                    }
+                    state.sessions[normalized] = record
+                    return true
+                }
+                if totalDepthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
+                    state.sessions[normalized] = record
+                    return true
+                }
+                markPromptTurnTerminal(normalizedTurnId, on: &record)
+                if totalDepthBeforeStop == 0 {
+                    state.sessions[normalized] = record
+                    return false
+                }
+                let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
+                if depthAfterTurnStop == 0 {
+                    record.activePromptDepth = nil
+                } else {
+                    record.activePromptDepth = depthAfterTurnStop
+                }
+                record.activePromptTurnId = nil
+                record.activePromptTurnIds = nil
+                state.sessions[normalized] = record
+                return totalDepthBeforeStop > 1
+            }
+            if depthAfterStop == 0 {
+                record.activePromptDepth = nil
+                record.activePromptTurnId = nil
+                record.activePromptTurnIds = nil
+            } else {
+                let turnStack = activePromptTurnStack(from: record)
+                if !turnStack.isEmpty {
+                    setActivePromptTurnStack(
+                        Array(turnStack.prefix(depthAfterStop)),
+                        totalDepth: depthAfterStop,
+                        on: &record
+                    )
+                } else {
+                    record.activePromptDepth = depthAfterStop
+                }
+                if let normalizedTurnId, turnStack.isEmpty {
+                    record.activePromptTurnId = normalizedTurnId
+                    record.activePromptTurnIds = Array(repeating: normalizedTurnId, count: depthAfterStop)
+                }
+            }
             state.sessions[normalized] = record
             return depthBeforeStop > 1
         }
@@ -664,6 +806,10 @@ private final class ClaudeHookSessionStore {
                 lastEmittedNotificationAt: nil,
                 runtimeStatus: nil,
                 activePromptDepth: nil,
+                activePromptTurnId: nil,
+                activePromptTurnIds: nil,
+                lastPromptTurnId: nil,
+                terminalPromptTurnIds: nil,
                 startedAt: now,
                 updatedAt: now
             )
@@ -719,9 +865,71 @@ private final class ClaudeHookSessionStore {
             lastEmittedNotificationAt: nil,
             runtimeStatus: nil,
             activePromptDepth: nil,
+            activePromptTurnId: nil,
+            activePromptTurnIds: nil,
+            lastPromptTurnId: nil,
+            terminalPromptTurnIds: nil,
             startedAt: now,
             updatedAt: now
         )
+    }
+
+    private func activePromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
+        if let activePromptTurnIds = record.activePromptTurnIds {
+            let normalized = activePromptTurnIds.compactMap { normalizeOptional($0) }
+            if !normalized.isEmpty {
+                return normalized
+            }
+        }
+        if let activePromptTurnId = normalizeOptional(record.activePromptTurnId) {
+            return [activePromptTurnId]
+        }
+        return []
+    }
+
+    private func setActivePromptTurnStack(_ stack: [String], totalDepth: Int? = nil, on record: inout ClaudeHookSessionRecord) {
+        let normalizedStack = stack.compactMap { normalizeOptional($0) }
+        let resolvedDepth = max(max(0, totalDepth ?? normalizedStack.count), normalizedStack.count)
+        if resolvedDepth == 0 {
+            record.activePromptDepth = nil
+            record.activePromptTurnId = nil
+            record.activePromptTurnIds = nil
+        } else {
+            record.activePromptDepth = resolvedDepth
+            record.activePromptTurnId = normalizedStack.last
+            record.activePromptTurnIds = normalizedStack.isEmpty ? nil : normalizedStack
+        }
+    }
+
+    private func terminalPromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
+        record.terminalPromptTurnIds?.compactMap { normalizeOptional($0) } ?? []
+    }
+
+    private func terminalPromptTurnSet(from record: ClaudeHookSessionRecord) -> Set<String> {
+        Set(terminalPromptTurnStack(from: record))
+    }
+
+    private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
+        var terminalTurnIds = terminalPromptTurnStack(from: record)
+        terminalTurnIds.removeAll { $0 == turnId }
+        record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
+    }
+
+    private func markPromptTurnsTerminal(_ turnIds: [String], on record: inout ClaudeHookSessionRecord) {
+        for turnId in turnIds {
+            markPromptTurnTerminal(turnId, on: &record)
+        }
+    }
+
+    private func markPromptTurnTerminal(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
+        guard let normalizedTurnId = normalizeOptional(turnId) else { return }
+        var terminalTurnIds = terminalPromptTurnStack(from: record)
+        terminalTurnIds.removeAll { $0 == normalizedTurnId }
+        terminalTurnIds.append(normalizedTurnId)
+        if terminalTurnIds.count > Self.maxRememberedTerminalPromptTurnIds {
+            terminalTurnIds.removeFirst(terminalTurnIds.count - Self.maxRememberedTerminalPromptTurnIds)
+        }
+        record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
     }
 
     private func update(
@@ -19692,6 +19900,55 @@ struct CMUXCLI {
         return .healthy
     }
 
+    private func codexTranscriptTerminalTurnIds(path: String, turnIds: Set<String>) -> Set<String> {
+        let expectedTurnIds = Set(turnIds.compactMap { normalizedHookValue($0) })
+        guard !expectedTurnIds.isEmpty,
+              let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
+            return []
+        }
+
+        var terminalTurnIds = Set<String>()
+        var currentTurnId: String?
+        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let objectType = object["type"] as? String else {
+                continue
+            }
+
+            if objectType == "turn_context",
+               let payload = object["payload"] as? [String: Any] {
+                currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                continue
+            }
+
+            guard objectType == "event_msg",
+                  let payload = object["payload"] as? [String: Any],
+                  let eventType = payload["type"] as? String else {
+                continue
+            }
+
+            if eventType == "task_started" {
+                currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                continue
+            }
+
+            switch eventType {
+            case "task_complete", "turn_complete", "turn_aborted":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId
+                if let payloadTurnId, expectedTurnIds.contains(payloadTurnId) {
+                    terminalTurnIds.insert(payloadTurnId)
+                }
+            default:
+                break
+            }
+        }
+
+        return terminalTurnIds
+    }
+
     private func readCodexTranscriptUserInput(
         path: String,
         turnId: String?,
@@ -24306,6 +24563,28 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
+            let activePromptTurnStack = mapped?.activePromptTurnIds?
+                .compactMap({ normalizedHookValue($0) }) ?? []
+            let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
+            let terminalActivePromptTurnIds: Set<String>
+            let previousActivePromptTurnIsTerminal: Bool
+            if def.name == "codex",
+               let incomingTurnId = normalizedHookValue(input.turnId),
+               let activeTurnId = activePromptTurnId,
+               activeTurnId != incomingTurnId,
+               let transcriptPath = normalizedHookValue(transcriptPathForStore)
+                   ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                let activeTurnIds = activePromptTurnStack.isEmpty ? [activeTurnId] : activePromptTurnStack
+                terminalActivePromptTurnIds = codexTranscriptTerminalTurnIds(
+                    path: transcriptPath,
+                    turnIds: Set(activeTurnIds)
+                )
+                previousActivePromptTurnIsTerminal = terminalActivePromptTurnIds.contains(activeTurnId)
+            } else {
+                terminalActivePromptTurnIds = []
+                previousActivePromptTurnIsTerminal = false
+            }
             let nestedPromptSubmit: Bool
             if !sessionId.isEmpty {
                 nestedPromptSubmit = (try? store.recordPromptSubmit(
@@ -24313,7 +24592,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    transcriptPath: transcriptPathForStore,
+                    turnId: input.turnId,
+                    previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
+                    terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                     pid: pid,
                     launchCommand: launchCommand
                 )) ?? false
@@ -24500,6 +24782,29 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: cwd
             )
+            let terminalActivePromptTurnIdsForStop: Set<String>
+            if def.name == "codex",
+               let incomingTurnId = normalizedHookValue(input.turnId) {
+                let activePromptTurnStack = mapped?.activePromptTurnIds?
+                    .compactMap({ normalizedHookValue($0) }) ?? []
+                let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
+                let activeTurnIds = activePromptTurnStack.isEmpty
+                    ? activePromptTurnId.map { [$0] } ?? []
+                    : activePromptTurnStack
+                let activeTurnIdsToCheck = activeTurnIds.filter { $0 != incomingTurnId }
+                if !activeTurnIdsToCheck.isEmpty,
+                   let transcriptPath = normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath)
+                       ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                    terminalActivePromptTurnIdsForStop = codexTranscriptTerminalTurnIds(
+                        path: transcriptPath,
+                        turnIds: Set(activeTurnIdsToCheck)
+                    )
+                } else {
+                    terminalActivePromptTurnIdsForStop = []
+                }
+            } else {
+                terminalActivePromptTurnIdsForStop = []
+            }
             let nestedPromptStop: Bool
             if !sessionId.isEmpty {
                 nestedPromptStop = (try? store.recordPromptStop(
@@ -24508,6 +24813,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     surfaceId: surfaceId,
                     cwd: cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    turnId: input.turnId,
+                    terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
                     launchCommand: launchCommand,
                     lastSubtitle: nil,
