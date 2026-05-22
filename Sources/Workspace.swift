@@ -15124,11 +15124,13 @@ extension Workspace: BonsplitDelegate {
             preferredPanelId: sourcePanelId,
             inPane: originalPane
         )
-        let splitWorkingDirectory = resolvedWorkingDirectoryForNewTerminal(
-            explicitWorkingDirectory: nil,
-            preferredPanelId: sourcePanelId,
-            inPane: originalPane
-        )
+        let splitWorkingDirectory = remoteTerminalStartupCommand() == nil
+            ? resolvedWorkingDirectoryForNewTerminal(
+                explicitWorkingDirectory: nil,
+                preferredPanelId: sourcePanelId,
+                inPane: originalPane
+            )
+            : nil
 
         let newPanel = terminalPanelForNewTerminal(
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
