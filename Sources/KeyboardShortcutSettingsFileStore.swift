@@ -343,6 +343,12 @@ final class CmuxSettingsFileStore {
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let globalHotkeySection = root["globalHotkey"] as? [String: Any] {
+            parseGlobalHotkeySection(globalHotkeySection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
+        if let rightSidebarSection = root["rightSidebar"] as? [String: Any] {
+            parseRightSidebarSection(rightSidebarSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let shortcutsSection = root["shortcuts"] {
             parseShortcutsSection(shortcutsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -402,6 +408,13 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["focusPaneOnFirstClick"]) {
             snapshot.managedUserDefaults[PaneFirstClickFocusSettings.enabledKey] = .bool(value)
+        }
+        if let raw = jsonString(section["fileDropDefaultBehavior"]) {
+            if let behavior = FileDropDefaultBehavior(rawValue: raw) {
+                snapshot.managedUserDefaults[FileDropBehaviorSettings.defaultBehaviorKey] = .string(behavior.rawValue)
+            } else {
+                logInvalid("app.fileDropDefaultBehavior", sourcePath: sourcePath)
+            }
         }
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
@@ -742,6 +755,11 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        if let value = jsonBool(section["enabled"]) {
+            snapshot.managedUserDefaults[BrowserAvailabilitySettings.disabledKey] = .bool(!value)
+        } else if section.keys.contains("enabled") {
+            logInvalid("browser.enabled", sourcePath: sourcePath)
+        }
         if let raw = jsonString(section["defaultSearchEngine"]) {
             guard let engine = BrowserSearchEngine(rawValue: raw) else {
                 logInvalid("browser.defaultSearchEngine", sourcePath: sourcePath)
@@ -808,6 +826,40 @@ final class CmuxSettingsFileStore {
         }
         if let raw = jsonString(section["reactGrabVersion"]) {
             snapshot.managedUserDefaults[ReactGrabSettings.versionKey] = .string(raw)
+        }
+    }
+
+    private func parseGlobalHotkeySection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["enabled"]) {
+            snapshot.managedUserDefaults[SystemWideHotkeySettings.enabledKey] = .bool(value)
+        } else if section.keys.contains("enabled") {
+            logInvalid("globalHotkey.enabled", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseRightSidebarSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let beta = section["beta"] as? [String: Any] else {
+            if section.keys.contains("beta") {
+                logInvalid("rightSidebar.beta", sourcePath: sourcePath)
+            }
+            return
+        }
+        if let dock = beta["dock"] as? [String: Any] {
+            if let value = jsonBool(dock["enabled"]) {
+                snapshot.managedUserDefaults[RightSidebarBetaFeatureSettings.dockEnabledKey] = .bool(value)
+            } else if dock.keys.contains("enabled") {
+                logInvalid("rightSidebar.beta.dock.enabled", sourcePath: sourcePath)
+            }
+        } else if beta.keys.contains("dock") {
+            logInvalid("rightSidebar.beta.dock", sourcePath: sourcePath)
         }
     }
 

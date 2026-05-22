@@ -432,7 +432,14 @@ enum SettingsSearchIndex {
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
+        "workspaceColors.colors": settingID(for: .workspaceColors, idSuffix: "palette"),
+        "workspaceColors.paletteOverrides": settingID(for: .workspaceColors, idSuffix: "palette"),
+        "workspaceColors.customColors": settingID(for: .workspaceColors, idSuffix: "palette"),
         "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
+        "sidebarAppearance.tintColor": sectionID(for: .sidebarAppearance),
+        "sidebarAppearance.lightModeTintColor": sectionID(for: .sidebarAppearance),
+        "sidebarAppearance.darkModeTintColor": sectionID(for: .sidebarAppearance),
+        "sidebarAppearance.tintOpacity": sectionID(for: .sidebarAppearance),
         "automation.socketControlMode": settingID(for: .automation, idSuffix: "socket-mode"),
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
@@ -456,6 +463,7 @@ enum SettingsSearchIndex {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser": settingID(for: .browser, idSuffix: "http-allowlist"),
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
         "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
+        "globalHotkey.enabled": settingID(for: .globalHotkey, idSuffix: "enable-hotkey"),
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
     ]
 

@@ -65,6 +65,7 @@ extension CmuxSettingsFileStore {
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
+                    "fileDropDefaultBehavior": FileDropBehaviorSettings.defaultBehavior.rawValue,
                     "preferredEditor": "",
                     "openSupportedFilesInCmux": CmdClickSupportedFileRouteSettings.defaultValue,
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
@@ -150,6 +151,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "browser": [
+                    "enabled": !BrowserAvailabilitySettings.defaultDisabled,
                     "defaultSearchEngine": BrowserSearchSettings.defaultSearchEngine.rawValue,
                     "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
@@ -162,6 +164,20 @@ extension CmuxSettingsFileStore {
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
+                ],
+            ],
+            [
+                "globalHotkey": [
+                    "enabled": SystemWideHotkeySettings.defaultEnabled,
+                ],
+            ],
+            [
+                "rightSidebar": [
+                    "beta": [
+                        "dock": [
+                            "enabled": RightSidebarBetaFeatureSettings.defaultDockEnabled,
+                        ],
+                    ],
                 ],
             ],
             [
@@ -182,11 +198,11 @@ extension CmuxSettingsFileStore {
                 secondStroke.configString(preserveDigit: true),
             ]
         }
-        return shortcut.firstStroke.configString(preserveDigit: true)
+        return shortcut.firstStroke.configString()
     }
 
     private static func prettyJSONString(_ value: Any) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]),
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]),
               let string = String(data: data, encoding: .utf8) else {
             return "{}"
         }

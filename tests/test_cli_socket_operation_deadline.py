@@ -148,13 +148,28 @@ def capabilities_response_handler(conn: socket.socket, stop_event: threading.Eve
     )
 
 
-def run_cli(cli_path: str, socket_path: str, timeout: float = 3.0, args: tuple[str, ...] = ("ping",)) -> RunResult:
+def reload_error_response_handler(conn: socket.socket, stop_event: threading.Event) -> None:
+    command = read_one_command(conn, stop_event)
+    if command == b"reload_config\n":
+        conn.sendall(b"ERROR: exception in handler: /private/tmp/cmux-secret-token\n")
+        stop_event.wait(timeout=1.0)
+
+
+def run_cli(
+    cli_path: str,
+    socket_path: str,
+    timeout: float = 3.0,
+    args: tuple[str, ...] = ("ping",),
+    home: str | None = None,
+) -> RunResult:
     env = dict(os.environ)
     env["CMUX_SOCKET_PATH"] = socket_path
     env["CMUX_SOCKET"] = socket_path
     env["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.2"
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+    if home is not None:
+        env["HOME"] = home
     started = time.monotonic()
     try:
         proc = subprocess.run(
@@ -252,6 +267,37 @@ def main() -> int:
                     f"{top_level_keys!r}\nstdout={result.stdout!r}"
                 )
                 break
+
+        with tempfile.TemporaryDirectory(prefix="cmux-settings-reload-") as home:
+            with FakeUnixServer(reload_error_response_handler) as server:
+                result = run_cli(
+                    cli_path,
+                    server.path,
+                    args=("settings", "set", "app.appearance", "dark"),
+                    home=home,
+                )
+            merged = f"{result.stdout}\n{result.stderr}"
+            expected_message = (
+                "settings saved to ~/.config/cmux/cmux.json but could not be applied live; "
+                "restart cmux to pick up the changes"
+            )
+            if result.returncode == 0:
+                failures.append("settings reload error unexpectedly succeeded")
+            if expected_message not in merged:
+                failures.append(f"settings reload error did not surface sanitized guidance: {merged!r}")
+            leaked_tokens = ("exception in handler", "/private/tmp/cmux-secret-token", "ERROR:")
+            if any(token in merged for token in leaked_tokens):
+                failures.append(f"settings reload error leaked raw socket response: {merged!r}")
+            config_path = os.path.join(home, ".config", "cmux", "cmux.json")
+            try:
+                with open(config_path, encoding="utf-8") as handle:
+                    config = json.load(handle)
+            except (OSError, json.JSONDecodeError) as exc:
+                failures.append(f"settings reload error did not leave readable config: {exc}")
+            else:
+                appearance = config.get("app", {}).get("appearance")
+                if appearance != "dark":
+                    failures.append(f"settings reload error did not preserve saved setting: {appearance!r}")
 
         expected_closed_peer_errors = (
             "Failed to write to socket",
