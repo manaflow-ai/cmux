@@ -65,13 +65,20 @@ checked=0
 while IFS= read -r -d '' file; do
   base="$(basename "$file")"
   checked=$((checked + 1))
-  # Each wired test file shows up 4x in pbxproj: build file UUID,
-  # file reference UUID, group children list, and target sources phase.
-  # Require at least 2 references so we flag both "added but missing
-  # entirely" and "stub reference but no sources phase" failures.
-  hits="$(grep -c -- "$base" "$PBXPROJ" || true)"
+  # Target membership is what determines whether Xcode actually compiles/runs
+  # the file. Only two pbxproj entries prove target membership, and both carry
+  # the literal `<basename> in Sources` suffix:
+  #   1. PBXBuildFile:           "<UUID> /* <base> in Sources */ = { ... };"
+  #   2. PBXSourcesBuildPhase:   "<UUID> /* <base> in Sources */," (inside the
+  #                              cmuxTests target's Sources build phase)
+  # The bare filename also appears in PBXFileReference + group children, but
+  # those entries are present even when the file is in the project tree but
+  # NOT a member of the cmuxTests target — which is the silently-skipped case
+  # that prompted this lint. Counting only `in Sources` lines guarantees we
+  # catch missing target membership.
+  hits="$(grep -c -- "$base in Sources" "$PBXPROJ" || true)"
   if [ "$hits" -lt 2 ]; then
-    missing+=("$base (hits=$hits)")
+    missing+=("$base (in-Sources hits=$hits)")
   fi
 done < <(find "$TESTS_DIR" -maxdepth 1 -type f -name '*.swift' -print0)
 
@@ -80,16 +87,19 @@ if [ "${#missing[@]}" -eq 0 ]; then
   exit 0
 fi
 
-echo "lint-pbxproj-test-wiring: ${#missing[@]} test file(s) not wired into cmux.xcodeproj/project.pbxproj"
+echo "lint-pbxproj-test-wiring: ${#missing[@]} test file(s) not a member of the cmuxTests target in cmux.xcodeproj/project.pbxproj"
 for entry in "${missing[@]}"; do
   echo "  - $entry"
 done
 echo ""
 echo "Each cmuxTests/<file>.swift must appear in cmux.xcodeproj/project.pbxproj as:"
-echo "  1. a PBXBuildFile entry (UUID = '<file>.swift in Sources')"
-echo "  2. a PBXFileReference entry (UUID = '<file>.swift')"
+echo "  1. a PBXBuildFile entry (line ends with '<file>.swift in Sources */ = { ... };')"
+echo "  2. a PBXFileReference entry"
 echo "  3. an entry in the cmuxTests group children list"
 echo "  4. an entry in the cmuxTests target's PBXSourcesBuildPhase files"
+echo "     (line ends with '<file>.swift in Sources */,')"
+echo ""
+echo "Entries 1 and 4 are the target-membership lines this lint counts."
 echo ""
 echo "Add via Xcode (drag the file into the cmuxTests target) or hand-edit"
 echo "the four blocks (see any wired sibling test as a template)."
