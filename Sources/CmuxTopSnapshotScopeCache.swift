@@ -30,6 +30,14 @@ nonisolated extension CmuxTopProcessSnapshot {
         )
     }
 
+    static func scopeCacheKey(from bsdInfo: proc_bsdinfo) -> CmuxTopProcessScopeCacheKey {
+        CmuxTopProcessScopeCacheKey(
+            pid: Int(bsdInfo.pbi_pid),
+            startSeconds: Int(bsdInfo.pbi_start_tvsec),
+            startMicroseconds: Int(bsdInfo.pbi_start_tvusec)
+        )
+    }
+
     static func cachedCMUXScope(
         for pid: Int,
         cacheKey: CmuxTopProcessScopeCacheKey

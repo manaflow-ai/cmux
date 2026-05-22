@@ -589,6 +589,90 @@ final class GhosttyConfigTests: XCTestCase {
         }
     }
 
+    func testTerminalRuntimeColorSchemeFollowsResolvedThemeBackground() {
+        XCTAssertEqual(
+            GhosttyApp.terminalRuntimeColorSchemePreference(
+                forBackgroundColor: NSColor(hex: "#F7F7F7")!
+            ),
+            .light
+        )
+        XCTAssertEqual(
+            GhosttyApp.terminalRuntimeColorSchemePreference(
+                forBackgroundColor: NSColor(hex: "#090300")!
+            ),
+            .dark
+        )
+    }
+
+    func testRuntimeColorSchemeSynchronizationDecisionOnlySkipsReentrantCalls() {
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+                applied: nil,
+                requested: GHOSTTY_COLOR_SCHEME_DARK,
+                isSynchronizing: false
+            ),
+            .apply
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+                applied: GHOSTTY_COLOR_SCHEME_DARK,
+                requested: GHOSTTY_COLOR_SCHEME_DARK,
+                isSynchronizing: false
+            ),
+            .apply
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+                applied: GHOSTTY_COLOR_SCHEME_LIGHT,
+                requested: GHOSTTY_COLOR_SCHEME_DARK,
+                isSynchronizing: true
+            ),
+            .skipReentrant
+        )
+    }
+
+    func testRuntimeColorSchemeForCmuxSingleThemeReloadKeepsResolvedSchemeDuringConfigLoad() {
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource,
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Day"
+            ),
+            .light
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource,
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "3024 Day"
+            ),
+            .light
+        )
+    }
+
+    func testRuntimeColorSchemeForPairedThemeReloadUsesAppearanceDuringConfigLoad() {
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource,
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Night"
+            ),
+            .dark
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: "socket.reload_config",
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Day"
+            ),
+            .dark
+        )
+    }
+
     func testScrollLagCaptureRequiresSustainedLag() {
         let cases: [(samples: Int, averageMs: Double, maxMs: Double, expected: Bool)] = [
             (4, 18, 85, false),
@@ -665,6 +749,37 @@ final class GhosttyConfigTests: XCTestCase {
 
         defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
         XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+    }
+
+    func testSubagentNotificationSuppressionDefaultsToEnabledWhenUnset() {
+        let suiteName = "cmux.tests.subagent-notifications.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        XCTAssertTrue(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+    }
+
+    func testSubagentNotificationSuppressionRespectsStoredPreference() {
+        let suiteName = "cmux.tests.subagent-notifications.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        XCTAssertTrue(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+
+        defaults.set(false, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        XCTAssertFalse(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
     }
 
     func testTelemetryDefaultsToEnabledWhenUnset() {
@@ -2494,6 +2609,19 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, "/tmp/cmux-debug-my-tag.sock")
     }
 
+    func testTaggedDebugBundleIgnoresSocketOverrideInheritedFromDifferentCmuxBundle() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-nightly.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.issue.4355.cmux.themes.set.state.dependent",
+            isDebugBuild: true
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-issue-4355-cmux-themes-set-state-dependent.sock")
+    }
+
     func testTaggedDebugBundleIgnoresMismatchedInheritedSocketOverride() {
         let path = SocketControlSettings.socketPath(
             environment: [
@@ -4254,6 +4382,129 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             result.stdout.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"refresh","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             result.stdout
         )
+    }
+
+    func testBashNoGitWatchSkipsHeadTrackingAndPRClear() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-no-git-watch-\(UUID().uuidString)")
+        let repoA = root.appendingPathComponent("repo-a", isDirectory: true)
+        let repoB = root.appendingPathComponent("repo-b", isDirectory: true)
+        let logPath = root.appendingPathComponent("send.log", isDirectory: false)
+        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            mkdir -p "\(repoA.path)/.git" "\(repoB.path)/.git"
+            printf '%s\\n' 'ref: refs/heads/main' > "\(repoA.path)/.git/HEAD"
+            printf '%s\\n' 'ref: refs/heads/feature' > "\(repoB.path)/.git/HEAD"
+            : > "\(logPath.path)"
+            _cmux_send() { printf '%s\\n' "$1" >> "\(logPath.path)"; }
+            cd "\(repoA.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _CMUX_PWD_LAST_PWD="$PWD"
+            _CMUX_GIT_HEAD_LAST_PWD="$PWD"
+            _CMUX_GIT_HEAD_PATH="$PWD/.git/HEAD"
+            _CMUX_GIT_HEAD_SIGNATURE="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH")"
+            printf '%s\\n' 'ref: refs/heads/old-cleared' > "$_CMUX_GIT_HEAD_PATH"
+            cd "\(repoB.path)"
+            _CMUX_PWD_LAST_PWD="$PWD"
+            _CMUX_LAST_PR_ACTION="checkout"
+            _CMUX_LAST_PR_TARGET="feature"
+            _cmux_prompt_command
+            printf 'HEAD_PATH=%s\\n' "$_CMUX_GIT_HEAD_PATH"
+            printf 'HEAD_LAST_PWD=%s\\n' "$_CMUX_GIT_HEAD_LAST_PWD"
+            printf 'LAST_PR_ACTION=%s\\n' "$_CMUX_LAST_PR_ACTION"
+            printf 'LOG<<EOF\\n'
+            cat "\(logPath.path)"
+            printf 'EOF\\n'
+            """,
+            extraEnvironment: [
+                "CMUX_NO_GIT_WATCH": "1",
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertFalse(result.stdout.contains(repoA.appendingPathComponent(".git/HEAD").path), result.stdout)
+        XCTAssertTrue(result.stdout.contains("HEAD_PATH=\n"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("HEAD_LAST_PWD=\n"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("LAST_PR_ACTION=\n"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("clear_pr"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("report_pr_action"), result.stdout)
+    }
+
+    func testZshNoGitWatchSkipsHeadTrackingAndPRClear() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-no-git-watch-\(UUID().uuidString)")
+        let repoA = root.appendingPathComponent("repo-a", isDirectory: true)
+        let repoB = root.appendingPathComponent("repo-b", isDirectory: true)
+        let logPath = root.appendingPathComponent("send.log", isDirectory: false)
+        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            mkdir -p "\(repoA.path)/.git" "\(repoB.path)/.git"
+            printf '%s\\n' 'ref: refs/heads/main' > "\(repoA.path)/.git/HEAD"
+            printf '%s\\n' 'ref: refs/heads/feature' > "\(repoB.path)/.git/HEAD"
+            : > "\(logPath.path)"
+            _cmux_send() { printf '%s\\n' "$1" >> "\(logPath.path)"; }
+            cd "\(repoA.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _CMUX_PWD_LAST_PWD="$PWD"
+            _CMUX_GIT_HEAD_LAST_PWD="$PWD"
+            _CMUX_GIT_HEAD_PATH="$PWD/.git/HEAD"
+            _CMUX_GIT_HEAD_SIGNATURE="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH")"
+            printf '%s\\n' 'ref: refs/heads/old-cleared' > "$_CMUX_GIT_HEAD_PATH"
+            cd "\(repoB.path)"
+            _CMUX_PWD_LAST_PWD="$PWD"
+            _CMUX_LAST_PR_ACTION="checkout"
+            _CMUX_LAST_PR_TARGET="feature"
+            _cmux_precmd
+            printf 'HEAD_PATH=%s\\n' "$_CMUX_GIT_HEAD_PATH"
+            printf 'HEAD_LAST_PWD=%s\\n' "$_CMUX_GIT_HEAD_LAST_PWD"
+            printf 'LAST_PR_ACTION=%s\\n' "$_CMUX_LAST_PR_ACTION"
+            printf 'LOG<<EOF\\n'
+            cat "\(logPath.path)"
+            printf 'EOF\\n'
+            """,
+            extraEnvironment: [
+                "CMUX_NO_GIT_WATCH": "1",
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertFalse(output.contains(repoA.appendingPathComponent(".git/HEAD").path), output)
+        XCTAssertTrue(output.contains("HEAD_PATH=\n"), output)
+        XCTAssertTrue(output.contains("HEAD_LAST_PWD=\n"), output)
+        XCTAssertTrue(output.contains("LAST_PR_ACTION=\n"), output)
+        XCTAssertFalse(output.contains("clear_pr"), output)
+        XCTAssertFalse(output.contains("report_pr_action"), output)
     }
 
     func testZshPromptResetsTerminalKeyboardProtocols() throws {
