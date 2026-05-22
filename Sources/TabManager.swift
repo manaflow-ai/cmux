@@ -9090,7 +9090,7 @@ extension TabManager {
 
     func sessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs

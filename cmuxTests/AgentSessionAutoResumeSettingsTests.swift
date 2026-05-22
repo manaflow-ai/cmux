@@ -381,6 +381,47 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testTabManagerPlainSnapshotPreservesPendingAgentHookResumeBinding() throws {
+        let manager = TabManager()
+        let source = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        XCTAssertTrue(
+            source.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume manager-pending-session",
+                    cwd: "/tmp/repo",
+                    checkpointId: "manager-pending-session",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 1_777_777_777
+                ),
+                panelId: sourcePanelId
+            )
+        )
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "manager-pending-session",
+                workingDirectory: "/tmp/repo"
+            ),
+            panelId: sourcePanelId
+        )
+        source.setRestoredAgentAutoResumePendingForTesting(true, panelId: sourcePanelId)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertEqual(snapshot.workspaces.first?.panels.first?.terminal?.agent?.sessionId, "manager-pending-session")
+        XCTAssertEqual(
+            snapshot.workspaces.first?.panels.first?.terminal?.resumeBinding?.checkpointId,
+            "manager-pending-session"
+        )
+        XCTAssertEqual(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId)?.sessionId, "manager-pending-session")
+        XCTAssertEqual(source.surfaceResumeBinding(panelId: sourcePanelId)?.checkpointId, "manager-pending-session")
+    }
+
+    @MainActor
     func testPendingAgentHookResumeBindingSurvivesStartupPromptBeforeCommandRuns() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
