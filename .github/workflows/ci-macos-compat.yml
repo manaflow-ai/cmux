@@ -52,12 +52,33 @@ jobs:
           xcrun --sdk macosx --show-sdk-path
           sw_vers
 
+      - name: Write GhosttyKit cache key input
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
+          {
+            printf 'ghostty=%s\n' "$GHOSTTY_SHA"
+            awk -v sha="$GHOSTTY_SHA" '
+              $1 == sha {
+                print "ghosttykit_sha256=" $2
+                found = 1
+                exit
+              }
+              END {
+                if (!found) {
+                  exit 1
+                }
+              }
+            ' scripts/ghosttykit-checksums.txt
+          } > .ci-ghosttykit-cache-key
+          cat .ci-ghosttykit-cache-key
+
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ hashFiles('.ci-ghosttykit-cache-key') }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
@@ -77,10 +98,10 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/Library/Developer/Xcode/DerivedData/cmux-*
-          key: deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
+          key: deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-${{ hashFiles('.ci-ghosttykit-cache-key') }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
           restore-keys: |
-            deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
-            deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-
+            deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-${{ hashFiles('.ci-ghosttykit-cache-key') }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-${{ hashFiles('.ci-ghosttykit-cache-key') }}-
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
