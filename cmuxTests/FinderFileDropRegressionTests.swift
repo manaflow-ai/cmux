@@ -1,5 +1,7 @@
 import XCTest
 import AppKit
+import Bonsplit
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,6 +11,55 @@ import AppKit
 
 @MainActor
 final class FinderFileDropRegressionTests: XCTestCase {
+    private final class MockDraggingInfo: NSObject, NSDraggingInfo {
+        let draggingDestinationWindow: NSWindow?
+        let draggingSourceOperationMask: NSDragOperation
+        let draggingLocation: NSPoint
+        let draggedImageLocation: NSPoint
+        let draggedImage: NSImage?
+        nonisolated(unsafe) let draggingPasteboard: NSPasteboard
+        nonisolated(unsafe) let draggingSource: Any?
+        let draggingSequenceNumber: Int
+        var draggingFormation: NSDraggingFormation = .default
+        var animatesToDestination = false
+        var numberOfValidItemsForDrop = 1
+        let springLoadingHighlight: NSSpringLoadingHighlight = .none
+
+        init(
+            window: NSWindow,
+            location: NSPoint,
+            pasteboard: NSPasteboard,
+            sourceOperationMask: NSDragOperation = .copy,
+            draggingSource: Any? = nil,
+            sequenceNumber: Int = 1
+        ) {
+            self.draggingDestinationWindow = window
+            self.draggingSourceOperationMask = sourceOperationMask
+            self.draggingLocation = location
+            self.draggedImageLocation = location
+            self.draggedImage = nil
+            self.draggingPasteboard = pasteboard
+            self.draggingSource = draggingSource
+            self.draggingSequenceNumber = sequenceNumber
+        }
+
+        func slideDraggedImage(to screenPoint: NSPoint) {}
+
+        override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? {
+            nil
+        }
+
+        func enumerateDraggingItems(
+            options enumOpts: NSDraggingItemEnumerationOptions = [],
+            for view: NSView?,
+            classes classArray: [AnyClass],
+            searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+            using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
+        ) {}
+
+        func resetSpringLoading() {}
+    }
+
     private func make1x1PNG(color: NSColor) throws -> Data {
         let image = NSImage(size: NSSize(width: 1, height: 1))
         image.lockFocus()
@@ -169,6 +220,91 @@ final class FinderFileDropRegressionTests: XCTestCase {
                 pasteboardTypes: [.fileURL],
                 modifierFlags: [],
                 canDropAsText: false,
+                defaultBehavior: .text
+            )
+        )
+    }
+
+    func testMarkdownPortalWebViewDoesNotExposeTextDropShiftHint() throws {
+        let defaults = UserDefaults.standard
+        let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+        defaults.set(FileDropDefaultBehavior.text.rawValue, forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+        defer {
+            if let savedDefaultBehavior {
+                defaults.set(savedDefaultBehavior, forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+            } else {
+                defaults.removeObject(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 360, height: 240))
+        root.autoresizingMask = [.width, .height]
+        window.contentView = root
+
+        let markdownAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 260, height: 160))
+        root.addSubview(markdownAnchor)
+
+        let overlay = FileDropOverlayView(frame: root.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        root.addSubview(overlay)
+
+        let webView = WKWebView(frame: markdownAnchor.bounds, configuration: WKWebViewConfiguration())
+        BrowserWindowPortalRegistry.bind(webView: webView, to: markdownAnchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.updatePaneDropContext(
+            for: webView,
+            context: BrowserPaneDropContext(
+                workspaceId: UUID(),
+                panelId: UUID(),
+                paneId: PaneID(id: UUID()),
+                allowsHostedWebViewTextDrop: false
+            )
+        )
+        BrowserWindowPortalRegistry.synchronizeForAnchor(markdownAnchor)
+        root.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let dropPoint = markdownAnchor.convert(
+            NSPoint(x: markdownAnchor.bounds.midX, y: markdownAnchor.bounds.midY),
+            to: nil
+        )
+        XCTAssertTrue(
+            BrowserWindowPortalRegistry.webViewAtWindowPoint(dropPoint, in: window) === webView,
+            "The regression setup must hit the markdown pane hosted WebView."
+        )
+        XCTAssertNotNil(
+            overlay.paneDropTargetUnderPoint(dropPoint),
+            "Markdown panes still need pane split/drop routing for dropped files."
+        )
+        XCTAssertNil(
+            overlay.textDropDestinationKindUnderPoint(dropPoint),
+            "Markdown preview panes are not text-editable file-drop targets, so the overlay must not show the editor Shift hint."
+        )
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.markdown-pane.shift-hint.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/dropped.md") as NSURL]))
+        let dragInfo = MockDraggingInfo(window: window, location: dropPoint, pasteboard: pasteboard)
+
+        XCTAssertFalse(
+            overlay.shouldRouteFileDropToTextDestination(dragInfo),
+            "Without a text-drop destination, default text behavior must resolve back to preview/split routing and hide the Shift alternate hint."
+        )
+        XCTAssertNil(
+            DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
+                pasteboardTypes: dragInfo.draggingPasteboard.types,
+                modifierFlags: [],
+                canDropAsText: overlay.textDropDestinationKindUnderPoint(dropPoint) != nil,
                 defaultBehavior: .text
             )
         )
