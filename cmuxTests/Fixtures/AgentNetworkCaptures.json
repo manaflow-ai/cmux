@@ -165,16 +165,8 @@
                     "value": "Accept-Encoding"
                   },
                   {
-                    "name": "cf-cache-status",
-                    "value": "DYNAMIC"
-                  },
-                  {
                     "name": "Content-Security-Policy",
                     "value": "default-src 'none'; frame-ancestors 'none'"
-                  },
-                  {
-                    "name": "CF-RAY",
-                    "value": "9ffaf4684fb31701-SJC"
                   }
                 ],
                 "httpVersion": "HTTP/1.1",
@@ -382,10 +374,6 @@
                     "value": "Upgrade"
                   },
                   {
-                    "name": "X-Models-Etag",
-                    "value": "W/\"<redacted-hex>\""
-                  },
-                  {
                     "name": "Date",
                     "value": "Fri, 22 May 2026 09:42:32 GMT"
                   },
@@ -398,28 +386,8 @@
                     "value": "nosniff"
                   },
                   {
-                    "name": "X-Openai-Proxy-Wasm",
-                    "value": "v0.1"
-                  },
-                  {
                     "name": "Cross-Origin-Opener-Policy",
                     "value": "same-origin-allow-popups"
-                  },
-                  {
-                    "name": "Alt-Svc",
-                    "value": "h3=\":443\"; ma=86400"
-                  },
-                  {
-                    "name": "Cf-Ray",
-                    "value": "9ffadf11bade4833-SJC"
-                  },
-                  {
-                    "name": "Cf-Cache-Status",
-                    "value": "DYNAMIC"
-                  },
-                  {
-                    "name": "Nel",
-                    "value": "{\"success_fraction\":0.01,\"report_to\":\"cf-nel\",\"max_age\":604800}"
                   },
                   {
                     "name": "Server",
@@ -428,10 +396,6 @@
                   {
                     "name": "Referrer-Policy",
                     "value": "strict-origin-when-cross-origin"
-                  },
-                  {
-                    "name": "Report-To",
-                    "value": "{\"endpoints\":[{\"url\":\"https:\\/\\/a.nel.cloudflare.com\\/report\\/v4?s=JDaSMajc5fbi6Wj8ghZ7HI5QJ2gyfs4V7I4g4x0p2%2B%2BYBg8w3jeQ4FQMzQTcoEGLHLuf8JNYYVT1iheNZweLNU4mgYne84Vi4FziN1fuN9DhrHyRIvX0gybw72o3BMJLEbeYWMnWbM4e\"}],\"group\":\"cf-nel\",\"max_age\":604800}"
                   }
                 ],
                 "httpVersion": "HTTP/1.1",
@@ -540,18 +504,6 @@
                     "value": "cloudflare"
                   },
                   {
-                    "name": "x-models-etag",
-                    "value": "W/\"<redacted-hex>\""
-                  },
-                  {
-                    "name": "x-openai-proxy-wasm",
-                    "value": "v0.1"
-                  },
-                  {
-                    "name": "cf-cache-status",
-                    "value": "DYNAMIC"
-                  },
-                  {
                     "name": "Cross-Origin-Opener-Policy",
                     "value": "same-origin-allow-popups"
                   },
@@ -564,24 +516,8 @@
                     "value": "nosniff"
                   },
                   {
-                    "name": "Report-To",
-                    "value": "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=BcmAWARBiCkwB4eDlGpZOiJA57A38JnXmHSBXyM5UCe%2B2EXVnn5Lv%2BNG%2F7Ij8xnhbYwlYzlVmfhsJgBI3SwQ4Awov2%2FGeG5vwfMh2hlF5GcfYz4xaVP0pX0k6s9bzoadl581H7awAY3V\"}]}"
-                  },
-                  {
-                    "name": "Nel",
-                    "value": "{\"report_to\":\"cf-nel\",\"success_fraction\":0.01,\"max_age\":604800}"
-                  },
-                  {
                     "name": "Referrer-Policy",
                     "value": "strict-origin-when-cross-origin"
-                  },
-                  {
-                    "name": "CF-RAY",
-                    "value": "9ffaf497799334c3-SJC"
-                  },
-                  {
-                    "name": "alt-svc",
-                    "value": "h3=\":443\"; ma=86400"
                   }
                 ],
                 "httpVersion": "HTTP/1.1",
