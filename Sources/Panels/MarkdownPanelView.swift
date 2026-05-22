@@ -105,6 +105,10 @@ struct MarkdownPanelView: View {
                 portalPriority: portalPriority,
                 onRequestPanelFocus: onRequestPanelFocus
             )
+            // Keep the NSViewRepresentable identity stable across Bonsplit structural updates.
+            // The renderer updates its pane/drop metadata in updateNSView, so pane churn should
+            // not dismantle the portal-hosted WebKit surface for the visible markdown panel.
+            .id(panel.id)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .opacity(panel.displayMode == .preview ? 1 : 0)
             .allowsHitTesting(panel.displayMode == .preview)
