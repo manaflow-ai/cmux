@@ -2752,6 +2752,39 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertFalse(supportsFork)
     }
 
+    func testAgentForkSupportAllowsRemoteForksWithShortNonASCIICommand() async throws {
+        let cjkWorkingDirectory = "/Users/cmux/工程師"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: cjkWorkingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: cjkWorkingDirectory,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let inlineInput = try XCTUnwrap(snapshot.forkCommand.map { $0 + "\n" })
+        XCTAssertLessThanOrEqual(inlineInput.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+        XCTAssertTrue(inlineInput.contains("工程師"))
+        XCTAssertEqual(snapshot.forkStartupInput(allowLauncherScript: false), inlineInput)
+
+        let supportsFork = await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            isRemoteContext: true
+        )
+        XCTAssertTrue(supportsFork)
+    }
+
     func testOpenCodeForkSupportRemoteContextBypassesLocalProbe() async {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .opencode,
