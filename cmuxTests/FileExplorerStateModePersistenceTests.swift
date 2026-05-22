@@ -50,6 +50,11 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         XCTAssertNil(RightSidebarMode.from(cliArgument: "unknown"))
     }
 
+    func testAvailableModesKeepFeedAndExcludeRemovedDockMode() {
+        XCTAssertTrue(RightSidebarMode.availableModes().contains(.feed))
+        XCTAssertFalse(RightSidebarMode.availableModes().contains(.dock))
+    }
+
     private func withSavedRightSidebarModeDefaults(_ body: () -> Void) {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: modeKey)

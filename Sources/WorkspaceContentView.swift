@@ -992,7 +992,6 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                     edge: dock.edge,
                     canRemove: layout.canRemove(dock),
                     workspaceId: workspace.id,
-                    focusedPanelId: workspace.focusedPanelId,
                     splitZoomRenderIdentity: WorkspaceContentView.splitZoomRenderIdentity(for: dock.controller),
                     keyboardShortcutSettingsRevision: keyboardShortcutSettingsRevision
                 ),
@@ -1008,6 +1007,7 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
             controller: { dock.controller },
             panelForSurface: { tabId in workspace.panel(for: tabId) },
             selectedTabId: { paneId in dock.controller.selectedTab(inPane: paneId)?.id },
+            focusedPanelId: { workspace.focusedPanelId },
             focusPane: { paneId in
                 workspace.focusBonsplitPane(paneId, controller: dock.controller)
             },
@@ -1434,7 +1434,6 @@ private struct WorkspaceDockPaneSnapshot: Identifiable, Equatable {
     let edge: WorkspaceDockEdge
     let canRemove: Bool
     let workspaceId: UUID
-    let focusedPanelId: UUID?
     let splitZoomRenderIdentity: String
     let keyboardShortcutSettingsRevision: UInt64
 }
@@ -1443,6 +1442,7 @@ private struct WorkspaceDockPaneActions {
     let controller: () -> BonsplitController
     let panelForSurface: (TabID) -> (any Panel)?
     let selectedTabId: (PaneID) -> TabID?
+    let focusedPanelId: () -> UUID?
     let focusPane: (PaneID) -> Void
     let focusPanelFromTerminalFirstResponder: (UUID) -> Void
     let requestPanelFocus: (UUID) -> Void
@@ -1487,7 +1487,7 @@ private struct WorkspaceDockPaneView: View {
         let controller = actions.controller()
         return BonsplitView(controller: controller) { tab, paneId in
             if let panel = actions.panelForSurface(tab.id) {
-                let isFocused = isWorkspaceInputActive && snapshot.focusedPanelId == panel.id
+                let isFocused = isWorkspaceInputActive && actions.focusedPanelId() == panel.id
                 let isSelectedInPane = actions.selectedTabId(paneId) == tab.id
                 let isVisibleInUI = WorkspaceContentView.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
