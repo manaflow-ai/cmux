@@ -19712,6 +19712,8 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
+        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif

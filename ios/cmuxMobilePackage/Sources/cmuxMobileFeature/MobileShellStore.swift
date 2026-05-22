@@ -1566,14 +1566,20 @@ public final class CMUXMobileShellStore {
                 lowerFidelityDeferralRefreshesByTerminalKey[key] ?? 0,
                 Self.inputSettlingRefreshCount
             )
+            var params: [String: Any] = [
+                "workspace_id": workspaceID.rawValue,
+                "surface_id": terminalID.rawValue,
+                "text": text,
+                "client_id": clientID,
+            ]
+            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
+                params["viewport_columns"] = viewportSize.columns
+                params["viewport_rows"] = viewportSize.rows
+            }
             _ = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.input",
-                    params: [
-                        "workspace_id": workspaceID.rawValue,
-                        "surface_id": terminalID.rawValue,
-                        "text": text,
-                    ]
+                    params: params
                 )
             )
             guard isCurrentRemoteOperation(client: client, generation: generation) else { return }

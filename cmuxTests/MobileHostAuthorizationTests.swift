@@ -621,7 +621,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
         )
     }
 
-    func testMobileHostConnectionCloseClearsViewportReportsImmediately() {
+    func testMobileHostConnectionCloseOnlyClearsConnectionTracking() {
         let service = MobileHostService.shared
         let connectionID = UUID()
 
@@ -629,12 +629,10 @@ final class MobileHostAuthorizationTests: XCTestCase {
         service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
 
         XCTAssertEqual(service.debugTrackedClientIDsForTesting(connectionID: connectionID), Set(["ios-client"]))
-        XCTAssertEqual(service.debugClearedViewportClientIDsForTesting(), [])
 
         service.debugRemoveConnectionForTesting(id: connectionID)
 
         XCTAssertNil(service.debugTrackedClientIDsForTesting(connectionID: connectionID))
-        XCTAssertEqual(service.debugClearedViewportClientIDsForTesting(), [Set(["ios-client"])])
     }
 
     func testMobileHostIgnoresStaleListenerStateCallbacks() {

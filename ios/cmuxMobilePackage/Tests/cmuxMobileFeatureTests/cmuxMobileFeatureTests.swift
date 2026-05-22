@@ -2053,7 +2053,7 @@ import UIKit
 #endif
 
 @MainActor
-@Test func submittedTerminalInputStillAppendsCarriageReturn() async throws {
+@Test func submittedTerminalInputIncludesClientViewportAndCarriageReturn() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
         kind: .debugLoopback,
@@ -2092,6 +2092,11 @@ import UIKit
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
+    store.reportTerminalViewport(
+        workspaceID: MobileWorkspacePreview.ID(rawValue: "live-workspace"),
+        terminalID: MobileTerminalPreview.ID(rawValue: "live-terminal"),
+        viewportSize: MobileTerminalViewportSize(columns: 52, rows: 24)
+    )
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     store.terminalInputText = "echo hi"
@@ -2099,6 +2104,9 @@ import UIKit
 
     let inputRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.input" })
     #expect(inputRequest.text == "echo hi\r")
+    #expect(inputRequest.viewportColumns == 52)
+    #expect(inputRequest.viewportRows == 24)
+    #expect(inputRequest.clientID?.isEmpty == false)
     #expect(store.terminalInputText.isEmpty)
 }
 
