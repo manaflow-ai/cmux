@@ -7960,7 +7960,9 @@ struct CMUXCLI {
                 return
             }
 
-            keepaliveTimeoutWorkItem?.cancel()
+            if keepaliveInFlight {
+                return
+            }
             keepaliveInFlight = true
             let timeoutWorkItem = DispatchWorkItem { [weak self] in
                 guard let self, !self.isStopped, self.keepaliveInFlight else { return }
@@ -7968,6 +7970,7 @@ struct CMUXCLI {
                 self.markStopped()
                 self.task?.cancel(with: .goingAway, reason: nil)
             }
+            keepaliveTimeoutWorkItem?.cancel()
             keepaliveTimeoutWorkItem = timeoutWorkItem
             sendQueue.asyncAfter(deadline: .now() + Self.keepaliveInterval, execute: timeoutWorkItem)
 

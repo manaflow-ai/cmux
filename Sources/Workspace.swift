@@ -1647,6 +1647,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
     private var webSocketTask: URLSessionWebSocketTask?
     private var webSocketDelegate: WebSocketDelegate?
     private var webSocketKeepaliveTimer: DispatchSourceTimer?
+    private var webSocketKeepaliveTimeoutWorkItem: DispatchWorkItem?
     private var webSocketKeepaliveInFlight = false
     private var isClosed = true
     private var shouldReportTermination = true
@@ -2139,6 +2140,8 @@ private final class WorkspaceRemoteDaemonRPCClient {
 
     private func startWebSocketKeepaliveLocked() {
         webSocketKeepaliveTimer?.cancel()
+        webSocketKeepaliveTimeoutWorkItem?.cancel()
+        webSocketKeepaliveTimeoutWorkItem = nil
         webSocketKeepaliveInFlight = false
         let timer = DispatchSource.makeTimerSource(queue: stateQueue)
         timer.schedule(
@@ -2155,6 +2158,8 @@ private final class WorkspaceRemoteDaemonRPCClient {
     private func stopWebSocketKeepaliveLocked() {
         webSocketKeepaliveTimer?.cancel()
         webSocketKeepaliveTimer = nil
+        webSocketKeepaliveTimeoutWorkItem?.cancel()
+        webSocketKeepaliveTimeoutWorkItem = nil
         webSocketKeepaliveInFlight = false
     }
 
@@ -2164,15 +2169,23 @@ private final class WorkspaceRemoteDaemonRPCClient {
             return
         }
         if webSocketKeepaliveInFlight {
-            handleWebSocketTermination("daemon websocket keepalive timed out")
             return
         }
 
         webSocketKeepaliveInFlight = true
+        let timeoutWorkItem = DispatchWorkItem { [weak self] in
+            guard let self, !self.isClosed, self.webSocketKeepaliveInFlight else { return }
+            self.handleWebSocketTermination("daemon websocket keepalive timed out")
+        }
+        webSocketKeepaliveTimeoutWorkItem?.cancel()
+        webSocketKeepaliveTimeoutWorkItem = timeoutWorkItem
+        stateQueue.asyncAfter(deadline: .now() + Self.webSocketKeepaliveInterval, execute: timeoutWorkItem)
         task.sendPing { [weak self] error in
             guard let self else { return }
             self.stateQueue.async {
                 guard !self.isClosed else { return }
+                self.webSocketKeepaliveTimeoutWorkItem?.cancel()
+                self.webSocketKeepaliveTimeoutWorkItem = nil
                 self.webSocketKeepaliveInFlight = false
                 if let error {
                     self.handleWebSocketTermination("daemon websocket keepalive failed: \(error.localizedDescription)")
@@ -10089,7 +10102,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if activeRemoteTerminalSurfaceIds.isEmpty {
             let shouldCleanupControlMaster =
-                relayPort != nil &&
+                configuration.relayPort != nil &&
                 configuration.transport == .ssh &&
                 !isDetachingCloseTransaction &&
                 pendingDetachedSurfaces.isEmpty &&
