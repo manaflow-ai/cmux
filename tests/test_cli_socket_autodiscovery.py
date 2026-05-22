@@ -515,6 +515,63 @@ def test_python_client_treats_stable_override_as_implicit() -> bool:
     return True
 
 
+def test_python_client_supports_rc_variant() -> bool:
+    pid = os.getpid()
+    rc_socket = f"/tmp/cmux-python-rc-{pid}.sock"
+
+    with temporary_socket_home("cmux-py-") as home:
+        write_marker(home, "rc-last-socket-path", rc_socket)
+        server = PingServer(rc_socket, accept_timeout=1.0)
+        server.start()
+
+        if not server.wait_ready(2.0):
+            print("FAIL: python client RC socket server did not become ready")
+            return False
+
+        if server.error is not None:
+            print(f"FAIL: python client RC socket server failed to start: {server.error}")
+            return False
+
+        try:
+            actual_socket = python_client_default_socket_path({
+                "HOME": home,
+                "CFFIXED_USER_HOME": home,
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app.rc",
+            })
+        finally:
+            server.join(timeout=2.0)
+            try:
+                os.remove(rc_socket)
+            except OSError:
+                pass
+
+    if actual_socket != rc_socket:
+        print("FAIL: python client did not use RC marker socket")
+        print(f"expected={rc_socket!r}")
+        print(f"actual={actual_socket!r}")
+        return False
+
+    actual_bundle = python_client_default_bundle_id({
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.rc",
+        "CMUX_TAG": "ignored-for-known-rc",
+    })
+    if actual_bundle != "com.cmuxterm.app.rc":
+        print("FAIL: python client rejected known RC CMUX_BUNDLE_ID")
+        print(f"actual={actual_bundle!r}")
+        return False
+
+    actual_tagged_socket = python_client_default_socket_path({
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.rc.smoke-test",
+    })
+    if actual_tagged_socket != "/tmp/cmux-rc-smoke-test.sock":
+        print("FAIL: python client did not derive tagged RC default socket")
+        print(f"actual={actual_tagged_socket!r}")
+        return False
+
+    print("PASS: python client supports RC bundle variants")
+    return True
+
+
 def test_variant_last_socket_markers(cli_path: str) -> bool:
     pid = os.getpid()
     stable_socket = f"/tmp/cmux-issue3542-stable-{pid}.sock"
@@ -724,6 +781,9 @@ def main() -> int:
         return 1
 
     if not test_python_client_treats_stable_override_as_implicit():
+        return 1
+
+    if not test_python_client_supports_rc_variant():
         return 1
 
     print("PASS: cmux ping auto-discovers tagged socket from CMUX_TAG")
