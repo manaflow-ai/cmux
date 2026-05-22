@@ -225,11 +225,13 @@ jobs:
           if [ "$RECORD_VIDEO" = "true" ]; then
             DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
             echo "Available devices:"
-            echo "$DEVLIST" | grep -E "AVFoundation|Capture screen"
+            echo "$DEVLIST" | grep -E "AVFoundation|Capture screen" || true
 
-            SCREEN_INDEX=$( echo "$DEVLIST" | grep "Capture screen" | head -1 \
-              | sed 's/.*\[\([0-9]*\)\].*/\1/' )
+            SCREEN_INDEX=$( echo "$DEVLIST" | awk '/Capture screen/ { gsub(/.*\[/, ""); gsub(/\].*/, ""); print; exit }' )
             SCREEN_INDEX="${SCREEN_INDEX:-0}"
+            if ! echo "$DEVLIST" | grep -q "Capture screen"; then
+              echo "::warning::No Capture screen AVFoundation device listed; using index $SCREEN_INDEX and continuing if recording cannot start"
+            fi
             echo "Using screen device index: $SCREEN_INDEX"
 
             ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
