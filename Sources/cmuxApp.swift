@@ -4604,7 +4604,7 @@ enum QuitWarningSettings {
         shouldShowConfirmation(
             isQuitWarningConfirmed: isQuitWarningConfirmed,
             hasDirtyWorkspaces: true,
-            buildFlavor: .stable,
+            buildFlavor: .current,
             defaults: defaults
         )
     }

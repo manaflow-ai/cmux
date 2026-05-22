@@ -1596,13 +1596,41 @@ final class QuitWarningSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
-        XCTAssertTrue(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
+        XCTAssertTrue(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: false,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
 
-        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
+        XCTAssertFalse(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: true,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
 
         defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
-        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
-        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
+        XCTAssertFalse(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: false,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
+        XCTAssertFalse(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: true,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
     }
 
     func testSetEnabledWritesConfirmQuitAndLegacyFallback() {
