@@ -6170,7 +6170,7 @@ struct SettingsView: View {
                             SettingsCardRow(
                                 configurationReview: .json("terminal.regexHighlights"),
                                 String(localized: "settings.terminal.regexHighlights", defaultValue: "Automatic Text Highlights"),
-                                subtitle: String(localized: "settings.terminal.regexHighlights.subtitle", defaultValue: "Highlights visible terminal text that matches a regex. One pattern per line; prefix with #RRGGBB and a tab to choose the highlight color.")
+                                subtitle: String(localized: "settings.terminal.regexHighlights.subtitle", defaultValue: "Highlights visible terminal text that matches a regex. One pattern per line; prefix with #RRGGBB or #RRGGBBAA and a tab to choose the highlight color.")
                             ) {
                                 EmptyView()
                             }

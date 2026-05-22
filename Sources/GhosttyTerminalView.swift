@@ -3848,6 +3848,9 @@ class GhosttyApp {
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.enqueueScrollbarUpdate(scrollbar)
             return true
+        case GHOSTTY_ACTION_RENDER:
+            surfaceView.enqueueRegexHighlightRefreshAfterRender()
+            return false
         case GHOSTTY_ACTION_CELL_SIZE:
             let cellSize = CGSize(
                 width: CGFloat(action.action.cell_size.width),
@@ -6116,6 +6119,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _pendingScrollbar: GhosttyScrollbar?
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
+    private var _regexHighlightRenderRefreshScheduled = false
+    private let _regexHighlightRenderRefreshLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
 
@@ -6153,6 +6158,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             object: self,
             userInfo: [GhosttyNotificationKey.scrollbar: pending]
         )
+    }
+
+    func enqueueRegexHighlightRefreshAfterRender() {
+        guard TerminalRegexHighlightSettings.hasRuntimeRules() else { return }
+
+        _regexHighlightRenderRefreshLock.lock()
+        let needsSchedule = !_regexHighlightRenderRefreshScheduled
+        if needsSchedule { _regexHighlightRenderRefreshScheduled = true }
+        _regexHighlightRenderRefreshLock.unlock()
+
+        guard needsSchedule else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.flushRegexHighlightRenderRefresh()
+        }
+    }
+
+    private func flushRegexHighlightRenderRefresh() {
+        _regexHighlightRenderRefreshLock.lock()
+        _regexHighlightRenderRefreshScheduled = false
+        _regexHighlightRenderRefreshLock.unlock()
+
+        terminalSurface?.hostedView.scheduleRegexHighlightRefreshAfterRender()
     }
 
     var desiredFocus: Bool = false
@@ -9785,6 +9812,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var deferredSearchOverlayMutationWorkItem: DispatchWorkItem?
     private var regexHighlightRefreshTask: Task<Void, Never>?
     private var regexHighlightCompiledRules: [TerminalRegexHighlightCompiledRule] = []
+    private var regexHighlightLastRefreshAt: CFTimeInterval = 0
     private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
@@ -9806,6 +9834,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var allowExplicitScrollbarSync = false
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
+    private static let regexHighlightRenderRefreshInterval: CFTimeInterval = 1.0 / 30.0
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
@@ -10307,7 +10336,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.synchronizeScrollView()
-            self?.scheduleRegexHighlightRefresh(reason: "cellSize")
+            self?.scheduleRegexHighlightRefresh()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -10506,7 +10535,7 @@ final class GhosttySurfaceScrollView: NSView {
         let didCoreSurfaceChange = synchronizeCoreSurface()
         let didGeometryChange = !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
         if didGeometryChange {
-            scheduleRegexHighlightRefresh(reason: "geometry")
+            scheduleRegexHighlightRefresh()
         }
         return didGeometryChange
     }
@@ -10682,7 +10711,7 @@ final class GhosttySurfaceScrollView: NSView {
         if window.isKeyWindow {
             scheduleAutomaticFirstResponderApply(reason: "viewDidMoveToWindow")
         }
-        scheduleRegexHighlightRefresh(reason: "viewDidMoveToWindow")
+        scheduleRegexHighlightRefresh()
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
@@ -10694,7 +10723,7 @@ final class GhosttySurfaceScrollView: NSView {
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
         _ = synchronizeGeometryAndContent()
-        scheduleRegexHighlightRefresh(reason: "attachSurface")
+        scheduleRegexHighlightRefresh()
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
@@ -11378,7 +11407,7 @@ final class GhosttySurfaceScrollView: NSView {
             // without a portal frame delta or a focus handoff. Reuse the portal refresh
             // path so the Metal layer is nudged immediately on plain visibility restores.
             refreshSurfaceNow(reason: "setVisibleInUI")
-            scheduleRegexHighlightRefresh(reason: "setVisibleInUI")
+            scheduleRegexHighlightRefresh()
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
@@ -12598,10 +12627,14 @@ final class GhosttySurfaceScrollView: NSView {
             regexHighlightOverlayView.clear()
             return
         }
-        scheduleRegexHighlightRefresh(reason: "settings")
+        scheduleRegexHighlightRefresh()
     }
 
-    private func scheduleRegexHighlightRefresh(reason: String) {
+    fileprivate func scheduleRegexHighlightRefreshAfterRender() {
+        scheduleRegexHighlightRefresh(throttleForRender: true)
+    }
+
+    private func scheduleRegexHighlightRefresh(throttleForRender: Bool = false) {
         guard !regexHighlightCompiledRules.isEmpty else {
             regexHighlightRefreshTask?.cancel()
             regexHighlightRefreshTask = nil
@@ -12609,18 +12642,29 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         regexHighlightRefreshTask?.cancel()
+        let delayNanoseconds: UInt64 = {
+            guard throttleForRender else { return 0 }
+            let elapsed = CACurrentMediaTime() - regexHighlightLastRefreshAt
+            let remaining = Self.regexHighlightRenderRefreshInterval - elapsed
+            guard remaining > 0 else { return 0 }
+            return UInt64(remaining * 1_000_000_000)
+        }()
         regexHighlightRefreshTask = Task { @MainActor [weak self] in
+            if delayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+            }
             guard let self, !Task.isCancelled else { return }
             self.regexHighlightRefreshTask = nil
-            self.refreshRegexHighlightOverlay(reason: reason)
+            self.refreshRegexHighlightOverlay()
         }
     }
 
-    private func refreshRegexHighlightOverlay(reason: String) {
+    private func refreshRegexHighlightOverlay() {
         guard !regexHighlightCompiledRules.isEmpty else {
             regexHighlightOverlayView.clear()
             return
         }
+        regexHighlightLastRefreshAt = CACurrentMediaTime()
         guard window != nil,
               !isHidden,
               surfaceView.isVisibleInUI,
@@ -12800,7 +12844,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollChange() {
         synchronizeSurfaceView()
-        scheduleRegexHighlightRefresh(reason: "scroll")
+        scheduleRegexHighlightRefresh()
     }
 
     private func handleLiveScroll() {
@@ -12839,11 +12883,11 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
-            scheduleRegexHighlightRefresh(reason: "scrollbarAppearance")
+            scheduleRegexHighlightRefresh()
             return
         }
         synchronizeScrollView()
-        scheduleRegexHighlightRefresh(reason: "scrollbar")
+        scheduleRegexHighlightRefresh()
     }
 
     @discardableResult

@@ -186,6 +186,15 @@ enum TerminalRegexHighlightSettings {
     static let defaultHighlights = ""
     static let didChangeNotification = Notification.Name("cmux.terminalRegexHighlightSettingsDidChange")
 
+    private static let runtimeStateLock = NSLock()
+    private static var runtimeHasRules = !rules().isEmpty
+
+    static func hasRuntimeRules() -> Bool {
+        runtimeStateLock.lock()
+        defer { runtimeStateLock.unlock() }
+        return runtimeHasRules
+    }
+
     static func rawHighlights(defaults: UserDefaults = .standard) -> String {
         defaults.string(forKey: highlightsKey) ?? defaultHighlights
     }
@@ -244,7 +253,15 @@ enum TerminalRegexHighlightSettings {
     }
 
     static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        refreshRuntimeRuleState()
         notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+
+    private static func refreshRuntimeRuleState(defaults: UserDefaults = .standard) {
+        let hasRules = !rules(defaults: defaults).isEmpty
+        runtimeStateLock.lock()
+        runtimeHasRules = hasRules
+        runtimeStateLock.unlock()
     }
 
     private static func isSupportedHexColor(_ rawValue: String) -> Bool {
