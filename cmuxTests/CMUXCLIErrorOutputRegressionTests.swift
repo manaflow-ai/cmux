@@ -292,6 +292,83 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(object["version"] as? String, "0.0.0-generated")
     }
 
+    func testUseCommandGeneratedManifestDetectsLaunchCreatedByInstall() throws {
+        let cliPath = try bundledCLIPath()
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let tempURL = directory.appendingPathComponent("tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
+
+        let fakeBinURL = directory.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "clone" ]; then
+          mkdir -p "$3/.git"
+          cat > "$3/setup.sh" <<'SETUP'
+        #!/bin/sh
+        cat > launch.sh <<'LAUNCH'
+        #!/bin/sh
+        echo launched
+        LAUNCH
+        chmod +x launch.sh
+        SETUP
+          chmod +x "$3/setup.sh"
+          exit 0
+        fi
+        exit 1
+        """.write(to: fakeGitURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeGitURL.path)
+
+        let homeURL = directory.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+
+        let socketPath = "/tmp/cmux-use-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"workspace_id":"workspace:1"}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["HOME"] = homeURL.path
+        environment["TMPDIR"] = tempURL.path + "/"
+        environment["PATH"] = "\(fakeBinURL.path):/usr/bin:/bin"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "--json", "use", "owner/repo"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+
+        let output = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        XCTAssertEqual(output["command"] as? String, "./launch.sh")
+        XCTAssertEqual(output["command_source"] as? String, "launch.sh")
+
+        let workspaceRequest = try XCTUnwrap(
+            responder.receivedRequests
+                .compactMap { Self.v2Payload(from: $0) }
+                .first { $0["method"] as? String == "workspace.create" },
+            responder.receivedRequests.joined(separator: "\n")
+        )
+        let params = try XCTUnwrap(workspaceRequest["params"] as? [String: Any])
+        let initialCommand = try XCTUnwrap(params["initial_command"] as? String)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: initialCommand), initialCommand)
+    }
+
     func testUseCommandRemovesLaunchScriptWhenSocketConnectionFails() throws {
         let cliPath = try bundledCLIPath()
         let directory = try temporaryDirectory()
@@ -977,6 +1054,11 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
             timedOut: timedOut
         )
+    }
+
+    private static func v2Payload(from line: String) -> [String: Any]? {
+        guard let data = line.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }
 }
 
