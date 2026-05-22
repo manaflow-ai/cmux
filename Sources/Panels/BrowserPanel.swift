@@ -1232,6 +1232,7 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
     "about",
     "applewebdata",
     "blob",
+    "cmux-diff-viewer",
     "data",
     "file",
     "http",
