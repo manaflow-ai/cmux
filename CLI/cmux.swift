@@ -634,17 +634,11 @@ private final class ClaudeHookSessionStore {
             let depthAfterStop = max(0, depthBeforeStop - 1)
             let normalizedTurnId = normalizeOptional(turnId)
             let activeTurnId = normalizeOptional(record.activePromptTurnId)
-            let hasStalePromptDepthForDifferentTurn: Bool
-            if let normalizedTurnId {
-                if let activeTurnId {
-                    hasStalePromptDepthForDifferentTurn = activeTurnId != normalizedTurnId
-                } else {
-                    hasStalePromptDepthForDifferentTurn = depthBeforeStop > 0
-                }
-            } else {
-                hasStalePromptDepthForDifferentTurn = false
+            if let normalizedTurnId, let activeTurnId, activeTurnId != normalizedTurnId {
+                state.sessions[normalized] = record
+                return true
             }
-            if hasStalePromptDepthForDifferentTurn {
+            if normalizedTurnId != nil, activeTurnId == nil, depthBeforeStop > 0 {
                 record.activePromptDepth = nil
                 record.activePromptTurnId = nil
                 state.sessions[normalized] = record
