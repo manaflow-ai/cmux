@@ -211,7 +211,7 @@ def sanitize_text(value: str) -> str:
     patterns = [
         (r"/var/folders/[^\"'\s]+/cmux-agent-network-captures\.[^/\"'\s]+", "${CAPTURE_ROOT}"),
         (r"x-anthropic-billing-header:[^\"\\\r\n]+", "<redacted-provider-metadata>"),
-        (r"Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer <redacted>"),
+        (r"Bearer\s+[A-Za-z0-9._~+/=-]+", "<redacted-bearer>"),
         (r"sk-[A-Za-z0-9_-]{12,}", "sk-<redacted>"),
         (r"sess-[A-Za-z0-9_-]{12,}", "sess-<redacted>"),
         (r"\b(user|org|acct|proj|ses)-[A-Za-z0-9_-]{12,}\b", "<redacted-id>"),
@@ -230,11 +230,19 @@ def sanitize_text(value: str) -> str:
 def redact_json_value(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: dict[str, Any] = {}
+        role = value.get("role")
+        role_lower = role.lower() if isinstance(role, str) else None
         for key, item in value.items():
             lowered = key.lower()
             if lowered in JSON_DROPPED_KEYS:
                 continue
-            if lowered in JSON_REDACTED_KEYS:
+            if lowered == "content" and role_lower in {"developer", "system"}:
+                redacted[key] = (
+                    "<redacted-runtime-instructions>"
+                    if role_lower == "developer"
+                    else "<redacted-provider-metadata>"
+                )
+            elif lowered in JSON_REDACTED_KEYS:
                 redacted[key] = "<redacted-provider-metadata>"
             else:
                 redacted[key] = redact_json_value(item)
