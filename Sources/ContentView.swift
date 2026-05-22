@@ -8447,7 +8447,8 @@ struct ContentView: View {
 
     static func commandPalettePostRunRestoreFocusIntent(forCommandId commandId: String) -> PanelFocusIntent? {
         switch commandId {
-        case "palette.terminalFocusTextBoxInput":
+        case "palette.terminalFocusTextBoxInput",
+             "palette.terminalAttachTextBoxFile":
             return .terminal(.textBoxInput)
         default:
             return nil
