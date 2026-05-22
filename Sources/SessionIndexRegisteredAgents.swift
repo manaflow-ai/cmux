@@ -254,9 +254,9 @@ extension SessionIndexStore {
         var title: String = ""
     }
 
-    private static let antigravityHistoryMetadataByteCap = 4 * 1024 * 1024
-    private static let antigravityTranscriptMetadataByteCap = 512 * 1024
-    private static let antigravityPendingHistoryMatchWindow: TimeInterval = 24 * 60 * 60
+    nonisolated private static let antigravityHistoryMetadataByteCap = 4 * 1024 * 1024
+    nonisolated private static let antigravityTranscriptMetadataByteCap = 512 * 1024
+    nonisolated private static let antigravityPendingHistoryMatchWindow: TimeInterval = 24 * 60 * 60
 
     private struct GrokSessionMetadata {
         var title: String = ""
