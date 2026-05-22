@@ -1453,11 +1453,20 @@ func (a *wsPTYAttachment) writeLoop(ctx context.Context, conn *websocket.Conn, s
 }
 
 func (a *wsPTYAttachment) writeFrame(ctx context.Context, conn *websocket.Conn, frame wsPTYOutgoingFrame) bool {
+	if ctx.Err() != nil {
+		if a.cancel != nil {
+			a.cancel()
+		}
+		_ = conn.CloseNow()
+		return false
+	}
 	writeCtx, cancel := context.WithTimeout(ctx, defaultWebSocketWriteTimeout)
 	err := conn.Write(writeCtx, frame.messageType, frame.payload)
 	cancel()
 	if err != nil {
-		a.cancel()
+		if a.cancel != nil {
+			a.cancel()
+		}
 		_ = conn.CloseNow()
 		return false
 	}
