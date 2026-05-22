@@ -1543,6 +1543,10 @@ final class BrowserHistoryStore: ObservableObject {
     private let maxEntries: Int = 5000
     private let saveDebounceNanoseconds: UInt64 = 120_000_000
 
+    var isLoaded: Bool {
+        didLoad
+    }
+
     private struct SuggestionCandidate {
         let entry: Entry
         let urlLower: String
@@ -8201,13 +8205,13 @@ enum BrowserImportScope: String, CaseIterable, Identifiable {
     }
 }
 
-enum BrowserImportEngineFamily: String, Hashable {
+enum BrowserImportEngineFamily: String, Hashable, Sendable {
     case chromium
     case firefox
     case webkit
 }
 
-struct InstalledBrowserProfile: Identifiable, Hashable {
+struct InstalledBrowserProfile: Identifiable, Hashable, Sendable {
     let displayName: String
     let rootURL: URL
     let isDefault: Bool
@@ -8217,7 +8221,7 @@ struct InstalledBrowserProfile: Identifiable, Hashable {
     }
 }
 
-struct BrowserImportBrowserDescriptor: Hashable {
+struct BrowserImportBrowserDescriptor: Hashable, Sendable {
     let id: String
     let displayName: String
     let family: BrowserImportEngineFamily
@@ -8229,7 +8233,7 @@ struct BrowserImportBrowserDescriptor: Hashable {
     let supportsDataOnlyDetection: Bool
 }
 
-struct InstalledBrowserCandidate: Identifiable, Hashable {
+struct InstalledBrowserCandidate: Identifiable, Hashable, Sendable {
     let descriptor: BrowserImportBrowserDescriptor
     let resolvedFamily: BrowserImportEngineFamily
     let homeDirectoryURL: URL
@@ -8584,6 +8588,17 @@ enum InstalledBrowserDetector {
             }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }
+    }
+
+    @MainActor
+    static func applicationBundleLookupSnapshot() -> [String: URL] {
+        var result: [String: URL] = [:]
+        for descriptor in allBrowserDescriptors {
+            for bundleIdentifier in descriptor.bundleIdentifiers where result[bundleIdentifier] == nil {
+                result[bundleIdentifier] = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+            }
+        }
+        return result
     }
 
     static func summaryText(for browsers: [InstalledBrowserCandidate], limit: Int = 4) -> String {

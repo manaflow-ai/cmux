@@ -126,6 +126,19 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         )
     }
 
+    static var builtInAntigravity: CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "antigravity",
+            name: "Antigravity",
+            iconAssetName: "AgentIcons/Antigravity",
+            detect: CmuxVaultAgentDetectRule(processNames: ["agy", "antigravity"]),
+            sessionIdSource: .argvOption("--conversation"),
+            resumeCommand: "{{executable}} --conversation {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: "~/.gemini/antigravity-cli"
+        )
+    }
+
     static var builtInGrok: CmuxVaultAgentRegistration {
         CmuxVaultAgentRegistration(
             id: "grok",
@@ -341,6 +354,7 @@ struct CmuxVaultAgentRegistry: Sendable {
     ) -> CmuxVaultAgentRegistry {
         var registrations = [
             CmuxVaultAgentRegistration.builtInPi,
+            CmuxVaultAgentRegistration.builtInAntigravity,
             CmuxVaultAgentRegistration.builtInGrok,
         ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
