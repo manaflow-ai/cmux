@@ -91,6 +91,7 @@ enum SettingsSearchAliasIndex {
         "automation:claude-code": localized("settings.search.alias.setting.automation.claude-code", defaultValue: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
         "automation:claude-path": localized("settings.search.alias.setting.automation.claude-path", defaultValue: "automation.claudeBinaryPath claude binary executable path cli command custom"),
         "automation:ripgrep-path": localized("settings.search.alias.setting.automation.ripgrep-path", defaultValue: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
+        "automation:subagent-notifications": localized("settings.search.alias.setting.automation.subagent-notifications", defaultValue: "automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"),
         "automation:cursor": localized("settings.search.alias.setting.automation.cursor", defaultValue: "automation.cursorIntegration cursor ide agent hooks notifications"),
         "automation:gemini": localized("settings.search.alias.setting.automation.gemini", defaultValue: "automation.geminiIntegration gemini cli google agent hooks notifications"),
         "automation:port-base": localized("settings.search.alias.setting.automation.port-base", defaultValue: "automation.portBase cmux_port start first base env environment variable"),
