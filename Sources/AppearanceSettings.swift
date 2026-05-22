@@ -223,6 +223,88 @@ enum AppearanceSettings {
     }
 }
 
+final class AppearanceSettingsUserDefaultsObserver {
+    struct Environment {
+        let addDefaultsObserver: (@escaping () -> Void) -> NSObjectProtocol
+        let removeObserver: (NSObjectProtocol) -> Void
+        let currentRawValue: () -> String?
+        let applyStoredMode: (String?, String) -> AppearanceMode
+
+        static func live(
+            defaults: UserDefaults = .standard,
+            notificationCenter: NotificationCenter = .default
+        ) -> Environment {
+            Environment(
+                addDefaultsObserver: { handler in
+                    notificationCenter.addObserver(
+                        forName: UserDefaults.didChangeNotification,
+                        object: nil,
+                        queue: .main
+                    ) { _ in
+                        handler()
+                    }
+                },
+                removeObserver: { observer in
+                    notificationCenter.removeObserver(observer)
+                },
+                currentRawValue: {
+                    defaults.string(forKey: AppearanceSettings.appearanceModeKey)
+                },
+                applyStoredMode: { rawValue, source in
+                    AppearanceSettings.applyStoredMode(
+                        rawValue: rawValue,
+                        defaults: defaults,
+                        source: source
+                    )
+                }
+            )
+        }
+    }
+
+    static let shared = AppearanceSettingsUserDefaultsObserver()
+
+    private let environment: Environment
+    private var defaultsObserver: NSObjectProtocol?
+    private var lastObservedRawValue: String?
+    private var source: String
+
+    init(
+        environment: Environment = .live(),
+        source: String = "cmuxApp.appearanceDefaultsChanged"
+    ) {
+        self.environment = environment
+        self.source = source
+    }
+
+    deinit {
+        stopObserving()
+    }
+
+    func startObserving(source: String? = nil) {
+        if let source {
+            self.source = source
+        }
+        lastObservedRawValue = environment.currentRawValue()
+        guard defaultsObserver == nil else { return }
+        defaultsObserver = environment.addDefaultsObserver { [weak self] in
+            self?.applyIfChanged()
+        }
+    }
+
+    func stopObserving() {
+        guard let defaultsObserver else { return }
+        environment.removeObserver(defaultsObserver)
+        self.defaultsObserver = nil
+    }
+
+    private func applyIfChanged() {
+        let rawValue = environment.currentRawValue()
+        guard rawValue != lastObservedRawValue else { return }
+        let appliedMode = environment.applyStoredMode(rawValue, source)
+        lastObservedRawValue = appliedMode.rawValue
+    }
+}
+
 private struct AppearanceColorSchemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     let rawValue: String?
