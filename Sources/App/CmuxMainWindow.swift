@@ -100,8 +100,11 @@ final class CmuxMainWindow: NSWindow {
         if BrowserWindowPortalRegistry.webViewAtWindowPoint(event.locationInWindow, in: self) is CmuxWebView {
             return true
         }
-        guard let contentView,
-              let hitView = contentView.hitTest(event.locationInWindow) else {
+        guard let contentView else {
+            return false
+        }
+        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+        guard let hitView = contentView.hitTest(contentPoint) else {
             return false
         }
         return isViewInsideBrowserWebView(hitView)
