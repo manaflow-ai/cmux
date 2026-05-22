@@ -1,11 +1,19 @@
 export const blogPosts = [
   {
+    slug: "defer-unread",
+    key: "deferUnread",
+    title: "Defer and toggle unread agents in cmux",
+    date: "2026-05-21",
+    summary:
+      "Two new keyboard shortcuts for managing unread coding agent notifications across cmux workspaces: Cmd+Ctrl+U defers, Cmd+Opt+U toggles.",
+  },
+  {
     slug: "session-restore",
     key: "sessionRestore",
-    title: "Session restore in cmux",
+    title: "How to resume Claude Code, Codex, and OpenCode sessions in cmux",
     date: "2026-05-13",
     summary:
-      "cmux restores layout, scrollback, browser history, and supported agent sessions when hooks have captured a resume token.",
+      "Restore Claude Code, Codex, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, and Qoder sessions automatically when cmux restarts.",
   },
   {
     slug: "cmux-ssh",

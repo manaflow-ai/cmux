@@ -109,8 +109,12 @@
     "metaDescription": "News and updates from the cmux team",
     "description": "News and updates from the cmux team",
     "sessionRestore": {
-      "metaTitle": "Session restore in cmux",
-      "metaDescription": "How cmux restores windows, workspaces, panes, scrollback, browser history, and supported agent sessions after relaunch."
+      "metaTitle": "How to resume Claude Code, Codex, and OpenCode sessions in cmux",
+      "metaDescription": "Restore Claude Code, Codex, OpenCode, Gemini, Cursor CLI, Amp, and other coding agent sessions automatically after cmux restarts. Window layout, scrollback, browser history, and native agent session IDs all come back."
+    },
+    "deferUnread": {
+      "metaTitle": "Defer and toggle unread agents in cmux (Cmd+Ctrl+U, Cmd+Opt+U)",
+      "metaDescription": "Two cmux keyboard shortcuts for managing unread coding agent notifications. Cmd+Ctrl+U keeps the current workspace unread and jumps to the next; Cmd+Opt+U toggles read/unread."
     },
     "zenOfCmux": {
       "metaTitle": "The Zen of cmux",
@@ -145,9 +149,18 @@
       "metaDescription": "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side."
     },
     "posts": {
+      "deferUnread": {
+        "title": "Defer and toggle unread agents in cmux",
+        "summary": "Two new keyboard shortcuts for managing unread coding agent notifications across cmux workspaces: Cmd+Ctrl+U defers, Cmd+Opt+U toggles.",
+        "date": "May 21, 2026",
+        "p1": "<link>Cmd+Shift+U</link> jumps to the latest unread agent. But sometimes I land on one I can't respond to yet. Two new shortcuts handle that case.",
+        "p2": "Cmd+Ctrl+U keeps the current workspace unread and jumps to the next unread. It moves the current workspace to the back of the cycle, so spamming Cmd+Ctrl+U walks through every unread without clearing any of them.",
+        "p3": "Cmd+Opt+U toggles read/unread on the current workspace.",
+        "p4": "Cmd+Ctrl+U shipped in v0.64.5, Cmd+Opt+U in v0.64.7."
+      },
       "sessionRestore": {
-        "title": "Session restore in cmux",
-        "summary": "cmux restores layout, scrollback, browser history, and supported agent sessions when hooks have captured a resume token.",
+        "title": "How to resume Claude Code, Codex, and OpenCode sessions in cmux",
+        "summary": "Restore Claude Code, Codex, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, and Qoder sessions automatically when cmux restarts.",
         "date": "May 13, 2026",
         "p1": "Terminal workflows survive interruptions better when the app can reconstruct the shape of your work. cmux now treats the workspace layout as durable state instead of something tied to one app process.",
         "p2": "The important boundary is live process state. cmux restores what it owns and what supported tools expose through their own resume APIs. It does not checkpoint arbitrary terminal processes.",
