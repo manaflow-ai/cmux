@@ -4140,6 +4140,33 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
     }
 
+    func testFocusedBonsplitPaneForCommandsUsesWorkspaceFocusOwner() throws {
+        let workspace = Workspace()
+        let leftDock = workspace.dockLayout.addDock(edge: .left)
+        let rightDock = workspace.dockLayout.addDock(edge: .right)
+        let leftPaneId = try XCTUnwrap(leftDock.controller.allPaneIds.first)
+        let rightPaneId = try XCTUnwrap(rightDock.controller.allPaneIds.first)
+
+        workspace.focusBonsplitPane(leftPaneId, controller: leftDock.controller)
+        rightDock.controller.focusPane(rightPaneId)
+
+        XCTAssertTrue(
+            workspace.isFocusedBonsplitPaneForCommands(leftPaneId, controller: leftDock.controller)
+        )
+        XCTAssertFalse(
+            workspace.isFocusedBonsplitPaneForCommands(rightPaneId, controller: rightDock.controller)
+        )
+
+        workspace.focusBonsplitPane(rightPaneId, controller: rightDock.controller)
+
+        XCTAssertFalse(
+            workspace.isFocusedBonsplitPaneForCommands(leftPaneId, controller: leftDock.controller)
+        )
+        XCTAssertTrue(
+            workspace.isFocusedBonsplitPaneForCommands(rightPaneId, controller: rightDock.controller)
+        )
+    }
+
     func testDockTargetTerminalSplitUpdatesWorkspaceFocus() throws {
         let workspace = Workspace()
         let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)

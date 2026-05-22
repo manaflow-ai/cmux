@@ -13096,6 +13096,12 @@ final class Workspace: Identifiable, ObservableObject {
         return (controller, paneId)
     }
 
+    func isFocusedBonsplitPaneForCommands(_ paneId: PaneID, controller: BonsplitController) -> Bool {
+        let focusedController = currentFocusNavigationController()
+        guard focusedController === controller else { return false }
+        return preferredNavigationPane(in: focusedController) == paneId
+    }
+
     private func moveFocusWithinController(
         _ controller: BonsplitController,
         direction: NavigationDirection

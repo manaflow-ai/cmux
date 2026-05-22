@@ -268,7 +268,10 @@ struct WorkspaceContentView: View {
                 EmptyPanelView(
                     paneId: paneId,
                     settingsRevision: keyboardShortcutSettingsObserver.revision,
-                    registerShortcuts: workspace.bonsplitController.focusedPaneId == paneId
+                    registerShortcuts: isWorkspaceInputActive && workspace.isFocusedBonsplitPaneForCommands(
+                        paneId,
+                        controller: workspace.bonsplitController
+                    )
                 ) { action, paneId in
                     action.perform(
                         workspace: workspace,
@@ -282,7 +285,10 @@ struct WorkspaceContentView: View {
             EmptyPanelView(
                 paneId: paneId,
                 settingsRevision: keyboardShortcutSettingsObserver.revision,
-                registerShortcuts: workspace.bonsplitController.focusedPaneId == paneId
+                registerShortcuts: isWorkspaceInputActive && workspace.isFocusedBonsplitPaneForCommands(
+                    paneId,
+                    controller: workspace.bonsplitController
+                )
             ) { action, paneId in
                 action.perform(
                     workspace: workspace,
@@ -1030,7 +1036,10 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                 workspace.triggerDebugFlash(panelId: panelId)
             },
             isFocusedPane: { paneId in
-                dock.controller.focusedPaneId == paneId
+                isWorkspaceInputActive && workspace.isFocusedBonsplitPaneForCommands(
+                    paneId,
+                    controller: dock.controller
+                )
             },
             performEmptyPaneAction: { action, paneId in
                 action.perform(workspace: workspace, paneId: paneId, controller: dock.controller)
