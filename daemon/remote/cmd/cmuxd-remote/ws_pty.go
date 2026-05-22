@@ -950,7 +950,8 @@ func (h *wsPTYHub) attachmentByID(sessionID string, attachmentID string, attachm
 		return nil
 	}
 	attachment := session.attachments[attachmentID]
-	if attachment == nil || attachment.clientToken != attachmentToken {
+	if attachment == nil ||
+		subtle.ConstantTimeCompare([]byte(attachment.clientToken), []byte(attachmentToken)) != 1 {
 		return nil
 	}
 	return attachment

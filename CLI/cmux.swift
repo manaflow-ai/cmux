@@ -8245,6 +8245,13 @@ struct CMUXCLI {
                 let sessions = (listResponse["sessions"] as? [[String: Any]] ?? []).filter {
                     trimmedDebugString($0["session_id"]) == sessionID
                 }
+                if sessions.isEmpty {
+                    errors.append([
+                        "session_id": sessionID,
+                        "workspace_id": NSNull(),
+                        "error": "persistent SSH PTY session is no longer running",
+                    ])
+                }
                 for session in sessions {
                     guard let workspaceID = trimmedDebugString(session["workspace_id"]) else {
                         errors.append(sshSessionCleanupMissingWorkspaceError(sessionID: sessionID, session: session))
@@ -8485,16 +8492,22 @@ struct CMUXCLI {
 
         let bridge: [String: Any]
         do {
-            bridge = try waitForReady
-                ? waitForSSHPTYBridge(client: client, workspaceId: workspaceId, surfaceID: surfaceID, sessionID: sessionID, attachmentID: attachmentID, command: command, requireExisting: requireExisting)
-                : client.sendV2(method: "workspace.remote.pty_bridge", params: sshPTYBridgeParams(
-                    workspaceId: workspaceId,
-                    surfaceID: surfaceID,
-                    sessionID: sessionID,
-                    attachmentID: attachmentID,
-                    command: command,
-                    requireExisting: requireExisting
-                ))
+            var bridgeParams = sshPTYBridgeParams(
+                workspaceId: workspaceId,
+                surfaceID: surfaceID,
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting
+            )
+            if waitForReady {
+                bridgeParams["wait_for_ready"] = true
+            }
+            bridge = try client.sendV2(
+                method: "workspace.remote.pty_bridge",
+                params: bridgeParams,
+                responseTimeout: waitForReady ? 95 : nil
+            )
         } catch {
             throw CLIError(message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))")
         }
@@ -8650,7 +8663,7 @@ struct CMUXCLI {
         if sessionStillRunning {
             throw CLIError(
                 message: "ssh-pty-attach: bridge closed while remote PTY session is still running",
-                exitCode: 255
+                exitCode: 254
             )
         }
 
@@ -8792,45 +8805,6 @@ struct CMUXCLI {
         }
         source.resume()
         return source
-    }
-
-    private func waitForSSHPTYBridge(
-        client: SocketClient,
-        workspaceId: String,
-        surfaceID: String?,
-        sessionID: String,
-        attachmentID: String,
-        command: String?,
-        requireExisting: Bool
-    ) throws -> [String: Any] {
-        let deadline = Date().addingTimeInterval(90)
-        var lastError: Error?
-        repeat {
-            do {
-                return try client.sendV2(method: "workspace.remote.pty_bridge", params: sshPTYBridgeParams(
-                    workspaceId: workspaceId,
-                    surfaceID: surfaceID,
-                    sessionID: sessionID,
-                    attachmentID: attachmentID,
-                    command: command,
-                    requireExisting: requireExisting
-                ))
-            } catch {
-                if shouldFailSSHPTYBridgeWaitImmediately(error, requireExisting: requireExisting) {
-                    throw error
-                }
-                lastError = error
-                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
-            }
-        } while Date() < deadline
-        throw lastError ?? CLIError(message: "ssh-pty-attach: timed out waiting for remote PTY bridge")
-    }
-
-    private func shouldFailSSHPTYBridgeWaitImmediately(_ error: Error, requireExisting: Bool) -> Bool {
-        guard requireExisting else { return false }
-        let message = String(describing: error).lowercased()
-        return message.contains("pty_session_not_found") ||
-            (message.contains("persistent pty session") && message.contains("not running"))
     }
 
     private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {

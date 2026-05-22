@@ -37,6 +37,35 @@ nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) ->
         .range(of: "pty.list failed (method_not_found)", options: [.caseInsensitive]) != nil
 }
 
+nonisolated private func v2RemotePTYUserFacingErrorMessage(_ error: Error) -> String {
+    v2RemotePTYUserFacingErrorMessage(error.localizedDescription)
+}
+
+nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) -> String {
+    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "remote PTY operation failed" }
+    let lowered = trimmed.lowercased()
+    if lowered.contains("missing required capability") ||
+        lowered.contains("pty.session") ||
+        lowered.contains("method_not_found") {
+        return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+    }
+    if lowered.contains("pty_session_not_found") ||
+        (lowered.contains("persistent pty session") && lowered.contains("not running")) {
+        return "persistent SSH PTY session is no longer running"
+    }
+    if lowered.contains("pty_input_queue_full") || lowered.contains("pty input queue is full") {
+        return "remote PTY input is temporarily backed up"
+    }
+    if lowered.contains("remote daemon is not ready") || lowered.contains("remote daemon tunnel is not ready") {
+        return "remote daemon is not ready"
+    }
+    if lowered.contains("timed out") || lowered.contains("timeout") {
+        return "remote daemon did not respond in time"
+    }
+    return trimmed
+}
+
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -5901,7 +5930,7 @@ class TerminalController {
                     continue
                 } catch {
                     var payload = v2RemotePTYTargetPayload(target)
-                    payload["error"] = error.localizedDescription
+                    payload["error"] = v2RemotePTYUserFacingErrorMessage(error)
                     errors.append(payload)
                 }
             }
@@ -5936,7 +5965,7 @@ class TerminalController {
             payload["sessions"] = sessions.map { v2RemotePTYSessionPayload($0, target: target) }
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: error.localizedDescription, data: [
+            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
             ])
@@ -5964,10 +5993,13 @@ class TerminalController {
               !sessionID.isEmpty else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
+        let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
+        if let error = surfaceSelection.error { return error }
 
         let resolved = v2ResolveRemotePTYTarget(
             params: params,
-            requestedWorkspaceId: workspaceSelection.workspaceId
+            requestedWorkspaceId: workspaceSelection.workspaceId,
+            preferredSurfaceId: surfaceSelection.surfaceId
         )
         if let error = resolved.error { return error }
         guard let target = resolved.target else {
@@ -5988,7 +6020,7 @@ class TerminalController {
             payload["closed"] = true
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: error.localizedDescription, data: [
+            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
                 "session_id": sessionID,
@@ -6011,6 +6043,7 @@ class TerminalController {
         let command = v2RawString(params, "command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let requireExisting = v2Bool(params, "require_existing") ?? false
+        let waitForReady = v2Bool(params, "wait_for_ready") ?? false
         let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
         if let error = surfaceSelection.error { return error }
         let preferredSurfaceId = surfaceSelection.surfaceId ?? UUID(uuidString: attachmentID)
@@ -6038,7 +6071,9 @@ class TerminalController {
                 sessionID: sessionID,
                 attachmentID: attachmentID,
                 command: command?.isEmpty == true ? nil : command,
-                requireExisting: requireExisting
+                requireExisting: requireExisting,
+                waitForReady: waitForReady,
+                timeout: waitForReady ? 90.0 : 8.0
             )
             var payload = v2RemotePTYTargetPayload(target)
             payload["host"] = endpoint.host
@@ -6048,7 +6083,7 @@ class TerminalController {
             payload["attachment_id"] = endpoint.attachmentID
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: error.localizedDescription, data: [
+            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
                 "session_id": sessionID,
@@ -6117,7 +6152,7 @@ class TerminalController {
             payload["resized"] = true
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: error.localizedDescription, data: [
+            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
                 "session_id": sessionID,

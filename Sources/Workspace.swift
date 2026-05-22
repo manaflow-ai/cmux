@@ -5342,6 +5342,14 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
+    private struct PendingPTYBridgeStart {
+        let sessionID: String
+        let attachmentID: String
+        let command: String?
+        let requireExisting: Bool
+        let completion: (Result<WorkspaceRemotePTYBridgeServer.Endpoint, Error>) -> Void
+    }
+
     private var isStopping = false
     private var proxyLease: WorkspaceRemoteProxyBroker.Lease?
     private var proxyEndpoint: BrowserProxyEndpoint?
@@ -5374,6 +5382,7 @@ final class WorkspaceRemoteSessionController {
     private var reconnectWorkItem: DispatchWorkItem?
     private var heartbeatCount: Int = 0
     private var connectionAttemptStartedAt: Date?
+    private var pendingPTYBridgeStarts: [UUID: PendingPTYBridgeStart] = [:]
 
     private static let reverseRelayStartupGracePeriod: TimeInterval = 0.5
 
@@ -5430,21 +5439,163 @@ final class WorkspaceRemoteSessionController {
         attachmentID: String,
         command: String?,
         requireExisting: Bool,
+        waitForReady: Bool = false,
         timeout: TimeInterval = 8.0
     ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
-        try runOnControllerQueue(timeout: timeout) {
-            guard self.daemonReady, self.proxyLease != nil else {
-                throw NSError(domain: "cmux.remote.pty", code: 5, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon is not ready",
-                ])
-            }
-            return try WorkspaceRemoteProxyBroker.shared.startPTYBridge(
-                configuration: self.configuration,
+        if waitForReady {
+            return try startPTYBridgeWhenReady(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting,
+                timeout: timeout
+            )
+        }
+        return try runOnControllerQueue(timeout: timeout) {
+            try self.startPTYBridgeLocked(
                 sessionID: sessionID,
                 attachmentID: attachmentID,
                 command: command,
                 requireExisting: requireExisting
             )
+        }
+    }
+
+    private func startPTYBridgeWhenReady(
+        sessionID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool,
+        timeout: TimeInterval
+    ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return try startPTYBridgeLocked(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting
+            )
+        }
+
+        let waiterID = UUID()
+        let semaphore = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var captured: Result<WorkspaceRemotePTYBridgeServer.Endpoint, Error>?
+        let complete: (Result<WorkspaceRemotePTYBridgeServer.Endpoint, Error>) -> Void = { result in
+            lock.lock()
+            if captured == nil {
+                captured = result
+                semaphore.signal()
+            }
+            lock.unlock()
+        }
+
+        queue.async { [weak self] in
+            guard let self else {
+                complete(.failure(NSError(domain: "cmux.remote.pty", code: 7, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon is not ready",
+                ])))
+                return
+            }
+            guard !self.isStopping else {
+                complete(.failure(NSError(domain: "cmux.remote.pty", code: 7, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon is not ready",
+                ])))
+                return
+            }
+            if self.canStartPTYBridgeLocked {
+                complete(Result {
+                    try self.startPTYBridgeLocked(
+                        sessionID: sessionID,
+                        attachmentID: attachmentID,
+                        command: command,
+                        requireExisting: requireExisting
+                    )
+                })
+                return
+            }
+            self.pendingPTYBridgeStarts[waiterID] = PendingPTYBridgeStart(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting,
+                completion: complete
+            )
+        }
+
+        guard semaphore.wait(timeout: .now() + timeout) == .success else {
+            queue.sync {
+                _ = pendingPTYBridgeStarts.removeValue(forKey: waiterID)
+            }
+            throw NSError(domain: "cmux.remote.pty", code: 8, userInfo: [
+                NSLocalizedDescriptionKey: "timed out waiting for remote PTY operation",
+            ])
+        }
+
+        lock.lock()
+        let result = captured
+        lock.unlock()
+        switch result {
+        case .success(let endpoint):
+            return endpoint
+        case .failure(let error):
+            throw error
+        case nil:
+            throw NSError(domain: "cmux.remote.pty", code: 9, userInfo: [
+                NSLocalizedDescriptionKey: "remote PTY operation returned no result",
+            ])
+        }
+    }
+
+    private var canStartPTYBridgeLocked: Bool {
+        daemonReady && proxyLease != nil && proxyEndpoint != nil
+    }
+
+    private func startPTYBridgeLocked(
+        sessionID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool
+    ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
+        guard canStartPTYBridgeLocked else {
+            throw NSError(domain: "cmux.remote.pty", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon is not ready",
+            ])
+        }
+        return try WorkspaceRemoteProxyBroker.shared.startPTYBridge(
+            configuration: configuration,
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            command: command,
+            requireExisting: requireExisting
+        )
+    }
+
+    private func fulfillPendingPTYBridgeStartsLocked() {
+        guard canStartPTYBridgeLocked, !pendingPTYBridgeStarts.isEmpty else { return }
+        let pending = pendingPTYBridgeStarts
+        pendingPTYBridgeStarts.removeAll(keepingCapacity: false)
+        for request in pending.values {
+            request.completion(Result {
+                try startPTYBridgeLocked(
+                    sessionID: request.sessionID,
+                    attachmentID: request.attachmentID,
+                    command: request.command,
+                    requireExisting: request.requireExisting
+                )
+            })
+        }
+    }
+
+    private func failPendingPTYBridgeStartsLocked(_ message: String) {
+        guard !pendingPTYBridgeStarts.isEmpty else { return }
+        let pending = pendingPTYBridgeStarts
+        pendingPTYBridgeStarts.removeAll(keepingCapacity: false)
+        let error = NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
+            NSLocalizedDescriptionKey: message,
+        ])
+        for request in pending.values {
+            request.completion(.failure(error))
         }
     }
 
@@ -5586,6 +5737,7 @@ final class WorkspaceRemoteSessionController {
         bootstrapRemoteTTYRetryWorkItem = nil
         bootstrapRemoteTTYFetchInFlight = false
         bootstrapRemoteTTYRetryCount = 0
+        failPendingPTYBridgeStartsLocked("remote daemon is not ready")
 
         proxyLease?.release()
         proxyLease = nil
@@ -5934,10 +6086,12 @@ final class WorkspaceRemoteSessionController {
             reconnectRetryCount = 0
             guard proxyEndpoint != endpoint else {
                 recordHeartbeatActivityLocked()
+                fulfillPendingPTYBridgeStartsLocked()
                 return
             }
             proxyEndpoint = endpoint
             publishProxyEndpoint(endpoint)
+            fulfillPendingPTYBridgeStartsLocked()
             updateRemotePortPollingStateLocked()
             publishPortsSnapshotLocked()
             publishState(
@@ -5962,6 +6116,7 @@ final class WorkspaceRemoteSessionController {
             publishProxyEndpoint(nil)
             publishPortsSnapshotLocked()
             publishState(.error, detail: "Remote proxy to \(configuration.displayTarget) unavailable: \(detail)")
+            failPendingPTYBridgeStartsLocked("remote daemon is not ready")
             guard Self.shouldEscalateProxyErrorToBootstrap(detail) else { return }
 
             proxyLease?.release()
