@@ -1345,6 +1345,27 @@ extension CMUXCLI {
         return result.stdout
     }
 
+    private func gitStdoutData(
+        _ arguments: [String],
+        in directory: String,
+        timeout: TimeInterval = 60,
+        allowedExitStatuses: Set<Int32>
+    ) throws -> Data {
+        let result = CLIProcessRunner.runProcessData(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", directory] + arguments,
+            timeout: timeout
+        )
+        if result.timedOut {
+            throw CLIError(message: "git \(arguments.joined(separator: " ")) timed out")
+        }
+        guard allowedExitStatuses.contains(result.status) else {
+            let command = (["git"] + arguments).joined(separator: " ")
+            throw CLIError(message: "\(command) failed with status \(result.status)")
+        }
+        return result.stdout
+    }
+
     private func gitUntrackedPaths(in repoRoot: String) throws -> [String] {
         let output = try gitStdout(["ls-files", "--others", "--exclude-standard", "-z"], in: repoRoot)
         return output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
@@ -1378,6 +1399,9 @@ extension CMUXCLI {
             }
         }
         for path in baselinePaths.subtracting(currentPathSet).sorted() {
+            guard !repoPathExists(path, in: repoRoot) else {
+                continue
+            }
             guard let baselineHash = baselineHashes[path],
                   let patch = try gitDeletedUntrackedPatch(path: path, baselineHash: baselineHash, in: repoRoot) else {
                 continue
@@ -1428,11 +1452,13 @@ extension CMUXCLI {
             at: currentFile.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let baselineContent = try gitStdout(["cat-file", "blob", baselineHash], in: repoRoot)
-        try baselineContent.write(to: baselineFile, atomically: true, encoding: .utf8)
-        let repoURL = URL(fileURLWithPath: repoRoot, isDirectory: true)
+        let baselineContent = try gitStdoutData(["cat-file", "blob", baselineHash], in: repoRoot)
+        try baselineContent.write(to: baselineFile, options: .atomic)
+        guard let currentURL = safeRepoPathURL(relativePath: path, repoRoot: repoRoot) else {
+            return nil
+        }
         try FileManager.default.copyItem(
-            at: repoURL.appendingPathComponent(path, isDirectory: false),
+            at: currentURL,
             to: currentFile
         )
 
@@ -1467,8 +1493,8 @@ extension CMUXCLI {
             at: tempPathURL.file.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let content = try gitStdout(["cat-file", "blob", baselineHash], in: repoRoot)
-        try content.write(to: tempPathURL.file, atomically: true, encoding: .utf8)
+        let content = try gitStdoutData(["cat-file", "blob", baselineHash], in: repoRoot)
+        try content.write(to: tempPathURL.file, options: .atomic)
         return try gitStdout(
             gitDiffPatchArguments(["--no-index", "--", path, "/dev/null"]),
             in: tempRoot.path,
@@ -1487,10 +1513,7 @@ extension CMUXCLI {
     }
 
     private func safeTemporaryGitPathURL(relativePath: String) -> (root: URL, file: URL)? {
-        guard !relativePath.hasPrefix("/") else { return nil }
-        let components = relativePath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard !components.isEmpty,
-              components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+        guard let components = safeRelativePathComponents(relativePath) else {
             return nil
         }
         let root = FileManager.default.temporaryDirectory
@@ -1499,6 +1522,42 @@ extension CMUXCLI {
             partial.appendingPathComponent(component, isDirectory: false)
         }
         return (root, file)
+    }
+
+    private func repoPathExists(_ relativePath: String, in repoRoot: String) -> Bool {
+        guard let url = safeRepoPathURL(relativePath: relativePath, repoRoot: repoRoot) else {
+            return true
+        }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private func safeRepoPathURL(relativePath: String, repoRoot: String) -> URL? {
+        guard let components = safeRelativePathComponents(relativePath) else {
+            return nil
+        }
+        let root = URL(fileURLWithPath: repoRoot, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let url = components
+            .reduce(root) { partial, component in
+                partial.appendingPathComponent(component, isDirectory: false)
+            }
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        guard url.path.hasPrefix(root.path + "/") else {
+            return nil
+        }
+        return url
+    }
+
+    private func safeRelativePathComponents(_ relativePath: String) -> [String]? {
+        guard !relativePath.hasPrefix("/") else { return nil }
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard !components.isEmpty,
+              components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            return nil
+        }
+        return components
     }
 
     private func gitUntrackedPathHash(_ path: String, in repoRoot: String, writeObject: Bool = false) throws -> String {

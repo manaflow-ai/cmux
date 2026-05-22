@@ -587,15 +587,27 @@ final class CMUXOpenCommandTests: XCTestCase {
         try "before\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
         try "same\n".write(to: repoURL.appendingPathComponent("unchanged-untracked.txt"), atomically: true, encoding: .utf8)
         try "remove me\n".write(to: repoURL.appendingPathComponent("deleted-untracked.txt"), atomically: true, encoding: .utf8)
+        try "tracked later\n".write(to: repoURL.appendingPathComponent("tracked-later.txt"), atomically: true, encoding: .utf8)
+        try Data([0xff, 0x00, 0x6f, 0x6c, 0x64])
+            .write(to: repoURL.appendingPathComponent("binary.dat"), options: .atomic)
         try writeDiffBaselineStore(
             stateDirectoryURL: stateURL,
             repoURL: repoURL,
             workspaceId: workspaceId.uppercased(),
             surfaceId: surfaceId.uppercased(),
             baseCommit: initialCommit,
-            untrackedPaths: ["preexisting.txt", "unchanged-untracked.txt", "deleted-untracked.txt"]
+            untrackedPaths: [
+                "preexisting.txt",
+                "unchanged-untracked.txt",
+                "deleted-untracked.txt",
+                "tracked-later.txt",
+                "binary.dat"
+            ]
         )
         try "after\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
+        try Data([0xff, 0x00, 0x6e, 0x65, 0x77])
+            .write(to: repoURL.appendingPathComponent("binary.dat"), options: .atomic)
+        try runGit(["add", "tracked-later.txt"], in: repoURL)
         try "created\n".write(to: repoURL.appendingPathComponent("new-turn-file.txt"), atomically: true, encoding: .utf8)
         try FileManager.default.removeItem(at: repoURL.appendingPathComponent("deleted-untracked.txt"))
         let lastTurn = try runDiffCLIAndReadHTML(
@@ -619,6 +631,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lastTurn.html.contains("preexisting.txt"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("-before"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+after"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("binary.dat"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("GIT binary patch"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("tracked-later.txt"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("+tracked later"), lastTurn.html)
+        XCTAssertFalse(lastTurn.html.contains("-tracked later"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("deleted-untracked.txt"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("-remove me"), lastTurn.html)
         XCTAssertFalse(lastTurn.html.contains("unchanged-untracked.txt"), lastTurn.html)

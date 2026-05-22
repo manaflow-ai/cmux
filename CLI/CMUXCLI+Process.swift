@@ -8,6 +8,13 @@ struct CLIProcessResult {
     let timedOut: Bool
 }
 
+struct CLIProcessDataResult {
+    let status: Int32
+    let stdout: Data
+    let stderr: String
+    let timedOut: Bool
+}
+
 enum CLIProcessRunner {
     static func runProcess(
         executablePath: String,
@@ -123,6 +130,119 @@ enum CLIProcessRunner {
         return CLIProcessResult(
             status: timedOut ? 124 : process.terminationStatus,
             stdout: stdout,
+            stderr: stderr,
+            timedOut: timedOut
+        )
+    }
+
+    static func runProcessData(
+        executablePath: String,
+        arguments: [String],
+        stdinText: String? = nil,
+        timeout: TimeInterval? = nil
+    ) -> CLIProcessDataResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let stdinPipe: Pipe?
+        if stdinText != nil {
+            let pipe = Pipe()
+            process.standardInput = pipe
+            stdinPipe = pipe
+        } else {
+            stdinPipe = nil
+        }
+
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            finished.signal()
+        }
+
+        let stdoutFinished = DispatchSemaphore(value: 0)
+        let stderrFinished = DispatchSemaphore(value: 0)
+        final class OutputBuffer: @unchecked Sendable {
+            private let lock = NSLock()
+            private var data = Data()
+
+            func set(_ newData: Data) {
+                lock.lock()
+                data = newData
+                lock.unlock()
+            }
+
+            func get() -> Data {
+                lock.lock()
+                let current = data
+                lock.unlock()
+                return current
+            }
+        }
+        let stdoutBuffer = OutputBuffer()
+        let stderrBuffer = OutputBuffer()
+
+        DispatchQueue.global(qos: .utility).async {
+            stdoutBuffer.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            stdoutFinished.signal()
+        }
+        DispatchQueue.global(qos: .utility).async {
+            stderrBuffer.set(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            stderrFinished.signal()
+        }
+
+        do {
+            try process.run()
+        } catch {
+            stdoutPipe.fileHandleForWriting.closeFile()
+            stderrPipe.fileHandleForWriting.closeFile()
+            stdinPipe?.fileHandleForWriting.closeFile()
+            stdoutFinished.wait()
+            stderrFinished.wait()
+            return CLIProcessDataResult(status: 1, stdout: Data(), stderr: error.localizedDescription, timedOut: false)
+        }
+
+        if let stdinText, let stdinPipe {
+            if let data = stdinText.data(using: .utf8) {
+                stdinPipe.fileHandleForWriting.write(data)
+            }
+            stdinPipe.fileHandleForWriting.closeFile()
+        }
+
+        let timedOut: Bool
+        if let timeout {
+            switch finished.wait(timeout: .now() + timeout) {
+            case .success:
+                timedOut = false
+            case .timedOut:
+                timedOut = true
+                terminate(process: process, finished: finished)
+            }
+        } else {
+            finished.wait()
+            timedOut = false
+        }
+
+        stdoutFinished.wait()
+        stderrFinished.wait()
+
+        var stderr = String(data: stderrBuffer.get(), encoding: .utf8) ?? ""
+        if timedOut {
+            let timeoutMessage = "process timed out"
+            if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                stderr = timeoutMessage
+            } else if !stderr.contains(timeoutMessage) {
+                stderr += "\n\(timeoutMessage)"
+            }
+        }
+
+        return CLIProcessDataResult(
+            status: timedOut ? 124 : process.terminationStatus,
+            stdout: stdoutBuffer.get(),
             stderr: stderr,
             timedOut: timedOut
         )

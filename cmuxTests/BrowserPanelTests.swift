@@ -258,6 +258,21 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
+    func testDiffViewerSchemeRegistrationIsIdempotentForCopiedConfiguration() {
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(
+            CmuxDiffViewerURLSchemeHandler.shared,
+            forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
+        )
+
+        BrowserPanel.configureWebViewConfiguration(
+            config,
+            websiteDataStore: .nonPersistent()
+        )
+
+        XCTAssertNotNil(config.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme))
+    }
+
     func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
         let token = UUID().uuidString.lowercased()
         let rootURL = FileManager.default.temporaryDirectory

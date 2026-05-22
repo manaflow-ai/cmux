@@ -3601,10 +3601,12 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
         configuration.websiteDataStore = websiteDataStore
-        configuration.setURLSchemeHandler(
-            CmuxDiffViewerURLSchemeHandler.shared,
-            forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
-        )
+        if configuration.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme) == nil {
+            configuration.setURLSchemeHandler(
+                CmuxDiffViewerURLSchemeHandler.shared,
+                forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
+            )
+        }
 
         // Enable developer extras (DevTools)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
