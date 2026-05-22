@@ -13775,6 +13775,7 @@ class TerminalController {
     }
 
     private func v2DebugTaskManagerSnapshot() -> V2CallResult {
+#if DEBUG
         var payload: [String: Any] = [:]
         // DEBUG socket command handlers are invoked off the main thread; keep
         // this in the existing v2MainSync pattern until the V2 dispatcher is async.
@@ -13782,6 +13783,9 @@ class TerminalController {
             payload = TaskManagerWindowController.shared.debugSnapshotPayload()
         }
         return .ok(payload)
+#else
+        return .err(code: "unavailable", message: "Debug methods are unavailable in Release builds", data: nil)
+#endif
     }
 
     private func v2DebugToggleCommandPalette(params: [String: Any]) -> V2CallResult {
