@@ -1606,6 +1606,146 @@ final class QuitWarningSettingsTests: XCTestCase {
     }
 }
 
+final class BuildFlavorTests: XCTestCase {
+    func testDetectsDevFromBundleName() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux DEV noqdlg", bundleIdentifier: "com.cmuxterm.app"),
+            .dev
+        )
+    }
+
+    func testDetectsDevBeforeTagTextCanLookNightly() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux DEV nightly", bundleIdentifier: "com.cmuxterm.app"),
+            .dev
+        )
+    }
+
+    func testDetectsNightlyFromBundleIdentifier() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux", bundleIdentifier: "com.cmuxterm.app.nightly"),
+            .nightly
+        )
+    }
+
+    func testDetectsStableByDefault() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux", bundleIdentifier: "com.cmuxterm.app"),
+            .stable
+        )
+    }
+}
+
+final class QuitConfirmationPolicyTests: XCTestCase {
+    func testDevAlwaysSkipsQuitConfirmation() {
+        withIsolatedDefaults { defaults in
+            defaults.set(QuitConfirmationMode.always.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .dev,
+                    defaults: defaults
+                )
+            )
+
+            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .dev,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    func testStableHonorsConfirmQuitModes() {
+        withIsolatedDefaults { defaults in
+            defaults.set(QuitConfirmationMode.always.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertTrue(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: false,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+
+            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: false,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+            XCTAssertTrue(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+
+            defaults.set(QuitConfirmationMode.never.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    func testNightlyHonorsConfirmQuitModes() {
+        withIsolatedDefaults { defaults in
+            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: false,
+                    buildFlavor: .nightly,
+                    defaults: defaults
+                )
+            )
+            XCTAssertTrue(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .nightly,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    func testLegacyWarnBeforeQuitMapsWhenConfirmQuitUnset() {
+        withIsolatedDefaults { defaults in
+            defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+
+            defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+        }
+    }
+
+    private func withIsolatedDefaults(_ body: (UserDefaults) -> Void) {
+        let suiteName = "QuitConfirmationPolicyTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        body(defaults)
+    }
+}
+
 
 final class UpdateChannelSettingsTests: XCTestCase {
     func testResolvedFeedFallsBackWhenInfoFeedMissing() {
