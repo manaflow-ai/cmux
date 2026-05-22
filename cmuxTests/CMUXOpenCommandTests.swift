@@ -543,6 +543,28 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(branch.html.contains("\"label\":\"Last turn\""), branch.html)
         assertNoANSIEscape(branch.html)
 
+        let branchPayload = try diffViewerPayload(from: branch.html)
+        let branchSourceOptions = try XCTUnwrap(branchPayload["sourceOptions"] as? [[String: Any]])
+        let selectedRepoUnstagedURLString = try diffViewerOptionURL(value: "unstaged", in: branchSourceOptions)
+        let selectedRepoUnstagedFileURL = try diffViewerHTMLFileURL(
+            for: selectedRepoUnstagedURLString,
+            from: branch.params
+        )
+        let selectedRepoUnstagedHTML = try String(contentsOf: selectedRepoUnstagedFileURL, encoding: .utf8)
+        let selectedRepoUnstagedPayload = try diffViewerPayload(from: selectedRepoUnstagedHTML)
+        let unstagedRepoOptions = try XCTUnwrap(selectedRepoUnstagedPayload["repoOptions"] as? [[String: Any]])
+        let siblingRepoUnstagedURLString = try diffViewerOptionURL(value: siblingRepoURL.path, in: unstagedRepoOptions)
+        XCTAssertTrue(siblingRepoUnstagedURLString.contains("-unstaged.html"), siblingRepoUnstagedURLString)
+        let siblingRepoUnstagedFileURL = try diffViewerHTMLFileURL(
+            for: siblingRepoUnstagedURLString,
+            from: branch.params
+        )
+        let siblingRepoUnstagedHTML = try String(contentsOf: siblingRepoUnstagedFileURL, encoding: .utf8)
+        XCTAssertTrue(siblingRepoUnstagedHTML.contains("\"sourceLabel\":\"git unstaged\""), siblingRepoUnstagedHTML)
+        XCTAssertTrue(siblingRepoUnstagedHTML.contains("\"repoRoot\":\"\(siblingRepoURL.path)\""), siblingRepoUnstagedHTML)
+        XCTAssertTrue(siblingRepoUnstagedHTML.contains("+changed"), siblingRepoUnstagedHTML)
+        XCTAssertFalse(siblingRepoUnstagedHTML.contains("\"sourceLabel\":\"git branch"), siblingRepoUnstagedHTML)
+
         let branchWithBase = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", "--branch", "--base", "main"],
@@ -1215,6 +1237,10 @@ final class CMUXOpenCommandTests: XCTestCase {
 
     private func diffViewerHTMLFileURL(from params: [String: Any]) throws -> URL {
         let rawURL = try XCTUnwrap(params["url"] as? String)
+        return try diffViewerHTMLFileURL(for: rawURL, from: params)
+    }
+
+    private func diffViewerHTMLFileURL(for rawURL: String, from params: [String: Any]) throws -> URL {
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
         let files = try XCTUnwrap(params["diff_viewer_files"] as? [[String: Any]])
         let rawRequestPath = URLComponents(url: viewerURL, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? viewerURL.path
@@ -1225,6 +1251,24 @@ final class CMUXOpenCommandTests: XCTestCase {
         })
         let filePath = try XCTUnwrap(entry["file_path"] as? String)
         return URL(fileURLWithPath: filePath, isDirectory: false)
+    }
+
+    private func diffViewerPayload(from html: String) throws -> [String: Any] {
+        let marker = "const payload = "
+        let start = try XCTUnwrap(html.range(of: marker)?.upperBound)
+        let tail = html[start...]
+        let end = try XCTUnwrap(tail.range(of: ";\n            const labels")?.lowerBound)
+        let json = String(tail[..<end])
+        let object = try JSONSerialization.jsonObject(with: Data(json.utf8))
+        return try XCTUnwrap(object as? [String: Any])
+    }
+
+    private func diffViewerOptionURL(value: String, in options: [[String: Any]]) throws -> String {
+        let option = try XCTUnwrap(options.first { option in
+            option["value"] as? String == value
+        })
+        XCTAssertEqual(option["disabled"] as? Bool, false)
+        return try XCTUnwrap(option["url"] as? String)
     }
 
     private func runDiffCLIExpectingNoOpen(

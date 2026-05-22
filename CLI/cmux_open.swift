@@ -2314,22 +2314,42 @@ extension CMUXCLI {
             throw CLIError(message: "Failed to write diff viewer")
         }
         let repoCandidates = gitDiffViewerRepoOptions(selectedRepoRoot: repoRoot)
-        let repoFileURLs: [String: URL] = Dictionary(uniqueKeysWithValues: repoCandidates.enumerated().map { index, option in
-            if option.repoRoot == repoRoot {
-                return (option.repoRoot, selectedFileURL)
-            }
-            return (
-                option.repoRoot,
-                directory.appendingPathComponent(
-                    "diff-\(groupID)-repo-\(index)-\(selectedSource.slug).html",
-                    isDirectory: false
+        let repoFileURLsBySource: [DiffSource: [String: URL]] = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
+            let fileURLsByRepo = Dictionary(uniqueKeysWithValues: repoCandidates.enumerated().map { index, option in
+                if option.repoRoot == repoRoot, let fileURL = fileURLs[source] {
+                    return (option.repoRoot, fileURL)
+                }
+                return (
+                    option.repoRoot,
+                    directory.appendingPathComponent(
+                        "diff-\(groupID)-repo-\(index)-\(source.slug).html",
+                        isDirectory: false
+                    )
                 )
+            })
+            return (source, fileURLsByRepo)
+        })
+        let repoURLsBySource: [DiffSource: [String: URL]] = Dictionary(uniqueKeysWithValues: try repoFileURLsBySource.map { source, fileURLsByRepo in
+            let urlsByRepo = Dictionary(uniqueKeysWithValues: try fileURLsByRepo.map { repoRoot, fileURL in
+                (repoRoot, try mapper.viewerURL(for: fileURL))
+            })
+            return (source, urlsByRepo)
+        })
+        func sourceOptionsForRepo(selected source: DiffSource, selectedRepoRoot: String) -> [DiffViewerSourceOption] {
+            let sourceURLs = Dictionary(uniqueKeysWithValues: DiffSource.allCases.compactMap { option -> (DiffSource, URL)? in
+                guard let url = repoURLsBySource[option]?[selectedRepoRoot] else { return nil }
+                return (option, url)
+            })
+            return diffViewerSourceOptions(selected: source, urls: sourceURLs)
+        }
+        func repoOptionsForSource(_ source: DiffSource, selectedRepoRoot: String) -> [DiffViewerSourceOption] {
+            diffViewerRepoOptions(
+                selectedRepoRoot: selectedRepoRoot,
+                candidates: repoCandidates,
+                urls: repoURLsBySource[source] ?? [:]
             )
-        })
-        let repoURLs: [String: URL] = Dictionary(uniqueKeysWithValues: try repoFileURLs.map { repoRoot, fileURL in
-            (repoRoot, try mapper.viewerURL(for: fileURL))
-        })
-        let repoOptions = diffViewerRepoOptions(selectedRepoRoot: repoRoot, candidates: repoCandidates, urls: repoURLs)
+        }
+        let selectedRepoOptions = repoOptionsForSource(selectedSource, selectedRepoRoot: repoRoot)
 
         let branchBaseForOptions = try? resolvedGitBranchDiffBaseRef(selectedContext.branchBaseRef, in: repoRoot)
         let baseCandidates: [DiffViewerBranchBaseOption]
@@ -2388,41 +2408,39 @@ extension CMUXCLI {
                         titleOverride: nil,
                         context: pageContext,
                         sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
-                        repoOptions: repoOptions,
+                        repoOptions: repoOptionsForSource(source, selectedRepoRoot: repoRoot),
                         baseOptions: source == .branch ? baseOptions : []
                     )
                 )
             }
         }
 
-        for option in repoCandidates where option.repoRoot != repoRoot {
-            guard let url = repoFileURLs[option.repoRoot] else { continue }
-            try writePendingDiffViewerHTML(
-                to: url,
-                title: option.label,
-                message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(option.label)",
-                pollForReplacement: true
-            )
-            deferredPages.append(
-                DiffViewerDeferredSourcePage(
-                    source: selectedSource,
-                    url: url,
-                    titleOverride: titleOverride,
-                    context: DiffSourceContext(
-                        workspaceId: selectedContext.workspaceId,
-                        surfaceId: selectedContext.surfaceId,
-                        repoRoot: option.repoRoot,
-                        branchBaseRef: selectedSource == .branch ? nil : selectedContext.branchBaseRef
-                    ),
-                    sourceOptions: [],
-                    repoOptions: diffViewerRepoOptions(
-                        selectedRepoRoot: option.repoRoot,
-                        candidates: repoCandidates,
-                        urls: repoURLs
-                    ),
-                    baseOptions: []
+        for source in DiffSource.allCases {
+            for option in repoCandidates where option.repoRoot != repoRoot {
+                guard let url = repoFileURLsBySource[source]?[option.repoRoot] else { continue }
+                try writePendingDiffViewerHTML(
+                    to: url,
+                    title: option.label,
+                    message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(option.label)",
+                    pollForReplacement: true
                 )
-            )
+                deferredPages.append(
+                    DiffViewerDeferredSourcePage(
+                        source: source,
+                        url: url,
+                        titleOverride: source == selectedSource ? titleOverride : nil,
+                        context: DiffSourceContext(
+                            workspaceId: selectedContext.workspaceId,
+                            surfaceId: selectedContext.surfaceId,
+                            repoRoot: option.repoRoot,
+                            branchBaseRef: source == .branch ? nil : selectedContext.branchBaseRef
+                        ),
+                        sourceOptions: sourceOptionsForRepo(selected: source, selectedRepoRoot: option.repoRoot),
+                        repoOptions: repoOptionsForSource(source, selectedRepoRoot: option.repoRoot),
+                        baseOptions: []
+                    )
+                )
+            }
         }
 
         for option in baseCandidates where !(branchBaseForOptions.map { $0 == option.ref } ?? false) {
@@ -2442,7 +2460,7 @@ extension CMUXCLI {
                     titleOverride: selectedSource == .branch ? titleOverride : nil,
                     context: pageContext,
                     sourceOptions: diffViewerSourceOptions(selected: .branch, urls: urls),
-                    repoOptions: repoOptions,
+                    repoOptions: repoOptionsForSource(.branch, selectedRepoRoot: repoRoot),
                     baseOptions: diffViewerBranchBaseOptions(
                         selectedBaseRef: option.ref,
                         candidates: baseCandidates,
@@ -2461,7 +2479,7 @@ extension CMUXCLI {
             layout: layout,
             appearance: appearance,
             sourceOptions: sourceOptions,
-            repoOptions: repoOptions,
+            repoOptions: selectedRepoOptions,
             baseOptions: selectedSource == .branch ? baseOptions : [],
             repoRoot: repoRoot,
             branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil
