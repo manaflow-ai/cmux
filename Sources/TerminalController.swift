@@ -3202,18 +3202,6 @@ class TerminalController {
         case "file.open":
             return v2Result(id: id, self.v2FileOpen(params: params))
 
-        // Notes (project-scoped markdown notes at .cmux/notes/<slug>.md)
-        case "note.create":
-            return v2Result(id: id, self.v2NoteCreate(params: params))
-        case "note.open":
-            return v2Result(id: id, self.v2NoteOpen(params: params))
-        case "note.list":
-            return v2Result(id: id, self.v2NoteList(params: params))
-        case "note.path":
-            return v2Result(id: id, self.v2NotePath(params: params))
-        case "note.delete":
-            return v2Result(id: id, self.v2NoteDelete(params: params))
-
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
 
