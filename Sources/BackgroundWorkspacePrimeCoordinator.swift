@@ -101,7 +101,11 @@ final class BackgroundWorkspacePrimeCoordinator {
     private var readinessObservers: [NSObjectProtocol] = []
 
     deinit {
-        cancelRegisteredReadinessWaiters()
+        let waiters = readinessWaitersByWorkspaceId.values.flatMap { registrations in
+            registrations.compactMap(\.waiter)
+        }
+        readinessWaitersByWorkspaceId.removeAll(keepingCapacity: false)
+        waiters.forEach { $0.finish(reason: .cancelled) }
         readinessCancellables.forEach { $0.cancel() }
         readinessObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
