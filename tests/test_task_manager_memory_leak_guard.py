@@ -29,6 +29,7 @@ from typing import Any
 DEFAULT_DURATION_SECONDS = 120.0
 DEFAULT_SAMPLE_INTERVAL_SECONDS = 3.0
 DEFAULT_WARMUP_SECONDS = 15.0
+DEFAULT_DATA_TIMEOUT_SECONDS = 30.0
 DEFAULT_WORKSPACE_COUNT = 10
 DEFAULT_MAX_GROWTH_MB = 128.0
 DEFAULT_MAX_SLOPE_MB_PER_MIN = 64.0
@@ -260,6 +261,43 @@ def seed_workspaces(client: SocketClient, count: int) -> list[str]:
     return workspace_ids
 
 
+def wait_for_task_manager_rows(client: SocketClient, workspace_ids: list[str], timeout: float) -> dict[str, Any]:
+    expected_workspace_ids = set(workspace_ids)
+    deadline = time.monotonic() + timeout
+    last_snapshot: dict[str, Any] = {}
+
+    while time.monotonic() < deadline:
+        snapshot = client.v2("debug.task_manager.snapshot")
+        last_snapshot = snapshot
+        error_message = snapshot.get("error_message")
+        if isinstance(error_message, str) and error_message:
+            raise RuntimeError(f"Task Manager reported an error while loading rows: {error_message}")
+
+        loaded_workspace_ids = {
+            value for value in snapshot.get("workspace_ids", [])
+            if isinstance(value, str)
+        }
+        if (
+            snapshot.get("visible") is True
+            and snapshot.get("has_loaded_resource_usage") is True
+            and int(snapshot.get("row_count") or 0) > 0
+            and expected_workspace_ids.issubset(loaded_workspace_ids)
+        ):
+            return snapshot
+
+        time.sleep(0.5)
+
+    loaded_workspace_ids = {
+        value for value in last_snapshot.get("workspace_ids", [])
+        if isinstance(value, str)
+    }
+    missing = sorted(expected_workspace_ids - loaded_workspace_ids)
+    raise RuntimeError(
+        "Task Manager did not load seeded workspace rows before sampling: "
+        f"missing={missing} last_snapshot={last_snapshot}"
+    )
+
+
 def rss_bytes(pid: int) -> int:
     result = subprocess.run(
         ["/bin/ps", "-o", "rss=", "-p", str(pid)],
@@ -421,9 +459,12 @@ def run_guard(args: argparse.Namespace) -> int:
         show_result = client.v2("debug.task_manager.show")
         if show_result.get("visible") is not True:
             raise RuntimeError(f"Task Manager did not become visible: {show_result}")
+        data_snapshot = wait_for_task_manager_rows(client, workspace_ids, args.data_timeout_seconds)
         print(
             "Task Manager memory guard setup: "
-            f"pid={proc.pid} app={app_path} workspaces={len(workspace_ids)} visible={show_result.get('visible')}"
+            f"pid={proc.pid} app={app_path} workspaces={len(workspace_ids)} "
+            f"visible={show_result.get('visible')} rows={data_snapshot.get('row_count')} "
+            f"task_manager_workspaces={data_snapshot.get('workspace_count')}"
         )
         time.sleep(args.warmup_seconds)
         samples = collect_samples(proc.pid, args.duration_seconds, args.sample_interval_seconds)
@@ -470,6 +511,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--duration-seconds", type=float, default=DEFAULT_DURATION_SECONDS)
     parser.add_argument("--sample-interval-seconds", type=float, default=DEFAULT_SAMPLE_INTERVAL_SECONDS)
     parser.add_argument("--warmup-seconds", type=float, default=DEFAULT_WARMUP_SECONDS)
+    parser.add_argument("--data-timeout-seconds", type=float, default=DEFAULT_DATA_TIMEOUT_SECONDS)
     parser.add_argument("--workspace-count", type=int, default=DEFAULT_WORKSPACE_COUNT)
     parser.add_argument("--max-growth-mb", type=float, default=DEFAULT_MAX_GROWTH_MB)
     parser.add_argument("--max-slope-mb-per-min", type=float, default=DEFAULT_MAX_SLOPE_MB_PER_MIN)
@@ -484,6 +526,8 @@ def main(argv: list[str]) -> int:
         raise SystemExit("--duration-seconds must be positive")
     if args.sample_interval_seconds <= 0:
         raise SystemExit("--sample-interval-seconds must be positive")
+    if args.data_timeout_seconds <= 0:
+        raise SystemExit("--data-timeout-seconds must be positive")
     if args.workspace_count <= 0:
         raise SystemExit("--workspace-count must be positive")
     if args.self_check_only:
