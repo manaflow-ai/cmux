@@ -34,6 +34,13 @@ find_real_claude() {
 cmux_socket_available() {
     local socket="${CMUX_SOCKET_PATH:-}"
 
+    # A cmux-launched terminal with a missing local Unix socket is stale. Do
+    # not fall back to app-context autodiscovery because that would inject hooks
+    # into a shell whose explicit cmux app/socket context is already invalid.
+    if [[ -n "$socket" && "$socket" == /* && ! -S "$socket" ]]; then
+        return 1
+    fi
+
     local self_dir cmux_bin
     self_dir="$(cd "$(dirname "$0")" && pwd)"
     cmux_bin="$self_dir/cmux"
