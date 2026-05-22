@@ -359,6 +359,24 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Drops Grok optional selectors without swallowing later options")
+    func dropsGrokOptionalSelectorsWithoutSwallowingLaterOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["grok", "--resume", "--model", "grok-4", "--worktree", "--permission-mode", "auto"],
+                launcher: "grok",
+                fallbackKind: "grok"
+            ) == ["grok", "--model", "grok-4", "--permission-mode", "auto"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["grok", "-r", "old-session", "-w", "scratch", "--sandbox", "danger-full-access"],
+                launcher: "grok",
+                fallbackKind: "grok"
+            ) == ["grok", "--sandbox", "danger-full-access"]
+        )
+    }
+
     @Test("Preserves Cursor options after resume subcommand")
     func preservesCursorOptionsAfterResumeSubcommand() {
         #expect(

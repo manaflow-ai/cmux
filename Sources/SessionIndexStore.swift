@@ -3,7 +3,13 @@ import Bonsplit
 import CMUXAgentLaunch
 import Combine
 import Foundation
+import os
 import SQLite3
+
+nonisolated private let sessionIndexLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "SessionIndexStore"
+)
 
 // MARK: - Parsed metadata cache
 
@@ -1191,6 +1197,8 @@ final class SessionIndexStore: ObservableObject {
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        // Grok sessions are restored from hook persistence, so searchAgent has no filesystem loader for this case.
+        case .grok: return []
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .hermesAgent: return loadHermesAgentEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
@@ -1208,27 +1216,21 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
-    /// Path to `rg` (ripgrep), if installed. Resolved once. nil when not found —
-    /// the search code falls back to the Foundation substring scan.
-    nonisolated private static let cachedRipgrepPath: String? = {
-        let fm = FileManager.default
-        let common = [
-            "/opt/homebrew/bin/rg",
-            "/usr/local/bin/rg",
-            "/usr/bin/rg",
-            "/opt/local/bin/rg",
-        ]
-        for path in common where fm.isExecutableFile(atPath: path) {
-            return path
+    /// Path to `rg` (ripgrep), if installed. nil when not found — the search
+    /// code falls back to the Foundation substring scan.
+    nonisolated private static func resolvedRipgrepPath() -> String? {
+        switch RipgrepExecutableResolver.resolution() {
+        case .found(let executable):
+            return executable.url.path
+        case .configuredPathNotExecutable(let path):
+            sessionIndexLogger.warning(
+                "Configured ripgrep path is not executable; falling back to Foundation session search: \(path, privacy: .public)"
+            )
+            return nil
+        case .notFound:
+            return nil
         }
-        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
-            for dir in pathEnv.split(separator: ":") {
-                let full = String(dir) + "/rg"
-                if fm.isExecutableFile(atPath: full) { return full }
-            }
-        }
-        return nil
-    }()
+    }
 
     /// Run `rg --files-with-matches --ignore-case --fixed-strings` for `needle`
     /// under `root`, restricted to `glob` (e.g. `*.jsonl`). Returns matched file
@@ -1242,7 +1244,7 @@ final class SessionIndexStore: ObservableObject {
     nonisolated static func ripgrepMatchingPaths(
         needle: String, root: String, fileGlob: String
     ) async -> [URL]? {
-        guard let rg = cachedRipgrepPath else { return nil }
+        guard let rg = resolvedRipgrepPath() else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: rg)
         process.arguments = [

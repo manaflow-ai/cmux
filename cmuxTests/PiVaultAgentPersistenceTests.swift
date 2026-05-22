@@ -26,6 +26,27 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(agent.iconAssetName, "AgentIcons/Acme")
     }
 
+    func testBuiltInIDWithRegisteredMetadataDecodesAsRegisteredAgent() throws {
+        let encoded = Data(#"{"id":"grok","name":"Custom Grok","iconAssetName":"AgentIcons/CustomGrok"}"#.utf8)
+
+        let decoded = try JSONDecoder().decode(SessionAgent.self, from: encoded)
+
+        guard case .registered(let agent) = decoded else {
+            return XCTFail("Expected legacy registered Grok metadata to be preserved")
+        }
+        XCTAssertEqual(agent.id, "grok")
+        XCTAssertEqual(agent.name, "Custom Grok")
+        XCTAssertEqual(agent.iconAssetName, "AgentIcons/CustomGrok")
+    }
+
+    func testBuiltInIDWithoutRegisteredMetadataDecodesAsBuiltInAgent() throws {
+        let encoded = Data(#"{"id":"grok"}"#.utf8)
+
+        let decoded = try JSONDecoder().decode(SessionAgent.self, from: encoded)
+
+        XCTAssertEqual(decoded, .grok)
+    }
+
     func testRegisteredSessionAgentEqualityIncludesPresentation() {
         XCTAssertNotEqual(
             SessionAgent.registered(RegisteredSessionAgent(id: "acme-agent", name: "Acme Agent")),

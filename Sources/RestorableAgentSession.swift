@@ -163,6 +163,17 @@ enum AgentResumeCommandBuilder {
             }
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: args) else { return nil }
             return [original.executable, "claude-teams", "--resume", sessionId] + preserved
+        case "codexTeams":
+            let original = commandParts(
+                launchCommand: launchCommand,
+                fallbackExecutable: "cmux"
+            )
+            var args = original.tail
+            if args.first == "codex-teams" {
+                args.removeFirst()
+            }
+            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
+            return [original.executable, "codex-teams", "resume", sessionId] + preserved
         case "omo":
             let original = commandParts(
                 launchCommand: launchCommand,
@@ -202,8 +213,16 @@ enum AgentResumeCommandBuilder {
             )
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: original.tail) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
             return [original.executable, "resume", sessionId] + preserved
+        case .grok:
+            return resumeWithOption(
+                kind: "grok",
+                launchCommand: launchCommand,
+                fallbackExecutable: "grok",
+                option: "-r",
+                sessionId: sessionId
+            )
         case .pi:
             return resumeWithOption(
                 kind: "pi",
@@ -672,21 +691,26 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private let entriesByPanel: [PanelKey: Entry]
+    private let entriesByPanelId: [UUID: Entry]
+
+    private func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
+    }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        entry(workspaceId: workspaceId, panelId: panelId)?.snapshot
     }
 
     func lifecycle(workspaceId: UUID, panelId: UUID) -> AgentHibernationLifecycleState? {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]?.lifecycle
+        entry(workspaceId: workspaceId, panelId: panelId)?.lifecycle
     }
 
     func updatedAt(workspaceId: UUID, panelId: UUID) -> TimeInterval? {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]?.updatedAt
+        entry(workspaceId: workspaceId, panelId: panelId)?.updatedAt
     }
 
     func processIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]?.processIDs ?? []
+        entry(workspaceId: workspaceId, panelId: panelId)?.processIDs ?? []
     }
 
     func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -711,18 +735,28 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager = .default
     ) async -> RestorableAgentSessionIndex {
         await Task.detached(priority: .utility) {
-            let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-            let detectedSnapshots = processDetectedSnapshots(
-                registry: registry,
+            loadIncludingProcessDetectedSnapshotsSynchronously(
+                homeDirectory: homeDirectory,
                 fileManager: fileManager
             )
-            return load(
-                homeDirectory: homeDirectory,
-                fileManager: fileManager,
-                registry: registry,
-                detectedSnapshots: detectedSnapshots
-            )
         }.value
+    }
+
+    static func loadIncludingProcessDetectedSnapshotsSynchronously(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> RestorableAgentSessionIndex {
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let detectedSnapshots = processDetectedSnapshots(
+            registry: registry,
+            fileManager: fileManager
+        )
+        return load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: registry,
+            detectedSnapshots: detectedSnapshots
+        )
     }
 
     static func load(
@@ -1115,5 +1149,107 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(entriesByPanel: [PanelKey: Entry]) {
         self.entriesByPanel = entriesByPanel
+        var entriesByPanelId: [UUID: Entry] = [:]
+        for (key, entry) in entriesByPanel {
+            let existing = entriesByPanelId[key.panelId]
+            if existing == nil || entry.updatedAt >= (existing?.updatedAt ?? 0) {
+                entriesByPanelId[key.panelId] = entry
+            }
+        }
+        self.entriesByPanelId = entriesByPanelId
+    }
+}
+
+nonisolated struct SurfaceResumeBindingIndex: Sendable {
+    static let empty = SurfaceResumeBindingIndex(bindingsByPanel: [:])
+
+    typealias PanelKey = RestorableAgentSessionIndex.PanelKey
+
+    private let bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]
+    private let bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot]
+
+    init(bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]) {
+        self.bindingsByPanel = bindingsByPanel
+        var bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+        for (key, binding) in bindingsByPanel {
+            let existing = bindingsByPanelId[key.panelId]
+            if existing == nil || binding.updatedAt >= (existing?.updatedAt ?? 0) {
+                bindingsByPanelId[key.panelId] = binding
+            }
+        }
+        self.bindingsByPanelId = bindingsByPanelId
+    }
+
+    func binding(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
+        bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? bindingsByPanelId[panelId]
+    }
+
+    static func loadProcessDetectedBindingsSynchronously(
+        fileManager: FileManager = .default
+    ) -> SurfaceResumeBindingIndex {
+        let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager)
+        return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
+    }
+
+    static func loadIncludingProcessDetectedBindings(
+        fileManager: FileManager = .default
+    ) async -> SurfaceResumeBindingIndex {
+        await Task.detached(priority: .utility) {
+            loadProcessDetectedBindingsSynchronously(fileManager: fileManager)
+        }.value
+    }
+}
+
+struct ProcessDetectedResumeIndexes: Sendable {
+    let restorableAgentIndex: RestorableAgentSessionIndex
+    let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
+
+    static func load(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) async -> ProcessDetectedResumeIndexes {
+        await Task.detached(priority: .utility) {
+            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+        }.value
+    }
+
+    static func loadSynchronously(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> ProcessDetectedResumeIndexes {
+        let capturedAt = Date().timeIntervalSince1970
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
+        )
+        let restorableAgentIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: registry,
+            detectedSnapshots: detectedSnapshots
+        )
+        let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
+        )
+        return ProcessDetectedResumeIndexes(
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
+        )
+    }
+}
+
+private extension CmuxTopProcessArguments {
+    func environmentUUID(forKey key: String) -> UUID? {
+        guard let rawValue = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return UUID(uuidString: rawValue)
     }
 }

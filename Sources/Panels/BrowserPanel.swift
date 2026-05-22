@@ -493,7 +493,7 @@ final class BrowserProfileStore: ObservableObject {
         )
     }
 
-    private nonisolated static func removeItemIfExists(at url: URL) async {
+    @Sendable private nonisolated static func removeItemIfExists(at url: URL) async {
         await Task.detached(priority: .utility) {
             try? FileManager.default.removeItem(at: url)
         }.value
@@ -1291,10 +1291,52 @@ private func browserCopyExternalNavigationURL(_ url: URL) {
     NSPasteboard.general.setString(url.absoluteString, forType: .string)
 }
 
+func browserInteractiveModalHostWindow(_ window: NSWindow?) -> NSWindow? {
+    guard let window else { return nil }
+    guard window.isVisible else { return nil }
+    guard window.alphaValue > 0 else { return nil }
+    guard !window.ignoresMouseEvents else { return nil }
+    guard !window.isExcludedFromWindowsMenu else { return nil }
+    return window
+}
+
+func browserInteractiveModalHostWindow(for webView: WKWebView) -> NSWindow? {
+    browserInteractiveModalHostWindow(webView.window)
+}
+
+private func browserFallbackInteractiveModalHostWindow() -> NSWindow? {
+    if let keyWindow = browserInteractiveModalHostWindow(NSApp.keyWindow) {
+        return keyWindow
+    }
+    return browserInteractiveModalHostWindow(NSApp.mainWindow)
+}
+
+typealias BrowserAlertPresenter = (
+    _ alert: NSAlert,
+    _ webView: WKWebView,
+    _ completion: @escaping (NSApplication.ModalResponse) -> Void,
+    _ cancel: @escaping () -> Void
+) -> Void
+
+func browserPresentAlert(
+    _ alert: NSAlert,
+    in webView: WKWebView,
+    completion: @escaping (NSApplication.ModalResponse) -> Void,
+    cancel: @escaping () -> Void = {}
+) {
+    _ = cancel
+    if let window = browserInteractiveModalHostWindow(for: webView) {
+        alert.beginSheetModal(for: window, completionHandler: completion)
+        return
+    }
+    completion(alert.runModal())
+}
+
 private func browserPresentExternalNavigationPrompt(
     for url: URL,
     in webView: WKWebView,
-    completion: @escaping (Bool) -> Void
+    completion: @escaping (Bool) -> Void,
+    presentAlert: BrowserAlertPresenter = browserPresentAlert
 ) {
     let alert = NSAlert()
     alert.alertStyle = .informational
@@ -1319,14 +1361,16 @@ private func browserPresentExternalNavigationPrompt(
         completion(response == .alertFirstButtonReturn)
     }
 
-    if let window = webView.window {
-        alert.beginSheetModal(for: window, completionHandler: handleResponse)
-        return
+    presentAlert(alert, webView, handleResponse) {
+        completion(false)
     }
-    handleResponse(alert.runModal())
 }
 
-private func browserPresentExternalNavigationFailure(for url: URL, in webView: WKWebView) {
+private func browserPresentExternalNavigationFailure(
+    for url: URL,
+    in webView: WKWebView,
+    presentAlert: BrowserAlertPresenter = browserPresentAlert
+) {
     let alert = NSAlert()
     alert.alertStyle = .warning
     alert.messageText = String(
@@ -1349,22 +1393,19 @@ private func browserPresentExternalNavigationFailure(for url: URL, in webView: W
         }
     }
 
-    if let window = webView.window {
-        alert.beginSheetModal(for: window, completionHandler: handleResponse)
-        return
-    }
-    handleResponse(alert.runModal())
+    presentAlert(alert, webView, handleResponse) {}
 }
 
 @discardableResult
 private func browserOpenExternalNavigationURL(
     _ url: URL,
     source: String,
-    webView: WKWebView
+    webView: WKWebView,
+    presentAlert: BrowserAlertPresenter = browserPresentAlert
 ) -> Bool {
     let opened = NSWorkspace.shared.open(url)
     if !opened {
-        browserPresentExternalNavigationFailure(for: url, in: webView)
+        browserPresentExternalNavigationFailure(for: url, in: webView, presentAlert: presentAlert)
     }
 #if DEBUG
     cmuxDebugLog(
@@ -1380,7 +1421,8 @@ func browserHandleExternalNavigation(
     _ url: URL,
     source: String,
     webView: WKWebView,
-    loadFallbackRequest: (URLRequest) -> Void
+    loadFallbackRequest: (URLRequest) -> Void,
+    presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert
 ) -> Bool {
     guard let action = browserExternalNavigationAction(for: url) else { return false }
 
@@ -1397,18 +1439,28 @@ func browserHandleExternalNavigation(
         return true
 
     case let .promptToOpenApp(externalURL):
-        browserPresentExternalNavigationPrompt(for: externalURL, in: webView) { shouldOpenApp in
-            guard shouldOpenApp else {
+        browserPresentExternalNavigationPrompt(
+            for: externalURL,
+            in: webView,
+            completion: { shouldOpenApp in
+                guard shouldOpenApp else {
 #if DEBUG
-                cmuxDebugLog(
-                    "browser.navigation.external source=\(source) opened=0 prompt=1 allowed=0 " +
-                    "url=\(browserNavigationDebugURL(externalURL))"
-                )
+                    cmuxDebugLog(
+                        "browser.navigation.external source=\(source) opened=0 prompt=1 allowed=0 " +
+                        "url=\(browserNavigationDebugURL(externalURL))"
+                    )
 #endif
-                return
-            }
-            browserOpenExternalNavigationURL(externalURL, source: source, webView: webView)
-        }
+                    return
+                }
+                browserOpenExternalNavigationURL(
+                    externalURL,
+                    source: source,
+                    webView: webView,
+                    presentAlert: presentAlert
+                )
+            },
+            presentAlert: presentAlert
+        )
         return true
     }
 }
@@ -2678,6 +2730,17 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var webViewLastHiddenAt: Date?
     private(set) var webViewLastVisibilityChangeAt: Date?
     private(set) var webViewLastVisibilityChangeReason: String?
+    var hasBackgroundPreloadHost: Bool {
+        backgroundPreloadWindow != nil
+    }
+    private var shouldPreloadInitialNavigationInBackground: Bool
+    private var backgroundPreloadWindow: NSWindow?
+    private struct PendingInteractiveBrowserPrompt {
+        let present: (NSWindow, @escaping () -> Void) -> Void
+        let cancel: () -> Void
+    }
+    private var pendingInteractiveBrowserPrompts: [PendingInteractiveBrowserPrompt] = []
+    private var isPresentingPendingInteractiveBrowserPrompt = false
     private var isWebViewVisibleInUI: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
 
@@ -2904,6 +2967,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if visible {
             cancelHiddenWebViewDiscard()
             restoreDiscardedWebViewIfNeeded(reason: "visible.\(reason)")
+            drainPendingInteractiveBrowserPromptsIfPossible(reason: "visible.\(reason)")
         } else if changed || isFirstVisibilityRecord || !hiddenWebViewDiscardManager.hasScheduledDiscard {
             scheduleHiddenWebViewDiscardIfNeeded(reason: reason)
         }
@@ -3028,9 +3092,11 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask = nil
         faviconRefreshGeneration &+= 1
         loadingGeneration &+= 1
+        cancelPendingInteractiveBrowserPrompts(reason: "discardHiddenWebView")
 
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
+        closeBackgroundPreloadHost(reason: "discardHiddenWebView")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
         oldWebView.navigationDelegate = nil
@@ -3424,6 +3490,7 @@ final class BrowserPanel: Panel, ObservableObject {
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
         renderInitialNavigation: Bool = true,
+        preloadInitialNavigationInBackground: Bool = false,
         bypassInsecureHTTPHostOnce: String? = nil,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         isRemoteWorkspace: Bool = false,
@@ -3441,6 +3508,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.remoteProxyEndpoint = proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace
         self.browserThemeMode = BrowserThemeSettings.mode()
+        self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
@@ -3462,6 +3530,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navDelegate.requestNavigation = { [weak self] request, intent in
             self?.requestNavigation(request, intent: intent)
+        }
+        navDelegate.presentAlert = { [weak self] alert, webView, completion, cancel in
+            guard let self else {
+                cancel()
+                return
+            }
+            self.presentBrowserAlert(alert, in: webView, completion: completion, cancel: cancel)
         }
         navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] url in
             self?.shouldBlockInsecureHTTPNavigation(to: url) ?? false
@@ -3536,6 +3611,13 @@ final class BrowserPanel: Panel, ObservableObject {
         browserUIDelegate.requestNavigation = { [weak self] request, intent in
             self?.requestNavigation(request, intent: intent)
         }
+        browserUIDelegate.presentAlert = { [weak self] alert, webView, completion, cancel in
+            guard let self else {
+                cancel()
+                return
+            }
+            self.presentBrowserAlert(alert, in: webView, completion: completion, cancel: cancel)
+        }
         browserUIDelegate.openPopup = { [weak self] configuration, windowFeatures in
             self?.createFloatingPopup(configuration: configuration, windowFeatures: windowFeatures)
         }
@@ -3554,7 +3636,10 @@ final class BrowserPanel: Panel, ObservableObject {
         applyBrowserThemeModeIfNeeded()
         ReactGrabScriptLoader.prefetch()
         insecureHTTPAlertWindowProvider = { [weak self] in
-            self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            if let self, let window = browserInteractiveModalHostWindow(for: self.webView) {
+                return window
+            }
+            return browserFallbackInteractiveModalHostWindow()
         }
 
         if let initialRequest {
@@ -3583,6 +3668,146 @@ final class BrowserPanel: Panel, ObservableObject {
             guard renderInitialNavigation else { return }
             navigate(to: url)
         }
+    }
+
+    private func ensureBackgroundPreloadHostIfNeeded(reason: String) {
+        guard backgroundPreloadWindow == nil else { return }
+        guard webView.window == nil else { return }
+        guard webView.superview == nil else { return }
+
+        let frame = NSRect(x: -10_000, y: -10_000, width: 800, height: 600)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.browserBackgroundPreload")
+        window.hasShadow = false
+        window.alphaValue = 0
+        window.ignoresMouseEvents = true
+        window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
+        window.isExcludedFromWindowsMenu = true
+
+        let contentView = NSView(frame: frame)
+        webView.frame = contentView.bounds
+        webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(webView)
+        window.contentView = contentView
+        backgroundPreloadWindow = window
+        window.orderFrontRegardless()
+
+#if DEBUG
+        cmuxDebugLog(
+            "browser.backgroundPreload.host.create panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason)"
+        )
+#endif
+    }
+
+    private func shouldDeferPromptUntilInteractiveHost(for webView: WKWebView) -> Bool {
+        if shouldPreloadInitialNavigationInBackground {
+            return true
+        }
+        guard let preloadWindow = backgroundPreloadWindow else { return false }
+        let attachedWindow = webView.window
+        return attachedWindow == nil || attachedWindow === preloadWindow
+    }
+
+    private func presentBrowserAlert(
+        _ alert: NSAlert,
+        in webView: WKWebView,
+        completion: @escaping (NSApplication.ModalResponse) -> Void,
+        cancel: @escaping () -> Void
+    ) {
+        if let window = browserInteractiveModalHostWindow(for: webView) {
+            alert.beginSheetModal(for: window, completionHandler: completion)
+            return
+        }
+
+        guard shouldDeferPromptUntilInteractiveHost(for: webView) else {
+            browserPresentAlert(alert, in: webView, completion: completion, cancel: cancel)
+            return
+        }
+
+        pendingInteractiveBrowserPrompts.append(
+            PendingInteractiveBrowserPrompt(
+                present: { sheetWindow, didFinish in
+                    alert.beginSheetModal(for: sheetWindow) { response in
+                        completion(response)
+                        didFinish()
+                    }
+                },
+                cancel: cancel
+            )
+        )
+
+#if DEBUG
+        cmuxDebugLog(
+            "browser.prompt.queue panel=\(id.uuidString.prefix(5)) " +
+            "pending=\(pendingInteractiveBrowserPrompts.count)"
+        )
+#endif
+    }
+
+    private func drainPendingInteractiveBrowserPromptsIfPossible(reason: String) {
+        guard !isPresentingPendingInteractiveBrowserPrompt else { return }
+        guard !pendingInteractiveBrowserPrompts.isEmpty else { return }
+        guard let window = browserInteractiveModalHostWindow(for: webView) else { return }
+
+        let prompt = pendingInteractiveBrowserPrompts.removeFirst()
+        isPresentingPendingInteractiveBrowserPrompt = true
+
+#if DEBUG
+        cmuxDebugLog(
+            "browser.prompt.drain panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) remaining=\(pendingInteractiveBrowserPrompts.count)"
+        )
+#endif
+
+        prompt.present(window) { [weak self] in
+            guard let self else { return }
+            self.isPresentingPendingInteractiveBrowserPrompt = false
+            self.drainPendingInteractiveBrowserPromptsIfPossible(reason: "\(reason).next")
+        }
+    }
+
+    private func cancelPendingInteractiveBrowserPrompts(reason: String) {
+        guard !pendingInteractiveBrowserPrompts.isEmpty else { return }
+        let prompts = pendingInteractiveBrowserPrompts
+        pendingInteractiveBrowserPrompts.removeAll()
+        isPresentingPendingInteractiveBrowserPrompt = false
+
+#if DEBUG
+        cmuxDebugLog(
+            "browser.prompt.cancel panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) count=\(prompts.count)"
+        )
+#endif
+
+        prompts.forEach { $0.cancel() }
+    }
+
+    func releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: String) {
+        guard let preloadWindow = backgroundPreloadWindow else { return }
+        guard let attachedWindow = webView.window else { return }
+        guard attachedWindow !== preloadWindow else { return }
+        closeBackgroundPreloadHost(reason: reason)
+        drainPendingInteractiveBrowserPromptsIfPossible(reason: reason)
+    }
+
+    private func closeBackgroundPreloadHost(reason: String) {
+        guard let preloadWindow = backgroundPreloadWindow else { return }
+        backgroundPreloadWindow = nil
+        preloadWindow.contentView = nil
+        preloadWindow.close()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.backgroundPreload.host.close panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason)"
+        )
+#endif
     }
 
     func setRemoteProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
@@ -3713,6 +3938,8 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
+        cancelPendingInteractiveBrowserPrompts(reason: "profileSwitch")
+        closeBackgroundPreloadHost(reason: "profileSwitch")
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
         previousWebView.stopLoading()
         previousWebView.navigationDelegate = nil
@@ -4077,6 +4304,8 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
+        cancelPendingInteractiveBrowserPrompts(reason: reason)
+        closeBackgroundPreloadHost(reason: reason)
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
         oldWebView.navigationDelegate = nil
@@ -4216,6 +4445,8 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
         // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
+        cancelPendingInteractiveBrowserPrompts(reason: "close")
+        closeBackgroundPreloadHost(reason: "close")
 
         // Snapshot first: popup close unregisters itself from popupControllers.
         let popupsToClose = popupControllers
@@ -4682,6 +4913,10 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         shouldRenderWebView = true
+        if shouldPreloadInitialNavigationInBackground {
+            shouldPreloadInitialNavigationInBackground = false
+            ensureBackgroundPreloadHostIfNeeded(reason: "initial-navigation")
+        }
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
         }
@@ -4825,6 +5060,11 @@ final class BrowserPanel: Panel, ObservableObject {
                 intent: intent,
                 recordTypedNavigation: recordTypedNavigation
             )
+        }
+
+        if shouldDeferPromptUntilInteractiveHost(for: webView) {
+            presentBrowserAlert(alert, in: webView, completion: handleResponse, cancel: {})
+            return
         }
 
         if let alertWindow = insecureHTTPAlertWindowProvider() {
@@ -5016,6 +5256,8 @@ extension BrowserPanel {
         let oldWebView = webView
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
+        cancelPendingInteractiveBrowserPrompts(reason: "contextReset")
+        closeBackgroundPreloadHost(reason: "contextReset")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
         oldWebView.navigationDelegate = nil
@@ -6615,7 +6857,10 @@ extension BrowserPanel {
     func resetInsecureHTTPAlertHooksForTesting() {
         insecureHTTPAlertFactory = { NSAlert() }
         insecureHTTPAlertWindowProvider = { [weak self] in
-            self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            if let self, let window = browserInteractiveModalHostWindow(for: self.webView) {
+                return window
+            }
+            return browserFallbackInteractiveModalHostWindow()
         }
     }
 
@@ -7246,6 +7491,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     /// Direct reference to the download delegate — must be set synchronously in didBecome callbacks.
@@ -7474,7 +7720,8 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
                 webView: webView,
                 loadFallbackRequest: { [requestNavigation] request in
                     requestNavigation?(request, .currentTab)
-                }
+                },
+                presentAlert: presentAlert
             )
             decisionHandler(.cancel)
             return
@@ -7592,6 +7839,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
     var closeRequested: ((WKWebView) -> Void)?
 
@@ -7609,13 +7857,10 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     private func presentDialog(
         _ alert: NSAlert,
         for webView: WKWebView,
-        completion: @escaping (NSApplication.ModalResponse) -> Void
+        completion: @escaping (NSApplication.ModalResponse) -> Void,
+        cancel: @escaping () -> Void
     ) {
-        if let window = webView.window {
-            alert.beginSheetModal(for: window, completionHandler: completion)
-            return
-        }
-        completion(alert.runModal())
+        presentAlert(alert, webView, completion, cancel)
     }
 
     /// Called when the page requests a new window (window.open(), target=_blank, etc.).
@@ -7663,7 +7908,8 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                 webView: webView,
                 loadFallbackRequest: { [requestNavigation] request in
                     requestNavigation?(request, .currentTab)
-                }
+                },
+                presentAlert: presentAlert
             )
             return nil
         }
@@ -7773,7 +8019,12 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         alert.messageText = javaScriptDialogTitle(for: webView)
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        presentDialog(alert, for: webView) { _ in completionHandler() }
+        presentDialog(
+            alert,
+            for: webView,
+            completion: { _ in completionHandler() },
+            cancel: completionHandler
+        )
     }
 
     func webView(
@@ -7788,9 +8039,16 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        presentDialog(alert, for: webView) { response in
-            completionHandler(response == .alertFirstButtonReturn)
-        }
+        presentDialog(
+            alert,
+            for: webView,
+            completion: { response in
+                completionHandler(response == .alertFirstButtonReturn)
+            },
+            cancel: {
+                completionHandler(false)
+            }
+        )
     }
 
     func webView(
@@ -7811,13 +8069,20 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         field.stringValue = defaultText ?? ""
         alert.accessoryView = field
 
-        presentDialog(alert, for: webView) { response in
-            if response == .alertFirstButtonReturn {
-                completionHandler(field.stringValue)
-            } else {
+        presentDialog(
+            alert,
+            for: webView,
+            completion: { response in
+                if response == .alertFirstButtonReturn {
+                    completionHandler(field.stringValue)
+                } else {
+                    completionHandler(nil)
+                }
+            },
+            cancel: {
                 completionHandler(nil)
             }
-        }
+        )
     }
 }
 

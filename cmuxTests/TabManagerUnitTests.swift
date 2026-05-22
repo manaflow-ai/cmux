@@ -297,6 +297,40 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertEqual(externalWorkspace.panels.count, externalPanelCountBefore)
         XCTAssertEqual(externalWorkspace.panelTitles, externalPanelTitlesBefore)
     }
+
+    func testFocusedPanelTitleRefreshesAutoWorkspaceTitleInSplitWorkspace() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: focusedPanelId, title: "Waiting - grok"))
+        XCTAssertEqual(workspace.title, "Waiting - grok")
+
+        let splitPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal, focus: false)
+        )
+        XCTAssertEqual(workspace.focusedPanelId, focusedPanelId)
+        XCTAssertEqual(workspace.panels.count, 2)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "Processing Simple Addition Query - grok"
+            ]
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 1.0) {
+                workspace.panelTitles[focusedPanelId] == "Processing Simple Addition Query - grok" &&
+                    workspace.title == "Processing Simple Addition Query - grok"
+            }
+        )
+        XCTAssertNil(workspace.customTitle)
+        XCTAssertNotEqual(workspace.panelTitles[splitPanel.id], Optional(workspace.title))
+    }
 }
 
 @MainActor

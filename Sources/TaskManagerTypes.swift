@@ -393,6 +393,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             argumentNeedles: ["codex", "@openai/codex", "oh-my-codex"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
+            id: "grok",
+            displayName: "Grok",
+            assetName: nil,
+            launchKinds: ["grok"],
+            directBasenames: ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
+            argumentNeedles: ["grok", "grok-build", "@xai/grok"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
             id: "opencode",
             displayName: "OpenCode",
             assetName: "AgentIcons/OpenCode",
