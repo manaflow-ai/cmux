@@ -335,6 +335,58 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(afterDismantle?.visibleInUI, true)
     }
 
+    func testMarkdownRendererHidesPortalWhenProbeMovesOffWindow() throws {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: frame)
+        window.contentView = root
+
+        let probe = MarkdownWebPortalProbeView(frame: NSRect(x: 20, y: 20, width: 320, height: 180))
+        root.addSubview(probe)
+        let dropContext = BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID()),
+            allowsHostedWebViewTextDrop: false
+        )
+        coordinator.bindPortal(
+            to: probe,
+            visibleInUI: true,
+            zPriority: 1,
+            dropContext: dropContext,
+            reason: "unit-test"
+        )
+        XCTAssertEqual(coordinator.portalSnapshot()?.visibleInUI, true)
+
+        probe.removeFromSuperview()
+        coordinator.bindPortal(
+            to: probe,
+            visibleInUI: true,
+            zPriority: 1,
+            dropContext: dropContext,
+            reason: "unit-test-off-window"
+        )
+
+        let snapshot = try XCTUnwrap(coordinator.portalSnapshot())
+        XCTAssertEqual(snapshot.visibleInUI, false)
+        XCTAssertEqual(snapshot.containerHidden, true)
+    }
+
     func testMarkdownTabDeselectionHidesStablePortalAnchor() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
