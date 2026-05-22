@@ -84,6 +84,9 @@ public final class BrowserEngine {
     public var runtimeDescription: String {
         runtime?.runtimeDescription ?? ""
     }
+    public var devToolsEnabled: Bool {
+        configuration.devToolsEnabled
+    }
 
     private let configuration: BrowserEngineConfiguration
     private let runtimeFactory: BrowserEngineRuntimeFactory?
@@ -730,6 +733,7 @@ public final class BrowserEngine {
 
     private func applySessionLaunchEnvironment() {
         guard configuration.devToolsEnabled else {
+            unsetenv("OWL_FRESH_ENABLE_DEVTOOLS")
             return
         }
         if getenv("OWL_FRESH_ENABLE_DEVTOOLS") == nil {

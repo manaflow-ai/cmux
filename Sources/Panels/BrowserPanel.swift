@@ -6066,6 +6066,10 @@ extension BrowserPanel {
 
     @discardableResult
     func toggleDeveloperTools() -> Bool {
+        guard browserEngineSupports(.devTools, operation: "toggleDeveloperTools") else {
+            setPreferredDeveloperToolsVisible(false)
+            return false
+        }
 #if DEBUG
         cmuxDebugLog(
             "browser.devtools toggle.begin panel=\(id.uuidString.prefix(5)) " +
@@ -6092,6 +6096,10 @@ extension BrowserPanel {
 
     @discardableResult
     func showDeveloperTools() -> Bool {
+        guard browserEngineSupports(.devTools, operation: "showDeveloperTools") else {
+            setPreferredDeveloperToolsVisible(false)
+            return false
+        }
         return enqueueDeveloperToolsVisibilityTransition(to: true, source: "show")
     }
 
@@ -6305,12 +6313,17 @@ extension BrowserPanel {
 
     @discardableResult
     func isDeveloperToolsVisible() -> Bool {
+        guard browserEngineDescriptor.capabilities.supports(.devTools) else { return false }
         guard let inspector = webView.cmuxInspectorObject() else { return false }
         return inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
     }
 
     @discardableResult
     func hideDeveloperTools() -> Bool {
+        guard browserEngineDescriptor.capabilities.supports(.devTools) else {
+            setPreferredDeveloperToolsVisible(false)
+            return true
+        }
         return enqueueDeveloperToolsVisibilityTransition(to: false, source: "hide")
     }
 

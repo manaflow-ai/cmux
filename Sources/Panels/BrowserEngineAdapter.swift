@@ -441,7 +441,7 @@ enum BrowserEngineAdapterFactory {
             chromiumHostPath: base.chromiumHostPath,
             mojoRuntimePath: base.mojoRuntimePath,
             userDataRootPath: userDataRootPath,
-            devToolsEnabled: base.devToolsEnabled
+            devToolsEnabled: false
         )
     }
 }

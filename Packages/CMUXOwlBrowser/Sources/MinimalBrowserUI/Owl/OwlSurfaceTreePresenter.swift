@@ -7,6 +7,7 @@ final class OwlSurfaceTreePresenter {
     private static var permissionPromptDecisionCache = NativePromptDecisionCache(defaults: .standard)
 
     struct Actions {
+        let devToolsEnabled: Bool
         let acceptPopupMenuItem: (UInt32) -> Void
         let cancelPopup: () -> Void
         let selectFilePickerFiles: ([String]) -> Void
@@ -383,7 +384,7 @@ final class OwlSurfaceTreePresenter {
             surface: surface,
             host: hostView
         )
-        let controller = NativeMenuController(surface: surface) { [weak self] result in
+        let controller = NativeMenuController(surface: surface, devToolsEnabled: actions.devToolsEnabled) { [weak self] result in
             guard let self else {
                 return
             }
@@ -921,6 +922,7 @@ private final class NativeMenuController: NSObject, NSMenuDelegate {
 
     let menu: NSMenu
     let presentationStyle: PresentationStyle
+    private let devToolsEnabled: Bool
     private let onResult: (NativeMenuResult) -> Void
     private var selected = false
     private var resultDelivered = false
@@ -928,9 +930,14 @@ private final class NativeMenuController: NSObject, NSMenuDelegate {
     private var currentSurface: OwlFreshSurfaceInfo?
     private weak var currentHostView: NSView?
 
-    init(surface: OwlFreshSurfaceInfo, onResult: @escaping (NativeMenuResult) -> Void) {
+    init(
+        surface: OwlFreshSurfaceInfo,
+        devToolsEnabled: Bool = true,
+        onResult: @escaping (NativeMenuResult) -> Void
+    ) {
         self.menu = NSMenu(title: surface.label)
         self.presentationStyle = surface.label == "context-menu" ? .contextMenu : .popup
+        self.devToolsEnabled = devToolsEnabled
         self.onResult = onResult
         super.init()
         menu.delegate = self
@@ -948,6 +955,9 @@ private final class NativeMenuController: NSObject, NSMenuDelegate {
                 menu.addItem(.separator())
                 continue
             }
+            guard shouldIncludeMenuItem(label: label, toolTip: "") else {
+                continue
+            }
             menu.addItem(makeMenuItem(label: label, index: index, enabled: true, toolTip: ""))
         }
     }
@@ -956,6 +966,9 @@ private final class NativeMenuController: NSObject, NSMenuDelegate {
         for (index, item) in items.enumerated() {
             if item.separator {
                 menu.addItem(.separator())
+                continue
+            }
+            guard shouldIncludeMenuItem(label: item.label, toolTip: item.toolTip) else {
                 continue
             }
             menu.addItem(makeMenuItem(
@@ -980,6 +993,16 @@ private final class NativeMenuController: NSObject, NSMenuDelegate {
             item.toolTip = toolTip
         }
         return item
+    }
+
+    private func shouldIncludeMenuItem(label: String, toolTip: String) -> Bool {
+        guard presentationStyle == .contextMenu, !devToolsEnabled else {
+            return true
+        }
+        let token = "\(label) \(toolTip)".lowercased()
+        return !token.contains("inspect") &&
+            !token.contains("developer tools") &&
+            !token.contains("devtools")
     }
 
     func present(surface: OwlFreshSurfaceInfo, at point: CGPoint, in hostView: NSView) {

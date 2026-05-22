@@ -24,6 +24,10 @@ final class OwlWebContentsController {
         engine = nil
     }
 
+    var devToolsEnabled: Bool {
+        engine?.devToolsEnabled ?? false
+    }
+
     func setFocus(_ focused: Bool) {
         engine?.setFocus(tabID: tabID, focused: focused)
     }

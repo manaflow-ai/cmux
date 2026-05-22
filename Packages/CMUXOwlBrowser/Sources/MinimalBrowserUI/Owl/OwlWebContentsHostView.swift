@@ -693,6 +693,7 @@ public final class OwlWebContentsHostView: NSView {
 
     private var surfaceActions: OwlSurfaceTreePresenter.Actions {
         OwlSurfaceTreePresenter.Actions(
+            devToolsEnabled: webContentsController.devToolsEnabled,
             acceptPopupMenuItem: { [weak self] index in
                 guard let self else {
                     return

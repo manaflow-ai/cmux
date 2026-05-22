@@ -50,6 +50,7 @@ final class BrowserEngineAdapterTests: XCTestCase {
         XCTAssertTrue(descriptor.capabilities.supports(.resize))
         XCTAssertTrue(descriptor.capabilities.supports(.contextMenus))
         XCTAssertTrue(descriptor.capabilities.supports(.profiles))
+        XCTAssertFalse(descriptor.capabilities.supports(.devTools))
         XCTAssertFalse(descriptor.capabilities.supports(.downloads))
         XCTAssertFalse(descriptor.capabilities.supports(.passkeys))
         XCTAssertFalse(descriptor.capabilities.supports(.findInPage))
@@ -59,6 +60,7 @@ final class BrowserEngineAdapterTests: XCTestCase {
         let payload = descriptor.socketPayload
         let capabilities = try XCTUnwrap(payload["capabilities"] as? [String: Bool])
         XCTAssertEqual(capabilities[BrowserEngineCapability.navigation.rawValue], true)
+        XCTAssertEqual(capabilities[BrowserEngineCapability.devTools.rawValue], false)
         XCTAssertEqual(capabilities[BrowserEngineCapability.downloads.rawValue], false)
         XCTAssertEqual(capabilities[BrowserEngineCapability.frameScopedJavaScript.rawValue], false)
 
@@ -70,6 +72,8 @@ final class BrowserEngineAdapterTests: XCTestCase {
                 BrowserEngineUnsupportedCapabilityError(engineKind: .owlChromium, capability: .downloads)
             )
         }
+
+        XCTAssertFalse(BrowserEngineAdapterFactory.cmuxOwlConfiguration(profileID: UUID()).devToolsEnabled)
     }
 
     func testBrowserPanelRoutesNormalBrowserLifecycleThroughChromiumAdapter() throws {
@@ -94,6 +98,12 @@ final class BrowserEngineAdapterTests: XCTestCase {
         panel.updateBrowserEngineSurfaceGeometry(size: CGSize(width: 640, height: 480), scale: 2)
         XCTAssertEqual(adapter.resizeRequests.last?.size, CGSize(width: 640, height: 480))
         XCTAssertEqual(adapter.resizeRequests.last?.scale, 2)
+
+        XCTAssertFalse(panel.showDeveloperTools())
+        XCTAssertFalse(panel.toggleDeveloperTools())
+        XCTAssertFalse(panel.showDeveloperToolsConsole())
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.hideDeveloperTools())
     }
 }
 
