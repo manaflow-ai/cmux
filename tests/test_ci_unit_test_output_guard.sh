@@ -43,10 +43,31 @@ expect_fail() {
   fi
 }
 
+expect_unreadable_fail() {
+  local log_name="unreadable"
+  write_log "$log_name" "Executed 1 test, with 0 failures (0 unexpected) in 0.1 seconds"
+  chmod 000 "$TMP_DIR/$log_name.log"
+  if "$SCRIPT" 0 "$TMP_DIR/$log_name.log" > "$TMP_DIR/$log_name.out" 2>&1; then
+    chmod 600 "$TMP_DIR/$log_name.log"
+    echo "FAIL: expected unreadable output file to fail guard" >&2
+    exit 1
+  fi
+  chmod 600 "$TMP_DIR/$log_name.log"
+  if ! grep -Fq "does not exist or is not readable" "$TMP_DIR/$log_name.out"; then
+    echo "FAIL: unreadable output file did not report readability failure" >&2
+    cat "$TMP_DIR/$log_name.out" >&2
+    exit 1
+  fi
+}
+
 write_log expected-fail \
   "Test Suite 'Selected tests' failed." \
   "Executed 1 test, with 1 failure (0 unexpected) in 0.1 seconds"
 expect_pass 65 expected-fail
+
+if [ "$(id -u)" -ne 0 ]; then
+  expect_unreadable_fail
+fi
 
 write_log timeout-after-summary \
   "Executed 1 test, with 1 failure (0 unexpected) in 0.1 seconds" \

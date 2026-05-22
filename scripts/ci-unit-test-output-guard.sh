@@ -9,8 +9,8 @@ fi
 EXIT_CODE="$1"
 OUTPUT_FILE="$2"
 
-if [ ! -f "$OUTPUT_FILE" ]; then
-  echo "FAIL: test output file does not exist: $OUTPUT_FILE" >&2
+if [ ! -f "$OUTPUT_FILE" ] || [ ! -r "$OUTPUT_FILE" ]; then
+  echo "FAIL: test output file does not exist or is not readable: $OUTPUT_FILE" >&2
   exit 1
 fi
 
