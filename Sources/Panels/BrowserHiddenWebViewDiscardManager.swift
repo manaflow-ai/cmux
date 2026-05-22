@@ -147,7 +147,7 @@ final class BrowserHiddenWebViewDiscardManager {
     }
 
     func markDiscarded(reason: String, now: Date) {
-        BrowserHiddenWebViewDiscardRegistry.shared.noteInactive(self)
+        cancel()
         isDiscardedForMemory = true
         discardedAt = now
         lastDiscardReason = reason
