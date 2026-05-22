@@ -19859,15 +19859,16 @@ struct CMUXCLI {
         return terminalTurnIds
     }
 
-    private func codexTranscriptLatestTurnHasTerminalEventExcluding(path: String, turnId: String) -> Bool {
+    private func codexTranscriptDepthOnlyStackIsTerminal(path: String, excludingTurnId turnId: String, activeDepth: Int) -> Bool {
         guard let excludedTurnId = normalizedHookValue(turnId),
+              activeDepth > 0,
               let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
             return false
         }
 
         var currentTurnId: String?
-        var latestTurnId: String?
-        var latestTurnIsTerminal = false
+        var activeTurnIds = Set<String>()
+        var terminalTurnIds = Set<String>()
         for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
@@ -19880,8 +19881,6 @@ struct CMUXCLI {
             if objectType == "turn_context",
                let payload = object["payload"] as? [String: Any] {
                 currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                latestTurnId = currentTurnId
-                latestTurnIsTerminal = false
                 continue
             }
 
@@ -19893,24 +19892,28 @@ struct CMUXCLI {
 
             if eventType == "task_started" {
                 currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                latestTurnId = currentTurnId
-                latestTurnIsTerminal = false
+                if let currentTurnId = normalizedHookValue(currentTurnId),
+                   currentTurnId != excludedTurnId {
+                    terminalTurnIds.remove(currentTurnId)
+                    activeTurnIds.insert(currentTurnId)
+                }
                 continue
             }
 
             switch eventType {
             case "task_complete", "turn_complete", "turn_aborted":
-                guard let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId else {
+                guard let payloadTurnId = normalizedHookValue(firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId),
+                      payloadTurnId != excludedTurnId else {
                     continue
                 }
-                latestTurnId = payloadTurnId
-                latestTurnIsTerminal = true
+                activeTurnIds.remove(payloadTurnId)
+                terminalTurnIds.insert(payloadTurnId)
             default:
                 break
             }
         }
 
-        return latestTurnIsTerminal && latestTurnId != excludedTurnId
+        return activeTurnIds.isEmpty && terminalTurnIds.count >= activeDepth
     }
 
     private func readCodexTranscriptUserInput(
@@ -24549,16 +24552,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 terminalActivePromptTurnIds = []
                 previousActivePromptTurnIsTerminal = false
             }
+            let legacyActivePromptDepth = max(0, mapped?.activePromptDepth ?? 0)
             let previousDepthOnlyPromptTurnIsTerminal: Bool
             if def.name == "codex",
                activePromptTurnId == nil,
-               max(0, mapped?.activePromptDepth ?? 0) > 0,
+               legacyActivePromptDepth > 0,
                let incomingTurnId = normalizedHookValue(input.turnId),
                let transcriptPath = normalizedHookValue(transcriptPathForStore)
                    ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
-                previousDepthOnlyPromptTurnIsTerminal = codexTranscriptLatestTurnHasTerminalEventExcluding(
+                previousDepthOnlyPromptTurnIsTerminal = codexTranscriptDepthOnlyStackIsTerminal(
                     path: transcriptPath,
-                    turnId: incomingTurnId
+                    excludingTurnId: incomingTurnId,
+                    activeDepth: legacyActivePromptDepth
                 )
             } else {
                 previousDepthOnlyPromptTurnIsTerminal = false

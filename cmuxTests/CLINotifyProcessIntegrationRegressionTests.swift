@@ -1012,12 +1012,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "depth-only-terminal-reset-session"
-        let transcriptURL = try writeCodexTerminalTranscript(
-            context: context,
-            name: "codex-depth-only-terminal-reset.jsonl",
-            turnId: "old-turn",
-            eventType: "turn_aborted"
-        )
+        let transcriptURL = context.root.appendingPathComponent("codex-depth-only-terminal-reset.jsonl")
+        try [
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-parent-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
         let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
         let now = Date().timeIntervalSince1970
         let store: [String: Any] = [
