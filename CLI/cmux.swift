@@ -18934,7 +18934,12 @@ struct CMUXCLI {
         guard let detail, !detail.isEmpty else {
             return nil
         }
-        let body = truncate("\(toolName): \(detail)", maxLength: 180)
+        let sanitizedDetail = sanitizedClaudePermissionDetail(detail)
+        let bodyFormat = String(
+            localized: "agent.generic.notification.permission.body.format",
+            defaultValue: "%1$@: %2$@"
+        )
+        let body = truncate(String(format: bodyFormat, toolName, sanitizedDetail), maxLength: 180)
         return (
             subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
             body: body
@@ -19058,8 +19063,40 @@ struct CMUXCLI {
         return trimmed == "{}" ? nil : truncate(trimmed, maxLength: 120)
     }
 
+    private func sanitizedClaudePermissionDetail(_ detail: String) -> String {
+        let normalized = normalizedSingleLine(detail)
+        guard !normalized.isEmpty else { return normalized }
+        if claudePermissionDetailLooksSensitive(normalized) {
+            return String(
+                localized: "agent.generic.notification.permission.detail.redacted",
+                defaultValue: "Sensitive content removed"
+            )
+        }
+        return normalized.replacingOccurrences(
+            of: #"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#,
+            with: "<email>",
+            options: [.regularExpression, .caseInsensitive]
+        )
+    }
+
+    private func claudePermissionDetailLooksSensitive(_ value: String) -> Bool {
+        let patterns = [
+            #"(^|[\s;&|])(?:[A-Za-z_][A-Za-z0-9_]*=)(?=\S)"#,
+            #"\bAuthorization\s*:\s*Bearer\s+\S+"#,
+            #"\bBearer\s+[A-Za-z0-9._~+/\-]+=*"#,
+            #"[?&](?:X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|Signature|sig|token|access_token|api_key|key|secret|password)="#,
+            #""(?:token|secret|password|api[_-]?key|authorization|credential)"\s*:"#,
+            #"\b(?:sk|rk|sess)-[A-Za-z0-9._-]{8,}\b"#,
+        ]
+        return patterns.contains { pattern in
+            value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        }
+    }
+
     private func isGenericClaudeNotificationBody(_ body: String) -> Bool {
-        let normalized = normalizedSingleLine(body).lowercased()
+        let normalized = normalizedSingleLine(body)
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
         let genericBodies: Set<String> = [
             "approval needed",
             "claude is waiting for your input",
@@ -19073,7 +19110,18 @@ struct CMUXCLI {
             "permission needed",
             "waiting for input",
         ]
-        return genericBodies.contains(normalized)
+        if genericBodies.contains(normalized) {
+            return true
+        }
+        let genericFragments = [
+            "needs your attention",
+            "needs your input",
+            "needs your permission",
+            "waiting for input",
+            "approval needed",
+            "permission needed",
+        ]
+        return genericFragments.contains { normalized.contains($0) }
     }
 
     private func shortenPath(_ path: String) -> String {
@@ -26985,12 +27033,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         // Derive the hook event name, mapped to our wire format. Claude
         // uses `hook_event_name`; Codex uses `event` or `hook_event_name`.
+        let nestedHookPayload = (stdinObj["notification"] as? [String: Any])
+            ?? (stdinObj["data"] as? [String: Any])
+            ?? [:]
         let rawEvent = (stdinObj["hook_event_name"] as? String)
+            ?? (stdinObj["hookEventName"] as? String)
             ?? (stdinObj["event"] as? String)
+            ?? firstString(in: nestedHookPayload, keys: ["hook_event_name", "hookEventName", "event_name", "event"])
             ?? optionValue(commandArgs, name: "--event")
             ?? ""
-        let toolCall = stdinObj["toolCall"] as? [String: Any]
+        let toolCall = (stdinObj["toolCall"] as? [String: Any])
+            ?? (nestedHookPayload["toolCall"] as? [String: Any])
         let toolName = firstString(in: stdinObj, keys: ["tool_name", "toolName"])
+            ?? firstString(in: nestedHookPayload, keys: ["tool_name", "toolName"])
             ?? toolCall.flatMap { firstString(in: $0, keys: ["name"]) }
             ?? ""
 
@@ -27010,8 +27065,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // level — close enough to catch most kill scenarios.
         let env = ProcessInfo.processInfo.environment
         let agentPid = agentPidForFeedSource(source, env: env)
+        let sessionStore = ClaudeHookSessionStore()
         let sessionId = firstString(
             in: stdinObj,
+            keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
+        ) ?? firstString(
+            in: nestedHookPayload,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
         ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
 
@@ -27024,7 +27083,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
-        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let toolInput = stdinObj["tool_input"]
+            ?? stdinObj["toolInput"]
+            ?? nestedHookPayload["tool_input"]
+            ?? nestedHookPayload["toolInput"]
+            ?? toolCall?["args"]
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
             ?? firstWorkspacePath(in: stdinObj)
             ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
@@ -27064,7 +27127,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 toolName: toolName.isEmpty ? nil : toolName,
                 toolInput: eventDict["tool_input"]
            ) {
-            try? ClaudeHookSessionStore().upsert(
+            try? sessionStore.upsert(
                 sessionId: sessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,

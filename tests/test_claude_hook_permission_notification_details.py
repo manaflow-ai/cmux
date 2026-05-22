@@ -24,7 +24,6 @@ def resolve_cmux_cli() -> str:
 
     candidates: list[str] = []
     candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux")))
-    candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux"))
     candidates = [path for path in candidates if os.path.exists(path) and os.access(path, os.X_OK)]
     if candidates:
         candidates.sort(key=os.path.getmtime, reverse=True)
@@ -166,21 +165,75 @@ def main() -> int:
                 "name": "permission",
                 "feed_payload": {
                     "hook_event_name": "PermissionRequest",
-                    "cwd": "/Users/lawrence/fun/cmuxterm-hq",
+                    "cwd": os.getcwd(),
                     "tool_name": "Bash",
                     "tool_input": {
                         "command": "rm -rf .build",
                         "description": "Remove stale build artifacts",
                     },
                 },
-                "notification_message": "Claude needs your permission",
+                "notification_message": "Claude needs your permission.",
                 "expected": "Claude Code|Permission|Bash: Remove stale build artifacts",
+            },
+            {
+                "name": "redacted permission",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": os.getcwd(),
+                    "tool_name": "Bash",
+                    "tool_input": {
+                        "command": "API_KEY=sk-test-secret-token curl -H 'Authorization: Bearer abcdefghijklmnop' https://example.test",
+                    },
+                },
+                "notification_message": "Claude needs your permission!",
+                "expected": "Claude Code|Permission|Bash: Sensitive content removed",
+            },
+            {
+                "name": "nested file permission",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "data": {
+                        "toolName": "Write",
+                        "toolInput": {
+                            "file_path": "/tmp/cmux-notification-test.txt",
+                        },
+                    },
+                },
+                "notification_message": "Claude needs your permission",
+                "expected": "Claude Code|Permission|Write: cmux-notification-test.txt",
+            },
+            {
+                "name": "web permission",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": os.getcwd(),
+                    "tool_name": "WebFetch",
+                    "tool_input": {
+                        "url": "https://docs.example.test/guide",
+                    },
+                },
+                "notification_message": "Claude needs your permission",
+                "expected": "Claude Code|Permission|WebFetch: https://docs.example.test/guide",
+            },
+            {
+                "name": "unknown tool permission",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": os.getcwd(),
+                    "tool_name": "mcp__ops__restart",
+                    "tool_input": {
+                        "action": "restart",
+                        "target": "worker",
+                    },
+                },
+                "notification_message": "Claude needs your permission",
+                "expected": 'Claude Code|Permission|mcp__ops__restart: {"action":"restart","target":"worker"}',
             },
             {
                 "name": "exit plan",
                 "feed_payload": {
                     "hook_event_name": "PermissionRequest",
-                    "cwd": "/Users/lawrence/fun/cmuxterm-hq",
+                    "cwd": os.getcwd(),
                     "tool_name": "ExitPlanMode",
                     "tool_input": {
                         "plan": "1. Improve notification summaries\n2. Simulate Claude hook flows",
@@ -193,7 +246,7 @@ def main() -> int:
                 "name": "question",
                 "feed_payload": {
                     "hook_event_name": "PermissionRequest",
-                    "cwd": "/Users/lawrence/fun/cmuxterm-hq",
+                    "cwd": os.getcwd(),
                     "tool_name": "AskUserQuestion",
                     "tool_input": {
                         "questions": [
@@ -270,7 +323,7 @@ def main() -> int:
                 print(f"commands={server.commands!r}")
                 return 1
 
-    print("PASS: Claude notifications include permission, plan, and question details")
+    print("PASS: Claude notifications include permission, plan, question, and fallback details")
     return 0
 
 

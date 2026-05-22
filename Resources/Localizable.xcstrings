@@ -22202,6 +22202,40 @@
         }
       }
     },
+    "agent.generic.notification.permission.body.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.permission.detail.redacted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sensitive content removed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機密情報を削除しました"
+          }
+        }
+      }
+    },
     "agent.generic.notification.subtitle.waiting": {
       "extractionState": "manual",
       "localizations": {
