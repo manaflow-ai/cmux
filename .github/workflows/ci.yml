@@ -363,6 +363,17 @@ jobs:
           with open(output_path, "w", encoding="utf-8", errors="replace") as output:
               stdout_fd = process.stdout.fileno()
               while True:
+                  if process.poll() is not None:
+                      drain_remaining_output(process, output)
+                      break
+
+                  if time.monotonic() - started_at > overall_timeout:
+                      terminate_process_group(
+                          f"xcodebuild unit test timeout after {overall_timeout}s; terminating\n",
+                          output,
+                      )
+                      break
+
                   ready, _, _ = select.select([stdout_fd], [], [], 1.0)
                   if ready:
                       try:
@@ -377,17 +388,6 @@ jobs:
                               saw_app_host_crash = True
                           crash_detector_tail = crash_detector_window[-(len(crash_marker) - 1):]
                           continue
-
-                  if process.poll() is not None:
-                      drain_remaining_output(process, output)
-                      break
-
-                  if time.monotonic() - started_at > overall_timeout:
-                      terminate_process_group(
-                          f"xcodebuild unit test timeout after {overall_timeout}s; terminating\n",
-                          output,
-                      )
-                      break
 
                   if saw_app_host_crash and time.monotonic() - last_output_at > quiet_timeout:
                       terminate_process_group(
