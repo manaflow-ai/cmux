@@ -1115,7 +1115,11 @@ final class MarkdownPanelTests: XCTestCase {
             approvedHost
         )
         XCTAssertEqual(MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/png"), "image/png")
-        XCTAssertNil(MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/svg+xml"))
+        XCTAssertEqual(MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/svg+xml"), "image/svg+xml")
+        XCTAssertEqual(
+            MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/svg+xml;charset=utf-8"),
+            "image/svg+xml"
+        )
         let ipv6RequestBytes = try XCTUnwrap(
             MarkdownRemoteImageSecurity.requestBytes(
                 for: try url("https://[2606:4700:4700::1111]/image.png"),
@@ -1123,6 +1127,7 @@ final class MarkdownPanelTests: XCTestCase {
             )
         )
         let ipv6Request = try XCTUnwrap(String(data: ipv6RequestBytes, encoding: .utf8))
+        XCTAssertTrue(ipv6Request.contains("image/svg+xml"))
         XCTAssertTrue(ipv6Request.contains("\r\nHost: [2606:4700:4700::1111]\r\n"))
     }
 
