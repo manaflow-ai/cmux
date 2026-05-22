@@ -9133,9 +9133,9 @@ final class Workspace: Identifiable, ObservableObject {
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
                 invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            case .some(.awaitingAutoResumeCommand):
-                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            case .some(.manualResumeAvailable), nil:
+            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), nil:
+                // The first prompt can arrive before Ghostty's initialInput runs.
+                // Wait until commandRunning has been observed before treating promptIdle as completion.
                 break
             }
         case .unknown:

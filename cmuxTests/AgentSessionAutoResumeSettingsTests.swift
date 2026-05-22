@@ -381,7 +381,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testPendingAgentHookResumeBindingClearsWhenStartupReturnsToPrompt() throws {
+    func testPendingAgentHookResumeBindingSurvivesStartupPromptBeforeCommandRuns() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
@@ -393,9 +393,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                     SurfaceResumeBindingSnapshot(
                         name: "Codex",
                         kind: "codex",
-                        command: "codex resume failed-startup-session",
+                        command: "codex resume prompt-before-command-session",
                         cwd: "/tmp/repo",
-                        checkpointId: "failed-startup-session",
+                        checkpointId: "prompt-before-command-session",
                         source: "agent-hook",
                         autoResume: true,
                         updatedAt: 1_777_777_777
@@ -406,7 +406,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             source.setRestoredAgentSnapshotForTesting(
                 SessionRestorableAgentSnapshot(
                     kind: .codex,
-                    sessionId: "failed-startup-session",
+                    sessionId: "prompt-before-command-session",
                     workingDirectory: "/tmp/repo"
                 ),
                 panelId: sourcePanelId
@@ -419,11 +419,14 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 restorableAgentIndex: .empty
             )
 
-            XCTAssertNil(snapshot.panels.first?.terminal?.agent)
-            XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
-            XCTAssertNil(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId))
-            XCTAssertNil(source.surfaceResumeBinding(panelId: sourcePanelId))
-            XCTAssertFalse(source.restoredAgentAutoResumePendingForTesting(panelId: sourcePanelId))
+            XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.sessionId, "prompt-before-command-session")
+            XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "prompt-before-command-session")
+            XCTAssertEqual(
+                source.restoredAgentSnapshotForTesting(panelId: sourcePanelId)?.sessionId,
+                "prompt-before-command-session"
+            )
+            XCTAssertEqual(source.surfaceResumeBinding(panelId: sourcePanelId)?.checkpointId, "prompt-before-command-session")
+            XCTAssertTrue(source.restoredAgentAutoResumePendingForTesting(panelId: sourcePanelId))
         }
     }
 
