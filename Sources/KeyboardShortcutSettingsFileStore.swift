@@ -1329,6 +1329,19 @@ final class CmuxSettingsFileStore {
            ) as? Bool {
             imported[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(legacyValue)
         }
+        if imported[QuitWarningSettings.confirmQuitKey] == nil,
+           case .bool(let importedLegacyValue)? = imported[QuitWarningSettings.warnBeforeQuitKey] {
+            imported[QuitWarningSettings.confirmQuitKey] = .string(
+                (importedLegacyValue ? QuitConfirmationMode.always : .never).rawValue
+            )
+            if defaults.object(forKey: QuitWarningSettings.confirmQuitKey) == nil,
+               let currentLegacyValue = defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool {
+                defaults.set(
+                    (currentLegacyValue ? QuitConfirmationMode.always : .never).rawValue,
+                    forKey: QuitWarningSettings.confirmQuitKey
+                )
+            }
+        }
         return imported
     }
 

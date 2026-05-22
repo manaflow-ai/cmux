@@ -721,6 +721,53 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testLegacyWarnBeforeQuitMigrationPreservesUserOverride() throws {
+        let defaults = UserDefaults.standard
+        let confirmQuitKey = QuitWarningSettings.confirmQuitKey
+        let warnBeforeQuitKey = QuitWarningSettings.warnBeforeQuitKey
+
+        try preservingDefaults(keys: [
+            confirmQuitKey,
+            warnBeforeQuitKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: confirmQuitKey)
+            defaults.set(true, forKey: warnBeforeQuitKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.set(
+                Data(#"{"warnBeforeQuitShortcut":{"bool":{"_0":false}}}"#.utf8),
+                forKey: importedManagedDefaultsKey
+            )
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "warnBeforeQuit": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: confirmQuitKey), QuitConfirmationMode.always.rawValue)
+            XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, true)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+        }
+    }
+
     func testInvalidConfirmQuitDoesNotAbortRemainingAppSettings() throws {
         let defaults = UserDefaults.standard
         let confirmQuitKey = QuitWarningSettings.confirmQuitKey
