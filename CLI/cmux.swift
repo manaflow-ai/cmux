@@ -19859,13 +19859,15 @@ struct CMUXCLI {
         return terminalTurnIds
     }
 
-    private func codexTranscriptHasTerminalEventExcluding(path: String, turnId: String) -> Bool {
+    private func codexTranscriptLatestTurnHasTerminalEventExcluding(path: String, turnId: String) -> Bool {
         guard let excludedTurnId = normalizedHookValue(turnId),
               let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
             return false
         }
 
         var currentTurnId: String?
+        var latestTurnId: String?
+        var latestTurnIsTerminal = false
         for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
@@ -19878,6 +19880,8 @@ struct CMUXCLI {
             if objectType == "turn_context",
                let payload = object["payload"] as? [String: Any] {
                 currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                latestTurnId = currentTurnId
+                latestTurnIsTerminal = false
                 continue
             }
 
@@ -19889,6 +19893,8 @@ struct CMUXCLI {
 
             if eventType == "task_started" {
                 currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                latestTurnId = currentTurnId
+                latestTurnIsTerminal = false
                 continue
             }
 
@@ -19897,15 +19903,14 @@ struct CMUXCLI {
                 guard let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId else {
                     continue
                 }
-                if payloadTurnId != excludedTurnId {
-                    return true
-                }
+                latestTurnId = payloadTurnId
+                latestTurnIsTerminal = true
             default:
                 break
             }
         }
 
-        return false
+        return latestTurnIsTerminal && latestTurnId != excludedTurnId
     }
 
     private func readCodexTranscriptUserInput(
@@ -24551,7 +24556,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                let incomingTurnId = normalizedHookValue(input.turnId),
                let transcriptPath = normalizedHookValue(transcriptPathForStore)
                    ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
-                previousDepthOnlyPromptTurnIsTerminal = codexTranscriptHasTerminalEventExcluding(
+                previousDepthOnlyPromptTurnIsTerminal = codexTranscriptLatestTurnHasTerminalEventExcluding(
                     path: transcriptPath,
                     turnId: incomingTurnId
                 )
