@@ -2,8 +2,59 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import Combine
+import Darwin
 import Foundation
+import os
 import SQLite3
+
+nonisolated private let sessionIndexLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "SessionIndexStore"
+)
+
+/// Locked cancellation state shared by synchronous `Process` callbacks.
+/// `onCancel` cannot await an actor, so mutable state stays behind `lock`.
+final class SessionIndexRipgrepCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private let sendSignal: @Sendable (pid_t, Int32) -> Int32
+    private var activeProcessIdentifier: pid_t?
+    private var finishedProcessIdentifier: pid_t?
+
+    init(sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32 = Darwin.kill) {
+        self.sendSignal = sendSignal
+    }
+
+    func markStarted(processIdentifier: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if finishedProcessIdentifier == processIdentifier {
+            activeProcessIdentifier = nil
+        } else {
+            activeProcessIdentifier = processIdentifier
+        }
+    }
+
+    func markFinished(processIdentifier: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        finishedProcessIdentifier = processIdentifier
+        if activeProcessIdentifier == processIdentifier {
+            activeProcessIdentifier = nil
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        let processIdentifier = activeProcessIdentifier
+        activeProcessIdentifier = nil
+        lock.unlock()
+
+        guard let processIdentifier else { return }
+        _ = sendSignal(processIdentifier, SIGTERM)
+    }
+}
 
 // MARK: - Parsed metadata cache
 
@@ -1087,6 +1138,12 @@ final class SessionIndexStore: ObservableObject {
                 let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
                 cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
                 registry = await Self.vaultAgentRegistry(workingDirectory: cwdFilter)
+            } else if a == .grok {
+                let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+                cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
+                registry = await Self.vaultAgentRegistry(
+                    workingDirectory: cwdFilter
+                )
             } else {
                 cwdFilter = nil
                 registry = CmuxVaultAgentRegistry(registrations: [])
@@ -1191,6 +1248,14 @@ final class SessionIndexStore: ObservableObject {
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .grok:
+            return await loadGrokEntries(
+                registration: registry.registration(id: "grok") ?? .builtInGrok,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit
+            )
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .hermesAgent: return loadHermesAgentEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
@@ -1208,41 +1273,33 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
-    /// Path to `rg` (ripgrep), if installed. Resolved once. nil when not found —
-    /// the search code falls back to the Foundation substring scan.
-    nonisolated private static let cachedRipgrepPath: String? = {
-        let fm = FileManager.default
-        let common = [
-            "/opt/homebrew/bin/rg",
-            "/usr/local/bin/rg",
-            "/usr/bin/rg",
-            "/opt/local/bin/rg",
-        ]
-        for path in common where fm.isExecutableFile(atPath: path) {
-            return path
+    /// Path to `rg` (ripgrep), if installed. nil when not found — the search
+    /// code falls back to the Foundation substring scan.
+    nonisolated private static func resolvedRipgrepPath() -> String? {
+        switch RipgrepExecutableResolver.resolution() {
+        case .found(let executable):
+            return executable.url.path
+        case .configuredPathNotExecutable(let path):
+            sessionIndexLogger.warning(
+                "Configured ripgrep path is not executable; falling back to Foundation session search: \(path, privacy: .public)"
+            )
+            return nil
+        case .notFound:
+            return nil
         }
-        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
-            for dir in pathEnv.split(separator: ":") {
-                let full = String(dir) + "/rg"
-                if fm.isExecutableFile(atPath: full) { return full }
-            }
-        }
-        return nil
-    }()
+    }
 
     /// Run `rg --files-with-matches --ignore-case --fixed-strings` for `needle`
     /// under `root`, restricted to `glob` (e.g. `*.jsonl`). Returns matched file
     /// URLs, or nil if rg isn't available or the run failed (caller falls back).
     ///
     /// Async by design so we can wire cancellation: when the awaiting Task is
-    /// cancelled (e.g. user types another key), `onCancel` calls
-    /// `process.terminate()`, killing the in-flight rg instead of letting it
-    /// grind to completion. Wait is also async (via `terminationHandler`) so we
-    /// don't tie up a cooperative-pool thread on `waitUntilExit`.
+    /// cancelled (e.g. user types another key), `onCancel` signals the launched
+    /// rg process instead of letting it grind to completion.
     nonisolated static func ripgrepMatchingPaths(
-        needle: String, root: String, fileGlob: String
+        needle: String, root: String, fileGlob: String, ripgrepPath: String? = nil
     ) async -> [URL]? {
-        guard let rg = cachedRipgrepPath else { return nil }
+        guard let rg = ripgrepPath ?? resolvedRipgrepPath() else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: rg)
         process.arguments = [
@@ -1263,9 +1320,23 @@ final class SessionIndexStore: ObservableObject {
         if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
             process.standardError = nullDev
         }
+        let cancellation = SessionIndexRipgrepCancellation()
+        process.terminationHandler = { process in
+            cancellation.markFinished(processIdentifier: process.processIdentifier)
+        }
 
         return await withTaskCancellationHandler {
-            do { try process.run() } catch { return nil as [URL]? }
+            guard !Task.isCancelled else { return [] }
+            do {
+                try process.run()
+            } catch {
+                if Task.isCancelled { return [] }
+                return nil as [URL]?
+            }
+            cancellation.markStarted(processIdentifier: process.processIdentifier)
+            if Task.isCancelled {
+                cancellation.cancel()
+            }
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes
             // more than the ~64 KB pipe buffer; reading until EOF lets rg
             // make progress and EOF arrives when rg closes its stdout on exit.
@@ -1276,6 +1347,8 @@ final class SessionIndexStore: ObservableObject {
             // late and never fires → deadlock.)
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
+            cancellation.markFinished(processIdentifier: process.processIdentifier)
+            if Task.isCancelled { return [] }
             // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
             switch process.terminationStatus {
             case 0:
@@ -1288,10 +1361,10 @@ final class SessionIndexStore: ObservableObject {
                 return nil
             }
         } onCancel: {
-            // Fires synchronously when the awaiting Task is cancelled. Sends
-            // SIGTERM to rg, which closes stdout, lets readDataToEndOfFile
-            // return, and unblocks the body so this call can complete cleanly.
-            process.terminate()
+            // Fires synchronously when the awaiting Task is cancelled. SIGTERM
+            // closes stdout, lets readDataToEndOfFile return, and unblocks the
+            // body so this call can complete cleanly.
+            cancellation.cancel()
         }
     }
 

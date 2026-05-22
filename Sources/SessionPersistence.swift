@@ -280,6 +280,10 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         source == "agent-hook"
     }
 
+    var isCLIBinding: Bool {
+        source == "cli"
+    }
+
     var allowsAutomaticResume: Bool {
         autoResume == true
     }
@@ -697,6 +701,62 @@ enum SurfaceResumeApprovalStore {
         return effective
     }
 
+    static func shouldPromptForProposal(
+        binding: SurfaceResumeBindingSnapshot,
+        existingRecord: SurfaceResumeApprovalRecord?,
+        isMainThread: Bool,
+        isRunningTests: Bool
+    ) -> Bool {
+        guard isMainThread else {
+            return false
+        }
+        guard !isRunningTests else {
+            return false
+        }
+        guard !binding.isCLIBinding else {
+            return false
+        }
+        guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
+            return false
+        }
+        guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {
+            return false
+        }
+        guard let existingRecord else { return true }
+        return existingRecord.policy == .prompt
+    }
+
+    static func applyingPromptlessCLIManualApprovalIfNeeded(
+        to binding: SurfaceResumeBindingSnapshot,
+        existingRecord: SurfaceResumeApprovalRecord?,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard binding.isCLIBinding, existingRecord == nil else {
+            return nil
+        }
+        guard let record = approve(
+            binding: binding,
+            policy: .manual,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        ) else {
+            return nil
+        }
+        var effectiveBinding = applyingStoredApproval(
+            to: binding,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        )
+        effectiveBinding.approvalPolicy = record.policy
+        effectiveBinding.approvalRecordId = record.id
+        effectiveBinding.autoResume = record.policy == .auto
+        return effectiveBinding
+    }
+
     @discardableResult
     static func approve(
         binding: SurfaceResumeBindingSnapshot,
@@ -983,6 +1043,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
     var resumeBinding: SurfaceResumeBindingSnapshot?
+    /// Whether the agent process was actively running when this snapshot was captured.
+    /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
+    var wasAgentRunning: Bool?
 
     init(
         workingDirectory: String? = nil,
@@ -990,7 +1053,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
-        resumeBinding: SurfaceResumeBindingSnapshot? = nil
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        wasAgentRunning: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.terminalSessionId = terminalSessionId
@@ -998,6 +1062,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
         self.resumeBinding = resumeBinding
+        self.wasAgentRunning = wasAgentRunning
     }
 }
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
@@ -1021,6 +1086,66 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     var mode: RightSidebarMode
 }
 
+struct SessionNotificationSnapshot: Codable, Sendable {
+    var id: UUID
+    var title: String
+    var subtitle: String
+    var body: String
+    var createdAt: TimeInterval
+    var isRead: Bool
+    var paneFlash: Bool?
+    var clickAction: TerminalNotificationClickAction?
+
+    init(
+        id: UUID,
+        title: String,
+        subtitle: String,
+        body: String,
+        createdAt: TimeInterval,
+        isRead: Bool,
+        paneFlash: Bool? = nil,
+        clickAction: TerminalNotificationClickAction? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.createdAt = createdAt
+        self.isRead = isRead
+        self.paneFlash = paneFlash
+        self.clickAction = clickAction
+    }
+
+    init(notification: TerminalNotification) {
+        self.init(
+            id: notification.id,
+            title: notification.title,
+            subtitle: notification.subtitle,
+            body: notification.body,
+            createdAt: notification.createdAt.timeIntervalSince1970,
+            isRead: notification.isRead,
+            paneFlash: notification.paneFlash,
+            clickAction: notification.clickAction
+        )
+    }
+
+    func terminalNotification(tabId: UUID, surfaceId: UUID?, panelId: UUID?) -> TerminalNotification {
+        TerminalNotification(
+            id: id,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            createdAt: Date(timeIntervalSince1970: createdAt),
+            isRead: isRead,
+            paneFlash: paneFlash ?? true,
+            clickAction: clickAction
+        )
+    }
+}
+
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
     var type: PanelType
@@ -1030,6 +1155,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var isPinned: Bool
     var isManuallyUnread: Bool
     var hasUnreadIndicator: Bool? = nil
+    var notifications: [SessionNotificationSnapshot]? = nil
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
     var ttyName: String?
@@ -1119,6 +1245,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var isPinned: Bool
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
+    var notifications: [SessionNotificationSnapshot]? = nil
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
     var focusedPanelId: UUID?

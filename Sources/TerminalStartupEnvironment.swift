@@ -38,6 +38,15 @@ extension TerminalSurface {
         protectedKeys.insert("CMUX_TERMINAL_SESSION_ID")
     }
 
+    static func applyManagedGitWatchEnvironment(
+        watchGitStatusEnabled: Bool,
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>
+    ) {
+        environment["CMUX_NO_GIT_WATCH"] = watchGitStatusEnabled ? "" : "1"
+        protectedKeys.insert("CMUX_NO_GIT_WATCH")
+    }
+
     static func mergedStartupEnvironment(
         base: [String: String],
         protectedKeys: Set<String>,
