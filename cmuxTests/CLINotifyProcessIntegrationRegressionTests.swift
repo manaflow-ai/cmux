@@ -749,6 +749,67 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexStopWithNewTurnIdPopsAnonymousDepthUnderKnownParent() throws {
+        let context = try makeClaudeHookContext(name: "codex-anonymous-depth-turn-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "anonymous-depth-turn-stop-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"parent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+
+        let anonymousChildPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"anonymous child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(anonymousChildPrompt.timedOut, anonymousChildPrompt.stderr)
+        XCTAssertEqual(anonymousChildPrompt.status, 0, anonymousChildPrompt.stderr)
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "The child Stop should pop anonymous depth without notifying, saw \(childStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The parent Stop must still notify after a child Stop supplies a new turn_id, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "The parent Stop must still mark Codex idle after a child Stop supplies a new turn_id, saw \(parentStopCommands)"
+        )
+    }
+
     func testCodexStopAfterInterruptedPriorTurnStillNotifies() throws {
         let context = try makeClaudeHookContext(name: "codex-interrupted-turn-depth")
         defer { context.cleanup() }
