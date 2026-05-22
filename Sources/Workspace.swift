@@ -13649,9 +13649,7 @@ final class Workspace: Identifiable, ObservableObject {
            panelSubscriptions[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)
         }
-        let didAdoptWorkspaceRemoteTracking =
-            detached.isRemoteTerminal
-            && detached.remoteRelayPort == remoteConfiguration?.relayPort
+        let didAdoptWorkspaceRemoteTracking = shouldAdoptDetachedWorkspaceRemoteTracking(detached)
         if didAdoptWorkspaceRemoteTracking,
            let remotePTYSessionID = normalizedRemotePTYSessionID(detached.remotePTYSessionID) {
             remotePTYSessionIDsByPanelId[detached.panelId] = remotePTYSessionID
@@ -13696,6 +13694,18 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         return detached.panelId
+    }
+
+    private func shouldAdoptDetachedWorkspaceRemoteTracking(_ detached: DetachedSurfaceTransfer) -> Bool {
+        guard detached.isRemoteTerminal else { return false }
+        if detached.sourceWorkspaceId == id { return true }
+        guard let detachedRelayPort = detached.remoteRelayPort,
+              detachedRelayPort > 0,
+              let currentRelayPort = remoteConfiguration?.relayPort,
+              currentRelayPort > 0 else {
+            return false
+        }
+        return detachedRelayPort == currentRelayPort
     }
     // MARK: - Focus Management
 

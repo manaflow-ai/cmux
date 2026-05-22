@@ -1544,6 +1544,75 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testDetachAttachDoesNotAdoptPersistentPTYSessionIDAcrossNilRelayWorkspaces() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let sourceConfig = WorkspaceRemoteConfiguration(
+            destination: "source-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        let destinationConfig = WorkspaceRemoteConfiguration(
+            destination: "destination-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        source.configureRemoteConnection(sourceConfig, autoConnect: false)
+        destination.configureRemoteConnection(destinationConfig, autoConnect: false)
+
+        let initialSourcePanelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
+        let sourcePaneID = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
+        let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        let sessionID = "source-only-pty-session"
+        let movedPanel = try XCTUnwrap(
+            source.newTerminalSurface(
+                inPane: sourcePaneID,
+                focus: true,
+                initialCommand: "cmux ssh-pty-attach",
+                remotePTYSessionID: sessionID
+            )
+        )
+        XCTAssertTrue(source.closePanel(initialSourcePanelID, force: true))
+        XCTAssertTrue(source.isRemoteTerminalSurface(movedPanel.id))
+
+        let detached = try XCTUnwrap(source.detachSurface(panelId: movedPanel.id))
+        XCTAssertNil(detached.remoteRelayPort)
+        XCTAssertEqual(detached.remotePTYSessionID, sessionID)
+        XCTAssertEqual(detached.remoteCleanupConfiguration?.destination, "source-host")
+
+        let restoredPanelID = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        )
+
+        XCTAssertEqual(restoredPanelID, movedPanel.id)
+        XCTAssertFalse(destination.isRemoteTerminalSurface(movedPanel.id))
+        XCTAssertEqual(
+            destination.transferredRemoteCleanupConfigurationsByPanelId[movedPanel.id]?.destination,
+            "source-host"
+        )
+        let snapshot = destination.sessionSnapshot(includeScrollback: false)
+        XCTAssertNil(snapshot.panels.first { $0.id == movedPanel.id }?.terminal?.remotePTYSessionID)
+    }
+
+    @MainActor
     func testExplicitRemotePTYSessionSurfaceTracksRemoteTerminalWithoutDefaultStartup() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
