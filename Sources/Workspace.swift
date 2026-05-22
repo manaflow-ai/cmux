@@ -8726,6 +8726,7 @@ final class Workspace: Identifiable, ObservableObject {
         ).isEmpty
     }
 
+    @MainActor
     func requestBackgroundPrimeTerminalSurfaceStartIfNeeded(includeIdleTerminals: Bool = false) {
         backgroundPrimeTerminalPanelsNeedingSurfaceStart(includeIdleTerminals: includeIdleTerminals).forEach {
             $0.surface.ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: "workspace.backgroundPrime")
