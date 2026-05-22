@@ -7933,8 +7933,6 @@ struct ContentView: View {
         }
         environment.removeValue(forKey: "CMUX_SOCKET")
         process.environment = environment
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
 
         do {
             try process.run()
