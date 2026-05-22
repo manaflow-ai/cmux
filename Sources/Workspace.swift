@@ -14050,26 +14050,27 @@ extension Workspace: BonsplitDelegate {
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
         if reassertAppKitFocus, let terminalPanel = panel as? TerminalPanel {
-            if shouldMoveTerminalSurfaceFocus(for: activationIntent),
-               !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+            if shouldMoveTerminalSurfaceFocus(for: activationIntent) {
+                if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
 #if DEBUG
-                let previousExists = previousTerminalHostedView != nil ? 1 : 0
+                    let previousExists = previousTerminalHostedView != nil ? 1 : 0
+                    cmuxDebugLog(
+                        "focus.split.moveFocus workspace=\(id.uuidString.prefix(5)) " +
+                        "panel=\(panelId.uuidString.prefix(5)) previousExists=\(previousExists) " +
+                        "to=\(panelId.uuidString.prefix(5))"
+                    )
+#endif
+                    terminalPanel.hostedView.moveFocus(from: previousTerminalHostedView)
+                }
+#if DEBUG
                 cmuxDebugLog(
-                    "focus.split.moveFocus workspace=\(id.uuidString.prefix(5)) " +
-                    "panel=\(panelId.uuidString.prefix(5)) previousExists=\(previousExists) " +
-                    "to=\(panelId.uuidString.prefix(5))"
+                    "focus.split.ensureFocus workspace=\(id.uuidString.prefix(5)) " +
+                    "panel=\(panelId.uuidString.prefix(5)) pane=\(focusedPane.id.uuidString.prefix(5)) " +
+                    "tab=\(selectedTabId.uuid.uuidString.prefix(5)) intent=\(String(describing: activationIntent))"
                 )
 #endif
-                terminalPanel.hostedView.moveFocus(from: previousTerminalHostedView)
+                terminalPanel.hostedView.ensureFocus(for: id, surfaceId: panelId)
             }
-#if DEBUG
-            cmuxDebugLog(
-                "focus.split.ensureFocus workspace=\(id.uuidString.prefix(5)) " +
-                "panel=\(panelId.uuidString.prefix(5)) pane=\(focusedPane.id.uuidString.prefix(5)) " +
-                "tab=\(selectedTabId.uuid.uuidString.prefix(5)) intent=\(String(describing: activationIntent))"
-            )
-#endif
-            terminalPanel.hostedView.ensureFocus(for: id, surfaceId: panelId)
         }
 
         if shouldRestoreFocusIntentAfterActivation(activationIntent) {
