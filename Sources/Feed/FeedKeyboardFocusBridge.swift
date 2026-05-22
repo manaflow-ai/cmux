@@ -65,7 +65,11 @@ final class FeedKeyboardFocusView: NSView {
             return
         }
         guard registeredWindow !== window else { return }
-        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFeedHost(self)
+        guard let coordinator = AppDelegate.shared?.keyboardFocusCoordinator(for: window) else {
+            registeredWindow = nil
+            return
+        }
+        coordinator.registerFeedHost(self)
         registeredWindow = window
     }
 
