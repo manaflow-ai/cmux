@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: generic Claude permission notifications should use Feed context."""
+"""Regression: generic Claude notifications should use Feed context."""
 
 from __future__ import annotations
 
@@ -151,7 +151,6 @@ def main() -> int:
 
     workspace_id = str(uuid.uuid4()).upper()
     surface_id = str(uuid.uuid4()).upper()
-    session_id = f"sess-{uuid.uuid4().hex}"
 
     with CapturingSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
         env = os.environ.copy()
@@ -162,69 +161,116 @@ def main() -> int:
         env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        permission_payload = {
-            "session_id": session_id,
-            "hook_event_name": "PermissionRequest",
-            "cwd": "/Users/lawrence/fun/cmuxterm-hq",
-            "tool_name": "Bash",
-            "tool_input": {
-                "command": "rm -rf .build",
-                "description": "Remove stale build artifacts",
+        cases = [
+            {
+                "name": "permission",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": "/Users/lawrence/fun/cmuxterm-hq",
+                    "tool_name": "Bash",
+                    "tool_input": {
+                        "command": "rm -rf .build",
+                        "description": "Remove stale build artifacts",
+                    },
+                },
+                "notification_message": "Claude needs your permission",
+                "expected": "Claude Code|Permission|Bash: Remove stale build artifacts",
             },
-        }
-        feed_proc = subprocess.run(
-            [cli_path, "--socket", server.socket_path, "hooks", "feed", "--source", "claude"],
-            input=json.dumps(permission_payload),
-            text=True,
-            capture_output=True,
-            env=env,
-            timeout=8,
-            check=False,
-        )
-        if feed_proc.returncode != 0:
-            print("FAIL: hooks feed failed")
-            print(f"stdout={feed_proc.stdout!r}")
-            print(f"stderr={feed_proc.stderr!r}")
-            print(f"commands={server.commands!r}")
-            return 1
+            {
+                "name": "exit plan",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": "/Users/lawrence/fun/cmuxterm-hq",
+                    "tool_name": "ExitPlanMode",
+                    "tool_input": {
+                        "plan": "1. Improve notification summaries\n2. Simulate Claude hook flows",
+                    },
+                },
+                "notification_message": "Claude needs your permission",
+                "expected": "Claude Code|Exit plan|Improve notification summaries",
+            },
+            {
+                "name": "question",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": "/Users/lawrence/fun/cmuxterm-hq",
+                    "tool_name": "AskUserQuestion",
+                    "tool_input": {
+                        "questions": [
+                            {
+                                "header": "Choose style",
+                                "question": "Which notification style should cmux use?",
+                                "options": [
+                                    {"label": "Detailed"},
+                                    {"label": "Compact"},
+                                ],
+                            }
+                        ],
+                    },
+                },
+                "notification_message": "Claude needs your input",
+                "expected": "Claude Code|Question|Which notification style should cmux use? [Detailed] [Compact]",
+            },
+        ]
 
-        notification_payload = {
-            "session_id": session_id,
-            "hook_event_name": "Notification",
-            "message": "Claude needs your permission",
-        }
-        notification_proc = subprocess.run(
-            [cli_path, "--socket", server.socket_path, "claude-hook", "notification"],
-            input=json.dumps(notification_payload),
-            text=True,
-            capture_output=True,
-            env=env,
-            timeout=8,
-            check=False,
-        )
-        if notification_proc.returncode != 0:
-            print("FAIL: claude-hook notification failed")
-            print(f"stdout={notification_proc.stdout!r}")
-            print(f"stderr={notification_proc.stderr!r}")
-            print(f"commands={server.commands!r}")
-            return 1
+        for case in cases:
+            session_id = f"sess-{uuid.uuid4().hex}"
+            feed_payload = dict(case["feed_payload"])
+            feed_payload["session_id"] = session_id
+            feed_proc = subprocess.run(
+                [cli_path, "--socket", server.socket_path, "hooks", "feed", "--source", "claude"],
+                input=json.dumps(feed_payload),
+                text=True,
+                capture_output=True,
+                env=env,
+                timeout=8,
+                check=False,
+            )
+            if feed_proc.returncode != 0:
+                print(f"FAIL: hooks feed failed for {case['name']}")
+                print(f"stdout={feed_proc.stdout!r}")
+                print(f"stderr={feed_proc.stderr!r}")
+                print(f"commands={server.commands!r}")
+                return 1
 
-        notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
-        if not notify_commands:
-            print("FAIL: expected notify_target_async command")
-            print(f"commands={server.commands!r}")
-            return 1
+            before_count = len([line for line in server.commands if line.startswith("notify_target_async ")])
+            notification_payload = {
+                "session_id": session_id,
+                "hook_event_name": "Notification",
+                "message": case["notification_message"],
+            }
+            notification_proc = subprocess.run(
+                [cli_path, "--socket", server.socket_path, "claude-hook", "notification"],
+                input=json.dumps(notification_payload),
+                text=True,
+                capture_output=True,
+                env=env,
+                timeout=8,
+                check=False,
+            )
+            if notification_proc.returncode != 0:
+                print(f"FAIL: claude-hook notification failed for {case['name']}")
+                print(f"stdout={notification_proc.stdout!r}")
+                print(f"stderr={notification_proc.stderr!r}")
+                print(f"commands={server.commands!r}")
+                return 1
 
-        notify = notify_commands[-1]
-        expected_payload = f"notify_target_async {workspace_id} {surface_id} Claude Code|Permission|Bash: Remove stale build artifacts"
-        if notify != expected_payload:
-            print("FAIL: permission notification should include the pending tool detail")
-            print(f"expected={expected_payload!r}")
-            print(f"actual={notify!r}")
-            print(f"commands={server.commands!r}")
-            return 1
+            notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
+            if len(notify_commands) <= before_count:
+                print(f"FAIL: expected notify_target_async command for {case['name']}")
+                print(f"commands={server.commands!r}")
+                return 1
 
-    print("PASS: Claude permission notification includes pending tool detail")
+            notify = notify_commands[-1]
+            expected_payload = f"notify_target_async {workspace_id} {surface_id} {case['expected']}"
+            if notify != expected_payload:
+                print(f"FAIL: notification should include {case['name']} detail")
+                print(f"expected={expected_payload!r}")
+                print(f"actual={notify!r}")
+                print(f"commands={server.commands!r}")
+                return 1
+
+    print("PASS: Claude notifications include permission, plan, and question details")
     return 0
 
 
