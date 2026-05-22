@@ -26,6 +26,12 @@ struct BrowserWebExtensionActionSnapshot: Identifiable, Equatable, Sendable {
     let label: String
     let badgeText: String
     let isEnabled: Bool
+    let iconPNGData: Data?
+}
+
+private struct BrowserWebExtensionActivePopupState: Equatable {
+    let presentationID: UUID
+    let actionID: UUID
 }
 
 func browserWebExtensionAuxiliaryWindowContentRect(
@@ -72,52 +78,58 @@ func browserWebExtensionActionPopupContentSize(
     return CGSize(width: width, height: height)
 }
 
-func browserWebExtensionActionPopupClampedMidX(
-    anchorMidX: CGFloat,
-    allowedFrame: NSRect,
-    popupWidth: CGFloat,
-    horizontalFrameReserve: CGFloat = 48
-) -> CGFloat {
-    guard allowedFrame.width > 0 else {
-        return anchorMidX
-    }
+@available(macOS 15.4, *)
+@MainActor
+private func browserWebExtensionActionIconPNGData(
+    for action: WKWebExtension.Action,
+    pointSize: CGFloat = 18
+) -> Data? {
+    let targetSize = CGSize(width: pointSize, height: pointSize)
+    guard let icon = action.icon(for: targetSize) else { return nil }
 
-    let effectiveWidth = min(max(popupWidth + horizontalFrameReserve, 1), allowedFrame.width)
-    let minMidX = allowedFrame.minX + effectiveWidth / 2
-    let maxMidX = allowedFrame.maxX - effectiveWidth / 2
-    return min(max(anchorMidX, minMidX), maxMidX)
+    let renderedIcon = NSImage(size: targetSize)
+    renderedIcon.lockFocus()
+    NSGraphicsContext.current?.imageInterpolation = .high
+    icon.draw(
+        in: NSRect(origin: .zero, size: targetSize),
+        from: NSRect(origin: .zero, size: icon.size),
+        operation: .copy,
+        fraction: 1
+    )
+    renderedIcon.unlockFocus()
+
+    guard let tiffData = renderedIcon.tiffRepresentation,
+          let bitmap = NSBitmapImageRep(data: tiffData)
+    else {
+        return nil
+    }
+    return bitmap.representation(using: .png, properties: [:])
 }
 
-func browserWebExtensionActionPopupPositioningRect(
-    positioningRect: NSRect,
-    positioningView: NSView,
-    popupWidth: CGFloat,
+func browserWebExtensionActionPopupWindowLayout(
+    anchorScreenRect: NSRect,
+    contentSize: CGSize,
+    allowedFrame: NSRect,
+    arrowHeight: CGFloat = 10,
     margin: CGFloat = 12,
-    horizontalFrameReserve: CGFloat = 48
-) -> NSRect {
-    guard let anchorWindow = positioningView.window else {
-        return positioningRect
-    }
-
-    let rectInWindow = positioningView.convert(positioningRect, to: nil)
-    let screenRect = anchorWindow.convertToScreen(rectInWindow)
-    let visibleFrame = anchorWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? screenRect
-    let hostFrame = anchorWindow.frame.intersection(visibleFrame)
-    let allowedFrame = (hostFrame.isNull || hostFrame.isEmpty ? visibleFrame : hostFrame)
-        .insetBy(dx: margin, dy: margin)
-    guard allowedFrame.width > 0 else {
-        return positioningRect
-    }
-
-    let clampedMidX = browserWebExtensionActionPopupClampedMidX(
-        anchorMidX: screenRect.midX,
-        allowedFrame: allowedFrame,
-        popupWidth: popupWidth,
-        horizontalFrameReserve: horizontalFrameReserve
+    minimumArrowInset: CGFloat = 16
+) -> (frame: NSRect, arrowMidX: CGFloat) {
+    let popupWidth = min(contentSize.width, max(1, allowedFrame.width - margin * 2))
+    let popupHeight = min(contentSize.height + arrowHeight, max(1, allowedFrame.height - margin * 2))
+    let minX = allowedFrame.minX + margin
+    let maxX = max(minX, allowedFrame.maxX - margin - popupWidth)
+    let desiredX = anchorScreenRect.midX - popupWidth / 2
+    let x = min(max(desiredX, minX), maxX)
+    let desiredY = anchorScreenRect.minY - popupHeight
+    let y = max(allowedFrame.minY + margin, desiredY)
+    let arrowMidX = min(
+        max(anchorScreenRect.midX - x, minimumArrowInset),
+        max(minimumArrowInset, popupWidth - minimumArrowInset)
     )
-    let adjustedScreenRect = screenRect.offsetBy(dx: clampedMidX - screenRect.midX, dy: 0)
-    let adjustedWindowRect = anchorWindow.convertFromScreen(adjustedScreenRect)
-    return positioningView.convert(adjustedWindowRect, from: nil)
+    return (
+        NSRect(x: x, y: y, width: popupWidth, height: popupHeight),
+        arrowMidX
+    )
 }
 
 func browserWebExtensionConfigureBaseWebViewConfiguration(
@@ -944,6 +956,11 @@ enum BrowserWebExtensionSupport {
         return BrowserWebExtensionRuntime.shared.actionSnapshots(for: panel)
     }
 
+    static func activeActionPopupSnapshot(for panel: BrowserPanel) -> BrowserWebExtensionActionSnapshot? {
+        guard #available(macOS 15.4, *) else { return nil }
+        return BrowserWebExtensionRuntime.shared.activeActionPopupSnapshot(for: panel)
+    }
+
     static func performAction(_ actionID: UUID, for panel: BrowserPanel) {
         guard #available(macOS 15.4, *) else { return }
         BrowserWebExtensionRuntime.shared.performAction(actionID, for: panel)
@@ -952,6 +969,11 @@ enum BrowserWebExtensionSupport {
     static func setActionPopupAnchorView(_ view: NSView?, forPanelID panelID: UUID) {
         guard #available(macOS 15.4, *) else { return }
         BrowserWebExtensionRuntime.shared.setActionPopupAnchorView(view, forPanelID: panelID)
+    }
+
+    static func noteActionPopupAnchorGeometryChanged(_ view: NSView, forPanelID panelID: UUID) {
+        guard #available(macOS 15.4, *) else { return }
+        BrowserWebExtensionRuntime.shared.noteActionPopupAnchorGeometryChanged(view, forPanelID: panelID)
     }
 
     static func installExtension(
@@ -1042,6 +1064,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private var auxiliaryWindowAdaptersByID: [UUID: BrowserWebExtensionAuxiliaryWindowAdapter] = [:]
     private var actionPopupPresentationsByID: [UUID: BrowserWebExtensionActionPopupPresentation] = [:]
     private var actionPopupAnchorViewsByPanelID: [UUID: BrowserWebExtensionWeakView] = [:]
+    private var actionPopupAnchorScreenRectsByPanelID: [UUID: NSRect] = [:]
+    private var activeActionPopupByPanelID: [UUID: BrowserWebExtensionActivePopupState] = [:]
     private var windowAdaptersByProfileID: [UUID: BrowserWebExtensionWindowAdapter] = [:]
     private var runtimePermissionPromptTasks: [UUID: Task<Void, Never>] = [:]
     private var runtimePermissionPromptDenyHandlers: [UUID: () -> Void] = [:]
@@ -1099,6 +1123,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     func unregister(panelID: UUID) {
         guard let adapter = tabAdaptersByPanelID.removeValue(forKey: panelID) else { return }
         actionPopupAnchorViewsByPanelID.removeValue(forKey: panelID)
+        actionPopupAnchorScreenRectsByPanelID.removeValue(forKey: panelID)
         controllersByProfileID[adapter.profileID]?.didCloseTab(adapter, windowIsClosing: false)
         postDidChange()
     }
@@ -1113,17 +1138,21 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     func actionSnapshots(for panel: BrowserPanel) -> [BrowserWebExtensionActionSnapshot] {
         guard let tab = tabAdaptersByPanelID[panel.id] else { return [] }
         return contextsByProfileID[panel.profileID, default: [:]].compactMap { recordID, context in
-            guard let action = context.action(for: tab) else { return nil }
-            return BrowserWebExtensionActionSnapshot(
-                id: recordID,
-                label: action.label,
-                badgeText: action.badgeText,
-                isEnabled: action.isEnabled
-            )
+            actionSnapshot(recordID: recordID, context: context, tab: tab)
         }
         .sorted {
             $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending
         }
+    }
+
+    func activeActionPopupSnapshot(for panel: BrowserPanel) -> BrowserWebExtensionActionSnapshot? {
+        guard let activePopup = activeActionPopupByPanelID[panel.id],
+              let tab = tabAdaptersByPanelID[panel.id],
+              let context = contextsByProfileID[panel.profileID]?[activePopup.actionID]
+        else {
+            return nil
+        }
+        return actionSnapshot(recordID: activePopup.actionID, context: context, tab: tab)
     }
 
     func performAction(_ actionID: UUID, for panel: BrowserPanel) {
@@ -1140,6 +1169,24 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             return
         }
         actionPopupAnchorViewsByPanelID[panelID] = BrowserWebExtensionWeakView(view)
+        updateActionPopupAnchorScreenRect(view, forPanelID: panelID)
+    }
+
+    func noteActionPopupAnchorGeometryChanged(_ view: NSView, forPanelID panelID: UUID) {
+        if actionPopupAnchorViewsByPanelID[panelID]?.view == nil {
+            actionPopupAnchorViewsByPanelID[panelID] = BrowserWebExtensionWeakView(view)
+        }
+        updateActionPopupAnchorScreenRect(view, forPanelID: panelID)
+    }
+
+    private func updateActionPopupAnchorScreenRect(_ view: NSView, forPanelID panelID: UUID) {
+        guard let window = view.window,
+              !view.bounds.isEmpty
+        else {
+            return
+        }
+        let rectInWindow = view.convert(view.bounds, to: nil)
+        actionPopupAnchorScreenRectsByPanelID[panelID] = window.convertToScreen(rectInWindow)
     }
 
     func notePanelPropertiesChanged(panel: BrowserPanel) {
@@ -1698,12 +1745,27 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     fileprivate func actionPopupDidClose(_ presentation: BrowserWebExtensionActionPopupPresentation) {
         actionPopupPresentationsByID.removeValue(forKey: presentation.id)
+        if let panelID = presentation.panelID,
+           activeActionPopupByPanelID[panelID]?.presentationID == presentation.id {
+            activeActionPopupByPanelID.removeValue(forKey: panelID)
+            postDidChange()
+        }
     }
 
     private func closeAllActionPopups() {
         let presentations = Array(actionPopupPresentationsByID.values)
         for presentation in presentations {
             presentation.close()
+        }
+        let closedPresentationIDs = Set(presentations.map(\.id))
+        let activePanelIDsToClear = activeActionPopupByPanelID.compactMap { panelID, state in
+            closedPresentationIDs.contains(state.presentationID) ? panelID : nil
+        }
+        for panelID in activePanelIDsToClear {
+            activeActionPopupByPanelID.removeValue(forKey: panelID)
+        }
+        if !activePanelIDsToClear.isEmpty {
+            postDidChange()
         }
         actionPopupPresentationsByID.removeAll()
     }
@@ -1713,36 +1775,68 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         completionHandler: @escaping (Error?) -> Void
     ) {
         let popupPopover = action.popupPopover
-        let fallbackAnchorView = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.webView
-            ?? activeTabAdapter()?.panel?.webView
+        let actionPanel = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel
+            ?? activeTabAdapter()?.panel
         guard action.isEnabled,
               action.presentsPopup,
               let popupWebView = action.popupWebView,
-              let fallbackAnchorView else {
+              let actionPanel,
+              let anchorWindow = actionPanel.webView.window
+        else {
             completionHandler(nil)
             return
         }
 #if DEBUG
         popupWebView.isInspectable = true
 #endif
-        let sourceAnchorView = actionPopupAnchorView(for: action) ?? fallbackAnchorView
-        let presentationAnchorView = sourceAnchorView.window?.contentView ?? sourceAnchorView
-        let rectInWindow = sourceAnchorView.convert(sourceAnchorView.bounds, to: nil)
-        let rect = presentationAnchorView.convert(rectInWindow, from: nil)
+        let anchorScreenRect = actionPopupAnchorScreenRect(
+            forPanelID: actionPanel.id,
+            fallbackView: actionPanel.webView
+        )
         closeAllActionPopups()
         let presentation = BrowserWebExtensionActionPopupPresentation(
             action: action,
+            panelID: actionPanel.id,
+            actionID: action.webExtensionContext.flatMap { recordID(for: $0, profileID: actionPanel.profileID) },
             popupWebView: popupWebView,
             requestedContentSize: popupPopover?.contentSize ?? .zero,
             runtime: self
         )
         actionPopupPresentationsByID[presentation.id] = presentation
         presentation.show(
-            relativeTo: rect,
-            of: presentationAnchorView,
-            preferredEdge: .maxY
+            anchorScreenRect: anchorScreenRect,
+            in: anchorWindow
         )
+        if let panelID = presentation.panelID,
+           let actionID = presentation.actionID {
+            activeActionPopupByPanelID[panelID] = BrowserWebExtensionActivePopupState(
+                presentationID: presentation.id,
+                actionID: actionID
+            )
+            postDidChange()
+        }
         completionHandler(nil)
+    }
+
+    private func actionSnapshot(
+        recordID: UUID,
+        context: WKWebExtensionContext,
+        tab: BrowserWebExtensionTabAdapter
+    ) -> BrowserWebExtensionActionSnapshot? {
+        guard let action = context.action(for: tab) else { return nil }
+        return BrowserWebExtensionActionSnapshot(
+            id: recordID,
+            label: action.label,
+            badgeText: action.badgeText,
+            isEnabled: action.isEnabled,
+            iconPNGData: browserWebExtensionActionIconPNGData(for: action)
+        )
+    }
+
+    private func recordID(for context: WKWebExtensionContext, profileID: UUID) -> UUID? {
+        contextsByProfileID[profileID]?.first { _, candidateContext in
+            candidateContext === context
+        }?.key
     }
 
     func webExtensionController(
@@ -1821,15 +1915,17 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         showActionPopup(action, completionHandler: completionHandler)
     }
 
-    private func actionPopupAnchorView(for action: WKWebExtension.Action) -> NSView? {
-        guard let panelID = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.id
-            ?? activeTabAdapter()?.panel?.id,
-            let view = actionPopupAnchorViewsByPanelID[panelID]?.view,
-            view.window != nil
-        else {
-            return nil
+    private func actionPopupAnchorScreenRect(forPanelID panelID: UUID, fallbackView: NSView) -> NSRect {
+        if let view = actionPopupAnchorViewsByPanelID[panelID]?.view,
+           view.window != nil {
+            updateActionPopupAnchorScreenRect(view, forPanelID: panelID)
         }
-        return view
+        if let screenRect = actionPopupAnchorScreenRectsByPanelID[panelID],
+           !screenRect.isEmpty {
+            return screenRect
+        }
+        let rectInWindow = fallbackView.convert(fallbackView.bounds, to: nil)
+        return fallbackView.window?.convertToScreen(rectInWindow) ?? rectInWindow
     }
 
     private func promptForRuntimePermission(
@@ -1923,55 +2019,116 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
 @available(macOS 15.4, *)
 @MainActor
-private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopoverDelegate, WKUIDelegate {
+private final class BrowserWebExtensionActionPopupWindow: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+@available(macOS 15.4, *)
+@MainActor
+private final class BrowserWebExtensionActionPopupFrameView: NSView {
+    let contentContainer = NSView()
+    var arrowMidX: CGFloat = 0 {
+        didSet {
+            needsDisplay = true
+        }
+    }
+    let arrowHeight: CGFloat = 10
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        contentContainer.wantsLayer = true
+        contentContainer.layer?.cornerRadius = 10
+        contentContainer.layer?.cornerCurve = .continuous
+        contentContainer.layer?.masksToBounds = true
+        addSubview(contentContainer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        contentContainer.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: bounds.width,
+            height: max(0, bounds.height - arrowHeight)
+        )
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let arrowHalfWidth: CGFloat = 9
+        let arrowBaseY = bounds.maxY - arrowHeight
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: arrowMidX, y: bounds.maxY))
+        path.line(to: NSPoint(x: arrowMidX - arrowHalfWidth, y: arrowBaseY))
+        path.line(to: NSPoint(x: arrowMidX + arrowHalfWidth, y: arrowBaseY))
+        path.close()
+        NSColor.windowBackgroundColor.withAlphaComponent(0.96).setFill()
+        path.fill()
+        NSColor.separatorColor.withAlphaComponent(0.8).setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+}
+
+@available(macOS 15.4, *)
+@MainActor
+private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSWindowDelegate, WKUIDelegate {
     let id = UUID()
-    private let popover = NSPopover()
-    private let contentViewController = NSViewController()
+    let panelID: UUID?
+    let actionID: UUID?
+    private let frameView = BrowserWebExtensionActionPopupFrameView()
     private let action: WKWebExtension.Action
     private let requestedContentSize: CGSize
     private let popupWebView: WKWebView
     private weak var previousUIDelegate: (any WKUIDelegate)?
     private weak var runtime: BrowserWebExtensionRuntime?
+    private weak var parentWindow: NSWindow?
+    private var popupWindow: BrowserWebExtensionActionPopupWindow?
     private var outsideClickMonitor: Any?
     private var didClosePopup = false
 
     init(
         action: WKWebExtension.Action,
+        panelID: UUID?,
+        actionID: UUID?,
         popupWebView: WKWebView,
         requestedContentSize: CGSize,
         runtime: BrowserWebExtensionRuntime
     ) {
         self.action = action
+        self.panelID = panelID
+        self.actionID = actionID
         self.popupWebView = popupWebView
         self.requestedContentSize = requestedContentSize
         self.previousUIDelegate = popupWebView.uiDelegate
         self.runtime = runtime
         super.init()
 
-        let containerView = NSView()
         popupWebView.removeFromSuperview()
         popupWebView.translatesAutoresizingMaskIntoConstraints = false
-        containerView.addSubview(popupWebView)
+        frameView.contentContainer.addSubview(popupWebView)
         NSLayoutConstraint.activate([
-            popupWebView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            popupWebView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            popupWebView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            popupWebView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
+            popupWebView.leadingAnchor.constraint(equalTo: frameView.contentContainer.leadingAnchor),
+            popupWebView.trailingAnchor.constraint(equalTo: frameView.contentContainer.trailingAnchor),
+            popupWebView.topAnchor.constraint(equalTo: frameView.contentContainer.topAnchor),
+            popupWebView.bottomAnchor.constraint(equalTo: frameView.contentContainer.bottomAnchor)
         ])
-        contentViewController.view = containerView
-        popover.contentViewController = contentViewController
-        popover.delegate = self
-        popover.behavior = .applicationDefined
-        popover.animates = false
         popupWebView.uiDelegate = self
     }
 
     func show(
-        relativeTo positioningRect: NSRect,
-        of positioningView: NSView,
-        preferredEdge: NSRectEdge
+        anchorScreenRect: NSRect,
+        in anchorWindow: NSWindow
     ) {
-        let visibleFrame = positioningView.window?.screen?.visibleFrame
+        let visibleFrame = anchorWindow.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? NSRect(origin: .zero, size: CGSize(width: 800, height: 600))
         let requestedSize = requestedContentSize.width > 0 || requestedContentSize.height > 0
@@ -1981,34 +2138,57 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopo
             requestedSize: requestedSize,
             visibleFrame: visibleFrame
         )
-        contentViewController.preferredContentSize = contentSize
-        contentViewController.view.setFrameSize(contentSize)
+        let hostFrame = anchorWindow.frame.intersection(visibleFrame)
+        let allowedFrame = hostFrame.isNull || hostFrame.isEmpty ? visibleFrame : hostFrame
+        let layout = browserWebExtensionActionPopupWindowLayout(
+            anchorScreenRect: anchorScreenRect,
+            contentSize: contentSize,
+            allowedFrame: allowedFrame,
+            arrowHeight: frameView.arrowHeight
+        )
+        frameView.arrowMidX = layout.arrowMidX
+        frameView.setFrameSize(layout.frame.size)
         popupWebView.setFrameSize(contentSize)
-        popover.contentSize = contentSize
-        let adjustedPositioningRect = browserWebExtensionActionPopupPositioningRect(
-            positioningRect: positioningRect,
-            positioningView: positioningView,
-            popupWidth: contentSize.width
+
+        let popupWindow = BrowserWebExtensionActionPopupWindow(
+            contentRect: layout.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
         )
-        popover.show(
-            relativeTo: adjustedPositioningRect,
-            of: positioningView,
-            preferredEdge: preferredEdge
-        )
+        popupWindow.isReleasedWhenClosed = false
+        popupWindow.isOpaque = false
+        popupWindow.backgroundColor = .clear
+        popupWindow.hasShadow = true
+        popupWindow.level = anchorWindow.level
+        popupWindow.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        popupWindow.contentView = frameView
+        popupWindow.delegate = self
+        popupWindow.setFrame(layout.frame, display: true)
+        anchorWindow.addChildWindow(popupWindow, ordered: .above)
+        popupWindow.makeKeyAndOrderFront(nil)
+        parentWindow = anchorWindow
+        self.popupWindow = popupWindow
         installOutsideClickMonitor()
     }
 
     func close() {
-        if popover.isShown {
-            popover.close()
-        } else {
-            closeWebExtensionPopupIfNeeded()
+        if let popupWindow {
+            self.popupWindow = nil
+            popupWindow.delegate = nil
+            parentWindow?.removeChildWindow(popupWindow)
+            popupWindow.close()
         }
+        closeWebExtensionPopupIfNeeded()
     }
 
-    func popoverDidClose(_ notification: Notification) {
+    func windowWillClose(_ notification: Notification) {
+        if let closingWindow = notification.object as? NSWindow,
+           popupWindow === closingWindow {
+            popupWindow = nil
+            parentWindow?.removeChildWindow(closingWindow)
+        }
         closeWebExtensionPopupIfNeeded()
-        runtime?.actionPopupDidClose(self)
     }
 
     func webViewDidClose(_ webView: WKWebView) {
@@ -2019,8 +2199,7 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopo
         removeOutsideClickMonitor()
         outsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self,
-                  self.popover.isShown,
-                  let popupWindow = self.contentViewController.view.window
+                  let popupWindow = self.popupWindow
             else {
                 return event
             }
@@ -2051,6 +2230,7 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopo
         didClosePopup = true
         removeOutsideClickMonitor()
         restorePopupUIDelegate()
+        runtime?.actionPopupDidClose(self)
         action.closePopup()
     }
 

@@ -164,17 +164,34 @@ final class BrowserWebExtensionActionPopupContentSizeTests: XCTestCase {
 }
 
 final class BrowserWebExtensionActionPopupPositioningTests: XCTestCase {
-    func testRightEdgeAnchorLeavesSpaceForNativePopoverFrame() {
-        let allowedFrame = NSRect(x: 112, y: 112, width: 976, height: 576)
-        let clampedMidX = browserWebExtensionActionPopupClampedMidX(
-            anchorMidX: 1070,
+    func testCenteredToolbarPopupArrowTargetsAnchor() {
+        let allowedFrame = NSRect(x: 0, y: 0, width: 1140, height: 800)
+        let anchorRect = NSRect(x: 560, y: 760, width: 22, height: 22)
+        let layout = browserWebExtensionActionPopupWindowLayout(
+            anchorScreenRect: anchorRect,
+            contentSize: CGSize(width: 380, height: 560),
             allowedFrame: allowedFrame,
-            popupWidth: 380,
-            horizontalFrameReserve: 48
+            arrowHeight: 10,
+            margin: 12
         )
-        let reservedPopupMaxX = clampedMidX + (380 + 48) / 2
 
-        XCTAssertLessThanOrEqual(reservedPopupMaxX, allowedFrame.maxX + 0.5)
+        XCTAssertEqual(layout.frame.midX, anchorRect.midX, accuracy: 0.5)
+        XCTAssertEqual(layout.frame.origin.x + layout.arrowMidX, anchorRect.midX, accuracy: 0.5)
+    }
+
+    func testRightEdgeToolbarPopupStaysInHostWindowWhileArrowTargetsAnchor() {
+        let allowedFrame = NSRect(x: 0, y: 0, width: 1140, height: 800)
+        let anchorRect = NSRect(x: 1100, y: 760, width: 22, height: 22)
+        let layout = browserWebExtensionActionPopupWindowLayout(
+            anchorScreenRect: anchorRect,
+            contentSize: CGSize(width: 380, height: 560),
+            allowedFrame: allowedFrame,
+            arrowHeight: 10,
+            margin: 12
+        )
+
+        XCTAssertLessThanOrEqual(layout.frame.maxX, allowedFrame.maxX - 12 + 0.5)
+        XCTAssertEqual(layout.frame.origin.x + layout.arrowMidX, anchorRect.midX, accuracy: 0.5)
     }
 }
 

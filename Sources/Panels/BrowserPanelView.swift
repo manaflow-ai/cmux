@@ -454,6 +454,7 @@ struct BrowserPanelView: View {
     @State private var isBrowserExtensionsPopoverPresented = false
     @State private var pendingBrowserExtensionActionID: UUID?
     @State private var browserExtensionActions: [BrowserWebExtensionActionSnapshot] = []
+    @State private var activeBrowserExtensionAction: BrowserWebExtensionActionSnapshot?
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
         themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
@@ -1197,11 +1198,12 @@ struct BrowserPanelView: View {
             refreshBrowserExtensionActions()
             isBrowserExtensionsPopoverPresented.toggle()
         }) {
-            Image(systemName: "puzzlepiece.extension")
-                .symbolRenderingMode(.monochrome)
-                .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
-                .foregroundStyle(browserExtensionActions.isEmpty ? Color.secondary : devToolsColorOption.color)
+            browserExtensionActionIcon(
+                activeBrowserExtensionAction,
+                iconSize: 16,
+                fallbackSystemSize: devToolsButtonIconSize
+            )
+            .foregroundStyle(browserExtensionActions.isEmpty ? Color.secondary : devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
@@ -1252,9 +1254,11 @@ struct BrowserPanelView: View {
                             isBrowserExtensionsPopoverPresented = false
                         } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: "puzzlepiece.extension")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
+                                browserExtensionActionIcon(
+                                    action,
+                                    iconSize: 14,
+                                    fallbackSystemSize: 11
+                                )
                                     .frame(width: 14, alignment: .center)
                                 Text(action.label)
                                     .font(.system(size: 12))
@@ -1284,6 +1288,30 @@ struct BrowserPanelView: View {
         }
         .padding(12)
         .frame(width: 240, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func browserExtensionActionIcon(
+        _ action: BrowserWebExtensionActionSnapshot?,
+        iconSize: CGFloat,
+        fallbackSystemSize: CGFloat
+    ) -> some View {
+        if let iconPNGData = action?.iconPNGData,
+           let icon = NSImage(data: iconPNGData) {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: iconSize, height: iconSize, alignment: .center)
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: "puzzlepiece.extension")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: fallbackSystemSize, weight: .medium))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
     }
 
     private var browserImportHintToolbarChip: some View {
@@ -1623,6 +1651,7 @@ struct BrowserPanelView: View {
 
     private func refreshBrowserExtensionActions() {
         browserExtensionActions = BrowserWebExtensionSupport.actionSnapshots(for: panel)
+        activeBrowserExtensionAction = BrowserWebExtensionSupport.activeActionPopupSnapshot(for: panel)
     }
 
     private func syncWebViewResponderPolicyWithViewState(
@@ -3777,6 +3806,39 @@ final class OmnibarNativeTextField: NSTextField {
     }
 }
 
+private final class BrowserWebExtensionActionPopupAnchorView: NSView {
+    var panelID: UUID? {
+        didSet {
+            publishGeometry()
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        publishGeometry()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        publishGeometry()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        publishGeometry()
+    }
+
+    override func layout() {
+        super.layout()
+        publishGeometry()
+    }
+
+    private func publishGeometry() {
+        guard let panelID else { return }
+        BrowserWebExtensionSupport.noteActionPopupAnchorGeometryChanged(self, forPanelID: panelID)
+    }
+}
+
 private struct BrowserWebExtensionActionPopupAnchor: NSViewRepresentable {
     let panelID: UUID
 
@@ -3785,7 +3847,8 @@ private struct BrowserWebExtensionActionPopupAnchor: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = BrowserWebExtensionActionPopupAnchorView()
+        view.panelID = panelID
         context.coordinator.panelID = panelID
         BrowserWebExtensionSupport.setActionPopupAnchorView(view, forPanelID: panelID)
         return view
@@ -3793,6 +3856,7 @@ private struct BrowserWebExtensionActionPopupAnchor: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.panelID = panelID
+        (nsView as? BrowserWebExtensionActionPopupAnchorView)?.panelID = panelID
         BrowserWebExtensionSupport.setActionPopupAnchorView(nsView, forPanelID: panelID)
     }
 
