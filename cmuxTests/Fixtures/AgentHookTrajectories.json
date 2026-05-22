@@ -435,7 +435,7 @@
             "cwd": "${workspace}",
             "hook_event_name": "UserPromptSubmit",
             "turn_id": "codex-turn-1",
-            "prompt": "Audit replay coverage, search for hook code, read the fixture, stage a patch, run a parser check, ask for one preference, and make the plan late in the turn."
+            "prompt": "Audit replay coverage, search for hook code, read the fixture, stage a patch, run a parser check, update the plan, ask for one preference, and make the approval plan late in the turn."
           },
           "expectedStdout": "{}\n",
           "expectedSocketContains": [
@@ -613,6 +613,52 @@
           ]
         },
         {
+          "name": "update-plan-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "codex",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "event": "PreToolUse",
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "codex-update-plan-1",
+            "tool_name": "update_plan",
+            "tool_input": {
+              "plan": [
+                {
+                  "step": "Inspect replay coverage",
+                  "status": "completed"
+                },
+                {
+                  "step": "Patch fixture",
+                  "status": "completed"
+                },
+                {
+                  "step": "Run validation",
+                  "status": "in_progress"
+                },
+                {
+                  "step": "Prepare final handoff",
+                  "status": "pending"
+                }
+              ]
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "codex",
+              "hook_event_name": "PreToolUse",
+              "tool_name": "update_plan"
+            }
+          ]
+        },
+        {
           "name": "ask-user-question",
           "arguments": [
             "hooks",
@@ -781,7 +827,7 @@
             "conversation_id": "antigravity-replay-conversation",
             "cwd": "${workspace}",
             "hook_event_name": "PreInvocation",
-            "prompt": "Search the hook implementation, read one fixture, update the task list, write a note, run one command, then request plan approval near the end."
+            "prompt": "Search the hook implementation, view one fixture, update the task list, write a note, run one command, then request plan approval near the end."
           },
           "expectedStdout": "{}\n",
           "expectedSocketContains": [
@@ -817,6 +863,39 @@
               "_source": "antigravity",
               "hook_event_name": "PreToolUse",
               "tool_name": "search_files"
+            }
+          ]
+        },
+        {
+          "name": "view-file-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "antigravity",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "conversation_id": "antigravity-replay-conversation",
+            "cwd": "${workspace}",
+            "request_id": "antigravity-view-1",
+            "tool_name": "view_file",
+            "tool_input": {
+              "AbsolutePath": "${workspace}/cmuxTests/Fixtures/AgentHookTrajectories.json",
+              "Range": {
+                "start": 1,
+                "end": 80
+              }
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "antigravity",
+              "hook_event_name": "PreToolUse",
+              "tool_name": "view_file"
             }
           ]
         },
@@ -1129,6 +1208,37 @@
               "_source": "gemini",
               "hook_event_name": "PreToolUse",
               "tool_name": "Glob"
+            }
+          ]
+        },
+        {
+          "name": "read-fixture-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "gemini",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "gemini-read-1",
+            "tool_name": "Read",
+            "tool_input": {
+              "file_path": "${workspace}/cmuxTests/Fixtures/AgentHookTrajectories.json",
+              "offset": 1,
+              "limit": 80
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "gemini",
+              "hook_event_name": "PreToolUse",
+              "tool_name": "Read"
             }
           ]
         },
