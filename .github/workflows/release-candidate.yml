@@ -663,7 +663,7 @@ jobs:
           fi
 
       - name: Publish RC prerelease assets
-        if: steps.guard_rc_assets.outputs.skip_upload != 'true'
+        if: steps.guard_rc_assets.outputs.skip_all != 'true' && steps.guard_rc_assets.outputs.skip_upload != 'true'
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           tag_name: ${{ steps.vars.outputs.rc_tag }}

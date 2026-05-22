@@ -91,7 +91,8 @@ jobs:
               return tag.data.object.sha;
             }
 
-            core.setOutput('skip_upload', 'false');
+            core.setOutput('skip_release_upload', 'false');
+            core.setOutput('appcast_source', 'candidate');
             try {
               const release = await github.rest.repos.getReleaseByTag({
                 owner,
@@ -134,8 +135,9 @@ jobs:
               }
 
               if (shouldSkipBuildAndUpload) {
-                core.notice(`Release ${stableTag} already has complete immutable assets. Skipping upload.`);
-                core.setOutput('skip_upload', 'true');
+                core.notice(`Release ${stableTag} already has complete immutable assets. Reusing release appcast for post-publish steps.`);
+                core.setOutput('skip_release_upload', 'true');
+                core.setOutput('appcast_source', 'release');
                 return;
               }
             } catch (error) {
@@ -162,7 +164,7 @@ jobs:
             }
 
       - name: Download stable candidate assets from RC release
-        if: steps.guard_stable_assets.outputs.skip_upload != 'true'
+        if: steps.guard_stable_assets.outputs.skip_release_upload != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -193,7 +195,7 @@ jobs:
           fi
 
       - name: Publish stable release from candidate assets
-        if: steps.guard_stable_assets.outputs.skip_upload != 'true'
+        if: steps.guard_stable_assets.outputs.skip_release_upload != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -230,18 +232,26 @@ jobs:
           fi
 
       - name: Upload stable appcast to R2
-        if: steps.guard_stable_assets.outputs.skip_upload != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          APPCAST_SOURCE: ${{ steps.guard_stable_assets.outputs.appcast_source }}
         run: |
           set -euo pipefail
           command -v aws >/dev/null 2>&1 || { echo "Installing AWS CLI..."; python3 -m pip install --user awscli; }
           export PATH="$HOME/.local/bin:$PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          if [ "${APPCAST_SOURCE:-candidate}" = "release" ]; then
+            rm -f appcast.xml
+            gh release download "$STABLE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern appcast.xml \
+              --dir .
+          fi
+          test -s appcast.xml
 
           LATEST=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
             --json tagName -q '.[].tagName' | sort -V | tail -1)
@@ -256,7 +266,6 @@ jobs:
             --cache-control "no-cache, no-store, must-revalidate"
 
       - name: Trigger Homebrew cask update
-        if: steps.guard_stable_assets.outputs.skip_upload != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
