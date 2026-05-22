@@ -3611,6 +3611,101 @@ final class WorkspaceReorderTests: XCTestCase {
     }
 
     @MainActor
+    func testBatchReorderAppliesFinalLeadingOrderAtomically() throws {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let fourth = manager.addWorkspace()
+        var observedMovedIds: [UUID] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .workspaceOrderDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, first.id])
+        let plan = try result.get()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id, fourth.id])
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: third.id, fromIndex: 2, toIndex: 0),
+                WorkspaceReorderPlanItem(workspaceId: first.id, fromIndex: 0, toIndex: 1)
+            ]
+        )
+        XCTAssertEqual(observedMovedIds, [third.id, first.id])
+    }
+
+    @MainActor
+    func testBatchReorderRejectsUnknownWorkspaceWithoutPartialMutation() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let originalOrder = manager.tabs.map(\.id)
+        let unknown = UUID()
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, unknown, first.id])
+
+        XCTAssertEqual(result, .failure(.workspaceNotFound(unknown)))
+        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
+    }
+
+    @MainActor
+    func testBatchReorderDryRunReturnsPlanWithoutMutation() throws {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let originalOrder = manager.tabs.map(\.id)
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, first.id], dryRun: true)
+        let plan = try result.get()
+
+        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: third.id, fromIndex: 2, toIndex: 0),
+                WorkspaceReorderPlanItem(workspaceId: first.id, fromIndex: 0, toIndex: 1)
+            ]
+        )
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
+    }
+
+    @MainActor
+    func testBatchReorderPreservesPinnedWorkspaceSegment() throws {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let firstUnpinned = manager.addWorkspace()
+        let secondUnpinned = manager.addWorkspace()
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [secondUnpinned.id, secondPinned.id])
+        let plan = try result.get()
+
+        XCTAssertEqual(
+            manager.tabs.map(\.id),
+            [secondPinned.id, firstPinned.id, secondUnpinned.id, firstUnpinned.id]
+        )
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: secondUnpinned.id, fromIndex: 3, toIndex: 2),
+                WorkspaceReorderPlanItem(workspaceId: secondPinned.id, fromIndex: 1, toIndex: 0)
+            ]
+        )
+    }
+
+    @MainActor
     func testDetachedWorkspaceInsertionOverrideClampsAfterPinnedSegment() {
         let manager = TabManager()
         let firstPinned = manager.tabs[0]
