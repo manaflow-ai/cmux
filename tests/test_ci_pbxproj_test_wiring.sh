@@ -14,6 +14,9 @@
 #       Its "in Sources" lines exist in the pbxproj, but not inside the
 #       cmuxTests Sources build phase; Xcode does not compile it into the
 #       cmuxTests bundle.
+#   (e) Test file's basename is a suffix of another file already wired into
+#       the cmuxTests Sources phase. An unanchored grep would match the
+#       longer name and falsely report the shorter one as wired.
 
 set -euo pipefail
 
@@ -196,6 +199,73 @@ fi
 if ! grep -q "cmuxTests target's Sources build phase" "$SANDBOX_D/out"; then
   echo "test_ci_pbxproj_test_wiring: (d) lint output missing cmuxTests-target diagnostic" >&2
   cat "$SANDBOX_D/out" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# (e) Filename-suffix overlap. Two files share a suffix: only the longer one
+# is wired into the cmuxTests Sources phase. The shorter file should be
+# flagged. Without anchoring the grep, an unanchored substring match against
+# the longer wired entry would falsely report the shorter file as wired.
+SANDBOX_E="$SANDBOX_PARENT/e"
+mkdir -p "$SANDBOX_E/cmuxTests" "$SANDBOX_E/cmux.xcodeproj"
+cat > "$SANDBOX_E/cmuxTests/FooTests.swift" <<'SWIFT'
+import XCTest
+final class FooTests: XCTestCase { func testNoop() { XCTAssert(true) } }
+SWIFT
+cat > "$SANDBOX_E/cmuxTests/PrefixFooTests.swift" <<'SWIFT'
+import XCTest
+final class PrefixFooTests: XCTestCase { func testNoop() { XCTAssert(true) } }
+SWIFT
+
+# pbxproj: cmuxTests target's Sources phase only wires PrefixFooTests.swift.
+# FooTests.swift has no entries; it should be flagged.
+cat > "$SANDBOX_E/cmux.xcodeproj/project.pbxproj" <<'PBX'
+// Minimal synthetic project for lint testing — suffix-overlap case.
+/* Begin PBXBuildFile section */
+		DDDD000000000000000000B1 /* PrefixFooTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDDD000000000000000000F1 /* PrefixFooTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		DDDD000000000000000000F1 /* PrefixFooTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrefixFooTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXNativeTarget section */
+		AAAA000000000000000000T1 /* cmuxTests */ = {
+			isa = PBXNativeTarget;
+			buildPhases = (
+				AAAA000000000000000000S1 /* Sources */,
+			);
+			name = cmuxTests;
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AAAA000000000000000000S1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DDDD000000000000000000B1 /* PrefixFooTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+PBX
+
+if "$LINT" --repo-root "$SANDBOX_E" >"$SANDBOX_E/out" 2>&1; then
+  echo "test_ci_pbxproj_test_wiring: (e) lint should have failed on FooTests.swift (suffix-overlap false negative)" >&2
+  cat "$SANDBOX_E/out" >&2
+  exit 1
+fi
+if ! grep -q "FooTests.swift" "$SANDBOX_E/out"; then
+  echo "test_ci_pbxproj_test_wiring: (e) lint output missing FooTests.swift" >&2
+  cat "$SANDBOX_E/out" >&2
+  exit 1
+fi
+# Confirm the lint only flagged the suffix-orphan, not the wired prefix file.
+if grep -q "  - PrefixFooTests.swift" "$SANDBOX_E/out"; then
+  echo "test_ci_pbxproj_test_wiring: (e) lint should NOT flag PrefixFooTests.swift (it is wired)" >&2
+  cat "$SANDBOX_E/out" >&2
   exit 1
 fi
 

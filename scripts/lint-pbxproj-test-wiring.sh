@@ -129,7 +129,14 @@ while IFS= read -r -d '' file; do
   base="$(basename "$file")"
   checked=$((checked + 1))
   # Look for the file's entry inside the cmuxTests Sources phase only.
-  if ! printf '%s\n' "$tests_sources_block" | grep -q -- "$base in Sources"; then
+  #
+  # Match the full PBX comment `/* <base> in Sources */` as a fixed string
+  # (grep -F) so we don't get a false positive when `<base>` is a substring
+  # of another wired file. Example: `SearchIndexTests.swift` is a suffix of
+  # `SettingsSearchIndexTests.swift`; without these anchors, removing the
+  # former from the Sources phase would still match the latter and the lint
+  # would pass.
+  if ! printf '%s\n' "$tests_sources_block" | grep -qF -- "/* $base in Sources */"; then
     missing+=("$base")
   fi
 done < <(find "$TESTS_DIR" -maxdepth 1 -type f -name '*.swift' -print0)
