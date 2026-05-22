@@ -1587,16 +1587,20 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         }
     }
 
-    func testDefaultWorkspaceVisibilityHidePreservesWebViewIdentityPastDiscardDelay() throws {
+    func testDefaultMemorySaverPreservesFiveMinuteWorkspaceHideButDiscardsIdleHiddenWebView() throws {
         try XCTSkipIf(
             Self.hasHiddenDiscardEnabledEnvironmentOverride,
             "Environment override makes the default hidden-discard policy unobservable."
         )
 
-        try withHiddenWebViewDiscardDefaults(enabled: nil, delay: 0) {
-            XCTAssertFalse(BrowserHiddenWebViewDiscardPolicy.isEnabled)
+        try withHiddenWebViewDiscardDefaults(enabled: nil, delay: nil) {
+            XCTAssertTrue(BrowserHiddenWebViewDiscardPolicy.isEnabled)
+            XCTAssertGreaterThan(
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay,
+                300,
+                "The default memory-saver delay must preserve ordinary workspace switches that used to reload after the old five-minute threshold."
+            )
 
-            let hiddenAt = Date().addingTimeInterval(-1)
             let panel = BrowserPanel(
                 workspaceId: UUID(),
                 initialURL: URL(string: "about:blank")!,
@@ -1609,11 +1613,12 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
             let originalWebView = panel.webView
 
-            panel.noteWebViewVisibility(false, reason: "test.workspace.hidden", now: hiddenAt)
+            let fiveMinuteWorkspaceHide = Date().addingTimeInterval(-301)
+            panel.noteWebViewVisibility(false, reason: "test.workspace.hidden.fiveMinute", now: fiveMinuteWorkspaceHide)
 
             XCTAssertTrue(
                 panel.webView === originalWebView,
-                "Workspace visibility hides must preserve the live WKWebView unless Browser Memory Saver is explicitly enabled"
+                "Default Browser Memory Saver must preserve live WKWebView state through ordinary workspace switches instead of reloading at the old five-minute threshold."
             )
             XCTAssertTrue(panel.shouldRenderWebView)
             XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
@@ -1625,6 +1630,16 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
                 "Re-showing a workspace-hidden browser should rebind the same WKWebView instead of navigating a replacement"
             )
             XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+
+            let idleHiddenAt = Date().addingTimeInterval(-(BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay + 1))
+            panel.noteWebViewVisibility(false, reason: "test.workspace.hidden.idle", now: idleHiddenAt)
+
+            XCTAssertFalse(
+                panel.webView === originalWebView,
+                "A truly idle hidden browser must still discard its WKWebView so memory usage stays bounded."
+            )
+            XCTAssertFalse(panel.shouldRenderWebView)
+            XCTAssertEqual(panel.webViewLifecycleState, .discarded)
         }
     }
 
