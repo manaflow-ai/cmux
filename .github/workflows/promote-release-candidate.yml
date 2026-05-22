@@ -63,6 +63,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           STABLE_TAG: ${{ steps.vars.outputs.stable_tag }}
+          CANDIDATE_SHA: ${{ steps.vars.outputs.candidate_sha }}
         with:
           script: |
             const {
@@ -71,6 +72,24 @@ jobs:
             } = require('./scripts/release_asset_guard');
             const { owner, repo } = context.repo;
             const stableTag = process.env.STABLE_TAG;
+            const candidateSha = process.env.CANDIDATE_SHA;
+
+            async function resolveTagSha(tagName) {
+              const ref = await github.rest.git.getRef({
+                owner,
+                repo,
+                ref: `tags/${tagName}`,
+              });
+              if (ref.data.object.type !== 'tag') {
+                return ref.data.object.sha;
+              }
+              const tag = await github.rest.git.getTag({
+                owner,
+                repo,
+                tag_sha: ref.data.object.sha,
+              });
+              return tag.data.object.sha;
+            }
 
             core.setOutput('skip_upload', 'false');
             try {
@@ -99,6 +118,14 @@ jobs:
               }
 
               if (shouldSkipBuildAndUpload) {
+                const existingTagSha = await resolveTagSha(stableTag);
+                if (existingTagSha !== candidateSha) {
+                  core.setFailed(
+                    `Release ${stableTag} already has complete immutable assets from ${existingTagSha}, ` +
+                    `not candidate ${candidateSha}. Publish a new stable version instead of replacing it.`
+                  );
+                  return;
+                }
                 core.notice(`Release ${stableTag} already has complete immutable assets. Skipping upload.`);
                 core.setOutput('skip_upload', 'true');
                 return;
@@ -160,7 +187,7 @@ jobs:
           )
 
           EXISTING_STABLE_TAGS="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
-            --json tagName -q '.[].tagName' || true)"
+            --json tagName -q '.[].tagName')"
           LATEST_STABLE_TAG="$(printf '%s\n%s\n' "$EXISTING_STABLE_TAGS" "$STABLE_TAG" | sed '/^$/d' | sort -V | tail -1)"
           LATEST_FLAG=(--latest=false)
           if [ "$LATEST_STABLE_TAG" = "$STABLE_TAG" ]; then
@@ -211,6 +238,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          LATEST=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | sort -V | tail -1)
+          if [ -n "$LATEST" ] && [ "$LATEST" != "$STABLE_TAG" ]; then
+            echo "Skipping Homebrew update: $STABLE_TAG is not the latest release ($LATEST)"
+            exit 0
+          fi
+
           gh workflow run update-homebrew.yml \
             --repo "$GITHUB_REPOSITORY" \
             -f version="$VERSION"
