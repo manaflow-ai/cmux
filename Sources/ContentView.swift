@@ -12300,6 +12300,52 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
 
+enum SidebarWorkspaceDoubleClickRenamePolicy {
+    static let excludedRegionHitSlop: CGFloat = 2
+
+    static func shouldBeginRename(
+        at point: CGPoint,
+        rowBounds: CGRect,
+        excludedRegions: [CGRect],
+        inlineRenameActive: Bool
+    ) -> Bool {
+        guard !inlineRenameActive, rowBounds.contains(point) else { return false }
+        return !excludedRegions.contains { region in
+            region
+                .standardized
+                .insetBy(dx: -excludedRegionHitSlop, dy: -excludedRegionHitSlop)
+                .contains(point)
+        }
+    }
+}
+
+private struct SidebarWorkspaceDoubleClickExcludedRegionKey: PreferenceKey {
+    static let defaultValue: [CGRect] = []
+
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+private struct SidebarWorkspaceDoubleClickExcludedRegion: View {
+    let coordinateSpaceName: String
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: SidebarWorkspaceDoubleClickExcludedRegionKey.self,
+                value: [proxy.frame(in: .named(coordinateSpaceName))]
+            )
+        }
+    }
+}
+
+private extension View {
+    func sidebarWorkspaceDoubleClickExcludedRegion(coordinateSpaceName: String) -> some View {
+        background(SidebarWorkspaceDoubleClickExcludedRegion(coordinateSpaceName: coordinateSpaceName))
+    }
+}
+
 private struct SidebarInlineRenameField: NSViewRepresentable {
     let initialTitle: String
     let fontSize: CGFloat
@@ -12619,6 +12665,7 @@ private struct TabItemView: View, Equatable {
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
     @State private var inlineRenameInitialTitle: String?
     @State private var inlineRenameDraftTitle: String?
+    @State private var doubleClickExcludedRegions: [CGRect] = []
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -12771,6 +12818,10 @@ private struct TabItemView: View, Equatable {
 
     private var showsWorkspaceShortcutHint: Bool {
         (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
+    }
+
+    private var doubleClickCoordinateSpaceName: String {
+        "sidebar.workspace.doubleClick.\(tab.id.uuidString)"
     }
 
     private var remoteWorkspaceSidebarText: String? {
@@ -12968,6 +13019,7 @@ private struct TabItemView: View, Equatable {
                     SidebarMetadataRows(
                         entries: metadataEntries,
                         isActive: usesInvertedActiveForeground,
+                        doubleClickCoordinateSpaceName: doubleClickCoordinateSpaceName,
                         onFocus: { updateSelection() }
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -12976,6 +13028,7 @@ private struct TabItemView: View, Equatable {
                     SidebarMetadataMarkdownBlocks(
                         blocks: metadataBlocks,
                         isActive: usesInvertedActiveForeground,
+                        doubleClickCoordinateSpaceName: doubleClickCoordinateSpaceName,
                         onFocus: { updateSelection() }
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -13088,6 +13141,7 @@ private struct TabItemView: View, Equatable {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(pullRequestForegroundColor)
                         .opacity(pullRequest.isStale ? 0.5 : 1)
+                        .sidebarWorkspaceDoubleClickExcludedRegion(coordinateSpaceName: doubleClickCoordinateSpaceName)
                         if settings.makesPullRequestsClickable {
                             Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
                                 .buttonStyle(.plain)
@@ -13114,6 +13168,7 @@ private struct TabItemView: View, Equatable {
                         }
                         .buttonStyle(.plain)
                         .safeHelp(portTooltip)
+                        .sidebarWorkspaceDoubleClickExcludedRegion(coordinateSpaceName: doubleClickCoordinateSpaceName)
                     }
                     Spacer(minLength: 0)
                 }
@@ -13171,6 +13226,7 @@ private struct TabItemView: View, Equatable {
                 .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
                 .padding(.top, 8)
                 .padding(.trailing, 10)
+                .sidebarWorkspaceDoubleClickExcludedRegion(coordinateSpaceName: doubleClickCoordinateSpaceName)
             }
         }
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
@@ -13187,7 +13243,15 @@ private struct TabItemView: View, Equatable {
             }
         }
         .contentShape(Rectangle())
+        .coordinateSpace(name: doubleClickCoordinateSpaceName)
         .opacity(isBeingDragged ? 0.6 : 1)
+        .overlay {
+            SidebarWorkspaceDoubleClickCapture(
+                excludedRegions: doubleClickExcludedRegions,
+                inlineRenameActive: inlineRenameInitialTitle != nil,
+                onDoubleClick: beginRenameFromDoubleClick
+            )
+        }
         .overlay {
             SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
         }
@@ -13261,6 +13325,14 @@ private struct TabItemView: View, Equatable {
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
+        .onPreferenceChange(SidebarWorkspaceDoubleClickExcludedRegionKey.self) { regions in
+            doubleClickExcludedRegions = regions.filter { region in
+                region.width.isFinite &&
+                    region.height.isFinite &&
+                    region.width > 0 &&
+                    region.height > 0
+            }
+        }
         .onDrag {
             #if DEBUG
             cmuxDebugLog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
@@ -13289,11 +13361,6 @@ private struct TabItemView: View, Equatable {
         .onTapGesture {
             updateSelection()
         }
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded {
-                beginRenameFromDoubleClick()
-            }
-        )
         .safeHelp(workspaceSnapshot.title)
         .accessibilityElement(children: inlineRenameInitialTitle == nil ? .combine : .contain)
         .accessibilityLabel(Text(accessibilityTitle))
@@ -13699,7 +13766,7 @@ private struct TabItemView: View, Equatable {
         setSelectionToTabs()
     }
 
-    private func updateSelection() {
+    private func updateSelection(dismissNotificationOnDirectInteraction: Bool = true) {
         #if DEBUG
         let mods = NSEvent.modifierFlags
         var modStr = ""
@@ -13735,7 +13802,7 @@ private struct TabItemView: View, Equatable {
 
         lastSidebarSelectionIndex = index
         tabManager.selectTab(tab)
-        if wasSelected, !isCommand, !isShift {
+        if dismissNotificationOnDirectInteraction, wasSelected, !isCommand, !isShift {
             tabManager.dismissNotificationOnDirectInteraction(
                 tabId: tab.id,
                 surfaceId: tabManager.focusedSurfaceId(for: tab.id)
@@ -13745,18 +13812,21 @@ private struct TabItemView: View, Equatable {
     }
 
     private func beginRenameFromDoubleClick() {
-        selectedTabIds = [tab.id]
-        lastSidebarSelectionIndex = index
-        tabManager.selectTab(tab)
-        setSelectionToTabs()
+        updateSelection(dismissNotificationOnDirectInteraction: false)
         let title = tab.customTitle ?? tab.title
         inlineRenameInitialTitle = title
         inlineRenameDraftTitle = title
     }
 
     private func commitInlineRename(_ title: String) {
+        let initialTitle = inlineRenameInitialTitle
         inlineRenameInitialTitle = nil
         inlineRenameDraftTitle = nil
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedInitialTitle = initialTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedInitialTitle, trimmedTitle == trimmedInitialTitle {
+            return
+        }
         tabManager.setCustomTitle(tabId: tab.id, title: title)
         refreshWorkspaceSnapshot(force: true)
     }
@@ -14335,6 +14405,7 @@ private struct TabItemView: View, Equatable {
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
         let alertWindow = alert.window
+        alertWindow.setAccessibilityIdentifier("RenameWorkspaceDialog")
         alertWindow.initialFirstResponder = input
         DispatchQueue.main.async {
             alertWindow.makeFirstResponder(input)
@@ -14426,6 +14497,7 @@ enum SidebarMarkdownRenderer {
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
+    let doubleClickCoordinateSpaceName: String
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
@@ -14434,7 +14506,12 @@ private struct SidebarMetadataRows: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(visibleEntries, id: \.key) { entry in
-                SidebarMetadataEntryRow(entry: entry, isActive: isActive, onFocus: onFocus)
+                SidebarMetadataEntryRow(
+                    entry: entry,
+                    isActive: isActive,
+                    doubleClickCoordinateSpaceName: doubleClickCoordinateSpaceName,
+                    onFocus: onFocus
+                )
             }
 
             if shouldShowToggle {
@@ -14448,6 +14525,7 @@ private struct SidebarMetadataRows: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(isActive ? activeSecondaryTextColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .sidebarWorkspaceDoubleClickExcludedRegion(coordinateSpaceName: doubleClickCoordinateSpaceName)
             }
         }
         .safeHelp(helpText)
@@ -14478,6 +14556,7 @@ private struct SidebarMetadataRows: View {
 private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
+    let doubleClickCoordinateSpaceName: String
     let onFocus: () -> Void
 
     var body: some View {
@@ -14491,6 +14570,7 @@ private struct SidebarMetadataEntryRow: View {
                 }
                 .buttonStyle(.plain)
                 .safeHelp(url.absoluteString)
+                .sidebarWorkspaceDoubleClickExcludedRegion(coordinateSpaceName: doubleClickCoordinateSpaceName)
             } else {
                 rowContent(underlined: false)
                     .contentShape(Rectangle())
@@ -14575,6 +14655,7 @@ private struct SidebarMetadataEntryRow: View {
 private struct SidebarMetadataMarkdownBlocks: View {
     let blocks: [SidebarMetadataBlock]
     let isActive: Bool
+    let doubleClickCoordinateSpaceName: String
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
@@ -14601,6 +14682,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .sidebarWorkspaceDoubleClickExcludedRegion(coordinateSpaceName: doubleClickCoordinateSpaceName)
             }
         }
     }
@@ -15112,6 +15194,58 @@ private struct MiddleClickCapture: NSViewRepresentable {
 
     func updateNSView(_ nsView: MiddleClickCaptureView, context: Context) {
         nsView.onMiddleClick = onMiddleClick
+    }
+}
+
+private struct SidebarWorkspaceDoubleClickCapture: NSViewRepresentable {
+    let excludedRegions: [CGRect]
+    let inlineRenameActive: Bool
+    let onDoubleClick: () -> Void
+
+    func makeNSView(context: Context) -> SidebarWorkspaceDoubleClickCaptureView {
+        let view = SidebarWorkspaceDoubleClickCaptureView()
+        view.excludedRegions = excludedRegions
+        view.inlineRenameActive = inlineRenameActive
+        view.onDoubleClick = onDoubleClick
+        return view
+    }
+
+    func updateNSView(_ nsView: SidebarWorkspaceDoubleClickCaptureView, context: Context) {
+        nsView.excludedRegions = excludedRegions
+        nsView.inlineRenameActive = inlineRenameActive
+        nsView.onDoubleClick = onDoubleClick
+    }
+}
+
+private final class SidebarWorkspaceDoubleClickCaptureView: NSView {
+    var excludedRegions: [CGRect] = []
+    var inlineRenameActive = false
+    var onDoubleClick: (() -> Void)?
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let event = NSApp.currentEvent,
+              event.type == .leftMouseDown,
+              event.buttonNumber == 0,
+              event.clickCount >= 2 else {
+            return nil
+        }
+        let shouldBeginRename = SidebarWorkspaceDoubleClickRenamePolicy.shouldBeginRename(
+            at: point,
+            rowBounds: bounds,
+            excludedRegions: excludedRegions,
+            inlineRenameActive: inlineRenameActive
+        )
+        return shouldBeginRename ? self : nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 0, event.clickCount >= 2 else {
+            super.mouseDown(with: event)
+            return
+        }
+        onDoubleClick?()
     }
 }
 

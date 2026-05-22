@@ -340,7 +340,7 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         doubleClick(in: window, atAccessibilityPoint: CGPoint(x: betaTab.frame.midX, y: betaTab.frame.midY))
 
-        let dialog = app.dialogs.containing(.staticText, identifier: "Rename Tab").firstMatch
+        let dialog = app.dialogs["RenameTabDialog"].firstMatch
         XCTAssertFalse(dialog.waitForExistence(timeout: 0.5), "Expected double-clicking a pane tab to avoid the Rename Tab dialog")
 
         let nameField = app.textFields["paneTab.inlineRenameField"].firstMatch
@@ -383,22 +383,40 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected inline pane tab rename field not to exceed the original tab height"
         )
         app.typeText(renamedTitle)
-        clickOutsideInlineEditor(in: window)
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
         XCTAssertFalse(
             nameField.waitForExistence(timeout: 1.0),
-            "Expected clicking outside the pane tab inline editor to stop editing"
+            "Expected Return to stop editing the pane tab inline editor"
         )
 
         XCTAssertTrue(
             app.buttons[renamedTitle].waitForExistence(timeout: 5.0),
             "Expected the renamed pane tab to be visible"
         )
+
+        let outsideCommitTitle = "Outside Commit \(UUID().uuidString.prefix(4))"
+        let renamedTab = app.buttons[renamedTitle]
+        doubleClick(in: window, atAccessibilityPoint: CGPoint(x: renamedTab.frame.midX, y: renamedTab.frame.midY))
+        let secondNameField = app.textFields["paneTab.inlineRenameField"].firstMatch
+        XCTAssertTrue(secondNameField.waitForExistence(timeout: 3.0), "Expected double-clicking the renamed pane tab to show the inline rename field again")
+        app.typeText(outsideCommitTitle)
+        clickOutsideInlineEditor(in: window)
+
+        XCTAssertFalse(
+            secondNameField.waitForExistence(timeout: 1.0),
+            "Expected clicking outside the pane tab inline editor to stop editing"
+        )
+
+        XCTAssertTrue(
+            app.buttons[outsideCommitTitle].waitForExistence(timeout: 5.0),
+            "Expected the outside-click committed pane tab title to be visible"
+        )
         XCTAssertTrue(
             waitForCondition(timeout: 5.0) {
-                loadJSON(atPath: dataPath)?["trackedPaneTabTitles"]?.contains(renamedTitle) == true
+                loadJSON(atPath: dataPath)?["trackedPaneTabTitles"]?.contains(outsideCommitTitle) == true
             },
-            "Expected recorder state to include renamed pane tab. data=\(loadJSON(atPath: dataPath) ?? [:])"
+            "Expected recorder state to include outside-click committed pane tab. data=\(loadJSON(atPath: dataPath) ?? [:])"
         )
     }
 
@@ -431,9 +449,9 @@ final class BonsplitTabDragUITests: XCTestCase {
         let beforeRenameScreenshot = window.screenshot()
         addWindowScreenshot(named: "sidebar-before-inline-rename", screenshot: beforeRenameScreenshot)
 
-        doubleClick(in: window, atAccessibilityPoint: CGPoint(x: workspaceRow.frame.midX, y: workspaceRow.frame.midY))
+        doubleClick(in: window, atAccessibilityPoint: sidebarWorkspaceBodyClickPoint(for: rowFrameBeforeRename))
 
-        let dialog = app.dialogs.containing(.staticText, identifier: "Rename Workspace").firstMatch
+        let dialog = app.dialogs["RenameWorkspaceDialog"].firstMatch
         XCTAssertFalse(dialog.waitForExistence(timeout: 0.5), "Expected double-clicking a workspace row to avoid the Rename Workspace dialog")
 
         let nameField = app.textFields["sidebar.workspace.inlineRenameField"].firstMatch
@@ -1024,6 +1042,13 @@ final class BonsplitTabDragUITests: XCTestCase {
             y: rowFrame.minY + 2,
             width: max(1, rowFrame.width - 32),
             height: min(20, max(1, rowFrame.height - 4))
+        )
+    }
+
+    private func sidebarWorkspaceBodyClickPoint(for rowFrame: CGRect) -> CGPoint {
+        CGPoint(
+            x: rowFrame.midX,
+            y: min(rowFrame.maxY - 6, rowFrame.minY + 28)
         )
     }
 
