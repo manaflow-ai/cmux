@@ -11001,7 +11001,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func shouldTriggerManualUnreadJumpFlash(workspace: Workspace, panelId: UUID) -> Bool {
         workspace.manualUnreadPanelIds.contains(panelId) ||
-            (notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
+            workspace.hasRestoredUnreadIndicator(panelId: panelId) ||
+            (notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false) ||
+            (notificationStore?.hasRestoredUnreadIndicator(forTabId: workspace.id) ?? false)
     }
 
     @discardableResult
