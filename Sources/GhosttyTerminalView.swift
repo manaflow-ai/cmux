@@ -4224,16 +4224,19 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            guard let tabId = surfaceView.tabId else { return true }
-            let surfaceId = surfaceView.terminalSurface?.id
+            guard let tabId = surfaceView.tabId,
+                  let surfaceId = surfaceView.terminalSurface?.id else { return true }
             let actionTitle = action.action.desktop_notification.title
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
                 .flatMap { String(cString: $0) } ?? ""
             performOnMain {
                 let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
-                if let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
-                   workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
+                guard let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
+                      workspace.panels[surfaceId] != nil else {
+                    return
+                }
+                if workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
                     return
                 }
                 let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"

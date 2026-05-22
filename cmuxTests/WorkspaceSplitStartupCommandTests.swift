@@ -217,6 +217,26 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertNotEqual(first, second)
     }
 
+    func testUnregisteredWarmTerminalMetadataDoesNotMutateVisibleWorkspace() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let hiddenPanelId = UUID()
+        let originalTitle = workspace.title
+        let originalCurrentDirectory = workspace.currentDirectory
+
+        XCTAssertFalse(workspace.updatePanelTitle(panelId: hiddenPanelId, title: "hidden warm shell"))
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: hiddenPanelId,
+            directory: "/tmp/cmux-hidden-warm-shell"
+        )
+
+        XCTAssertEqual(workspace.title, originalTitle)
+        XCTAssertEqual(workspace.currentDirectory, originalCurrentDirectory)
+        XCTAssertNil(workspace.panelTitles[hiddenPanelId])
+        XCTAssertNil(workspace.panelDirectories[hiddenPanelId])
+    }
+
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)

@@ -9289,6 +9289,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
+        guard panels[panelId] != nil else { return false }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         var didMutate = false
