@@ -149,64 +149,8 @@
                     "value": "no-cache"
                   },
                   {
-                    "name": "anthropic-ratelimit-unified-status",
-                    "value": "allowed"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-5h-status",
-                    "value": "allowed"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-5h-reset",
-                    "value": "1779441000"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-5h-utilization",
-                    "value": "0.08"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-7d-status",
-                    "value": "allowed"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-7d-reset",
-                    "value": "1779850800"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-7d-utilization",
-                    "value": "0.03"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-overage-status",
-                    "value": "allowed"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-overage-reset",
-                    "value": "1780272000"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-overage-utilization",
-                    "value": "0.0"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-representative-claim",
-                    "value": "five_hour"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-fallback-percentage",
-                    "value": "0.5"
-                  },
-                  {
-                    "name": "anthropic-ratelimit-unified-reset",
-                    "value": "1779441000"
-                  },
-                  {
                     "name": "strict-transport-security",
                     "value": "max-age=31536000; includeSubDomains; preload"
-                  },
-                  {
-                    "name": "anthropic-organization-id",
-                    "value": "<redacted-uuid>"
                   },
                   {
                     "name": "traceresponse",
@@ -590,100 +534,20 @@
                     "value": "cloudflare"
                   },
                   {
-                    "name": "x-codex-active-limit",
-                    "value": "premium"
-                  },
-                  {
-                    "name": "x-codex-plan-type",
-                    "value": "pro"
-                  },
-                  {
-                    "name": "x-codex-primary-used-percent",
-                    "value": "78"
-                  },
-                  {
-                    "name": "x-codex-secondary-used-percent",
-                    "value": "60"
-                  },
-                  {
                     "name": "x-codex-primary-window-minutes",
                     "value": "300"
-                  },
-                  {
-                    "name": "x-codex-primary-over-secondary-limit-percent",
-                    "value": "0"
                   },
                   {
                     "name": "x-codex-secondary-window-minutes",
                     "value": "10080"
                   },
                   {
-                    "name": "x-codex-primary-reset-after-seconds",
-                    "value": "15176"
-                  },
-                  {
-                    "name": "x-codex-secondary-reset-after-seconds",
-                    "value": "536878"
-                  },
-                  {
-                    "name": "x-codex-primary-reset-at",
-                    "value": "1779452455"
-                  },
-                  {
-                    "name": "x-codex-secondary-reset-at",
-                    "value": "1779974157"
-                  },
-                  {
-                    "name": "x-codex-credits-has-credits",
-                    "value": "False"
-                  },
-                  {
-                    "name": "x-codex-credits-balance",
-                    "value": ""
-                  },
-                  {
-                    "name": "x-codex-credits-unlimited",
-                    "value": "False"
-                  },
-                  {
-                    "name": "x-codex-bengalfox-primary-used-percent",
-                    "value": "1"
-                  },
-                  {
-                    "name": "x-codex-bengalfox-secondary-used-percent",
-                    "value": "0"
-                  },
-                  {
                     "name": "x-codex-bengalfox-primary-window-minutes",
                     "value": "300"
                   },
                   {
-                    "name": "x-codex-bengalfox-primary-over-secondary-limit-percent",
-                    "value": "0"
-                  },
-                  {
                     "name": "x-codex-bengalfox-secondary-window-minutes",
                     "value": "10080"
-                  },
-                  {
-                    "name": "x-codex-bengalfox-primary-reset-after-seconds",
-                    "value": "17419"
-                  },
-                  {
-                    "name": "x-codex-bengalfox-secondary-reset-after-seconds",
-                    "value": "604219"
-                  },
-                  {
-                    "name": "x-codex-bengalfox-primary-reset-at",
-                    "value": "1779454698"
-                  },
-                  {
-                    "name": "x-codex-bengalfox-secondary-reset-at",
-                    "value": "1780041498"
-                  },
-                  {
-                    "name": "x-codex-bengalfox-limit-name",
-                    "value": "GPT-5.3-Codex-Spark"
                   },
                   {
                     "name": "x-models-etag",

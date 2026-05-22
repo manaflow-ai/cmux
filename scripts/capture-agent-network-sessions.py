@@ -88,10 +88,18 @@ def sensitive_header(name: str) -> bool:
         "api-key",
         "x-api-key",
         "account",
+        "credit",
+        "limit",
+        "organization",
+        "plan",
         "request-id",
+        "ratelimit",
+        "reset-at",
+        "reset-after",
         "session",
         "csrf",
         "sentry",
+        "used-percent",
         "datadog",
     ]
     return any(needle in lowered for needle in needles)

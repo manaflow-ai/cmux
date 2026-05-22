@@ -2439,6 +2439,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "req_",
             "msg_",
             "resp_",
+            "anthropic-ratelimit",
+            "anthropic-organization-id",
+            "x-codex-active-limit",
+            "x-codex-plan-type",
+            "x-codex-credits",
+            "used-percent",
         ] {
             XCTAssertFalse(
                 fixtureText.localizedCaseInsensitiveContains(forbidden),
