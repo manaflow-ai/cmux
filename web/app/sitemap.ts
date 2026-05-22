@@ -6,7 +6,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   const paths = [
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
-    { path: "/blog", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.8 },
+    { path: "/blog", lastModified: "2026-05-22", changeFrequency: "weekly" as const, priority: 0.8 },
+    { path: "/blog/cmux-finder", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/blog/cmux-vault", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/blog/passkey-auth", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/blog/task-manager", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/blog/markdown-viewer", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/blog/unread-shortcuts", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/blog/session-restore", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/show-hn-launch", lastModified: "2026-02-21", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/introducing-cmux", lastModified: "2026-02-12", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/zen-of-cmux", lastModified: "2026-02-27", changeFrequency: "monthly" as const, priority: 0.7 },
