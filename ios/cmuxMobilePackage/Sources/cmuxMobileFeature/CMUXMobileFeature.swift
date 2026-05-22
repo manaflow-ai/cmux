@@ -1189,6 +1189,10 @@ struct PairingView: View {
             connectPairingCode()
             return
         }
+        guard MobileShellRouteAuthPolicy.normalizedManualHost(trimmedHost) != nil else {
+            validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
+            return
+        }
         guard let parsedPort = Int(port.trimmingCharacters(in: .whitespacesAndNewlines)),
               (1...65535).contains(parsedPort) else {
             validationError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")

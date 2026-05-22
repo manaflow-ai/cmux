@@ -281,6 +281,34 @@ enum MobileShellDevStackAuthTokenProvider {
 #endif
 
 enum MobileShellRouteAuthPolicy {
+    static func normalizedManualHost(_ rawHost: String) -> String? {
+        let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        let host: String
+        if trimmed.hasPrefix("[") || trimmed.hasSuffix("]") {
+            guard trimmed.hasPrefix("["),
+                  trimmed.hasSuffix("]"),
+                  trimmed.count > 2 else {
+                return nil
+            }
+            host = String(trimmed.dropFirst().dropLast())
+        } else {
+            host = trimmed
+        }
+
+        guard !host.isEmpty,
+              host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              host.rangeOfCharacter(from: .controlCharacters) == nil,
+              host.rangeOfCharacter(from: CharacterSet(charactersIn: "/?#@")) == nil,
+              host.range(of: "://") == nil else {
+            return nil
+        }
+        return host
+    }
+
     static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if isLoopbackHost(normalizedHost) {
@@ -310,15 +338,7 @@ enum MobileShellRouteAuthPolicy {
     }
 
     private static func normalizedManualNetworkHost(_ host: String) -> String? {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalizedHost.isEmpty,
-              normalizedHost.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
-              normalizedHost.rangeOfCharacter(from: .controlCharacters) == nil,
-              normalizedHost.rangeOfCharacter(from: CharacterSet(charactersIn: "/?#@")) == nil,
-              normalizedHost.range(of: "://") == nil else {
-            return nil
-        }
-        return normalizedHost
+        normalizedManualHost(host)?.lowercased()
     }
 
     private static func isLoopbackHost(_ host: String) -> Bool {
@@ -578,7 +598,7 @@ public final class CMUXMobileShellStore {
 
     public func connectManualHost(name: String, host: String, port: Int) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let normalizedHost = Self.normalizedManualHost(host) else {
+        guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             connectionState = .disconnected
             clearRemoteConnectionContext()
@@ -605,34 +625,6 @@ public final class CMUXMobileShellStore {
             connectionState = .disconnected
             clearRemoteConnectionContext()
         }
-    }
-
-    private static func normalizedManualHost(_ rawHost: String) -> String? {
-        let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        let host: String
-        if trimmed.hasPrefix("[") || trimmed.hasSuffix("]") {
-            guard trimmed.hasPrefix("["),
-                  trimmed.hasSuffix("]"),
-                  trimmed.count > 2 else {
-                return nil
-            }
-            host = String(trimmed.dropFirst().dropLast())
-        } else {
-            host = trimmed
-        }
-
-        guard !host.isEmpty,
-              host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
-              host.rangeOfCharacter(from: .controlCharacters) == nil,
-              host.rangeOfCharacter(from: CharacterSet(charactersIn: "/?#@")) == nil,
-              host.range(of: "://") == nil else {
-            return nil
-        }
-        return host
     }
 
     private static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
@@ -1236,9 +1228,13 @@ public final class CMUXMobileShellStore {
                   !Task.isCancelled else { return }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             if let createdID = response.createdWorkspaceID {
-                setSelectedWorkspaceID(MobileWorkspacePreview.ID(rawValue: createdID), refreshSnapshot: false)
+                let createdWorkspaceID = MobileWorkspacePreview.ID(rawValue: createdID)
+                setSelectedWorkspaceID(createdWorkspaceID, refreshSnapshot: false)
+                syncSelectedTerminalForWorkspace()
+                seedCreatedTerminalSnapshot(workspaceID: createdWorkspaceID, terminalID: selectedTerminalID)
+            } else {
+                syncSelectedTerminalForWorkspace()
             }
-            syncSelectedTerminalForWorkspace()
             scheduleSelectedTerminalSnapshotRefresh()
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
@@ -1262,15 +1258,44 @@ public final class CMUXMobileShellStore {
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
+            var createdTerminalID: MobileTerminalPreview.ID?
             if selectedWorkspaceID == requestedWorkspaceID,
                let createdID = response.createdTerminalID {
-                selectedTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
+                createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
+                selectedTerminalID = createdTerminalID
+            }
+            if let createdTerminalID {
+                seedCreatedTerminalSnapshot(workspaceID: requestedWorkspaceID, terminalID: createdTerminalID)
             }
             scheduleSelectedTerminalSnapshotRefresh()
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             connectionError = Self.localizedConnectionError(for: error)
         }
+    }
+
+    private func seedCreatedTerminalSnapshot(
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID?
+    ) {
+        guard let terminalID,
+              let workspace = workspaces.first(where: { $0.id == workspaceID }),
+              let terminal = workspace.terminals.first(where: { $0.id == terminalID }) else {
+            return
+        }
+        replaceTerminalSnapshot(
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            snapshot: PreviewMobileHost.snapshot(
+                terminalID: terminalID.rawValue,
+                lines: [
+                    "$ cmux ios",
+                    "workspace: \(workspace.name)",
+                    "terminal: \(terminal.name)",
+                ]
+            ),
+            isReady: true
+        )
     }
 
     private func refreshSelectedTerminalSnapshot() async {

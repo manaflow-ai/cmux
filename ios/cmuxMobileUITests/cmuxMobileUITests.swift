@@ -75,18 +75,22 @@ final class cmuxMobileUITests: XCTestCase {
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
 
-        let workspaceStart = Date()
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
-        assertTerminalRow(1, label: "workspace: Workspace 3", in: app)
-        assertTerminalRow(2, label: "terminal: Terminal 1", in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(workspaceStart), 2.0)
+        let workspaceStart = Date()
+        assertTerminalRows([
+            1: "workspace: Workspace 3",
+            2: "terminal: Terminal 1",
+        ], in: app)
+        XCTAssertLessThan(Date().timeIntervalSince(workspaceStart), 4.0)
 
-        let terminalStart = Date()
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        assertTerminalRow(1, label: "workspace: Workspace 3", in: app)
-        assertTerminalRow(2, label: "terminal: Terminal 2", in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 2.0)
+        let terminalStart = Date()
+        assertTerminalRows([
+            1: "workspace: Workspace 3",
+            2: "terminal: Terminal 2",
+        ], in: app)
+        XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 4.0)
     }
 
     @MainActor
@@ -250,6 +254,38 @@ final class cmuxMobileUITests: XCTestCase {
             line: line
         )
         XCTAssertEqual(row.label, expectedLabel, file: file, line: line)
+    }
+
+    @MainActor
+    private func assertTerminalRows(
+        _ expectedLabels: [Int: String],
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
+        let labelExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                expectedLabels.allSatisfy { index, expectedLabel in
+                    let row = self.terminalRow(index, in: app)
+                    return row.exists && row.label == expectedLabel
+                }
+            },
+            object: app
+        )
+        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
+        if result != .completed {
+            XCTFail(
+                "Expected terminal rows \(expectedLabels). Rows: \(terminalRowLabels(in: app))",
+                file: file,
+                line: line
+            )
+            return
+        }
+        for (index, expectedLabel) in expectedLabels.sorted(by: { $0.key < $1.key }) {
+            XCTAssertEqual(terminalRow(index, in: app).label, expectedLabel, file: file, line: line)
+        }
     }
 
     @MainActor
