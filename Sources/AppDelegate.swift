@@ -836,6 +836,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupFeedSidebarUITest = false
     private var didStartFeedSidebarUITestPush = false
     private var feedSidebarUITestObservers: [NSObjectProtocol] = []
+    private var didSetupSidebarRecentsUITest = false
+    private var sidebarRecentsUITestObservers: [NSObjectProtocol] = []
     private var didSetupPortalStatsUITestDiagnostics = false
     private var portalStatsUITestObservers: [NSObjectProtocol] = []
     private struct UITestRenderDiagnosticsSnapshot {
@@ -1678,6 +1680,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupMultiWindowNotificationsUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
+        setupSidebarRecentsUITestIfNeeded()
 
         let env = ProcessInfo.processInfo.environment
         if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
@@ -2590,6 +2593,119 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             feedSidebarUITestObservers.append(observer)
         }
         DispatchQueue.main.async(execute: attemptReveal)
+    }
+
+    private func setupSidebarRecentsUITestIfNeeded() {
+        let env = ProcessInfo.processInfo.environment
+        guard !didSetupSidebarRecentsUITest else { return }
+        guard env["CMUX_UI_TEST_SIDEBAR_RECENTS_FIXTURE"] == "1" else { return }
+        didSetupSidebarRecentsUITest = true
+
+        UserDefaults.standard.set(
+            SidebarWorkspaceListStyle.recents.rawValue,
+            forKey: SidebarWorkspaceListStyleSettings.key
+        )
+
+        Task { @MainActor [weak self] in
+            self?.installSidebarRecentsUITestFixture()
+        }
+    }
+
+    @MainActor
+    private func installSidebarRecentsUITestFixture() {
+        if let context = mainWindowContexts.values.first {
+            self.applySidebarRecentsUITestFixture(tabManager: context.tabManager)
+            return
+        }
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .mainWindowContextsDidChange,
+            object: self,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      let context = self.mainWindowContexts.values.first else {
+                    return
+                }
+                self.applySidebarRecentsUITestFixture(tabManager: context.tabManager)
+                for observer in self.sidebarRecentsUITestObservers {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+                self.sidebarRecentsUITestObservers.removeAll()
+            }
+        }
+        sidebarRecentsUITestObservers.append(observer)
+    }
+
+    private func applySidebarRecentsUITestFixture(tabManager: TabManager) {
+        let titles = [
+            "Add cmux workspace navigation",
+            "Estimate GPU costs for OpenAI training workloads with a long title",
+            "Review document safety before launch",
+            "Foo bar 123",
+        ]
+
+        while tabManager.tabs.count < titles.count {
+            _ = tabManager.addWorkspace(
+                title: titles[tabManager.tabs.count],
+                inheritWorkingDirectory: false,
+                select: false,
+                eagerLoadTerminal: false,
+                autoWelcomeIfNeeded: false
+            )
+        }
+
+        let workspaces = Array(tabManager.tabs.prefix(titles.count))
+        for (workspace, title) in zip(workspaces, titles) {
+            workspace.setCustomTitle(title)
+            workspace.resetSidebarContext(reason: "ui_test_sidebar_recents_fixture")
+            for panelId in workspace.panels.keys {
+                workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+            }
+            workspace.restoredAgentResumeStatesByPanelId.removeAll()
+        }
+
+        if workspaces.indices.contains(0),
+           let panelId = workspaces[0].focusedPanelId {
+            let activeWorkspace = workspaces[0]
+            activeWorkspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        }
+
+        if workspaces.indices.contains(1),
+           let panelId = workspaces[1].focusedPanelId {
+            let branchWorkspace = workspaces[1]
+            branchWorkspace.updatePanelGitBranch(panelId: panelId, branch: "feat-gpu-costs", isDirty: false)
+            branchWorkspace.updatePanelPullRequest(
+                panelId: panelId,
+                number: 42,
+                label: "PR",
+                url: URL(string: "https://github.com/manaflow-ai/cmux/pull/42")!,
+                status: .open,
+                branch: "feat-gpu-costs"
+            )
+        }
+
+        if workspaces.indices.contains(2),
+           let paneId = workspaces[2].bonsplitController.allPaneIds.first {
+            let fileWorkspace = workspaces[2]
+            let fixtureURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("cmux-sidebar-recents-fixture.md")
+            try? "# Sidebar Fixture\n".write(to: fixtureURL, atomically: true, encoding: .utf8)
+            _ = fileWorkspace.newMarkdownSurface(inPane: paneId, filePath: fixtureURL.path, focus: false)
+        }
+
+        if let activeWorkspace = workspaces.first {
+            tabManager.selectTab(activeWorkspace)
+        }
+
+        if let path = ProcessInfo.processInfo.environment["CMUX_UI_TEST_SIDEBAR_RECENTS_FIXTURE_PATH"],
+           !path.isEmpty {
+            let rows = workspaces.map { ["id": $0.id.uuidString, "title": $0.title] }
+            if let data = try? JSONSerialization.data(withJSONObject: ["rows": rows], options: [.prettyPrinted]) {
+                try? data.write(to: URL(fileURLWithPath: path))
+            }
+        }
     }
 
     private func startFeedSidebarUITestPushIfNeeded(resultPath: String) {

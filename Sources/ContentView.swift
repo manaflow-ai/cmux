@@ -9242,6 +9242,7 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
 }
 
 private struct SidebarTabItemSettingsSnapshot: Equatable {
+    let listStyle: SidebarWorkspaceListStyle
     let hidesAllDetails: Bool
     let showsWorkspaceDescription: Bool
     let sidebarShortcutHintXOffset: Double
@@ -9262,6 +9263,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     let iMessageModeEnabled: Bool
 
     init(defaults: UserDefaults = .standard) {
+        listStyle = SidebarWorkspaceListStyleSettings.current(defaults: defaults)
         sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
         sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
         alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
@@ -9419,6 +9421,8 @@ struct VerticalTabsSidebar: View {
     @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
     @State private var laidOutWorkspaceRowIds: Set<UUID> = []
     @State private var pendingSelectedWorkspaceScrollId: UUID?
+    @State private var recentsSectionExpanded = true
+    @State private var recentsAttentionOnly = false
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage("sidebarMatchTerminalBackground")
@@ -9514,6 +9518,9 @@ struct VerticalTabsSidebar: View {
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
         let workspaceTerminalScrollBarHiddenById: [UUID: Bool]
+        let listStyle: SidebarWorkspaceListStyle
+        let recentsSectionExpanded: Bool
+        let recentsAttentionOnly: Bool
 
         var workspaceIds: [UUID] {
             tabs.map(\.id)
@@ -9522,20 +9529,25 @@ struct VerticalTabsSidebar: View {
 
     var body: some View {
         let _ = terminalScrollBarVisibilityGeneration
-        let tabs = tabManager.tabs
-        let workspaceCount = tabs.count
+        let allTabs = tabManager.tabs
+        let tabItemSettings = tabItemSettingsStore.snapshot
+        let tabs = sidebarDisplayTabs(
+            allTabs,
+            settings: tabItemSettings,
+            recentsAttentionOnly: recentsAttentionOnly
+        )
+        let workspaceCount = allTabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
-        let tabItemSettings = tabItemSettingsStore.snapshot
-        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
+        let tabIndexById = Dictionary(uniqueKeysWithValues: allTabs.enumerated().map {
             ($0.element.id, $0.offset)
         })
-        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
+        let orderedSelectedTabs = allTabs.filter { selectedTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
         let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
         let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
         let workspaceTerminalScrollBarHiddenById = Dictionary(
-            uniqueKeysWithValues: tabs.map { ($0.id, $0.terminalScrollBarHidden) }
+            uniqueKeysWithValues: allTabs.map { ($0.id, $0.terminalScrollBarHidden) }
         )
         let allSelectedRemoteContextMenuTargetsConnecting = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy {
@@ -9554,7 +9566,10 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
-            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById
+            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById,
+            listStyle: tabItemSettings.listStyle,
+            recentsSectionExpanded: recentsSectionExpanded,
+            recentsAttentionOnly: recentsAttentionOnly
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -9756,7 +9771,13 @@ struct VerticalTabsSidebar: View {
         minHeight: CGFloat
     ) -> some View {
         VStack(spacing: 0) {
-            workspaceRows(renderContext: renderContext)
+            if renderContext.listStyle == .recents {
+                sidebarRecentsHeader(renderContext: renderContext)
+            }
+
+            if renderContext.listStyle != .recents || renderContext.recentsSectionExpanded {
+                workspaceRows(renderContext: renderContext)
+            }
 
             SidebarEmptyArea(
                 rowSpacing: tabRowSpacing,
@@ -9770,6 +9791,57 @@ struct VerticalTabsSidebar: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minHeight: minHeight, alignment: .top)
+    }
+
+    private func sidebarRecentsHeader(renderContext: WorkspaceListRenderContext) -> some View {
+        let title = String(localized: "sidebar.recents.header", defaultValue: "Recents")
+        let disclosureTooltip = renderContext.recentsSectionExpanded
+            ? String(localized: "sidebar.recents.collapse.tooltip", defaultValue: "Collapse Recents")
+            : String(localized: "sidebar.recents.expand.tooltip", defaultValue: "Expand Recents")
+        let filterTooltip = renderContext.recentsAttentionOnly
+            ? String(localized: "sidebar.recents.filter.all.tooltip", defaultValue: "Show All Recents")
+            : String(localized: "sidebar.recents.filter.attentionOnly.tooltip", defaultValue: "Show Attention Only")
+
+        return HStack(spacing: 6) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    recentsSectionExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: renderContext.recentsSectionExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(title)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .lineLimit(1)
+                }
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .safeHelp(disclosureTooltip)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    recentsAttentionOnly.toggle()
+                }
+            } label: {
+                Image(systemName: renderContext.recentsAttentionOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(renderContext.recentsAttentionOnly ? cmuxAccentColor() : .secondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .safeHelp(filterTooltip)
+            .accessibilityIdentifier("SidebarRecentsFilterButton")
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 3)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("SidebarRecentsHeader")
     }
 
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
@@ -9942,6 +10014,59 @@ struct VerticalTabsSidebar: View {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
     }
+
+    private func sidebarDisplayTabs(
+        _ tabs: [Workspace],
+        settings: SidebarTabItemSettingsSnapshot,
+        recentsAttentionOnly: Bool
+    ) -> [Workspace] {
+        guard settings.listStyle == .recents else { return tabs }
+        let indexedTabs = tabs.enumerated().map { (index: $0.offset, workspace: $0.element) }
+        let filteredTabs = recentsAttentionOnly
+            ? indexedTabs.filter { sidebarRecentsGlyphInput(for: $0.workspace).isAttention }
+            : indexedTabs
+        return filteredTabs.sorted { lhs, rhs in
+            let lhsActivity = sidebarRecentsActivityDate(for: lhs.workspace)
+            let rhsActivity = sidebarRecentsActivityDate(for: rhs.workspace)
+            if lhsActivity != rhsActivity {
+                return lhsActivity > rhsActivity
+            }
+            return lhs.index < rhs.index
+        }.map(\.workspace)
+    }
+
+    private func sidebarRecentsActivityDate(for workspace: Workspace) -> Date {
+        if sidebarRecentsGlyphInput(for: workspace).isAttention {
+            return .distantFuture
+        }
+
+        let notificationDate = notificationStore.latestNotification(forTabId: workspace.id)?.createdAt
+        let statusDate = workspace.statusEntries.values.map(\.timestamp).max()
+        let metadataDate = workspace.metadataBlocks.values.map(\.timestamp).max()
+        let logDate = workspace.logEntries.map(\.timestamp).max()
+
+        return [
+            notificationDate,
+            statusDate,
+            metadataDate,
+            logDate
+        ].compactMap { $0 }.max() ?? .distantPast
+    }
+
+    private func sidebarRecentsGlyphInput(for workspace: Workspace) -> SidebarRecentsGlyphInput {
+        SidebarRecentsGlyphInput(
+            unreadCount: notificationStore.unreadCount(forTabId: workspace.id),
+            hasRunningCommand: workspace.panelShellActivityStates.values.contains(.commandRunning),
+            hasProgress: workspace.progress != nil,
+            remoteConnectionState: workspace.isRemoteWorkspace ? workspace.remoteConnectionState : nil,
+            hasAgentStatus: !workspace.agentPIDs.isEmpty || !workspace.restoredAgentResumeStatesByPanelId.isEmpty,
+            hasPullRequest: workspace.pullRequest != nil || !workspace.panelPullRequests.isEmpty,
+            hasGitBranch: workspace.gitBranch != nil || !workspace.panelGitBranches.isEmpty,
+            hasFileOrDocumentPanel: workspace.panels.values.contains { panel in
+                panel.panelType == .markdown || panel.panelType == .filePreview
+            }
+        )
+    }
 }
 
 private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
@@ -9957,6 +10082,35 @@ private struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 
     static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
         value.merge(nextValue()) { _, next in next }
+    }
+}
+
+private struct SidebarRecentsGlyphView: View {
+    let kind: SidebarRecentsGlyphKind
+
+    var body: some View {
+        Group {
+            switch kind {
+            case .active:
+                Circle()
+                    .fill(Color(nsColor: .systemYellow))
+                    .frame(width: 7, height: 7)
+            case .branch:
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color(nsColor: .systemGreen))
+            case .file:
+                Image(systemName: "doc.text")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color(nsColor: .systemPurple))
+            case .idle:
+                Circle()
+                    .stroke(Color.secondary.opacity(0.7), lineWidth: 1.2)
+                    .frame(width: 8, height: 8)
+            }
+        }
+        .frame(width: 14, height: 18, alignment: .center)
+        .accessibilityIdentifier("SidebarRecentsGlyph.\(kind.rawValue)")
     }
 }
 
@@ -12642,6 +12796,70 @@ private struct TabItemView: View, Equatable {
         )
     }
 
+    private var isRecentsStyle: Bool {
+        settings.listStyle == .recents
+    }
+
+    private var recentsGlyphInput: SidebarRecentsGlyphInput {
+        SidebarRecentsGlyphInput(
+            unreadCount: unreadCount,
+            hasRunningCommand: tab.panelShellActivityStates.values.contains(.commandRunning),
+            hasProgress: workspaceSnapshot.progress != nil,
+            remoteConnectionState: tab.isRemoteWorkspace ? tab.remoteConnectionState : nil,
+            hasAgentStatus: !tab.agentPIDs.isEmpty || !tab.restoredAgentResumeStatesByPanelId.isEmpty,
+            hasPullRequest: !workspaceSnapshot.pullRequestRows.isEmpty,
+            hasGitBranch: workspaceSnapshot.compactGitBranchSummaryText != nil || workspaceSnapshot.branchLinesContainBranch,
+            hasFileOrDocumentPanel: tab.panels.values.contains { panel in
+                panel.panelType == .markdown || panel.panelType == .filePreview
+            }
+        )
+    }
+
+    private var recentsRowBackgroundColor: Color {
+        if isActive {
+            return Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.08)
+        }
+        if isMultiSelected {
+            return cmuxAccentColor().opacity(colorScheme == .dark ? 0.18 : 0.12)
+        }
+        return .clear
+    }
+
+    @ViewBuilder
+    private func recentsRowContent(workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot) -> some View {
+        let title = SidebarRecentsTitleFormatter.singleLineTitle(workspaceSnapshot.title)
+        let glyphKind = SidebarRecentsGlyphMapper.glyphKind(for: recentsGlyphInput)
+        HStack(spacing: 7) {
+            SidebarRecentsGlyphView(kind: glyphKind)
+                .frame(width: 14, height: 18)
+
+            Text(title)
+                .font(.system(size: 13.5, weight: isActive ? .semibold : .regular))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+
+            Menu {
+                workspaceContextMenu
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .opacity(rowInteractionState.isPointerHovering || rowInteractionState.contextMenuVisible ? 1 : 0)
+            .allowsHitTesting(rowInteractionState.isPointerHovering || rowInteractionState.contextMenuVisible)
+            .buttonStyle(.plain)
+            .safeHelp(String(localized: "sidebar.workspace.actions.tooltip", defaultValue: "Workspace Actions"))
+            .accessibilityIdentifier("SidebarWorkspaceActionsButton")
+        }
+    }
+
     var body: some View {
         let workspaceSnapshot = self.workspaceSnapshot
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
@@ -12666,7 +12884,10 @@ private struct TabItemView: View, Equatable {
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
 
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: isRecentsStyle ? 0 : 4) {
+            if isRecentsStyle {
+                recentsRowContent(workspaceSnapshot: workspaceSnapshot)
+            } else {
             HStack(spacing: 8) {
                 if unreadCount > 0 {
                     ZStack {
@@ -12880,21 +13101,25 @@ private struct TabItemView: View, Equatable {
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
             }
+            }
         }
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, isRecentsStyle ? 8 : 10)
+        .padding(.vertical, isRecentsStyle ? 0 : 8)
+        .frame(height: isRecentsStyle ? 34 : nil, alignment: .center)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(backgroundColor)
+                .fill(isRecentsStyle ? recentsRowBackgroundColor : backgroundColor)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
+                    if !isRecentsStyle {
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
+                    }
                 }
                 .overlay(alignment: .leading) {
-                    if showsLeadingRail {
+                    if !isRecentsStyle, showsLeadingRail {
                         Capsule(style: .continuous)
                             .fill(railColor)
                             .frame(width: 3)
@@ -12905,7 +13130,7 @@ private struct TabItemView: View, Equatable {
                 }
         )
         .overlay(alignment: .topTrailing) {
-            if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
+            if !isRecentsStyle, showsWorkspaceShortcutHint, let workspaceShortcutLabel {
                 ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
                     .offset(
                         x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
@@ -12914,7 +13139,7 @@ private struct TabItemView: View, Equatable {
                     .padding(.top, 6)
                     .padding(.trailing, 10)
                     .shortcutHintTransition()
-            } else if showCloseButton {
+            } else if !isRecentsStyle, showCloseButton {
                 Button(action: {
                     #if DEBUG
                     cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")

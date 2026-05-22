@@ -426,6 +426,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "style": {
+          "type": "string",
+          "enum": ["recents", "classic"],
+          "default": "recents",
+          "description": "Sidebar workspace list style. `recents` shows compact Codex/Claude-style recent rows; `classic` shows full cmux metadata rows."
+        },
         "hideAllDetails": {
           "type": "boolean",
           "default": false,
