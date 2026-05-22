@@ -47,6 +47,8 @@ max_cpu: dict[str, float] = {}
 last_pid: dict[str, int] = {}
 missing_count: dict[str, int] = {}
 cpu_high_streak: dict[str, int] = {}
+pid_first_seen: dict[str, float] = {}
+pid_sample_count: dict[str, int] = {}
 
 
 def stamp() -> str:
@@ -180,6 +182,8 @@ def main() -> int:
                     max_rss.pop(label, None)
                     last_rss.pop(label, None)
                     cpu_high_streak[label] = 0
+                    pid_first_seen[label] = time.monotonic()
+                    pid_sample_count[label] = 0
                     log_json({
                         "ts": now,
                         "label": label,
@@ -191,6 +195,8 @@ def main() -> int:
                     in_startup_grace = time.monotonic() - STARTED_MONOTONIC < STARTUP_GRACE_SECONDS
                     if in_startup_grace or not baseline_rss.get(label):
                         last_pid[label] = pid
+                        pid_first_seen[label] = time.monotonic()
+                        pid_sample_count[label] = 0
                         log_json({
                             "ts": now,
                             "label": label,
@@ -201,6 +207,8 @@ def main() -> int:
                     else:
                         failures += 1
                         last_pid[label] = pid
+                        pid_first_seen[label] = time.monotonic()
+                        pid_sample_count[label] = 0
                         log_json({
                             "ts": now,
                             "label": label,
@@ -211,6 +219,9 @@ def main() -> int:
                         })
                         write_status("failed", samples, failures)
                         return 1
+            if previous_pid != pid:
+                pid_first_seen[label] = time.monotonic()
+                pid_sample_count[label] = 0
             last_pid[label] = pid
             sample = sample_pid(pid)
             if sample is None:
@@ -240,12 +251,23 @@ def main() -> int:
             last_cpu[label] = cpu
             last_rss[label] = rss
             max_cpu[label] = max(max_cpu.get(label, cpu), cpu)
+            pid_sample_count[label] = pid_sample_count.get(label, 0) + 1
+            process_age = time.monotonic() - pid_first_seen.get(label, STARTED_MONOTONIC)
 
-            if samples < WARMUP_SAMPLES:
+            if pid_sample_count[label] < WARMUP_SAMPLES or process_age < STARTUP_GRACE_SECONDS:
                 baseline_rss[label] = 0
                 max_rss[label] = 0
                 cpu_high_streak[label] = 0
-                log_json({"ts": now, "label": label, "pid": pid, "cpu_percent": cpu, "rss_kb": rss, "warmup": True})
+                log_json({
+                    "ts": now,
+                    "label": label,
+                    "pid": pid,
+                    "cpu_percent": cpu,
+                    "rss_kb": rss,
+                    "warmup": True,
+                    "process_age_seconds": round(process_age, 1),
+                    "pid_sample_count": pid_sample_count[label],
+                })
                 continue
 
             if not baseline_rss.get(label):
