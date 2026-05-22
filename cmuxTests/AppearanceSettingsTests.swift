@@ -113,6 +113,9 @@ final class AppearanceSettingsTests: XCTestCase {
                 XCTAssertTrue(soft)
                 events.append("reload:\(source)")
             },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
+            },
             refreshHostBackground: {
                 events.append("host-background")
             },
@@ -122,6 +125,7 @@ final class AppearanceSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(events, [
+            "color-scheme",
             "reload:appearanceSync:test",
             "host-background",
             "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
@@ -137,6 +141,9 @@ final class AppearanceSettingsTests: XCTestCase {
             reloadSurfaceConfiguration: { _, _, _ in
                 events.append("reload")
             },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
+            },
             refreshHostBackground: {
                 events.append("host-background")
             },
@@ -149,6 +156,65 @@ final class AppearanceSettingsTests: XCTestCase {
             "host-background",
             "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
         ])
+    }
+
+    func testAppConfigReloadRefreshAppliesSurfaceColorSchemeForPreviewReload() throws {
+        let fakeSurface = try XCTUnwrap(UnsafeMutableRawPointer(bitPattern: 0x3852))
+        var events: [String] = []
+
+        GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
+            to: fakeSurface,
+            source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource,
+            reloadSurfaceConfiguration: { _, soft, source in
+                XCTAssertTrue(soft)
+                events.append("reload:\(source)")
+            },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
+            },
+            refreshHostBackground: {
+                events.append("host-background")
+            },
+            forceRefresh: { reason in
+                events.append("force-refresh:\(reason)")
+            }
+        )
+
+        XCTAssertEqual(events, [
+            "color-scheme",
+            "reload:\(GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource)",
+            "host-background",
+            "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
+        ])
+    }
+
+    func testCmuxThemeFinalReloadUsesFinalSource() {
+        XCTAssertEqual(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: "final"),
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource
+        )
+    }
+
+    func testCmuxThemePreviewReloadIsDebounced() {
+        XCTAssertEqual(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: "preview"),
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource
+        )
+        XCTAssertTrue(
+            GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource
+            )
+        )
+        XCTAssertTrue(
+            GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadLegacySource
+            )
+        )
+        XCTAssertFalse(
+            GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource
+            )
+        )
     }
 
     func testResolvedModeDefaultsToSystemWhenUnset() {
@@ -307,6 +373,70 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
         XCTAssertTrue(appliedAppearanceWasCleared)
         XCTAssertTrue(synchronizedAppearanceWasCleared)
+    }
+
+    func testDefaultsObserverAppliesLiveAppearanceWhenStoredModeChanges() {
+        let suiteName = "AppearanceSettingsTests.DefaultsObserver.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let notificationCenter = NotificationCenter()
+        var appliedAppearanceName: NSAppearance.Name?
+        var synchronizedAppearanceName: NSAppearance.Name?
+        var synchronizedSource: String?
+        let liveEnvironment = AppearanceSettings.LiveApplyEnvironment(
+            setApplicationAppearance: { appearance in
+                appliedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+            },
+            synchronizeTerminalThemeWithAppearance: { appearance, source in
+                synchronizedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+                synchronizedSource = source
+            },
+            systemAppearance: {
+                XCTFail("Dark mode should not resolve system appearance")
+                return nil
+            }
+        )
+        let observer = AppearanceSettingsUserDefaultsObserver(
+            environment: .init(
+                addDefaultsObserver: { handler in
+                    notificationCenter.addObserver(
+                        forName: UserDefaults.didChangeNotification,
+                        object: nil,
+                        queue: nil
+                    ) { _ in
+                        handler()
+                    }
+                },
+                removeObserver: { observer in
+                    notificationCenter.removeObserver(observer)
+                },
+                currentRawValue: {
+                    defaults.string(forKey: AppearanceSettings.appearanceModeKey)
+                },
+                applyStoredMode: { rawValue, source in
+                    AppearanceSettings.applyStoredMode(
+                        rawValue: rawValue,
+                        defaults: defaults,
+                        source: source,
+                        environment: liveEnvironment
+                    )
+                }
+            ),
+            source: "test.defaultsObserver"
+        )
+
+        defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        observer.startObserving()
+        defaults.set(AppearanceMode.dark.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+
+        XCTAssertEqual(appliedAppearanceName, .darkAqua)
+        XCTAssertEqual(synchronizedAppearanceName, .darkAqua)
+        XCTAssertEqual(synchronizedSource, "test.defaultsObserver")
     }
 
     private func withTemporaryAppearanceDefaults(

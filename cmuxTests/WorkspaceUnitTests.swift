@@ -48,8 +48,41 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
     }
 
-    func testSelectedWorkspaceForegroundAlwaysUsesWhiteWithRequestedOpacity() {
-        guard let color = sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.65).usingColorSpace(.sRGB) else {
+    func testSelectedWorkspaceForegroundUsesBlackOnLightSelectionBackground() {
+        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
+            on: NSColor(hex: "#FFFFFF")!,
+            opacity: 0.65
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
+    }
+
+    func testSelectedWorkspaceForegroundUsesWhiteOnDarkSelectionBackground() {
+        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
+            on: NSColor(hex: "#123456")!,
+            opacity: 0.65
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
+    }
+
+    func testDefaultSelectedWorkspaceForegroundUsesNativeSelectionTextOnAccentBackground() {
+        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
+            on: sidebarSelectedWorkspaceBackgroundNSColor(for: .light),
+            opacity: 0.65
+        ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -774,6 +807,52 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "1")
         )
         XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
+    }
+
+    func testSettingsFileStoreAppliesSubagentNotificationSuppression() throws {
+        let defaults = UserDefaults.standard
+        let previousValue = defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+            } else {
+                defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "suppressSubagentNotifications": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey) as? Bool,
+            false
+        )
     }
 
     func testSettingsFileStoreAppliesBrowserHiddenWebViewDiscardDelayAtMaximum() throws {
@@ -2636,6 +2715,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
+            remotePTYSessionID: nil,
             remoteCleanupConfiguration: nil
         )
     }
@@ -3508,6 +3588,101 @@ final class WorkspaceReorderTests: XCTestCase {
 
         XCTAssertTrue(manager.reorderWorkspace(tabId: firstPinned.id, toIndex: 999))
         XCTAssertEqual(manager.tabs.map(\.id), [secondPinned.id, firstPinned.id, unpinned.id])
+    }
+
+    @MainActor
+    func testBatchReorderAppliesFinalLeadingOrderAtomically() throws {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let fourth = manager.addWorkspace()
+        var observedMovedIds: [UUID] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .workspaceOrderDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, first.id])
+        let plan = try result.get()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id, fourth.id])
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: third.id, fromIndex: 2, toIndex: 0),
+                WorkspaceReorderPlanItem(workspaceId: first.id, fromIndex: 0, toIndex: 1)
+            ]
+        )
+        XCTAssertEqual(observedMovedIds, [third.id, first.id])
+    }
+
+    @MainActor
+    func testBatchReorderRejectsUnknownWorkspaceWithoutPartialMutation() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let originalOrder = manager.tabs.map(\.id)
+        let unknown = UUID()
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, unknown, first.id])
+
+        XCTAssertEqual(result, .failure(.workspaceNotFound(unknown)))
+        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
+    }
+
+    @MainActor
+    func testBatchReorderDryRunReturnsPlanWithoutMutation() throws {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let originalOrder = manager.tabs.map(\.id)
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, first.id], dryRun: true)
+        let plan = try result.get()
+
+        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: third.id, fromIndex: 2, toIndex: 0),
+                WorkspaceReorderPlanItem(workspaceId: first.id, fromIndex: 0, toIndex: 1)
+            ]
+        )
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
+    }
+
+    @MainActor
+    func testBatchReorderPreservesPinnedWorkspaceSegment() throws {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let firstUnpinned = manager.addWorkspace()
+        let secondUnpinned = manager.addWorkspace()
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [secondUnpinned.id, secondPinned.id])
+        let plan = try result.get()
+
+        XCTAssertEqual(
+            manager.tabs.map(\.id),
+            [secondPinned.id, firstPinned.id, secondUnpinned.id, firstUnpinned.id]
+        )
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: secondUnpinned.id, fromIndex: 3, toIndex: 2),
+                WorkspaceReorderPlanItem(workspaceId: secondPinned.id, fromIndex: 1, toIndex: 0)
+            ]
+        )
     }
 
     @MainActor
