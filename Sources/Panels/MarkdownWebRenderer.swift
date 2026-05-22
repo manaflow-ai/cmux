@@ -352,12 +352,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 if currentPortalProbe === probe {
                     currentPortalHostVisibleInUI = visibleInUI
                 }
-                if !visibleInUI {
-                    BrowserWindowPortalRegistry.hide(webView: webView, source: "markdown.\(reason).hiddenOffWindow")
+                BrowserWindowPortalRegistry.hide(webView: webView, source: "markdown.\(reason).offWindow")
+                BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
 #if DEBUG
-                    recordPortalBind(reason: reason, visibleInUI: false)
+                recordPortalBind(reason: "\(reason).offWindow", visibleInUI: false)
 #endif
-                }
                 return
             }
             BrowserWindowPortalRegistry.bind(
@@ -471,7 +470,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         func synchronizePortal(for probe: MarkdownWebPortalProbeView) {
             guard webView != nil else { return }
-            guard let anchorView = updatePortalAnchorFrame(from: probe) else { return }
+            guard let anchorView = updatePortalAnchorFrame(from: probe) else {
+                guard currentPortalProbe === probe, let webView else { return }
+                BrowserWindowPortalRegistry.hide(webView: webView, source: "markdown.geometry.offWindow")
+                BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
+                return
+            }
             BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
         }
 
