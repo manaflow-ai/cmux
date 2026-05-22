@@ -2192,7 +2192,8 @@ struct CMUXCLI {
             let event = hookEventName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
             let tool = toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
             let metadata = "\(event) \(tool) \(signal)".lowercased()
-            let lower = "\(metadata) \(message)".lowercased()
+            let messageText = message.lowercased()
+            let lower = "\(metadata) \(messageText)"
 
             if event == "askuserquestion" || tool == "askuserquestion" || lower.contains("askuserquestion") {
                 return .question
@@ -2203,17 +2204,35 @@ struct CMUXCLI {
             if event == "pretooluse", !tool.isEmpty {
                 return .toolApproval
             }
+            if metadata.contains("approve") || metadata.contains("approval") {
+                return .toolApproval
+            }
+            if messageText.contains("permissionrequest") || messageText.contains("permission request") || messageText.contains("permission_prompt") || messageText.contains("permission") {
+                return .permissionRequest
+            }
+            if messageText.contains("approve") || messageText.contains("approval") {
+                return .toolApproval
+            }
             if event == "stop" || lower.contains("idle") || lower.contains("waiting") || lower.contains("awaiting") || lower.contains("needs input") || lower.contains("needs your input") {
                 return .idlePrompt
             }
-            if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
+            let metadataIndicatesError = metadata.contains("error")
+                || metadata.contains("failed")
+                || metadata.contains("failure")
+                || metadata.contains("exception")
+            let messageIndicatesError = messageText.contains("failed")
+                || messageText.contains("failure")
+                || messageText.contains("exception")
+                || messageText.contains("error:")
+                || messageText.contains("error occurred")
+                || messageText.contains("reported an error")
+                || messageText.contains("encountered an error")
+                || messageText.hasPrefix("error ")
+            if metadataIndicatesError || messageIndicatesError {
                 return .error
             }
             if lower.contains("question") || lower.contains("answer") || lower.contains("respond") || lower.contains("reply") || message.contains("?") {
                 return .question
-            }
-            if metadata.contains("approve") || metadata.contains("approval") {
-                return .toolApproval
             }
             return .idlePrompt
         }
@@ -18942,7 +18961,7 @@ struct CMUXCLI {
     }
 
     private func claudeWorkspaceTitle(workspaceId: String, client: SocketClient) -> String? {
-        guard let payload = try? client.sendV2(method: "workspace.list") else { return nil }
+        guard let payload = try? client.sendV2(method: "workspace.list", params: ["workspace_id": workspaceId]) else { return nil }
         let workspaces = payload["workspaces"] as? [[String: Any]] ?? []
         for workspace in workspaces {
             let identifiers = [

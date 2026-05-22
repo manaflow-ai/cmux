@@ -251,6 +251,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "grep error.log"
             ),
             (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Permission request: run grep error.log"}"#,
+                "Permission request",
+                "Permission request: run grep error.log"
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Approval needed to run grep error.log"}"#,
+                "Tool approval",
+                "Approval needed to run grep error.log"
+            ),
+            (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Edit","notification_type":"approval","message":"Approve Edit to update Sources/AppDelegate.swift"}"#,
                 "Tool approval",
                 "Approve Edit to update Sources/AppDelegate.swift"
@@ -282,6 +292,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             let command = try XCTUnwrap(notifyCommands.last)
             XCTAssertTrue(command.contains("Claude Workspace - Claude waiting|\(testCase.subtitle)|"), command)
             XCTAssertTrue(command.contains(testCase.bodyFragment), command)
+
+            let workspaceListRequests = Array(context.state.commands.dropFirst(commandStart)).compactMap { command -> [String: Any]? in
+                guard let payload = jsonObject(command),
+                      payload["method"] as? String == "workspace.list" else {
+                    return nil
+                }
+                return payload["params"] as? [String: Any]
+            }
+            XCTAssertTrue(
+                workspaceListRequests.contains { $0["workspace_id"] as? String == context.workspaceId },
+                "Expected Claude waiting notification title lookup to target \(context.workspaceId), saw \(workspaceListRequests)"
+            )
         }
     }
 
