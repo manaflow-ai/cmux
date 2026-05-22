@@ -19084,8 +19084,8 @@ struct CMUXCLI {
             #"(^|[\s;&|])(?:[A-Za-z_][A-Za-z0-9_]*=)(?=\S)"#,
             #"\bAuthorization\s*:\s*Bearer\s+\S+"#,
             #"\bBearer\s+[A-Za-z0-9._~+/\-]+=*"#,
-            #"[?&](?:X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|Signature|sig|token|access_token|api_key|key|secret|password)="#,
-            #""(?:token|secret|password|api[_-]?key|authorization|credential)"\s*:"#,
+            #"[?&](?:X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|Signature|sig|token|access[-_]?token|accessToken|api[-_]?key|apiKey|auth[-_]?token|authToken|id[-_]?token|idToken|refresh[-_]?token|refreshToken|client[-_]?secret|clientSecret|key|secret|password)="#,
+            #""(?:token|secret|password|api[-_]?key|apiKey|access[-_]?token|accessToken|auth[-_]?token|authToken|id[-_]?token|idToken|refresh[-_]?token|refreshToken|client[-_]?secret|clientSecret|authorization|credential)"\s*:"#,
             #"\b(?:sk|rk|sess)-[A-Za-z0-9._-]{8,}\b"#,
         ]
         return patterns.contains { pattern in

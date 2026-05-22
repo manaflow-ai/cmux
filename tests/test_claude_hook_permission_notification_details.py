@@ -216,6 +216,19 @@ def main() -> int:
                 "expected": "Claude Code|Permission|WebFetch: https://docs.example.test/guide",
             },
             {
+                "name": "redacted web permission",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": os.getcwd(),
+                    "tool_name": "WebFetch",
+                    "tool_input": {
+                        "url": "https://docs.example.test/guide?apiKey=secret-value&accessToken=secret-token",
+                    },
+                },
+                "notification_message": "Claude needs your permission",
+                "expected": "Claude Code|Permission|WebFetch: Sensitive content removed",
+            },
+            {
                 "name": "unknown tool permission",
                 "feed_payload": {
                     "hook_event_name": "PermissionRequest",
