@@ -48,6 +48,8 @@ jobs:
             FuzzTmuxCompatArgParser \
             FuzzTmuxRenderFormatSupportedSubset \
             FuzzTmuxSendKeysTokens \
+            FuzzConsumeWebSocketLease \
+            FuzzNormalizePTYSize \
             FuzzWebSocketPTYControlFrame
           do
             go test ./cmd/cmuxd-remote -run '^$' -fuzz "^${target}$" -fuzztime "$FUZZTIME"
