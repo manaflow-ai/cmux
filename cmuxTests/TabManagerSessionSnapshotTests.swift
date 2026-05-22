@@ -1311,6 +1311,64 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.items.map(\.title), ["Second Newer", "Failed Restore"])
     }
 
+    func testRestoreFirstRestorableCanSkipRecordsThatAlreadyFailedThisCommand() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        var oldSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        oldSnapshot.customTitle = "Old Failed"
+        var newSnapshot = oldSnapshot
+        newSnapshot.customTitle = "New Failed"
+        let store = ClosedItemHistoryStore(capacity: 5)
+        let oldRecord = ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: oldSnapshot
+            ))
+        )
+        let newRecord = ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 2),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: newSnapshot
+            ))
+        )
+        store.push(oldRecord)
+        store.push(newRecord)
+        var failedRecordIds: Set<UUID> = []
+        var attemptedTitles: [String] = []
+
+        XCTAssertFalse(store.restoreFirstRestorable(
+            newerThan: Date(timeIntervalSince1970: 0),
+            excluding: failedRecordIds,
+            onFailure: { failedRecordIds.insert($0) },
+            using: { entry in
+                if case .panel(let panelEntry) = entry {
+                    attemptedTitles.append(panelEntry.snapshot.customTitle ?? "")
+                }
+                return false
+            }
+        ))
+        XCTAssertFalse(store.restoreFirstRestorable(
+            newerThan: nil,
+            excluding: failedRecordIds,
+            onFailure: { failedRecordIds.insert($0) },
+            using: { entry in
+                if case .panel(let panelEntry) = entry {
+                    attemptedTitles.append(panelEntry.snapshot.customTitle ?? "")
+                }
+                return false
+            }
+        ))
+
+        XCTAssertEqual(attemptedTitles, ["New Failed", "Old Failed"])
+        XCTAssertEqual(failedRecordIds, Set([newRecord.id, oldRecord.id]))
+    }
+
     func testFailedClosedWorkspaceRestoreRemovesCreatedWorkspaceAndKeepsHistoryRecord() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil

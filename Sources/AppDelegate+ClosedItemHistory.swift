@@ -26,14 +26,20 @@ extension AppDelegate {
         preferredTabManager: TabManager? = nil,
         shouldActivate: Bool = true
     ) -> Bool {
+        var failedStoreRecordIds: Set<UUID> = []
         let restoreStoreItem: (Date?) -> Bool = { cutoff in
-            ClosedItemHistoryStore.shared.restoreFirstRestorable(newerThan: cutoff, using: { entry in
-                self.restoreClosedItem(
-                    entry,
-                    preferredTabManager: preferredTabManager,
-                    shouldActivate: shouldActivate
-                )
-            })
+            ClosedItemHistoryStore.shared.restoreFirstRestorable(
+                newerThan: cutoff,
+                excluding: failedStoreRecordIds,
+                onFailure: { failedStoreRecordIds.insert($0) },
+                using: { entry in
+                    self.restoreClosedItem(
+                        entry,
+                        preferredTabManager: preferredTabManager,
+                        shouldActivate: shouldActivate
+                    )
+                }
+            )
         }
 
         for manager in recentlyClosedLegacyBrowserManagers(preferredTabManager: preferredTabManager) {

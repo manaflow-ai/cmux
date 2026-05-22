@@ -152,10 +152,13 @@ final class ClosedItemHistoryStore: ObservableObject {
     @discardableResult
     func restoreFirstRestorable(
         newerThan cutoff: Date?,
+        excluding excludedRecordIds: Set<UUID> = [],
+        onFailure: ((UUID) -> Void)? = nil,
         using restore: (ClosedItemHistoryEntry) -> Bool
     ) -> Bool {
         let candidates = records.enumerated()
             .filter { _, record in
+                guard !excludedRecordIds.contains(record.id) else { return false }
                 guard let cutoff else { return true }
                 return record.closedAt >= cutoff
             }
@@ -167,7 +170,10 @@ final class ClosedItemHistoryStore: ObservableObject {
             }
             .map { _, record in (id: record.id, entry: record.entry) }
         for candidate in candidates {
-            guard restore(candidate.entry) else { continue }
+            guard restore(candidate.entry) else {
+                onFailure?(candidate.id)
+                continue
+            }
             if let index = records.firstIndex(where: { $0.id == candidate.id }) {
                 records.remove(at: index)
                 revision &+= 1
