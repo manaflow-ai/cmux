@@ -603,7 +603,7 @@ class TerminalController {
 
     nonisolated static func normalizeReportedDirectory(_ directory: String) -> String {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return directory }
+        guard !trimmed.isEmpty else { return "" }
         if trimmed.hasPrefix("file://"), let url = URL(string: trimmed), !url.path.isEmpty {
             return url.path
         }
@@ -5825,7 +5825,7 @@ class TerminalController {
             v2SocketWorkerRawString(params, "path"),
             v2SocketWorkerRawString(params, "pwd"),
         ]
-        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .compactMap { $0.map(Self.normalizeReportedDirectory) }
         .first { !$0.isEmpty }
         guard let directory else {
             return .err(code: "invalid_params", message: "Missing directory", data: nil)
@@ -18395,7 +18395,10 @@ class TerminalController {
             return "ERROR: Missing path — usage: report_pwd <path> [--tab=X] [--panel=Y]"
         }
 
-        let directory = parsed.positional.joined(separator: " ")
+        let directory = Self.normalizeReportedDirectory(parsed.positional.joined(separator: " "))
+        guard !directory.isEmpty else {
+            return "ERROR: Missing path — usage: report_pwd <path> [--tab=X] [--panel=Y]"
+        }
         if let scope = Self.explicitSocketScope(options: parsed.options) {
             TerminalMutationBus.shared.enqueueMainActorMutation {
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),

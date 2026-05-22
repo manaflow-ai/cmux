@@ -8991,17 +8991,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func setPanelDirectory(panelId: UUID, directory: String, updateFocusedDirectory: Bool) {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        if panelDirectories[panelId] != trimmed {
-            panelDirectories[panelId] = trimmed
+        let normalized = TerminalController.normalizeReportedDirectory(directory)
+        guard !normalized.isEmpty else { return }
+        if panelDirectories[panelId] != normalized {
+            panelDirectories[panelId] = normalized
         }
         if updateFocusedDirectory, panelId == focusedPanelId {
-            if surfaceTabBarDirectory != trimmed {
-                surfaceTabBarDirectory = trimmed
+            if surfaceTabBarDirectory != normalized {
+                surfaceTabBarDirectory = normalized
             }
-            if currentDirectory != trimmed {
-                currentDirectory = trimmed
+            if currentDirectory != normalized {
+                currentDirectory = normalized
             }
         }
     }
@@ -9011,9 +9011,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func updateRemotePanelDirectory(panelId: UUID, directory: String) {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        setPanelDirectory(panelId: panelId, directory: trimmed, updateFocusedDirectory: false)
+        let normalized = TerminalController.normalizeReportedDirectory(directory)
+        guard !normalized.isEmpty else { return }
+        setPanelDirectory(panelId: panelId, directory: normalized, updateFocusedDirectory: false)
         guard activeRemoteTerminalSurfaceIds.contains(panelId) else { return }
         markRemoteTerminalDirectorySurface(panelId)
     }
@@ -9441,8 +9441,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func normalizedSidebarDirectory(_ directory: String?) -> String? {
         guard let directory else { return nil }
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        let normalized = TerminalController.normalizeReportedDirectory(directory)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func sidebarHomeDirectoryForCanonicalization(
@@ -9991,12 +9991,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     @MainActor
     func rememberPendingRemoteSurfaceDirectory(_ directory: String, requestedSurfaceId: UUID?) {
-        let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDirectory.isEmpty else { return }
+        let normalizedDirectory = TerminalController.normalizeReportedDirectory(directory)
+        guard !normalizedDirectory.isEmpty else { return }
         if let requestedSurfaceId {
-            pendingRemoteSurfaceDirectoriesBySurfaceId[requestedSurfaceId] = trimmedDirectory
+            pendingRemoteSurfaceDirectoriesBySurfaceId[requestedSurfaceId] = normalizedDirectory
         } else {
-            pendingRemoteSurfaceDirectory = trimmedDirectory
+            pendingRemoteSurfaceDirectory = normalizedDirectory
         }
     }
 
@@ -10034,7 +10034,7 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
 
-        guard let directory = pendingRemoteSurfaceDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let directory = pendingRemoteSurfaceDirectory.map({ TerminalController.normalizeReportedDirectory($0) }),
               !directory.isEmpty else {
             return
         }

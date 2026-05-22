@@ -5438,7 +5438,11 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let previousDirectory = gitProbeDirectory(for: tab, panelId: surfaceId)
         let normalized = normalizeDirectory(directory)
-        tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
+        if tab.isRemoteWorkspace {
+            tab.updateRemotePanelDirectory(panelId: surfaceId, directory: normalized)
+        } else {
+            tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
+        }
         let nextDirectory = normalizedWorkingDirectory(normalized)
         if previousDirectory != nextDirectory {
             guard sidebarGitMetadataWatchEnabled else {
@@ -5620,14 +5624,7 @@ class TabManager: ObservableObject {
     }
 
     private func normalizeDirectory(_ directory: String) -> String {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return directory }
-        if trimmed.hasPrefix("file://"), let url = URL(string: trimmed) {
-            if !url.path.isEmpty {
-                return url.path
-            }
-        }
-        return trimmed
+        TerminalController.normalizeReportedDirectory(directory)
     }
 
     func closeWorkspace(_ workspace: Workspace) {

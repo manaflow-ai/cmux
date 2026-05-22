@@ -1070,7 +1070,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             params: [
                 "workspace_id": workspace.id.uuidString,
                 "surface_id": panelId.uuidString,
-                "directory": "/home/demo/requested-surface"
+                "directory": "file:///home/demo/requested-surface"
             ],
             to: socketPath
         )
@@ -1078,6 +1078,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
         let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
         XCTAssertEqual(result["surface_id"] as? String, panelId.uuidString)
+        XCTAssertEqual(result["directory"] as? String, "/home/demo/requested-surface")
         let reportApplied = await waitForMainActorCondition {
             workspace.panelDirectories[panelId] == "/home/demo/requested-surface" &&
                 workspace.preferredRemoteFileExplorerRootPath() == "/home/demo/requested-surface"
