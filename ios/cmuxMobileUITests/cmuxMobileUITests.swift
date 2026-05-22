@@ -556,15 +556,33 @@ final class cmuxMobileUITests: XCTestCase {
            app.buttons["MobileAddDeviceKeyboardDoneButton"].exists {
             let addDeviceDoneButton = app.buttons["MobileAddDeviceKeyboardDoneButton"]
             addDeviceDoneButton.tap()
-            return
+            if waitForKeyboardDismissal(in: app) {
+                return
+            }
         }
         for label in ["Done", "Return", "Next"] {
             let button = app.keyboards.buttons[label]
             if button.exists {
                 button.tap()
-                return
+                if waitForKeyboardDismissal(in: app) {
+                    return
+                }
             }
         }
+    }
+
+    @MainActor
+    private func waitForKeyboardDismissal(in app: XCUIApplication) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let app = object as? XCUIApplication else {
+                    return false
+                }
+                return !app.keyboards.firstMatch.exists
+            },
+            object: app
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: 3) == .completed
     }
 }
 

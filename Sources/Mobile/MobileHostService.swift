@@ -480,11 +480,15 @@ final class MobileHostService {
         ticket: CmxAttachTicket,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
+        let workspaceSelection = stringParamSelection(
+            request.params,
+            keys: ["workspace_id"]
+        )
         let terminalSelection = stringParamSelection(
             request.params,
             keys: ["surface_id", "terminal_id", "tab_id"]
         )
-        if terminalSelection.hasConflict {
+        if workspaceSelection.hasConflict || terminalSelection.hasConflict {
             return scopedTicketError
         }
         if containsIgnoredAliasParameters(request.params) {
@@ -500,12 +504,39 @@ final class MobileHostService {
             return nil
         case "mobile.terminal.snapshot", "terminal.snapshot",
              "mobile.terminal.input", "terminal.input":
-            return nil
+            return ticketTerminalAuthorizationError(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: terminalSelection.value
+            )
         case "mobile.host.status":
             return nil
         default:
             return scopedTicketError
         }
+    }
+
+    private static func ticketTerminalAuthorizationError(
+        ticket: CmxAttachTicket,
+        workspaceSelection: String?,
+        terminalSelection: String?
+    ) -> MobileHostRPCError? {
+        if let workspaceSelection, workspaceSelection != ticket.workspaceID {
+            return scopedTicketError
+        }
+
+        if let terminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !terminalID.isEmpty {
+            guard terminalSelection == terminalID else {
+                return scopedTicketError
+            }
+            return nil
+        }
+
+        guard workspaceSelection == ticket.workspaceID else {
+            return scopedTicketError
+        }
+        return nil
     }
 
     static func debugTicketAuthorizationError(

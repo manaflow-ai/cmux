@@ -470,6 +470,84 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
+    func testTerminalScopedAttachTicketRejectsDifferentTerminalInput() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "terminal-input",
+            method: "terminal.input",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "other-terminal",
+                "text": "x",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertEqual(error?.code, "forbidden")
+    }
+
+    func testTerminalScopedAttachTicketRejectsUnscopedTerminalSnapshot() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "terminal-snapshot",
+            method: "terminal.snapshot",
+            params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertEqual(error?.code, "forbidden")
+    }
+
+    func testWorkspaceScopedAttachTicketRejectsTerminalSnapshotOutsideWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "terminal-snapshot",
+            method: "terminal.snapshot",
+            params: [
+                "workspace_id": "other-workspace",
+                "surface_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertEqual(error?.code, "forbidden")
+    }
+
+    func testWorkspaceScopedAttachTicketAcceptsTerminalSnapshotInWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "terminal-snapshot",
+            method: "terminal.snapshot",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertNil(error)
+    }
+
     func testStackUserAuthorizationRequiresSignedInMacUser() throws {
         XCTAssertThrowsError(
             try MobileHostAuthorizationPolicy.authorizeStackUser(
