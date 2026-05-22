@@ -139,13 +139,18 @@ ensure_checkout() {
     git checkout --detach "$ref"
   fi
   git reset --hard
-  git clean -ffdx -e .ci-source-packages -e .spm-cache -e GhosttyKit.xcframework
+  git clean -ffdx -e .ci-source-packages -e .spm-cache -e GhosttyKit.xcframework -e .cmux-ghosttykit-sha
   git submodule update --init --recursive
 }
 
 ensure_toolchain() {
-  if [ ! -d GhosttyKit.xcframework ]; then
+  local ghostty_sha
+  local ghosttykit_sha_file=".cmux-ghosttykit-sha"
+  ghostty_sha="$(git -C ghostty rev-parse HEAD)"
+  if [ ! -d GhosttyKit.xcframework ] || [ "$(cat "$ghosttykit_sha_file" 2>/dev/null || true)" != "$ghostty_sha" ]; then
+    rm -rf GhosttyKit.xcframework
     ./scripts/download-prebuilt-ghosttykit.sh
+    printf '%s\n' "$ghostty_sha" > "$ghosttykit_sha_file"
   fi
   ./scripts/install-zig-ci.sh
   ./scripts/install-rust-ci.sh
@@ -182,6 +187,7 @@ debug_build() {
 
 debug_build_with_log() {
   resolve_packages cmux
+  set +e
   run_with_timeout "$xcodebuild_timeout" xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
     -derivedDataPath "$derived" \
     -clonedSourcePackagesDirPath "$spm" \
@@ -189,7 +195,15 @@ debug_build_with_log() {
     -destination "platform=macOS" \
     CODE_SIGNING_ALLOWED=NO \
     build > "$tmp_root/cmux-build-output.txt" 2>&1
+  local build_status=$?
   cat "$tmp_root/cmux-build-output.txt"
+  set -e
+  if [ "$build_status" -ne 0 ]; then
+    local saved_log="$log_dir/$safe_run_id-build-output.txt"
+    cp "$tmp_root/cmux-build-output.txt" "$saved_log" 2>/dev/null || true
+    log "saved build output: $saved_log"
+    return "$build_status"
+  fi
 }
 
 release_build() {
@@ -231,7 +245,6 @@ unit_test() {
       -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderLoadsSafeDataImage \
       test 2>&1
     local xcode_status=${PIPESTATUS[1]}
-    set -e
     return "$xcode_status"
   }
 
@@ -326,18 +339,33 @@ tests_build_and_lag() {
   ./scripts/verify-main-thread-ca-transactions.sh "$app"
 
   local helper="$tmp_root/create-virtual-display"
+  local vdisplay_ready="$tmp_root/create-virtual-display.ready"
+  local vdisplay_id="$tmp_root/create-virtual-display.id"
   clang -framework Foundation -framework CoreGraphics \
     -o "$helper" scripts/create-virtual-display.m
-  "$helper" > "$tmp_root/create-virtual-display.log" 2>&1 &
+  "$helper" \
+    --ready-path "$vdisplay_ready" \
+    --display-id-path "$vdisplay_id" \
+    > "$tmp_root/create-virtual-display.log" 2>&1 &
   local vdisplay_pid=$!
   track_pid "$vdisplay_pid"
-  for _ in $(seq 1 12); do
-    if kill -0 "$vdisplay_pid" 2>/dev/null; then
+  for _ in $(seq 1 48); do
+    if [ -f "$vdisplay_ready" ]; then
       break
+    fi
+    if ! kill -0 "$vdisplay_pid" 2>/dev/null; then
+      echo "Virtual display helper exited before readiness" >&2
+      cat "$tmp_root/create-virtual-display.log" >&2 2>/dev/null || true
+      exit 1
     fi
     sleep 0.25
   done
-  kill -0 "$vdisplay_pid"
+  if [ ! -f "$vdisplay_ready" ]; then
+    echo "Virtual display not ready after 12s" >&2
+    cat "$tmp_root/create-virtual-display.log" >&2 2>/dev/null || true
+    exit 1
+  fi
+  log "virtual display ready: $(cat "$vdisplay_id" 2>/dev/null || echo unknown)"
 
   local tag="ci-lag-$run_id"
   local sock="/tmp/cmux-debug-${tag}.sock"
@@ -428,6 +456,7 @@ ui_regressions() {
     exit 1
   fi
 
+  local display_regression_passed=0
   for attempt in 1 2; do
     pkill -x "cmux DEV" 2>/dev/null || true
     rm -f "$diag_path" "$display_ready" "$display_id_path" "$display_done" "$helper_log" "$manifest_path" "$prelaunch_path"
@@ -452,6 +481,10 @@ ui_regressions() {
       cat "$helper_log" >&2 || true
       kill "$helper_pid" >/dev/null 2>&1 || true
       untrack_pid "$helper_pid"
+      if [ "$attempt" -eq 2 ]; then
+        echo "Display resolution UI regression helper failed to become ready" >&2
+        exit 1
+      fi
       continue
     fi
 
@@ -512,6 +545,12 @@ ui_regressions() {
       -destination "platform=macOS" \
       -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
       test-without-building; then
+      display_regression_passed=1
+      kill "$app_pid" >/dev/null 2>&1 || true
+      untrack_pid "$app_pid"
+      kill "$helper_pid" >/dev/null 2>&1 || true
+      untrack_pid "$helper_pid"
+      rm -f /tmp/cmux-ui-test-display-harness.json /tmp/cmux-ui-test-prelaunch.json
       break
     fi
 
@@ -524,6 +563,11 @@ ui_regressions() {
     fi
     sleep 3
   done
+
+  if [ "$display_regression_passed" -ne 1 ]; then
+    echo "Display resolution UI regression did not pass" >&2
+    exit 1
+  fi
 
   run_with_timeout "$xcodebuild_timeout" xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
     -derivedDataPath "$derived" \
