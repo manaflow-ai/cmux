@@ -271,7 +271,7 @@ struct SSHFileExplorerConnection: Codable, Equatable, Sendable {
 enum SSHFileExplorerDisplayPath {
     static func displayPath(displayTarget: String, remotePath: String?) -> String {
         let base = "ssh://\(displayTarget)"
-        guard let remotePath = remotePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let remotePath,
               !remotePath.isEmpty else {
             return base
         }
