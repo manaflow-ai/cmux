@@ -31,6 +31,7 @@ extension Workspace {
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
+        let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
 
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
@@ -56,6 +57,7 @@ extension Workspace {
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,
+                remotePTYSessionID: remotePTYSessionID,
                 remoteCleanupConfiguration: configuration
             )
         }
