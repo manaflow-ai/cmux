@@ -129,6 +129,31 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testWarnBeforeQuitCommandWritesConfirmQuitSourceOfTruth() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.warnBeforeQuit"
+                )
+            )
+
+            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertTrue(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.never.rawValue)
+            XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, false)
+            XCTAssertFalse(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.always.rawValue)
+            XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, true)
+            XCTAssertTrue(descriptor.isOn(defaults))
+        }
+    }
+
     func testConfigLinkAndFileOpeningSettingsHaveCommandPaletteToggles() throws {
         XCTAssertNotNil(
             CommandPaletteSettingsToggleCommands.descriptor(
