@@ -8875,6 +8875,7 @@ struct CMUXCLI {
             return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
         }
         if lowered.contains("pty_session_not_found") ||
+            (lowered.contains("persistent ssh pty session") && lowered.contains("not running")) ||
             (lowered.contains("persistent pty session") && lowered.contains("not running")) {
             return "persistent SSH PTY session is no longer running"
         }
