@@ -145,7 +145,10 @@ jobs:
               if process_group_has_members "$pgid"; then
                 echo "xcodebuild timed out after ${timeout_seconds}s" > "$timeout_marker"
                 kill_process_group TERM "$pgid"
-                kill_process_group KILL "$pgid"
+                sleep 5
+                if process_group_has_members "$pgid"; then
+                  kill_process_group KILL "$pgid"
+                fi
               fi
             ) &
             local watcher=$!

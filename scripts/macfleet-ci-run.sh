@@ -160,6 +160,7 @@ run_with_timeout() {
     if process_group_has_members "$pgid"; then
       echo "command timed out after ${timeout_seconds}s: $*" > "$timeout_marker"
       kill_process_group "$pgid" TERM
+      sleep 5
       if process_group_has_members "$pgid"; then
         kill_process_group "$pgid" KILL
       fi
