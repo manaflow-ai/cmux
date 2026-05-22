@@ -403,6 +403,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ]
 
         for testCase in cases {
+            let reset = runClaudeHook(
+                context: context,
+                arguments: ["hooks", "claude", "prompt-submit"],
+                standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+            )
+            XCTAssertFalse(reset.timedOut, reset.stderr)
+            XCTAssertEqual(reset.status, 0, reset.stderr)
+
             let commandStart = context.state.commands.count
             let result = runClaudeHook(
                 context: context,
