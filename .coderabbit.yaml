@@ -58,15 +58,21 @@ reviews:
     - path: "Packages/CMUXAgentLaunch/**"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook config writers and agent launch environment policy.
-    - path: "cmuxTests/**/*Hook*.swift"
+    - path: "cmuxTests/**/*.swift"
       instructions: |
-        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Tests for special hook dispatch should prove the agent cannot use the shared env-interpolating path.
-    - path: "tests/test_claude_wrapper_hooks.py"
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook-related tests. Tests for special hook dispatch should prove the agent cannot use the shared env-interpolating path.
+    - path: "tests/test_*hook*.py"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Python hook tests should preserve shared dispatch, socket routing, disable-env behavior, and Feed bridge timeout/source-event expectations.
-    - path: "tests/test_codex_feed_hooks.py"
+    - path: "tests/test_*feed*.py"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Python Feed hook tests should preserve source/event routing through `cmux hooks feed --source <agent> --event <event>` and the longer Feed timeout behavior.
+    - path: "tests/test_*extension_install.py"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for agent extension hook installer tests. Installer tests should not bless duplicated dispatch, hardcoded socket paths, or bypasses around shared hook generation.
+    - path: "tests/test_*plugin_install.py"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for agent plugin hook installer tests. Installer tests should not bless duplicated dispatch, hardcoded socket paths, or bypasses around shared hook generation.
     - path: "docs/agent-hooks.md"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Hook docs should describe shared setup commands and avoid hardcoded app bundle or socket paths.

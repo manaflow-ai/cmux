@@ -3,7 +3,7 @@
     {
       "path": ".github/review-bot-rules/agent-hook-standardization.md",
       "description": "Source-of-truth cmux review rule for standardized agent hook command generation and pinned dispatch exceptions.",
-      "scope": ["CLI/CMUXCLI+AgentHookDefinitions.swift", "CLI/CMUXCLI+AmpExtension.swift", "CLI/CMUXCLI+HermesAgentHooks.swift", "CLI/cmux.swift", "Packages/CMUXAgentLaunch/**", "cmuxTests/**/*Hook*.swift", "tests/test_claude_wrapper_hooks.py", "tests/test_codex_feed_hooks.py", "docs/agent-hooks.md", "docs/feed.md"]
+      "scope": ["CLI/CMUXCLI+AgentHookDefinitions.swift", "CLI/CMUXCLI+AmpExtension.swift", "CLI/CMUXCLI+HermesAgentHooks.swift", "CLI/cmux.swift", "Packages/CMUXAgentLaunch/**", "cmuxTests/**/*.swift", "tests/test_*hook*.py", "tests/test_*feed*.py", "tests/test_*extension_install.py", "tests/test_*plugin_install.py", "docs/agent-hooks.md", "docs/feed.md"]
     },
     {
       "path": ".github/review-bot-rules/swift-actor-isolation.md",
