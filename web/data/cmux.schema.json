@@ -278,10 +278,18 @@
           "default": true,
           "description": "Allow anonymous telemetry."
         },
+        "confirmQuit": {
+          "type": "string",
+          "enum": ["always", "dirty-only", "never"],
+          "default": "always",
+          "descriptionKey": "schemaDescriptions.app.confirmQuit",
+          "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
+        },
         "warnBeforeQuit": {
           "type": "boolean",
           "default": true,
-          "description": "Show a confirmation before quitting cmux."
+          "descriptionKey": "schemaDescriptions.app.warnBeforeQuit",
+          "description": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
         },
         "warnBeforeClosingTab": {
           "type": "boolean",
