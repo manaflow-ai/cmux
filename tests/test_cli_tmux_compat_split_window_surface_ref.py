@@ -16,6 +16,7 @@ from pathlib import Path
 from claude_teams_test_utils import resolve_cmux_cli
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+WINDOW_ID = "22222222-2222-4222-8222-222222222222"
 PANE_ID = "33333333-3333-4333-8333-333333333333"
 SURFACE_ID = "44444444-4444-4444-8444-444444444444"
 NEW_PANE_ID = "66666666-6666-4666-8666-666666666666"
@@ -25,6 +26,7 @@ NEW_SURFACE_ID = "77777777-7777-4777-8777-777777777777"
 class FakeCmuxState:
     def __init__(self) -> None:
         self.split_created = False
+        self.last_split_params: dict[str, object] | None = None
 
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
         if method == "workspace.list":
@@ -35,6 +37,17 @@ class FakeCmuxState:
                         "ref": "workspace:1",
                         "index": 1,
                         "title": "demo",
+                    }
+                ]
+            }
+        if method == "window.list":
+            return {
+                "windows": [
+                    {
+                        "id": WINDOW_ID,
+                        "ref": "window:1",
+                        "workspace_id": WORKSPACE_ID,
+                        "workspace_ref": "workspace:1",
                     }
                 ]
             }
@@ -93,6 +106,7 @@ class FakeCmuxState:
                 raise RuntimeError(
                     f"expected split target {SURFACE_ID}, got {target_surface!r}"
                 )
+            self.last_split_params = params
             self.split_created = True
             return {
                 "surface_id": NEW_SURFACE_ID,
@@ -100,7 +114,7 @@ class FakeCmuxState:
             }
         if method == "surface.close":
             target_surface = str(params.get("surface_id") or "")
-            if target_surface != NEW_SURFACE_ID:
+            if target_surface not in {NEW_SURFACE_ID, "surface:2"}:
                 raise RuntimeError(
                     f"expected close target {NEW_SURFACE_ID}, got {target_surface!r}"
                 )
@@ -152,6 +166,7 @@ def run_cli(
     socket_path: Path,
     fake_home: Path,
     args: list[str],
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = str(socket_path)
@@ -159,6 +174,8 @@ def run_cli(
     env["CMUX_SURFACE_ID"] = "surface:1"
     env["TMUX_PANE"] = "%pane:1"
     env["HOME"] = str(fake_home)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [cli_path, "--socket", str(socket_path), *args],
         capture_output=True,
@@ -216,6 +233,149 @@ def assert_resplit_after_close(
     assert_successful_split(cli_path, socket_path, fake_home, "second split-window")
 
 
+def assert_managed_subagent_startup_environment_for_launcher_kinds(
+    cli_path: str,
+    fake_home: Path,
+    tmp: Path,
+) -> None:
+    launcher_kinds = [
+        "claude",
+        "claudeTeams",
+        "claude-teams",
+        "codex",
+        "codexTeams",
+        "codex-teams",
+        "grok",
+        "opencode",
+        "omo",
+        "pi",
+        "amp",
+        "cursor",
+        "gemini",
+        "antigravity",
+        "agy",
+        "rovodev",
+        "rovo",
+        "hermes-agent",
+        "copilot",
+        "codebuddy",
+        "factory",
+        "qoder",
+        "omx",
+        "omc",
+    ]
+    for index, launcher_kind in enumerate(launcher_kinds):
+        socket_path = tmp / f"s{index}.sock"
+        state = FakeCmuxState()
+        server = FakeCmuxUnixServer(str(socket_path), state)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            proc = run_cli(
+                cli_path,
+                socket_path,
+                fake_home,
+                ["__tmux-compat", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+                extra_env={"CMUX_AGENT_LAUNCH_KIND": launcher_kind},
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+        if proc.returncode != 0:
+            raise AssertionError(
+                f"{launcher_kind} split-window returned non-zero\n"
+                f"stdout={proc.stdout.strip()}\n"
+                f"stderr={proc.stderr.strip()}"
+            )
+        split_params = state.last_split_params or {}
+        startup_environment = split_params.get("startup_environment")
+        if not isinstance(startup_environment, dict):
+            raise AssertionError(
+                f"{launcher_kind} split-window did not include startup_environment: "
+                f"{split_params!r}"
+            )
+        marker = startup_environment.get("CMUX_AGENT_MANAGED_SUBAGENT")
+        if marker != "1":
+            raise AssertionError(
+                f"{launcher_kind} split-window did not mark the child pane as managed: "
+                f"{startup_environment!r}"
+            )
+
+    socket_path = tmp / "unknown-launcher.sock"
+    state = FakeCmuxState()
+    server = FakeCmuxUnixServer(str(socket_path), state)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        proc = run_cli(
+            cli_path,
+            socket_path,
+            fake_home,
+            ["__tmux-compat", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+            extra_env={"CMUX_AGENT_LAUNCH_KIND": "unknown-launcher"},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    if proc.returncode != 0:
+        raise AssertionError(
+            "unknown-launcher split-window returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+    split_params = state.last_split_params or {}
+    startup_environment = split_params.get("startup_environment")
+    if isinstance(startup_environment, dict) and startup_environment.get(
+        "CMUX_AGENT_MANAGED_SUBAGENT"
+    ) is not None:
+        raise AssertionError(
+            "unknown launcher kind should not mark the child pane as managed: "
+            f"{startup_environment!r}"
+        )
+
+    socket_path = tmp / "mm.sock"
+    state = FakeCmuxState()
+    server = FakeCmuxUnixServer(str(socket_path), state)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        proc = run_cli(
+            cli_path,
+            socket_path,
+            fake_home,
+            ["__tmux-compat", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+            extra_env={"CMUX_AGENT_MANAGED_SUBAGENT": "1"},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    if proc.returncode != 0:
+        raise AssertionError(
+            "managed marker propagation split-window returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+    split_params = state.last_split_params or {}
+    startup_environment = split_params.get("startup_environment")
+    if not isinstance(startup_environment, dict):
+        raise AssertionError(
+            "managed marker propagation did not include startup_environment: "
+            f"{split_params!r}"
+        )
+    marker = startup_environment.get("CMUX_AGENT_MANAGED_SUBAGENT")
+    if marker != "1":
+        raise AssertionError(
+            "managed marker propagation did not mark the child pane as managed: "
+            f"{startup_environment!r}"
+        )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -236,6 +396,11 @@ def main() -> int:
 
             try:
                 assert_resplit_after_close(cli_path, socket_path, fake_home)
+                assert_managed_subagent_startup_environment_for_launcher_kinds(
+                    cli_path,
+                    fake_home,
+                    tmp,
+                )
             finally:
                 server.shutdown()
                 server.server_close()

@@ -543,6 +543,421 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexStopUnderNodeLauncherStillPublishesRootResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-node-launcher-root")
+        defer { context.cleanup() }
+
+        let fixture = try startCodexProcessUnderNodeLauncher()
+        defer { fixture.cleanup() }
+
+        let sessionId = "codex-node-launcher-root-session"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": Int(fixture.codexPID),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"root done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Root Codex Stop should publish a resume binding even when npm/bun leaves a node launcher parent, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Root Codex Stop should still notify, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "Root Codex Stop should still mark Codex idle, saw \(context.state.commands)"
+        )
+    }
+
+    func testShellWrappedGenericAgentRootStopStillPublishesResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "opencode-shell-wrapper")
+        defer { context.cleanup() }
+
+        let fixture = try startShellWrappedAgentProcess(
+            agent: "opencode",
+            pathNeedleDirectory: ".opencode"
+        )
+        defer { fixture.cleanup() }
+
+        let sessionId = "opencode-shell-wrapper-child-session"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("opencode-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": Int(fixture.childPID),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runGenericAgentHook(
+            context: context,
+            agent: "opencode",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: genericAgentLaunchEnvironment(
+                context: context,
+                agent: "opencode",
+                sessionId: sessionId
+            )
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Shell-wrapped OpenCode root Stop should still emit Feed telemetry, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Shell-wrapped OpenCode root Stop should publish a resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) OpenCode|") },
+            "Shell-wrapped OpenCode root Stop should still notify, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("set_status opencode ") && $0.contains(" Idle ") },
+            "Shell-wrapped OpenCode root Stop should still mark OpenCode idle, saw \(context.state.commands)"
+        )
+    }
+
+    func testNodeWrappedGenericAgentRootStopStillPublishesResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "opencode-node-wrapper-root")
+        defer { context.cleanup() }
+
+        let fixture = try startGenericAgentProcessUnderNodeLauncher(
+            agent: "opencode",
+            pathNeedleDirectory: ".opencode"
+        )
+        defer { fixture.cleanup() }
+
+        let sessionId = "opencode-node-wrapper-root-session"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("opencode-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": Int(fixture.childPID),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runGenericAgentHook(
+            context: context,
+            agent: "opencode",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"root done"}"#,
+            extraEnvironment: genericAgentLaunchEnvironment(
+                context: context,
+                agent: "opencode",
+                sessionId: sessionId
+            )
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Root OpenCode Stop should publish a resume binding even when npm/bun leaves a node launcher parent, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) OpenCode|") },
+            "Root OpenCode Stop should still notify, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("set_status opencode ") && $0.contains(" Idle ") },
+            "Root OpenCode Stop should still mark OpenCode idle, saw \(context.state.commands)"
+        )
+    }
+
+    func testNodeWrappedGenericAgentSubagentStopDoesNotReplaceResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "opencode-node-wrapper")
+        defer { context.cleanup() }
+
+        let fixture = try startNodeWrappedAgentProcessUnderAgentParent(
+            agent: "opencode",
+            pathNeedleDirectory: ".opencode"
+        )
+        defer { fixture.cleanup() }
+
+        let sessionId = "opencode-node-wrapper-child-session"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("opencode-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": Int(fixture.childPID),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runGenericAgentHook(
+            context: context,
+            agent: "opencode",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: genericAgentLaunchEnvironment(
+                context: context,
+                agent: "opencode",
+                sessionId: sessionId
+            )
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Node-wrapped OpenCode subagent Stop should remain Feed telemetry, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Node-wrapped OpenCode subagent Stop should not publish a child resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status opencode ") },
+            "Node-wrapped OpenCode subagent Stop should not notify or clobber visible status, saw \(context.state.commands)"
+        )
+    }
+
+    func testCodexPathExecutableSubagentStopDoesNotReplaceResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-path-executable")
+        defer { context.cleanup() }
+
+        let fixture = try startCodexPathExecutableProcessUnderCodexParent()
+        defer { fixture.cleanup() }
+
+        let sessionId = "codex-path-executable-child-session"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": Int(fixture.childPID),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Codex path executable subagent Stop should remain Feed telemetry, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Codex path executable subagent Stop should not publish a child resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Codex path executable subagent Stop should not notify or clobber visible status, saw \(context.state.commands)"
+        )
+    }
+
+    func testManagedClaudeSubagentStopDoesNotReplaceResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "claude-managed-resume-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-claude-child-session"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                    "isRestorable": true,
+                ],
+            ],
+            "activeSessionsByWorkspace": [
+                context.workspaceId: [
+                    "sessionId": sessionId,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: [
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_AGENT_LAUNCH_KIND": "claude",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+                "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+                "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                    "/usr/local/bin/claude",
+                    "--model",
+                    "sonnet",
+                ]),
+            ]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Managed Claude subagent Stop should remain Feed telemetry, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Managed Claude subagent Stop should not publish a child resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status claude_code ") },
+            "Managed Claude subagent Stop should not notify or clobber visible status, saw \(context.state.commands)"
+        )
+    }
+
+    func testManagedGenericSubagentStopsDoNotReplaceResumeBindingsAcrossAgents() throws {
+        let agents = [
+            "opencode",
+            "pi",
+            "amp",
+            "cursor",
+            "gemini",
+            "antigravity",
+            "grok",
+            "rovodev",
+            "hermes-agent",
+            "copilot",
+            "codebuddy",
+            "factory",
+            "qoder",
+        ]
+
+        for agent in agents {
+            try XCTContext.runActivity(named: agent) { _ in
+                let context = try makeClaudeHookContext(name: "\(agent)-managed-resume-guard")
+                defer { context.cleanup() }
+
+                let sessionId = "\(agent)-managed-child-session"
+                startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+                let result = runGenericAgentHook(
+                    context: context,
+                    agent: agent,
+                    subcommand: "stop",
+                    standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+                    extraEnvironment: genericAgentLaunchEnvironment(
+                        context: context,
+                        agent: agent,
+                        sessionId: sessionId
+                    ).merging([
+                        "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                    ], uniquingKeysWith: { _, new in new })
+                )
+
+                XCTAssertFalse(result.timedOut, result.stderr)
+                XCTAssertEqual(result.status, 0, result.stderr)
+                XCTAssertEqual(result.stdout, "{}\n")
+                XCTAssertTrue(
+                    context.state.commands.contains {
+                        $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#)
+                    },
+                    "Managed \(agent) subagent Stop should remain Feed telemetry, saw \(context.state.commands)"
+                )
+                XCTAssertFalse(
+                    context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+                    "Managed \(agent) subagent Stop should not publish a child resume binding, saw \(context.state.commands)"
+                )
+                XCTAssertFalse(
+                    context.state.commands.contains { command in
+                        command.hasPrefix("notify_target")
+                            || command.hasPrefix("set_status \(agent) ")
+                            || command.hasPrefix("set_status hermes-agent ")
+                    },
+                    "Managed \(agent) subagent Stop should not notify or clobber visible status, saw \(context.state.commands)"
+                )
+            }
+        }
+    }
+
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-relay")
         defer { context.cleanup() }
@@ -3994,6 +4409,267 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    private struct CodexNodeLauncherFixture {
+        let launcher: Process
+        let codexPID: Int32
+        let root: URL
+
+        func cleanup() {
+            Darwin.kill(codexPID, SIGTERM)
+            if launcher.isRunning {
+                launcher.terminate()
+            }
+            launcher.waitUntilExit()
+            try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    private struct ShellWrappedAgentFixture {
+        let launcher: Process
+        let childPID: Int32
+        let root: URL
+
+        func cleanup() {
+            Darwin.kill(childPID, SIGTERM)
+            if launcher.isRunning {
+                launcher.terminate()
+            }
+            launcher.waitUntilExit()
+            try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    private func startCodexProcessUnderNodeLauncher() throws -> CodexNodeLauncherFixture {
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cn\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let nodeURL = root.appendingPathComponent("node", isDirectory: false)
+        let codexURL = root.appendingPathComponent("codex", isDirectory: false)
+        try fileManager.createSymbolicLink(at: nodeURL, withDestinationURL: URL(fileURLWithPath: "/bin/sh"))
+        try fileManager.createSymbolicLink(at: codexURL, withDestinationURL: URL(fileURLWithPath: "/bin/sleep"))
+
+        let pidURL = root.appendingPathComponent("codex-node-launcher-child.pid", isDirectory: false)
+        let launcher = Process()
+        launcher.executableURL = nodeURL
+        launcher.arguments = [
+            "-c",
+            "\(shellSingleQuote(codexURL.path)) 60 & echo $! > \(shellSingleQuote(pidURL.path)); wait",
+            "/usr/local/lib/node_modules/@openai/codex/bin/codex.js",
+        ]
+        try launcher.run()
+
+        do {
+            return CodexNodeLauncherFixture(
+                launcher: launcher,
+                codexPID: try waitForPIDFile(pidURL),
+                root: root
+            )
+        } catch {
+            if launcher.isRunning {
+                launcher.terminate()
+            }
+            launcher.waitUntilExit()
+            try? fileManager.removeItem(at: root)
+            throw error
+        }
+    }
+
+    private func startShellWrappedAgentProcess(
+        agent: String,
+        pathNeedleDirectory: String
+    ) throws -> ShellWrappedAgentFixture {
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("sw\(UUID().uuidString.prefix(8))", isDirectory: true)
+        let agentDirectory = root
+            .appendingPathComponent(pathNeedleDirectory, isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: agentDirectory, withIntermediateDirectories: true)
+
+        let agentURL = agentDirectory.appendingPathComponent(agent, isDirectory: false)
+        try fileManager.createSymbolicLink(at: agentURL, withDestinationURL: URL(fileURLWithPath: "/bin/sleep"))
+
+        let pidURL = root.appendingPathComponent("\(agent)-shell-wrapper-child.pid", isDirectory: false)
+        let launcher = Process()
+        launcher.executableURL = URL(fileURLWithPath: "/bin/sh")
+        launcher.arguments = [
+            "-c",
+            "\(shellSingleQuote(agentURL.path)) 60 & echo $! > \(shellSingleQuote(pidURL.path)); wait",
+            "\(agent)-shell-wrapper",
+        ]
+        try launcher.run()
+
+        do {
+            return ShellWrappedAgentFixture(
+                launcher: launcher,
+                childPID: try waitForPIDFile(pidURL),
+                root: root
+            )
+        } catch {
+            if launcher.isRunning {
+                launcher.terminate()
+            }
+            launcher.waitUntilExit()
+            try? fileManager.removeItem(at: root)
+            throw error
+        }
+    }
+
+    private func startGenericAgentProcessUnderNodeLauncher(
+        agent: String,
+        pathNeedleDirectory: String
+    ) throws -> ShellWrappedAgentFixture {
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("gn\(UUID().uuidString.prefix(8))", isDirectory: true)
+        let agentDirectory = root
+            .appendingPathComponent(pathNeedleDirectory, isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: agentDirectory, withIntermediateDirectories: true)
+
+        let nodeURL = root.appendingPathComponent("node", isDirectory: false)
+        let agentURL = agentDirectory.appendingPathComponent(agent, isDirectory: false)
+        let scriptURL = agentDirectory.appendingPathComponent("\(agent).js", isDirectory: false)
+        try fileManager.createSymbolicLink(at: nodeURL, withDestinationURL: URL(fileURLWithPath: "/bin/sh"))
+        try fileManager.createSymbolicLink(at: agentURL, withDestinationURL: URL(fileURLWithPath: "/bin/sleep"))
+        try "module placeholder\n".write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        let pidURL = root.appendingPathComponent("\(agent)-node-launcher-child.pid", isDirectory: false)
+        let launcher = Process()
+        launcher.executableURL = nodeURL
+        launcher.arguments = [
+            "-c",
+            "\(shellSingleQuote(agentURL.path)) 60 & echo $! > \(shellSingleQuote(pidURL.path)); wait",
+            scriptURL.path,
+        ]
+        try launcher.run()
+
+        do {
+            return ShellWrappedAgentFixture(
+                launcher: launcher,
+                childPID: try waitForPIDFile(pidURL),
+                root: root
+            )
+        } catch {
+            if launcher.isRunning {
+                launcher.terminate()
+            }
+            launcher.waitUntilExit()
+            try? fileManager.removeItem(at: root)
+            throw error
+        }
+    }
+
+    private func startNodeWrappedAgentProcessUnderAgentParent(
+        agent: String,
+        pathNeedleDirectory: String
+    ) throws -> ShellWrappedAgentFixture {
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("nw\(UUID().uuidString.prefix(8))", isDirectory: true)
+        let agentDirectory = root
+            .appendingPathComponent(pathNeedleDirectory, isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: agentDirectory, withIntermediateDirectories: true)
+
+        let parentURL = root.appendingPathComponent(agent, isDirectory: false)
+        let nodeURL = root.appendingPathComponent("node", isDirectory: false)
+        let scriptURL = agentDirectory.appendingPathComponent("\(agent).js", isDirectory: false)
+        try fileManager.createSymbolicLink(at: parentURL, withDestinationURL: URL(fileURLWithPath: "/bin/sh"))
+        try fileManager.createSymbolicLink(at: nodeURL, withDestinationURL: URL(fileURLWithPath: "/bin/sh"))
+        try "module placeholder\n".write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        let pidURL = root.appendingPathComponent("\(agent)-node-wrapper-child.pid", isDirectory: false)
+        let childScript = "echo $$ > \(shellSingleQuote(pidURL.path)); sleep 60"
+        let launcher = Process()
+        launcher.executableURL = parentURL
+        launcher.arguments = [
+            "-c",
+            "\(shellSingleQuote(nodeURL.path)) -c \(shellSingleQuote(childScript)) \(shellSingleQuote(scriptURL.path)) & wait",
+            "\(agent)-parent",
+        ]
+        try launcher.run()
+
+        do {
+            return ShellWrappedAgentFixture(
+                launcher: launcher,
+                childPID: try waitForPIDFile(pidURL),
+                root: root
+            )
+        } catch {
+            if launcher.isRunning {
+                launcher.terminate()
+            }
+            launcher.waitUntilExit()
+            try? fileManager.removeItem(at: root)
+            throw error
+        }
+    }
+
+    private func startCodexPathExecutableProcessUnderCodexParent() throws -> ShellWrappedAgentFixture {
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cx\(UUID().uuidString.prefix(8))", isDirectory: true)
+        let parentDirectory = root
+            .appendingPathComponent("bin", isDirectory: true)
+        let codexDirectory = root
+            .appendingPathComponent("payload", isDirectory: true)
+            .appendingPathComponent("codex", isDirectory: true)
+        try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: codexDirectory, withIntermediateDirectories: true)
+
+        let parentURL = parentDirectory.appendingPathComponent("codex", isDirectory: false)
+        let childURL = codexDirectory.appendingPathComponent("codex-aarch64-apple-darwin", isDirectory: false)
+        try fileManager.createSymbolicLink(at: parentURL, withDestinationURL: URL(fileURLWithPath: "/bin/sh"))
+        try fileManager.createSymbolicLink(at: childURL, withDestinationURL: URL(fileURLWithPath: "/bin/sleep"))
+
+        let pidURL = root.appendingPathComponent("codex-path-executable-child.pid", isDirectory: false)
+        let launcher = Process()
+        launcher.executableURL = parentURL
+        launcher.arguments = [
+            "-c",
+            "\(shellSingleQuote(childURL.path)) 60 & echo $! > \(shellSingleQuote(pidURL.path)); wait",
+            "codex-parent",
+        ]
+        try launcher.run()
+
+        do {
+            return ShellWrappedAgentFixture(
+                launcher: launcher,
+                childPID: try waitForPIDFile(pidURL),
+                root: root
+            )
+        } catch {
+            if launcher.isRunning {
+                launcher.terminate()
+            }
+            launcher.waitUntilExit()
+            try? fileManager.removeItem(at: root)
+            throw error
+        }
+    }
+
+    private func waitForPIDFile(_ url: URL) throws -> Int32 {
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if let raw = try? String(contentsOf: url, encoding: .utf8),
+               let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+               pid > 1 {
+                return pid
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        throw NSError(domain: "CLINotifyProcessIntegrationRegressionTests", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "Timed out waiting for Codex child PID file at \(url.path)",
+        ])
+    }
+
+    private func shellSingleQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
     private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String) -> [String: String] {
         [
             "CMUX_AGENT_LAUNCH_KIND": "codex",
@@ -4003,6 +4679,23 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "/usr/local/bin/codex",
                 "--model",
                 "gpt-5.4",
+            ]),
+        ]
+    }
+
+    private func genericAgentLaunchEnvironment(
+        context: ClaudeHookContext,
+        agent: String,
+        sessionId: String
+    ) -> [String: String] {
+        [
+            "CMUX_AGENT_LAUNCH_KIND": agent,
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/\(agent)",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                "/usr/local/bin/\(agent)",
+                "--session",
+                sessionId,
             ]),
         ]
     }
@@ -4028,6 +4721,34 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "codex", subcommand],
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
+    private func runGenericAgentHook(
+        context: ClaudeHookContext,
+        agent: String,
+        subcommand: String,
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": context.root.path,
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
+
+        return runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", agent, subcommand],
             environment: environment,
             standardInput: standardInput,
             timeout: 5
