@@ -386,6 +386,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
         }
 
+        func portalSnapshot() -> BrowserWindowPortalRegistry.DebugSnapshot? {
+            guard let webView else { return nil }
+            return BrowserWindowPortalRegistry.debugSnapshot(for: webView)
+        }
+
         func synchronizePortal(for host: MarkdownWebPortalHostView) {
             guard webView != nil, host.window != nil else { return }
             BrowserWindowPortalRegistry.synchronizeForAnchor(host)

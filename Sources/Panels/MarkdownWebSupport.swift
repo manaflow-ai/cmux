@@ -185,6 +185,10 @@ final class MarkdownRendererSession {
         ownedCoordinator.hidePortal(reason: reason)
     }
 
+    func portalSnapshot() -> BrowserWindowPortalRegistry.DebugSnapshot? {
+        ownedCoordinator.portalSnapshot()
+    }
+
 #if DEBUG
     var diagnosticsSnapshot: MarkdownRendererDiagnosticsSnapshot {
         ownedCoordinator.diagnosticsSnapshot

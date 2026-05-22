@@ -4117,6 +4117,15 @@ enum BrowserWindowPortalRegistry {
         return portal.isWebViewBoundToAnchor(withId: webViewId, anchorView: anchorView)
     }
 
+    static func isPortalHosted(webView: WKWebView) -> Bool {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else {
+            return false
+        }
+        return portal.webViewIds().contains(webViewId)
+    }
+
     static func hide(webView: WKWebView, source: String = "externalHide") {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],

@@ -236,7 +236,9 @@ extension FileDropOverlayView {
             return portalWebView
         }
 
-        return inlineWebViewUnderPoint(windowPoint)
+        guard let inlineWebView = inlineWebViewUnderPoint(windowPoint) else { return nil }
+        guard !BrowserWindowPortalRegistry.isPortalHosted(webView: inlineWebView) else { return nil }
+        return inlineWebView
     }
 
     private func inlineWebViewUnderPoint(_ windowPoint: NSPoint) -> WKWebView? {

@@ -12344,6 +12344,7 @@ final class Workspace: Identifiable, ObservableObject {
         focusPanel(panelId)
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
+        reconcileMarkdownPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
         if let browserPanel = browserPanel(for: panelId) {
             browserPanel.preparePortalHostReplacementForNextDistinctClaim(
                 inPane: paneId,
@@ -12953,6 +12954,7 @@ final class Workspace: Identifiable, ObservableObject {
         let geometryPendingBefore = layoutFollowUpNeedsGeometryPass
         let terminalPortalPendingBefore = terminalPortalVisibilityNeedsFollowUp()
         let browserVisibilityPendingBefore = browserPortalVisibilityNeedsFollowUp()
+        let markdownVisibilityPendingBefore = markdownPortalVisibilityNeedsFollowUp()
         let terminalFocusPendingBefore = terminalFocusNeedsFollowUp()
         let browserPanelPendingBefore = browserPanelNeedsFollowUp()
         let browserExitPendingBefore = layoutFollowUpBrowserExitFocusPanelId != nil
@@ -12982,6 +12984,8 @@ final class Workspace: Identifiable, ObservableObject {
         let reason = layoutFollowUpReason ?? "workspace.layout"
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
         let browserVisibilityPending = browserPortalVisibilityNeedsFollowUp()
+        reconcileMarkdownPortalVisibilityForCurrentRenderedLayout(reason: reason)
+        let markdownVisibilityPending = markdownPortalVisibilityNeedsFollowUp()
 
         if let browserPanelId = layoutFollowUpBrowserPanelId {
             if let browserPanel = browserPanel(for: browserPanelId) {
@@ -13026,6 +13030,7 @@ final class Workspace: Identifiable, ObservableObject {
             layoutFollowUpNeedsGeometryPass ||
             terminalPortalPending ||
             browserVisibilityPending ||
+            markdownVisibilityPending ||
             terminalFocusPending ||
             browserPanelPending ||
             browserExitPending ||
@@ -13040,6 +13045,7 @@ final class Workspace: Identifiable, ObservableObject {
             (geometryPendingBefore && !layoutFollowUpNeedsGeometryPass) ||
             (terminalPortalPendingBefore && !terminalPortalPending) ||
             (browserVisibilityPendingBefore && !browserVisibilityPending) ||
+            (markdownVisibilityPendingBefore && !markdownVisibilityPending) ||
             (terminalFocusPendingBefore && !terminalFocusPending) ||
             (browserPanelPendingBefore && !browserPanelPending) ||
             (browserExitPendingBefore && !browserExitPending) ||
@@ -13279,6 +13285,42 @@ final class Workspace: Identifiable, ObservableObject {
                 browserPanel.webView.window == nil ||
                 browserPanel.webView.superview == nil ||
                 !BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: anchorView) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    @discardableResult
+    private func reconcileMarkdownPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        var didChange = false
+
+        for panel in panels.values {
+            guard let markdownPanel = panel as? MarkdownPanel else { continue }
+            guard !visiblePanelIds.contains(markdownPanel.id) else { continue }
+            let snapshot = markdownPanel.rendererSession.portalSnapshot()
+            let portalNeedsHide =
+                snapshot?.visibleInUI == true ||
+                snapshot?.containerHidden == false
+            if portalNeedsHide {
+                markdownPanel.rendererSession.hidePortal(reason: reason)
+                didChange = true
+            }
+        }
+
+        return didChange
+    }
+
+    private func markdownPortalVisibilityNeedsFollowUp() -> Bool {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+        for panel in panels.values {
+            guard let markdownPanel = panel as? MarkdownPanel else { continue }
+            guard !visiblePanelIds.contains(markdownPanel.id) else { continue }
+            let snapshot = markdownPanel.rendererSession.portalSnapshot()
+            if snapshot?.visibleInUI == true || snapshot?.containerHidden == false {
                 return true
             }
         }
