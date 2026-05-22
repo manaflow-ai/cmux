@@ -4481,20 +4481,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         if focus {
-            let destinationWindowId = focusWindow ? windowId(for: destinationManager) : nil
-            if let destinationWindowId {
-                _ = focusMainWindow(windowId: destinationWindowId)
-            }
-            destinationManager.focusTab(targetWorkspaceId, surfaceId: panelId, suppressFlash: true)
-            if let destinationWindowId {
-                reassertCrossWindowSurfaceMoveFocusIfNeeded(
-                    destinationWindowId: destinationWindowId,
-                    sourceWindowId: source.windowId,
-                    destinationWorkspaceId: targetWorkspaceId,
-                    destinationPanelId: panelId,
-                    destinationManager: destinationManager
-                )
-            }
+            focusDestinationSurfaceAfterMove(
+                destinationManager: destinationManager,
+                destinationWorkspaceId: targetWorkspaceId,
+                destinationPanelId: panelId,
+                sourceWindowId: source.windowId,
+                focusWindow: focusWindow
+            )
         }
 #if DEBUG
         let focusMs = elapsedMs(since: focusStart)
@@ -5269,6 +5262,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sourceManager.closeWorkspace(sourceWorkspace)
         } else {
             _ = closeMainWindow(windowId: sourceWindowId)
+        }
+    }
+
+    func focusDestinationSurfaceAfterMove(
+        destinationManager: TabManager,
+        destinationWorkspaceId: UUID,
+        destinationPanelId: UUID,
+        sourceWindowId: UUID,
+        focusWindow: Bool
+    ) {
+        let destinationWindowId = focusWindow ? windowId(for: destinationManager) : nil
+        if let destinationWindowId {
+            _ = focusMainWindow(windowId: destinationWindowId)
+        }
+        destinationManager.focusTab(
+            destinationWorkspaceId,
+            surfaceId: destinationPanelId,
+            suppressFlash: true
+        )
+        if let destinationWindowId {
+            reassertCrossWindowSurfaceMoveFocusIfNeeded(
+                destinationWindowId: destinationWindowId,
+                sourceWindowId: sourceWindowId,
+                destinationWorkspaceId: destinationWorkspaceId,
+                destinationPanelId: destinationPanelId,
+                destinationManager: destinationManager
+            )
         }
     }
 

@@ -8,16 +8,26 @@ import UniformTypeIdentifiers
 @MainActor
 enum SessionEntryResumeCoordinator {
     static func resume(_ entry: SessionEntry, tabManager: TabManager) {
+        resume(entry, tabManager: tabManager, preferredWorkspace: nil, preferredPane: nil, preferredController: nil)
+    }
+
+    static func resume(
+        _ entry: SessionEntry,
+        tabManager: TabManager,
+        preferredWorkspace: Workspace?,
+        preferredPane: PaneID?,
+        preferredController: BonsplitController?
+    ) {
         guard let resumeCommand = entry.resumeCommandWithCwd else { return }
         let inputWithReturn = resumeCommand + "\n"
         let targetCwd = entry.resumeWorkingDirectory
 
-        let selected = tabManager.selectedWorkspace
-        let selectedTab = tabManager.selectedTabId.flatMap { id in
+        let targetWorkspace = preferredWorkspace ?? tabManager.selectedWorkspace
+        let selectedTab = preferredWorkspace ?? tabManager.selectedTabId.flatMap { id in
             tabManager.tabs.first(where: { $0.id == id })
         }
         let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
-        let workspaceCwd = selected?.currentDirectory
+        let workspaceCwd = targetWorkspace?.currentDirectory
         let pwdMatches: Bool = {
             guard !isRemoteSelection,
                   let targetCwd, !targetCwd.isEmpty,
@@ -28,10 +38,15 @@ enum SessionEntryResumeCoordinator {
         }()
 
         if pwdMatches,
-           let workspace = selected,
-           let paneId = workspace.bonsplitController.focusedPaneId {
+           let workspace = targetWorkspace,
+           let destination = resolvedResumeDestination(
+            workspace: workspace,
+            preferredPane: preferredPane,
+            preferredController: preferredController
+           ) {
             workspace.newTerminalSurface(
-                inPane: paneId,
+                inPane: destination.paneId,
+                controller: destination.controller,
                 focus: true,
                 workingDirectory: targetCwd,
                 initialInput: inputWithReturn
@@ -43,6 +58,31 @@ enum SessionEntryResumeCoordinator {
             workingDirectory: targetCwd,
             initialTerminalInput: inputWithReturn
         )
+    }
+
+    private static func resolvedResumeDestination(
+        workspace: Workspace,
+        preferredPane: PaneID?,
+        preferredController: BonsplitController?
+    ) -> (paneId: PaneID, controller: BonsplitController)? {
+        if let preferredPane,
+           let preferredController,
+           preferredController.allPaneIds.contains(preferredPane) {
+            return (preferredPane, preferredController)
+        }
+        if let preferredPane,
+           let controller = workspace.bonsplitController(containingPane: preferredPane) {
+            return (preferredPane, controller)
+        }
+        if let preferredController {
+            let paneId = preferredController.focusedPaneId ?? preferredController.allPaneIds.first
+            return paneId.map { ($0, preferredController) }
+        }
+        if let focusedPane = workspace.focusedBonsplitPaneForCommands() {
+            return (focusedPane.paneId, focusedPane.controller)
+        }
+        let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        return paneId.map { ($0, workspace.bonsplitController) }
     }
 }
 

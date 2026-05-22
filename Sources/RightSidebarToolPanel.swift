@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Combine
 import SwiftUI
 
@@ -87,15 +88,29 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     func openFilePreview(_ filePath: String) {
-        guard let workspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let destination = owningPaneDestination() else {
             return
         }
-        _ = workspace.openFileSurfaces(
-            inPane: paneId,
+        _ = destination.workspace.openFileSurfaces(
+            inPane: destination.paneId,
+            controller: destination.controller,
             filePaths: [filePath],
             focus: true,
             reuseExisting: true
+        )
+    }
+
+    func resumeSession(_ entry: SessionEntry, tabManager: TabManager) {
+        guard let destination = owningPaneDestination() else {
+            SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+            return
+        }
+        SessionEntryResumeCoordinator.resume(
+            entry,
+            tabManager: tabManager,
+            preferredWorkspace: destination.workspace,
+            preferredPane: destination.paneId,
+            preferredController: destination.controller
         )
     }
 
@@ -162,6 +177,15 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                 self.syncWorkspaceRoot(from: workspace)
             }
         }
+    }
+
+    private func owningPaneDestination() -> (workspace: Workspace, paneId: PaneID, controller: BonsplitController)? {
+        guard let workspace,
+              let paneId = workspace.paneId(forPanelId: id),
+              let controller = workspace.bonsplitController(containingPane: paneId) else {
+            return nil
+        }
+        return (workspace, paneId, controller)
     }
 
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
@@ -266,7 +290,7 @@ struct RightSidebarToolPanelView: View {
             SessionIndexView(
                 store: panel.sessionIndexStore,
                 onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                    panel.resumeSession(entry, tabManager: tabManager)
                 }
             )
             .background(

@@ -5379,6 +5379,72 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
     }
 
+    func testRightSidebarToolFilePreviewOpensInOwningDockPane() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        workspace.dockLayout.openEdge(.right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let toolPanel = try XCTUnwrap(
+            workspace.newRightSidebarToolSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                mode: .files,
+                focus: true
+            )
+        )
+
+        let filePath = "/tmp/cmux-dock-preview.txt"
+        toolPanel.openFilePreview(filePath)
+
+        let previewPanel = try XCTUnwrap(
+            workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.first { $0.filePath == filePath }
+        )
+        let previewTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(previewPanel.id))
+        XCTAssertEqual(workspace.paneId(forPanelId: previewPanel.id), dockPaneId)
+        XCTAssertTrue(dock.controller.allTabIds.contains(previewTabId))
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(previewTabId))
+    }
+
+    func testRightSidebarToolSessionResumeOpensInOwningDockPane() throws {
+        let cwd = FileManager.default.temporaryDirectory.path
+        let manager = TabManager(initialWorkingDirectory: cwd)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = workspace.dockLayout.addDock(edge: .bottom)
+        workspace.dockLayout.openEdge(.bottom)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let toolPanel = try XCTUnwrap(
+            workspace.newRightSidebarToolSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                mode: .sessions,
+                focus: true
+            )
+        )
+        let terminalIdsBefore = Set(workspace.panels.values.compactMap { ($0 as? TerminalPanel)?.id })
+        let entry = SessionEntry(
+            id: "dock-resume-entry",
+            agent: .codex,
+            sessionId: "session-123",
+            title: "Dock Resume",
+            cwd: cwd,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: nil,
+            specifics: .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        )
+
+        toolPanel.resumeSession(entry, tabManager: manager)
+
+        let resumedTerminalIds = Set(workspace.panels.values.compactMap { ($0 as? TerminalPanel)?.id })
+            .subtracting(terminalIdsBefore)
+        let resumedPanelId = try XCTUnwrap(resumedTerminalIds.first)
+        let resumedTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(resumedPanelId))
+        XCTAssertEqual(workspace.paneId(forPanelId: resumedPanelId), dockPaneId)
+        XCTAssertTrue(dock.controller.allTabIds.contains(resumedTabId))
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(resumedTabId))
+    }
+
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId else {

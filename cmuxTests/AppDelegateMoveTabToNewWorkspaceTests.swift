@@ -1,4 +1,5 @@
 import XCTest
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -190,5 +191,48 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             destinationWorkspace.panelIdFromSurfaceId($0) == movedPanelId
         })
         XCTAssertEqual(destinationWorkspace.focusedPanelId, movedPanelId)
+    }
+
+    func testExternalTabDropToDifferentWindowFocusesDestinationWorkspace() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let sourceWindowId = UUID()
+        let sourceManager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: sourceWindowId, tabManager: sourceManager)
+
+        let destinationWindowId = UUID()
+        let destinationManager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: destinationWindowId, tabManager: destinationManager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: sourceWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: destinationWindowId)
+        }
+
+        let sourceWorkspace = try XCTUnwrap(sourceManager.selectedWorkspace)
+        let movedPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        let movedTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(movedPanelId))
+        let sourcePaneId = try XCTUnwrap(sourceWorkspace.paneId(forPanelId: movedPanelId))
+
+        let initiallySelectedDestinationWorkspace = try XCTUnwrap(destinationManager.selectedWorkspace)
+        let targetWorkspace = destinationManager.addWorkspace(title: "Drop Target", select: false)
+        let targetPaneId = try XCTUnwrap(targetWorkspace.bonsplitController.focusedPaneId)
+
+        XCTAssertEqual(destinationManager.selectedWorkspace?.id, initiallySelectedDestinationWorkspace.id)
+        XCTAssertTrue(targetWorkspace.handleExternalTabDrop(
+            BonsplitController.ExternalTabDropRequest(
+                tabId: movedTabId,
+                sourcePaneId: sourcePaneId,
+                destination: .insert(targetPane: targetPaneId, targetIndex: nil)
+            ),
+            destinationController: targetWorkspace.bonsplitController
+        ))
+
+        XCTAssertEqual(destinationManager.selectedWorkspace?.id, targetWorkspace.id)
+        XCTAssertEqual(targetWorkspace.focusedPanelId, movedPanelId)
+        XCTAssertEqual(targetWorkspace.paneId(forPanelId: movedPanelId), targetPaneId)
+        XCTAssertTrue(sourceWorkspace.panels.isEmpty)
     }
 }

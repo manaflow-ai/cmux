@@ -14844,6 +14844,16 @@ final class Workspace: Identifiable, ObservableObject {
                 sourceManager: located.tabManager,
                 sourceWindowId: located.windowId
             )
+            if focus,
+               let destinationManager = app.tabManagerFor(tabId: id) {
+                app.focusDestinationSurfaceAfterMove(
+                    destinationManager: destinationManager,
+                    destinationWorkspaceId: id,
+                    destinationPanelId: located.panelId,
+                    sourceWindowId: located.windowId,
+                    focusWindow: true
+                )
+            }
         }
         return true
     }
