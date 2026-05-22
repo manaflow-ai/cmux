@@ -284,20 +284,45 @@ def sanitize_json_text(value: str) -> str | None:
     return json.dumps(redact_json_value(parsed), separators=(",", ":"), sort_keys=True)
 
 
+def should_drop_sse_json_payload(value: str) -> bool:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(parsed, dict):
+        return False
+    if parsed.get("type") == "content_block_start":
+        content_block = parsed.get("content_block")
+        if isinstance(content_block, dict) and content_block.get("type") == "thinking":
+            return True
+    if parsed.get("type") == "content_block_delta":
+        delta = parsed.get("delta")
+        if isinstance(delta, dict) and delta.get("type") in {"thinking_delta", "signature_delta"}:
+            return True
+    return False
+
+
 def sanitize_sse_json_lines(value: str) -> str:
     sanitized_lines: list[str] = []
+    pending_event_lines: list[str] = []
     for line in value.splitlines():
         if not line.startswith("data:"):
-            sanitized_lines.append(line)
+            pending_event_lines.append(line)
             continue
         prefix, payload = line.split(":", 1)
         stripped = payload.lstrip()
+        if should_drop_sse_json_payload(stripped):
+            pending_event_lines = []
+            continue
         sanitized_payload = sanitize_json_text(stripped)
+        sanitized_lines.extend(pending_event_lines)
+        pending_event_lines = []
         if sanitized_payload is None:
             sanitized_lines.append(line)
         else:
             padding = payload[: len(payload) - len(stripped)]
             sanitized_lines.append(f"{prefix}:{padding}{sanitized_payload}")
+    sanitized_lines.extend(pending_event_lines)
     suffix = "\n" if value.endswith("\n") else ""
     return "\n".join(sanitized_lines) + suffix
 
