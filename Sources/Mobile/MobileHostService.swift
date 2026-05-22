@@ -599,8 +599,16 @@ final class MobileHostService {
         case .ready:
             listenerPort = listener?.port.map { Int($0.rawValue) }
             lastErrorDescription = nil
-            routeResolver.refreshTailscaleRoutes()
             if let listenerPort {
+                routeResolver.refreshTailscaleRoutes { [weak self] hosts in
+                    Task { @MainActor [weak self] in
+                        self?.updatePublicStatusRoutes(
+                            port: listenerPort,
+                            generation: generation,
+                            tailscaleHosts: hosts
+                        )
+                    }
+                }
                 MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: listenerPort).routes)
             } else {
                 MobileHostPublicStatusCache.update(routes: [])
@@ -634,6 +642,19 @@ final class MobileHostService {
         @unknown default:
             break
         }
+    }
+
+    private func updatePublicStatusRoutes(
+        port: Int,
+        generation: UUID,
+        tailscaleHosts: [String]
+    ) {
+        guard generation == listenerGeneration, listenerPort == port else {
+            return
+        }
+        MobileHostPublicStatusCache.update(
+            routes: routeResolver.routes(port: port, tailscaleHosts: tailscaleHosts).routes
+        )
     }
 }
 

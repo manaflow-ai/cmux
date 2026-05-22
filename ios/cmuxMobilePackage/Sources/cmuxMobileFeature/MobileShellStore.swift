@@ -330,6 +330,15 @@ enum MobileShellRouteAuthPolicy {
         }
     }
 
+    static func routeAllowsImplicitPairLinkStackAuth(_ route: CmxAttachRoute) -> Bool {
+        switch (route.kind, route.endpoint) {
+        case (.debugLoopback, let .hostPort(host, _)):
+            return isLoopbackHost(host)
+        default:
+            return false
+        }
+    }
+
     static func manualHostNeedsTrustWarning(_ host: String) -> Bool {
         guard let normalizedHost = normalizedManualNetworkHost(host) else {
             return false
@@ -618,7 +627,7 @@ public final class CMUXMobileShellStore {
                 host: normalizedHost,
                 port: port
             )
-            try await connect(ticket: ticket)
+            try await connect(ticket: ticket, allowsStackAuthFallback: true)
         } catch {
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
             connectionError = Self.localizedConnectionError(for: error, route: activeRoute ?? directRoute)
@@ -740,7 +749,12 @@ public final class CMUXMobileShellStore {
             macDeviceID: "manual-ticket-request",
             route: route
         )
-        let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: probeTicket)
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: probeTicket,
+            allowsStackAuthFallback: true
+        )
         let resultData = try await client.sendRequest(
             MobileCoreRPCClient.requestData(
                 method: "mobile.attach_ticket.create",
@@ -932,7 +946,10 @@ public final class CMUXMobileShellStore {
         }
     }
 
-    private func connect(ticket: CmxAttachTicket) async throws {
+    private func connect(
+        ticket: CmxAttachTicket,
+        allowsStackAuthFallback: Bool? = nil
+    ) async throws {
         let generation = UUID()
         connectionGeneration = generation
         cancelRemoteOperationTasks()
@@ -960,11 +977,18 @@ public final class CMUXMobileShellStore {
         }
 
         let workspaceListRequests = try Self.initialWorkspaceListRequests(for: ticket)
+        let routeAllowsStackAuthFallback = allowsStackAuthFallback
+            ?? supportedRoutes.allSatisfy(MobileShellRouteAuthPolicy.routeAllowsImplicitPairLinkStackAuth)
         var lastError: Error?
         for route in supportedRoutes {
             activeRoute = route
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
-            let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
+            let client = MobileCoreRPCClient(
+                runtime: runtime,
+                route: route,
+                ticket: ticket,
+                allowsStackAuthFallback: routeAllowsStackAuthFallback
+            )
             for workspaceListRequest in workspaceListRequests {
                 do {
                     let resultData = try await client.sendRequest(
@@ -2089,11 +2113,18 @@ final class MobileCoreRPCClient: @unchecked Sendable {
     private let runtime: CMUXMobileRuntime
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
+    private let allowsStackAuthFallback: Bool
 
-    init(runtime: CMUXMobileRuntime, route: CmxAttachRoute, ticket: CmxAttachTicket) {
+    init(
+        runtime: CMUXMobileRuntime,
+        route: CmxAttachRoute,
+        ticket: CmxAttachTicket,
+        allowsStackAuthFallback: Bool = false
+    ) {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
+        self.allowsStackAuthFallback = allowsStackAuthFallback
     }
 
     static func requestData(
@@ -2146,7 +2177,8 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         }
         let shouldSendStackAuth = requestNeedsAuth && auth["attach_token"] == nil
         if shouldSendStackAuth {
-            guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+            guard allowsStackAuthFallback,
+                  MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {

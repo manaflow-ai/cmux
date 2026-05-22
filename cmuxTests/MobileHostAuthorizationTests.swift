@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import Foundation
 @preconcurrency import Network
 import XCTest
 #if canImport(cmux_DEV)
@@ -283,6 +284,53 @@ final class MobileHostAuthorizationTests: XCTestCase {
             XCTAssertEqual(port, 61234)
         } else {
             XCTFail("Expected IP-only public status routes to retry MagicDNS resolution")
+        }
+    }
+
+    func testMobileRouteResolverNotifiesCallbackForInFlightMagicDNSRefresh() async throws {
+        let resolver = MobileRouteResolver()
+        let started = expectation(description: "refresh started")
+        let callback = expectation(description: "refresh callback")
+        let startedBox = SendableExpectation(started)
+        let callbackBox = SendableExpectation(callback)
+        let gate = SendableSemaphore(value: 0)
+        let observedHosts = LockedHosts()
+
+        resolver.refreshTailscaleRoutes(
+            resolveHosts: {
+                startedBox.fulfill()
+                gate.wait()
+                return [
+                    "work-mac.tailnet.ts.net",
+                    "100.71.210.41",
+                ]
+            }
+        )
+        await fulfillment(of: [started], timeout: 1)
+
+        resolver.refreshTailscaleRoutes(
+            resolveHosts: {
+                ["unused.tailnet.ts.net"]
+            },
+            onResolvedHosts: { hosts in
+                observedHosts.set(hosts)
+                callbackBox.fulfill()
+            }
+        )
+
+        gate.signal()
+        await fulfillment(of: [callback], timeout: 1)
+        XCTAssertEqual(observedHosts.value(), [
+            "work-mac.tailnet.ts.net",
+            "100.71.210.41",
+        ])
+
+        let snapshot = resolver.routes(port: 61234, immediateHosts: { [] })
+        let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
+        if case let .hostPort(host, _) = tailscaleRoutes.first?.endpoint {
+            XCTAssertEqual(host, "work-mac.tailnet.ts.net")
+        } else {
+            XCTFail("Expected callback refresh to populate the MagicDNS route")
         }
     }
 
@@ -793,5 +841,50 @@ private actor MobileHostConnectionBox {
 
     func close(reason: String) async {
         await session?.close(reason: reason)
+    }
+}
+
+private final class SendableExpectation: @unchecked Sendable {
+    private let expectation: XCTestExpectation
+
+    init(_ expectation: XCTestExpectation) {
+        self.expectation = expectation
+    }
+
+    func fulfill() {
+        expectation.fulfill()
+    }
+}
+
+private final class SendableSemaphore: @unchecked Sendable {
+    private let semaphore: DispatchSemaphore
+
+    init(value: Int) {
+        semaphore = DispatchSemaphore(value: value)
+    }
+
+    func wait() {
+        semaphore.wait()
+    }
+
+    func signal() {
+        semaphore.signal()
+    }
+}
+
+private final class LockedHosts: @unchecked Sendable {
+    private let lock = NSLock()
+    private var hosts: [String] = []
+
+    func set(_ nextHosts: [String]) {
+        lock.lock()
+        hosts = nextHosts
+        lock.unlock()
+    }
+
+    func value() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return hosts
     }
 }

@@ -1305,9 +1305,9 @@ import UIKit
 }
 
 @MainActor
-@Test func expiredAttachTicketFallsBackToStackAuthForScopedWorkspace() async throws {
+@Test func expiredNetworkAttachTicketFromPairLinkDoesNotFallbackToStackAuth() async throws {
     let ticketExpiresAt = Date().addingTimeInterval(60)
-    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let route = try hostPortRoute(kind: .tailscale, host: "attacker.example", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
         workspaceID: "expired-workspace",
         terminalID: nil,
@@ -1321,7 +1321,7 @@ import UIKit
         try rpcWorkspaceListFrame(workspaceID: "expired-workspace", title: "Expired Workspace"),
     ])
     let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
+        supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-after-ticket-expiry",
         now: { ticketExpiresAt.addingTimeInterval(1) }
@@ -1331,10 +1331,38 @@ import UIKit
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
-    let workspaceList = try #require(await responses.sentRequests().first { $0.method == "workspace.list" })
-    #expect(workspaceList.attachToken == nil)
-    #expect(workspaceList.stackAccessToken == "stack-token-after-ticket-expiry")
-    #expect(store.selectedWorkspace?.id.rawValue == "expired-workspace")
+    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError != nil)
+}
+
+@MainActor
+@Test func pairLinkWithoutAttachTokenDoesNotSendStackAuthToArbitraryHost() async throws {
+    let route = try hostPortRoute(kind: .tailscale, host: "attacker.example", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: UUID().uuidString,
+        terminalID: nil,
+        macDeviceID: "untrusted-mac",
+        macDisplayName: "Untrusted Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: ticket.workspaceID, title: "Untrusted Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "do-not-send"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError != nil)
 }
 
 @MainActor

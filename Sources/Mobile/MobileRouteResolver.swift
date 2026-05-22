@@ -17,6 +17,7 @@ final class MobileRouteResolver: @unchecked Sendable {
     private var cachedResolvedTailscaleHosts: [String] = []
     private var cachedResolvedTailscaleHostsUpdatedAt: Date?
     private var tailscaleRefreshTask: Task<[String], Never>?
+    private var tailscaleRefreshCallbacks: [@Sendable ([String]) -> Void] = []
 
     func routes(
         port: Int,
@@ -77,13 +78,21 @@ final class MobileRouteResolver: @unchecked Sendable {
         let dnsName: String?
     }
 
-    func refreshTailscaleRoutes() {
+    func refreshTailscaleRoutes(
+        resolveHosts: @escaping @Sendable () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: true) },
+        onResolvedHosts: (@Sendable ([String]) -> Void)? = nil
+    ) {
         cacheLock.lock()
         guard !hasFreshResolvedTailscaleHostsLocked(now: Date()) else {
+            let cachedHosts = cachedResolvedTailscaleHosts
             cacheLock.unlock()
+            onResolvedHosts?(cachedHosts)
             return
         }
-        _ = tailscaleRefreshTaskLocked(resolveHosts: { Self.tailscaleRouteHosts(resolveDNS: true) })
+        if let onResolvedHosts {
+            tailscaleRefreshCallbacks.append(onResolvedHosts)
+        }
+        _ = tailscaleRefreshTaskLocked(resolveHosts: resolveHosts)
         cacheLock.unlock()
     }
 
@@ -152,12 +161,25 @@ final class MobileRouteResolver: @unchecked Sendable {
     }
 
     private func storeResolvedTailscaleHosts(_ hosts: [String], now: Date = Date()) {
+        let callbacks = storeResolvedTailscaleHostsAndTakeCallbacks(hosts, now: now)
+        for callback in callbacks {
+            callback(hosts)
+        }
+    }
+
+    private func storeResolvedTailscaleHostsAndTakeCallbacks(
+        _ hosts: [String],
+        now: Date
+    ) -> [@Sendable ([String]) -> Void] {
         let hasResolvedMagicDNS = hosts.contains { Self.isTailscaleDNSName($0) }
         cacheLock.lock()
         cachedResolvedTailscaleHosts = hosts
         cachedResolvedTailscaleHostsUpdatedAt = hasResolvedMagicDNS ? now : nil
         tailscaleRefreshTask = nil
+        let callbacks = tailscaleRefreshCallbacks
+        tailscaleRefreshCallbacks.removeAll()
         cacheLock.unlock()
+        return callbacks
     }
 
     private static func tailscaleRouteHosts(resolveDNS: Bool) -> [String] {
