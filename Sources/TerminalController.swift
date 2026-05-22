@@ -5153,7 +5153,7 @@ class TerminalController {
         }
 
         guard let tabManager = v2ResolveWorkspaceReorderManyTabManager(params: params, workspaceIds: workspaceIds) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: workspaceReorderManyTabManagerUnavailableMessage(), data: nil)
         }
 
         let dryRun = v2Bool(params, "dry_run") ?? false
@@ -5220,7 +5220,10 @@ class TerminalController {
                 strings.reserveCapacity(workspaceIds.count)
                 for item in workspaceIds {
                     guard let stringItem = item as? String else {
-                        return ([], String(describing: item))
+                        return ([], v2WorkspaceReorderManyInvalidValueDescription(
+                            item,
+                            fallback: "<invalid_workspace_id>"
+                        ))
                     }
                     strings.append(stringItem)
                 }
@@ -5229,12 +5232,18 @@ class TerminalController {
             if let workspaceId = raw as? String {
                 return v2NormalizeWorkspaceReorderManyOrder([workspaceId])
             }
-            return ([], String(describing: raw))
+            return ([], v2WorkspaceReorderManyInvalidValueDescription(
+                raw,
+                fallback: "<invalid_workspace_ids>"
+            ))
         }
 
         guard let order = params["order"], !(order is NSNull) else { return ([], nil) }
         guard let orderString = order as? String else {
-            return ([], String(describing: order))
+            return ([], v2WorkspaceReorderManyInvalidValueDescription(
+                order,
+                fallback: "<invalid_order_value>"
+            ))
         }
         let refs = orderString
             .split(separator: ",", omittingEmptySubsequences: false)
@@ -5253,6 +5262,18 @@ class TerminalController {
             order.append(trimmed)
         }
         return (order, nil)
+    }
+
+    private func v2WorkspaceReorderManyInvalidValueDescription(
+        _ value: Any,
+        fallback: String
+    ) -> String {
+        guard JSONSerialization.isValidJSONObject(["value": value]),
+              let data = try? JSONSerialization.data(withJSONObject: ["value": value], options: []),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return fallback
+        }
+        return encoded
     }
 
     private func v2WorkspaceReorderPlanPayload(
@@ -5294,6 +5315,13 @@ class TerminalController {
         String(
             localized: "socket.workspace.reorderMany.invalidWorkspace",
             defaultValue: "Invalid workspace id or ref"
+        )
+    }
+
+    private func workspaceReorderManyTabManagerUnavailableMessage() -> String {
+        String(
+            localized: "socket.workspace.reorderMany.tabManagerUnavailable",
+            defaultValue: "TabManager not available"
         )
     }
 
