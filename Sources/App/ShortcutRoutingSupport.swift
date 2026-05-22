@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 
 func browserOmnibarSelectionDeltaForControlNavigation(
@@ -755,4 +756,53 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
     let contentPoint = contentView.convert(event.locationInWindow, from: nil)
     let hitView = contentView.hitTest(contentPoint)
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
+}
+
+enum WindowMoveSuppressionReason: String {
+    case folderDrag
+    case bonsplitPaneTabDrag
+}
+
+func shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: NSWindow, event: NSEvent) -> Bool {
+    guard event.type == .leftMouseDown else {
+        return false
+    }
+
+    return BonsplitTabItemHitRegionRegistry.containsWindowPoint(event.locationInWindow, in: window)
+}
+
+func windowMoveSuppressionReason(window: NSWindow, event: NSEvent) -> WindowMoveSuppressionReason? {
+    if shouldSuppressWindowMoveForFolderDrag(window: window, event: event) {
+        return .folderDrag
+    }
+    if shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: window, event: event) {
+        return .bonsplitPaneTabDrag
+    }
+    return nil
+}
+
+func beginOrContinueWindowMoveSuppressionSequenceForEvent(
+    window: NSWindow,
+    event: NSEvent,
+    pressedMouseButtons: Int = NSEvent.pressedMouseButtons
+) -> WindowMoveSuppressionReason? {
+    if let activeReason = activeWindowMoveSuppressionSequenceReason(window: window) {
+        if event.type == .leftMouseDown {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+        } else if event.type == .leftMouseUp || event.type == .leftMouseDragged || (pressedMouseButtons & 0x1) != 0 {
+            ensureWindowMoveSuppressionSequenceIsImmovable(window: window)
+            return activeReason
+        } else {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+        }
+    }
+
+    guard let reason = windowMoveSuppressionReason(window: window, event: event) else {
+        return nil
+    }
+    return beginWindowMoveSuppressionSequence(window: window, reason: reason)
+}
+
+func shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: NSWindow, event: NSEvent) -> Bool {
+    activeWindowMoveSuppressionSequenceReason(window: window) != nil && event.type == .leftMouseUp
 }
