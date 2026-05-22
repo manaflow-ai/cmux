@@ -19,6 +19,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Absolute path to the markdown file being displayed.
     let filePath: String
 
+    /// Project-scoped note slug when this Markdown panel was opened through
+    /// the note surface path. Plain Markdown panels never infer this from path.
+    private(set) var noteSlug: String?
+
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
 
@@ -113,6 +117,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if mode == .text {
             focus()
         }
+    }
+
+    func markAsProjectNote(slug: String) {
+        noteSlug = slug
     }
 
     func attachTextView(_ textView: NSTextView) {

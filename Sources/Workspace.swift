@@ -548,11 +548,10 @@ extension Workspace {
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
-            let noteSlug = NoteSupport.slug(forNotePath: markdownPanel.filePath)
             markdownSnapshot = SessionMarkdownPanelSnapshot(
                 filePath: markdownPanel.filePath,
                 displayMode: markdownPanel.displayMode,
-                noteSlug: noteSlug
+                noteSlug: markdownPanel.noteSlug
             )
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
@@ -1051,6 +1050,10 @@ extension Workspace {
                 focus: false
             ) else {
                 return nil
+            }
+            if let rawSlug = snapshotMarkdown.noteSlug,
+               let slug = try? NoteSupport.validateSlug(rawSlug) {
+                markdownPanel.markAsProjectNote(slug: slug)
             }
             if let displayMode = snapshotMarkdown.displayMode {
                 markdownPanel.setDisplayMode(displayMode)
@@ -11270,9 +11273,13 @@ final class Workspace: Identifiable, ObservableObject {
             filePath = NoteSupport.notePath(forSlug: validatedSlug, projectRoot: root)
         }
         if reuseExisting {
-            return openOrFocusMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus ?? false)
+            let panel = openOrFocusMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus ?? false)
+            panel?.markAsProjectNote(slug: validatedSlug)
+            return panel
         }
-        return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        let panel = newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        panel?.markAsProjectNote(slug: validatedSlug)
+        return panel
     }
 
     private nonisolated static func ensureNoteFileOffMain(slug: String, projectRoot: String) async throws -> String {

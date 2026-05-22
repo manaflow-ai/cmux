@@ -243,6 +243,7 @@ extension TerminalController {
             for (existingId, existingPanel) in ws.panels {
                 guard let md = existingPanel as? MarkdownPanel else { continue }
                 if (md.filePath as NSString).resolvingSymlinksInPath == canonical {
+                    md.markAsProjectNote(slug: slug)
                     if openInTextMode {
                         md.setDisplayMode(.text)
                     }
@@ -287,6 +288,7 @@ extension TerminalController {
                 result = .err(code: "internal_error", message: NoteRPCMessage.surfaceCreateFailed, data: nil)
                 return
             }
+            panel.markAsProjectNote(slug: slug)
             if openInTextMode {
                 panel.setDisplayMode(.text)
             }
