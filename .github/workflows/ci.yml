@@ -251,7 +251,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          XCODEBUILD_TEST_TIMEOUT_SECONDS="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-2520}"
+          XCODEBUILD_TEST_TIMEOUT_SECONDS="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-1800}"
           run_xcodebuild_with_timeout() {
             local timeout_seconds="$1"
             shift
@@ -322,7 +322,7 @@ jobs:
           # Stream output via tee so CI logs are visible in real time, while still
           # capturing for post-run analysis of expected vs unexpected failures.
           set +e
-          run_unit_tests | tee /tmp/test-output.txt
+          run_unit_tests 2>&1 | tee /tmp/test-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           OUTPUT=$(cat /tmp/test-output.txt)
           set -e
@@ -336,7 +336,7 @@ jobs:
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
             set +e
-            run_unit_tests | tee /tmp/test-output.txt
+            run_unit_tests 2>&1 | tee /tmp/test-output.txt
             EXIT_CODE=${PIPESTATUS[0]}
             OUTPUT=$(cat /tmp/test-output.txt)
             set -e

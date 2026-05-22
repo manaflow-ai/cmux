@@ -140,7 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          XCODEBUILD_TEST_TIMEOUT_SECONDS="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-1020}"
+          XCODEBUILD_TEST_TIMEOUT_SECONDS="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-780}"
           run_xcodebuild_with_timeout() {
             local timeout_seconds="$1"
             shift
@@ -196,7 +196,7 @@ jobs:
           }
 
           set +e
-          OUTPUT=$(run_unit_tests)
+          OUTPUT=$(run_unit_tests 2>&1)
           EXIT_CODE=$?
           set -e
 
@@ -208,7 +208,7 @@ jobs:
             rm -rf ~/Library/Caches/org.swift.swiftpm
             rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
             set +e
-            OUTPUT=$(run_unit_tests)
+            OUTPUT=$(run_unit_tests 2>&1)
             EXIT_CODE=$?
             set -e
           fi
