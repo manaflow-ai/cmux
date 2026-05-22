@@ -18721,8 +18721,7 @@ struct CMUXCLI {
                 print("OK")
                 return
             }
-            let isGenericWaitingNotification = isGenericClaudeWaitingBody(summary.body)
-            if !isGenericWaitingNotification, let sessionId = parsedInput.sessionId {
+            if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -18812,7 +18811,8 @@ struct CMUXCLI {
                 return
             }
 
-            if let sessionId = parsedInput.sessionId {
+            let isGenericWaitingNotification = isGenericClaudeWaitingBody(summary.body)
+            if !isGenericWaitingNotification, let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
