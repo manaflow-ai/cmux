@@ -574,13 +574,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
         var seededState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         var seededSessions = try XCTUnwrap(seededState["sessions"] as? [String: Any])
+        let staleChildTimestamp = Date().timeIntervalSince1970
         seededSessions[childSessionId] = [
             "sessionId": childSessionId,
             "workspaceId": context.workspaceId,
             "surfaceId": context.surfaceId,
             "cwd": context.root.path,
             "isRestorable": true,
-            "updatedAt": Date().timeIntervalSince1970,
+            "startedAt": staleChildTimestamp,
+            "updatedAt": staleChildTimestamp,
         ]
         seededState["sessions"] = seededSessions
         try JSONSerialization.data(withJSONObject: seededState, options: [.prettyPrinted, .sortedKeys])
