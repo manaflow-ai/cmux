@@ -725,7 +725,31 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(sessionAfterPermission["pendingNotificationFingerprint"])
         XCTAssertNil(sessionAfterPermission["lastSubtitle"])
         XCTAssertNil(sessionAfterPermission["lastBody"])
-        XCTAssertEqual(sessionAfterPermission["pendingNotificationClearedFingerprint"] as? String, "Permission request\n\(permissionBody)")
+        XCTAssertNil(sessionAfterPermission["pendingNotificationClearedFingerprint"])
+        XCTAssertNil(sessionAfterPermission["pendingNotificationClearedAt"])
+
+        let repeatedCommandStart = context.state.commands.count
+        let repeatedResult = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"grep error.log","allowed_prompts":[{"prompt":"\#(permissionBody)"}]}}"#
+        )
+        XCTAssertFalse(repeatedResult.timedOut, repeatedResult.stderr)
+        XCTAssertEqual(repeatedResult.status, 0, repeatedResult.stderr)
+
+        let repeatedCommands = Array(context.state.commands.dropFirst(repeatedCommandStart))
+        let repeatedNotifyCommands = repeatedCommands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let repeatedNotifyCommand = try XCTUnwrap(
+            repeatedNotifyCommands.last,
+            "Expected a later identical permission prompt to notify after the one-shot cleared fingerprint was consumed"
+        )
+        XCTAssertTrue(repeatedNotifyCommand.contains("Claude Workspace - Claude waiting|Permission request|"), repeatedNotifyCommand)
+        XCTAssertTrue(repeatedNotifyCommand.contains(permissionBody), repeatedNotifyCommand)
+        XCTAssertTrue(
+            repeatedCommands.contains { $0.contains("set_status claude_code Needs input") },
+            "Expected later identical permission prompt to mark Claude waiting, saw \(repeatedCommands)"
+        )
     }
 
     func testClaudePermissionRequestSkipsNeedsInputWhenPendingClearsAfterNotificationSend() throws {

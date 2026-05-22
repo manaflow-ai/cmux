@@ -859,6 +859,10 @@ private final class ClaudeHookSessionStore {
             )
             if let clearedAt = record.pendingNotificationClearedAt {
                 if record.pendingNotificationClearedFingerprint == normalizedFingerprint {
+                    record.pendingNotificationClearedFingerprint = nil
+                    record.pendingNotificationClearedAt = nil
+                    record.updatedAt = now
+                    state.sessions[normalized] = record
                     return false
                 }
                 if clearedAt > attemptStartedAt {
