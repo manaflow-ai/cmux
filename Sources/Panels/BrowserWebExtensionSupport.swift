@@ -35,6 +35,12 @@ private struct BrowserWebExtensionActivePopupState: Equatable {
 }
 
 @available(macOS 15.4, *)
+private struct BrowserWebExtensionAuxiliaryWebViewConfiguration {
+    let runtimeKey: BrowserWebExtensionRuntimeKey
+    let webViewConfiguration: WKWebViewConfiguration
+}
+
+@available(macOS 15.4, *)
 private struct BrowserWebExtensionRuntimeKey: Hashable {
     enum DataStoreScope: Hashable {
         case defaultStore
@@ -1275,6 +1281,11 @@ enum BrowserWebExtensionSupport {
         guard #available(macOS 15.4, *) else { return }
         BrowserWebExtensionRuntime.shared.notePanelPropertiesChanged(panel: panel)
     }
+
+    static func notePanelFocusChanged(panel: BrowserPanel, isFocused: Bool) {
+        guard #available(macOS 15.4, *), isFocused else { return }
+        BrowserWebExtensionRuntime.shared.notePanelDidBecomeActive(panel: panel)
+    }
 }
 
 @available(macOS 15.4, *)
@@ -1303,6 +1314,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private var actionPopupAnchorScreenRectsByPanelID: [UUID: NSRect] = [:]
     private var activeActionPopupByPanelID: [UUID: BrowserWebExtensionActivePopupState] = [:]
     private var windowAdaptersByRuntimeKey: [BrowserWebExtensionRuntimeKey: BrowserWebExtensionWindowAdapter] = [:]
+    private var activeTabsByRuntimeKey: [BrowserWebExtensionRuntimeKey: any WKWebExtensionTab] = [:]
     private var runtimePermissionPromptTasks: [UUID: Task<Void, Never>] = [:]
     private var runtimePermissionPromptDenyHandlers: [UUID: () -> Void] = [:]
     private var loadedRuntimeKeys: Set<BrowserWebExtensionRuntimeKey> = []
@@ -1334,6 +1346,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         let existingAdapter = tabAdaptersByPanelID[panel.id]
         if let existingAdapter, existingAdapter.runtimeKey != key {
             controllersByRuntimeKey[existingAdapter.runtimeKey]?.didCloseTab(existingAdapter, windowIsClosing: false)
+            if isSameTab(activeTabsByRuntimeKey[existingAdapter.runtimeKey], existingAdapter) {
+                activeTabsByRuntimeKey[existingAdapter.runtimeKey] = nil
+            }
             tabAdaptersByPanelID[panel.id] = nil
         }
         let adapter = tabAdaptersByPanelID[panel.id]
@@ -1348,7 +1363,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             controller.didOpenTab(adapter)
         }
         if shouldNotifyWindowFocus(for: panel) {
-            controller.didFocusWindow(windowAdapter)
+            noteActiveTab(adapter, runtimeKey: key, focusedWindow: windowAdapter)
         }
         controller.didChangeTabProperties(WKWebExtension.TabChangedProperties([.title, .URL, .loading]), for: adapter)
         Task { @MainActor [weak self, websiteDataStore = panel.websiteDataStore] in
@@ -1363,6 +1378,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         actionPopupAnchorViewsByPanelID.removeValue(forKey: panelID)
         actionPopupAnchorScreenRectsByPanelID.removeValue(forKey: panelID)
         controllersByRuntimeKey[adapter.runtimeKey]?.didCloseTab(adapter, windowIsClosing: false)
+        if isSameTab(activeTabsByRuntimeKey[adapter.runtimeKey], adapter) {
+            activeTabsByRuntimeKey[adapter.runtimeKey] = nil
+        }
         postDidChange()
     }
 
@@ -1436,6 +1454,12 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         guard let tab = tabAdaptersByPanelID[panel.id] else { return }
         controllersByRuntimeKey[tab.runtimeKey]?.didChangeTabProperties([.title, .URL, .loading], for: tab)
         postDidChange()
+    }
+
+    func notePanelDidBecomeActive(panel: BrowserPanel) {
+        guard let tab = tabAdaptersByPanelID[panel.id] else { return }
+        let window = ensureWindowAdapter(runtimeKey: tab.runtimeKey)
+        noteActiveTab(tab, runtimeKey: tab.runtimeKey, focusedWindow: window)
     }
 
     func installExtension(
@@ -1689,38 +1713,55 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         context: WKWebExtensionContext,
         openerPanel: BrowserPanel?,
         shouldBePrivate: Bool
-    ) -> WKWebViewConfiguration? {
-        let configuration: WKWebViewConfiguration
-        if let initialURL,
+    ) -> BrowserWebExtensionAuxiliaryWebViewConfiguration? {
+        let sourceRuntimeKey = runtimeKey(for: context)
+            ?? defaultRuntimeKey(profileID: BrowserProfileStore.shared.builtInDefaultProfileID)
+        if !shouldBePrivate,
+           let initialURL,
            let targetContext = context.webExtensionController?.extensionContext(for: initialURL),
            targetContext === context {
             guard let extensionConfiguration = context.webViewConfiguration else { return nil }
-            configuration = extensionConfiguration
-        } else {
-            configuration = WKWebViewConfiguration()
-            if let browserContext = openerPanel?.popupBrowserContext {
-                BrowserPanel.configureWebViewConfiguration(
-                    configuration,
-                    profileID: browserContext.profileID,
-                    websiteDataStore: browserContext.websiteDataStore,
-                    processPool: browserContext.processPool
-                )
-            } else {
-                let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
-                BrowserPanel.configureWebViewConfiguration(
-                    configuration,
-                    profileID: defaultProfileID,
-                    websiteDataStore: .default()
-                )
-            }
+            return BrowserWebExtensionAuxiliaryWebViewConfiguration(
+                runtimeKey: sourceRuntimeKey,
+                webViewConfiguration: extensionConfiguration
+            )
         }
 
-        if shouldBePrivate {
-            configuration.websiteDataStore = .nonPersistent()
+        let configuration = WKWebViewConfiguration()
+        let targetRuntimeKey: BrowserWebExtensionRuntimeKey
+        if let browserContext = openerPanel?.popupBrowserContext {
+            let targetDataStore = shouldBePrivate
+                ? WKWebsiteDataStore.nonPersistent()
+                : browserContext.websiteDataStore
+            BrowserPanel.configureWebViewConfiguration(
+                configuration,
+                profileID: browserContext.profileID,
+                websiteDataStore: targetDataStore,
+                processPool: browserContext.processPool
+            )
+            targetRuntimeKey = runtimeKey(
+                profileID: browserContext.profileID,
+                websiteDataStore: targetDataStore
+            )
+        } else {
+            let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
+            let targetDataStore = shouldBePrivate ? WKWebsiteDataStore.nonPersistent() : .default()
+            BrowserPanel.configureWebViewConfiguration(
+                configuration,
+                profileID: defaultProfileID,
+                websiteDataStore: targetDataStore
+            )
+            targetRuntimeKey = runtimeKey(
+                profileID: defaultProfileID,
+                websiteDataStore: targetDataStore
+            )
         }
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        return configuration
+        return BrowserWebExtensionAuxiliaryWebViewConfiguration(
+            runtimeKey: targetRuntimeKey,
+            webViewConfiguration: configuration
+        )
     }
 
     private func loadInstalledRecordsIfNeeded(
@@ -1968,6 +2009,27 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         NotificationCenter.default.post(name: BrowserWebExtensionSupport.didChangeNotification, object: nil)
     }
 
+    private func isSameTab(_ lhs: (any WKWebExtensionTab)?, _ rhs: any WKWebExtensionTab) -> Bool {
+        guard let lhs else { return false }
+        return (lhs as AnyObject) === (rhs as AnyObject)
+    }
+
+    private func noteActiveTab(
+        _ tab: any WKWebExtensionTab,
+        runtimeKey: BrowserWebExtensionRuntimeKey,
+        focusedWindow: (any WKWebExtensionWindow)?
+    ) {
+        guard let controller = controllersByRuntimeKey[runtimeKey] else { return }
+        if let focusedWindow {
+            controller.didFocusWindow(focusedWindow)
+        }
+        let previousTab = activeTabsByRuntimeKey[runtimeKey]
+        guard !isSameTab(previousTab, tab) else { return }
+        activeTabsByRuntimeKey[runtimeKey] = tab
+        controller.didActivateTab(tab, previousActiveTab: previousTab)
+        postDidChange()
+    }
+
     func webExtensionController(
         _ controller: WKWebExtensionController,
         openWindowsFor context: WKWebExtensionContext
@@ -2020,7 +2082,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             ?? activeTabAdapter(runtimeKey: runtimeKey)?.panel
             ?? tabAdaptersByPanelID.values.filter { $0.runtimeKey == runtimeKey }.compactMap(\.panel).first
         let initialURL = configuration.tabURLs.first
-        guard let webViewConfiguration = auxiliaryWebViewConfiguration(
+        guard let auxiliaryConfiguration = auxiliaryWebViewConfiguration(
             initialURL: initialURL,
             context: context,
             openerPanel: opener,
@@ -2032,19 +2094,20 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
         let window = BrowserWebExtensionAuxiliaryWindowAdapter(
             runtime: self,
-            runtimeKey: runtimeKey,
+            runtimeKey: auxiliaryConfiguration.runtimeKey,
             recordID: recordID(for: context),
             configuration: configuration,
-            webViewConfiguration: webViewConfiguration,
+            webViewConfiguration: auxiliaryConfiguration.webViewConfiguration,
             customUserAgent: BrowserUserAgentSettings.safariUserAgent,
             initialURL: initialURL,
             openerPanel: opener
         )
         auxiliaryWindowAdaptersByID[window.id] = window
-        controller.didOpenWindow(window)
-        controller.didOpenTab(window.tabAdapter)
+        let targetController = controllersByRuntimeKey[auxiliaryConfiguration.runtimeKey] ?? controller
+        targetController.didOpenWindow(window)
+        targetController.didOpenTab(window.tabAdapter)
         if configuration.shouldBeFocused {
-            controller.didFocusWindow(window)
+            noteActiveTab(window.tabAdapter, runtimeKey: auxiliaryConfiguration.runtimeKey, focusedWindow: window)
         }
         postDidChange()
         completionHandler(window, nil)
@@ -2098,7 +2161,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     fileprivate func auxiliaryWindowDidFocus(_ window: BrowserWebExtensionAuxiliaryWindowAdapter) {
-        controllersByRuntimeKey[window.runtimeKey]?.didFocusWindow(window)
+        noteActiveTab(window.tabAdapter, runtimeKey: window.runtimeKey, focusedWindow: window)
     }
 
     fileprivate func auxiliaryWindowDidChangeTabProperties(
@@ -2112,6 +2175,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         auxiliaryWindowAdaptersByID.removeValue(forKey: window.id)
         controllersByRuntimeKey[window.runtimeKey]?.didCloseTab(window.tabAdapter, windowIsClosing: true)
         controllersByRuntimeKey[window.runtimeKey]?.didCloseWindow(window)
+        if isSameTab(activeTabsByRuntimeKey[window.runtimeKey], window.tabAdapter) {
+            activeTabsByRuntimeKey[window.runtimeKey] = nil
+        }
         postDidChange()
     }
 
@@ -3011,7 +3077,8 @@ private final class BrowserWebExtensionAuxiliaryTabAdapter: NSObject, WKWebExten
     }
 
     func pendingURL(for context: WKWebExtensionContext) -> URL? {
-        webView?.url
+        guard webView?.isLoading == true else { return nil }
+        return webView?.url
     }
 
     func isLoadingComplete(for context: WKWebExtensionContext) -> Bool {
@@ -3176,7 +3243,8 @@ private final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     }
 
     func pendingURL(for context: WKWebExtensionContext) -> URL? {
-        panel?.currentURL
+        guard panel?.isLoading == true else { return nil }
+        return panel.flatMap { BrowserPanel.remoteProxyDisplayURL(for: $0.webView.url) ?? $0.currentURL }
     }
 
     func isLoadingComplete(for context: WKWebExtensionContext) -> Bool {

@@ -948,6 +948,7 @@ struct BrowserPanelView: View {
 #endif
             // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
             if focused {
+                BrowserWebExtensionSupport.notePanelFocusChanged(panel: panel, isFocused: true)
                 applyPendingAddressBarFocusRequestIfNeeded()
                 autoFocusOmnibarIfBlank()
             } else {
