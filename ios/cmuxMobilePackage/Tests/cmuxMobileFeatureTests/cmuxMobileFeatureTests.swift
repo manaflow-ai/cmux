@@ -280,6 +280,29 @@ import UIKit
     #expect(store.connectionState == .disconnected)
 }
 
+@Test func rootAuthGateClearsOnlyStaleTemporaryAttachAuthentication() {
+    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        pairingResult: .failed,
+        connectionState: .disconnected,
+        hasActiveTicket: false
+    ))
+    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        pairingResult: .superseded,
+        connectionState: .disconnected,
+        hasActiveTicket: false
+    ))
+    #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        pairingResult: .superseded,
+        connectionState: .connected,
+        hasActiveTicket: true
+    ))
+    #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        pairingResult: .connected,
+        connectionState: .connected,
+        hasActiveTicket: true
+    ))
+}
+
 @MainActor
 @Test func signInMovesToPairingUntilCodeConnects() {
     let store = CMUXMobileShellStore.preview()
@@ -317,6 +340,20 @@ import UIKit
     #expect(store.activeRoute?.kind == .debugLoopback)
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
     #expect(store.selectedWorkspace?.terminals.first?.lines.contains("runtime: waiting for transport") == true)
+}
+
+@MainActor
+@Test func connectPreviewHostIgnoresPairingURLsForTrackedAsyncPath() async {
+    let store = CMUXMobileShellStore.preview()
+
+    store.signIn()
+    store.pairingCode = "cmux-ios://attach?v=1&payload=invalid"
+    store.connectPreviewHost()
+    await Task.yield()
+
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == nil)
 }
 
 @MainActor
@@ -373,6 +410,56 @@ import UIKit
     #expect(store.connectedHostName == "Test Mac")
     #expect(store.activeRoute?.kind == .debugLoopback)
     #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
+}
+
+@MainActor
+@Test func supersededPairingURLReportsSupersededWithoutClearingNewerConnection() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56577)
+    )
+    let firstTicket = try CmxAttachTicket(
+        workspaceID: "first-workspace",
+        terminalID: "first-terminal",
+        macDeviceID: "first-mac",
+        macDisplayName: "First Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let secondTicket = try CmxAttachTicket(
+        workspaceID: "second-workspace",
+        terminalID: "second-terminal",
+        macDeviceID: "second-mac",
+        macDisplayName: "Second Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = SupersededAttachURLRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let firstURL = try attachURL(for: firstTicket).absoluteString
+    let secondURL = try attachURL(for: secondTicket).absoluteString
+
+    store.signIn()
+    let firstTask = Task { @MainActor in
+        await store.connectPairingURLResult(firstURL)
+    }
+    await router.waitForFirstWorkspaceListRequest()
+
+    let secondResult = await store.connectPairingURLResult(secondURL)
+    await router.releaseFirstWorkspaceListResponse()
+    let firstResult = await firstTask.value
+
+    #expect(secondResult == .connected)
+    #expect(firstResult == .superseded)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectedHostName == "Second Mac")
+    #expect(store.selectedWorkspace?.id.rawValue == "second-workspace")
+    #expect(store.activeTicket?.macDeviceID == "second-mac")
 }
 
 @MainActor
@@ -676,6 +763,35 @@ import UIKit
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
     #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Make sure the host app is open and accepting mobile connections.")
+}
+
+@MainActor
+@Test func cancelManualHostPairingDoesNotApplyDelayedTicket() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let router = DelayedManualAttachTicketRouter(route: route)
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    let connectTask = Task { @MainActor in
+        await store.connectManualHost(name: "Slow Mac", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    }
+
+    await router.waitForAttachTicketRequest()
+    store.cancelPairing()
+    await router.releaseAttachTicketResponse()
+    await connectTask.value
+
+    let requests = await router.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create"])
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == nil)
+    #expect(store.activeTicket == nil)
+    #expect(store.activeRoute == nil)
 }
 
 @MainActor
@@ -1955,24 +2071,44 @@ import UIKit
     let startsDrain = buffer.enqueue("p", workspaceID: workspaceA, terminalID: terminalA)
     let appendsWhileDraining = buffer.enqueue("rint", workspaceID: workspaceA, terminalID: terminalA)
     let appendsFinalCharacter = buffer.enqueue("f", workspaceID: workspaceA, terminalID: terminalA)
-    #expect(startsDrain)
-    #expect(!appendsWhileDraining)
-    #expect(!appendsFinalCharacter)
+    #expect(startsDrain == .startDraining)
+    #expect(appendsWhileDraining == .queued)
+    #expect(appendsFinalCharacter == .queued)
     let firstBatch = buffer.nextBatch()
     #expect(firstBatch?.workspaceID == workspaceA)
     #expect(firstBatch?.terminalID == terminalA)
     #expect(firstBatch?.text == "printf")
 
     let appendsSecondBatch = buffer.enqueue(" 'one'", workspaceID: workspaceA, terminalID: terminalA)
-    #expect(!appendsSecondBatch)
+    #expect(appendsSecondBatch == .queued)
     #expect(buffer.nextBatch()?.text == " 'one'")
     #expect(buffer.nextBatch() == nil)
 
     let restartsDrain = buffer.enqueue("\r", workspaceID: workspaceA, terminalID: terminalB)
-    #expect(restartsDrain)
+    #expect(restartsDrain == .startDraining)
     let terminalBBatch = buffer.nextBatch()
     #expect(terminalBBatch?.terminalID == terminalB)
     #expect(terminalBBatch?.text == "\r")
+}
+
+@Test func rawTerminalInputSendBufferRejectsOverflowUntilPendingInputDrains() {
+    var buffer = MobileTerminalInputSendBuffer()
+    let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+    let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+    let fullBufferText = String(repeating: "a", count: MobileTerminalInputSendBuffer.maximumPendingByteCount)
+
+    #expect(buffer.enqueue(fullBufferText, workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+    #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumPendingByteCount)
+    #expect(buffer.enqueue("b", workspaceID: workspaceID, terminalID: terminalID) == .rejected)
+    #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumPendingByteCount)
+
+    let batch = buffer.nextBatch()
+    #expect(batch?.text == fullBufferText)
+    #expect(buffer.pendingByteCount == 0)
+    #expect(buffer.enqueue("b", workspaceID: workspaceID, terminalID: terminalID) == .queued)
+    #expect(buffer.nextBatch()?.text == "b")
+    #expect(buffer.nextBatch() == nil)
+    #expect(buffer.enqueue("c", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
 }
 
 @Test func terminalBottomActionModifierOutputsMatchReferenceAccessoryControls() {
@@ -3235,6 +3371,146 @@ private actor StaleSnapshotSelectionRouter: RequestAwareTransportRouter {
                 ],
             ],
         ]
+    }
+}
+
+private actor DelayedManualAttachTicketRouter: RequestAwareTransportRouter {
+    private let route: CmxAttachRoute
+    private var attachTicketRequested = false
+    private var attachTicketReleased = false
+    private var attachTicketRequestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var attachTicketReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var requests: [RecordedRPCRequest] = []
+
+    init(route: CmxAttachRoute) {
+        self.route = route
+    }
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func waitForAttachTicketRequest() async {
+        guard !attachTicketRequested else { return }
+        await withCheckedContinuation { continuation in
+            attachTicketRequestWaiters.append(continuation)
+        }
+    }
+
+    func releaseAttachTicketResponse() {
+        attachTicketReleased = true
+        attachTicketReleaseContinuation?.resume()
+        attachTicketReleaseContinuation = nil
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "mobile.attach_ticket.create":
+            markAttachTicketRequested()
+            await waitForAttachTicketRelease()
+            return try rpcAttachTicketFrame(route: route, workspaceID: "delayed-workspace")
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(workspaceID: "delayed-workspace", title: "Delayed Workspace")
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    private func markAttachTicketRequested() {
+        attachTicketRequested = true
+        let waiters = attachTicketRequestWaiters
+        attachTicketRequestWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func waitForAttachTicketRelease() async {
+        guard !attachTicketReleased else { return }
+        await withCheckedContinuation { continuation in
+            attachTicketReleaseContinuation = continuation
+        }
+    }
+}
+
+private actor SupersededAttachURLRouter: RequestAwareTransportRouter {
+    private var workspaceListRequestCount = 0
+    private var firstWorkspaceListRequested = false
+    private var firstWorkspaceListReleased = false
+    private var firstWorkspaceListRequestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstWorkspaceListReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var requests: [RecordedRPCRequest] = []
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func waitForFirstWorkspaceListRequest() async {
+        guard !firstWorkspaceListRequested else { return }
+        await withCheckedContinuation { continuation in
+            firstWorkspaceListRequestWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirstWorkspaceListResponse() {
+        firstWorkspaceListReleased = true
+        firstWorkspaceListReleaseContinuation?.resume()
+        firstWorkspaceListReleaseContinuation = nil
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            workspaceListRequestCount += 1
+            if workspaceListRequestCount == 1 {
+                markFirstWorkspaceListRequested()
+                await waitForFirstWorkspaceListRelease()
+                return try rpcWorkspaceListFrame(
+                    workspaceID: "first-workspace",
+                    title: "First Workspace",
+                    terminalID: "first-terminal"
+                )
+            }
+            return try rpcWorkspaceListFrame(
+                workspaceID: "second-workspace",
+                title: "Second Workspace",
+                terminalID: "second-terminal"
+            )
+        case "terminal.snapshot":
+            let workspaceID = request.workspaceID ?? "second-workspace"
+            let terminalID = request.terminalID ?? "\(workspaceID)-terminal"
+            return try rpcSnapshotResultFrame(
+                workspaceID: workspaceID,
+                terminalID: terminalID,
+                visibleLines: ["attached to \(workspaceID)"]
+            )
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    private func markFirstWorkspaceListRequested() {
+        firstWorkspaceListRequested = true
+        let waiters = firstWorkspaceListRequestWaiters
+        firstWorkspaceListRequestWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func waitForFirstWorkspaceListRelease() async {
+        guard !firstWorkspaceListReleased else { return }
+        await withCheckedContinuation { continuation in
+            firstWorkspaceListReleaseContinuation = continuation
+        }
     }
 }
 

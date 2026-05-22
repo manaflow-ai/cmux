@@ -153,7 +153,15 @@ enum MobileTerminalSnapshotRequestPolicy {
     }
 }
 
+enum MobileTerminalInputEnqueueResult: Equatable, Sendable {
+    case startDraining
+    case queued
+    case rejected
+}
+
 struct MobileTerminalInputSendBuffer: Equatable, Sendable {
+    static let maximumPendingByteCount = 64 * 1024
+
     struct Chunk: Equatable, Sendable {
         var workspaceID: MobileWorkspacePreview.ID
         var terminalID: MobileTerminalPreview.ID
@@ -161,14 +169,19 @@ struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     }
 
     private(set) var pendingChunks: [Chunk] = []
+    private(set) var pendingByteCount = 0
     private(set) var isDraining = false
 
     mutating func enqueue(
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
-    ) -> Bool {
-        guard !text.isEmpty else { return false }
+    ) -> MobileTerminalInputEnqueueResult {
+        guard !text.isEmpty else { return .queued }
+        let byteCount = text.utf8.count
+        guard pendingByteCount + byteCount <= Self.maximumPendingByteCount else {
+            return .rejected
+        }
         if var last = pendingChunks.last,
            last.workspaceID == workspaceID,
            last.terminalID == terminalID {
@@ -183,9 +196,10 @@ struct MobileTerminalInputSendBuffer: Equatable, Sendable {
                 )
             )
         }
-        guard !isDraining else { return false }
+        pendingByteCount += byteCount
+        guard !isDraining else { return .queued }
         isDraining = true
-        return true
+        return .startDraining
     }
 
     mutating func nextBatch() -> Chunk? {
@@ -193,11 +207,14 @@ struct MobileTerminalInputSendBuffer: Equatable, Sendable {
             isDraining = false
             return nil
         }
-        return pendingChunks.removeFirst()
+        let chunk = pendingChunks.removeFirst()
+        pendingByteCount = max(0, pendingByteCount - chunk.text.utf8.count)
+        return chunk
     }
 
     mutating func clear() {
         pendingChunks.removeAll()
+        pendingByteCount = 0
         isDraining = false
     }
 }
@@ -205,6 +222,16 @@ struct MobileTerminalInputSendBuffer: Equatable, Sendable {
 public enum MobileConnectionState: Equatable, Sendable {
     case disconnected
     case connected
+}
+
+public enum MobilePairingURLConnectionResult: Equatable, Sendable {
+    case connected
+    case failed
+    case superseded
+
+    public var didConnect: Bool {
+        self == .connected
+    }
 }
 
 public enum MobileShellPhase: Equatable, Sendable {
@@ -460,6 +487,7 @@ public final class CMUXMobileShellStore {
     private var viewportEchoSettlingKeys: Set<MobileTerminalViewportKey>
     private var viewportMatchedEchoByTerminalKey: Set<MobileTerminalViewportKey>
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
+    private var pairingAttemptID: UUID
 
     public var phase: MobileShellPhase {
         if !isSignedIn {
@@ -528,6 +556,7 @@ public final class CMUXMobileShellStore {
         self.viewportEchoSettlingKeys = []
         self.viewportMatchedEchoByTerminalKey = []
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
+        self.pairingAttemptID = UUID()
     }
 
     public static func preview(runtime: CMUXMobileRuntime? = nil) -> CMUXMobileShellStore {
@@ -553,6 +582,7 @@ public final class CMUXMobileShellStore {
     }
 
     public func signOut() {
+        pairingAttemptID = UUID()
         connectionGeneration = UUID()
         isSignedIn = false
         connectionState = .disconnected
@@ -588,21 +618,32 @@ public final class CMUXMobileShellStore {
             return
         }
         if trimmedCode.hasPrefix("cmux-ios://") {
-            Task { @MainActor [weak self] in
-                await self?.connectPairingURL(trimmedCode)
-            }
             return
         }
+        let attemptID = beginPairingAttempt()
         remoteClient = nil
         connectionError = nil
         activeTicket = nil
         activeRoute = nil
         connectedHostName = PreviewMobileHost.hostName
+        guard isCurrentPairingAttempt(attemptID) else { return }
         connectionState = .connected
         if selectedWorkspaceID == nil {
             selectedWorkspaceID = workspaces.first?.id
         }
         syncSelectedTerminalForWorkspace()
+    }
+
+    public func connectPairingInput() async {
+        let trimmedCode = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCode.isEmpty else {
+            return
+        }
+        if trimmedCode.hasPrefix("cmux-ios://") {
+            await connectPairingURL(trimmedCode)
+            return
+        }
+        connectPreviewHost()
     }
 
     public func connectManualHost(name: String, host: String, port: Int) async {
@@ -621,14 +662,21 @@ public final class CMUXMobileShellStore {
         }
 
         let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
+        let attemptID = beginPairingAttempt()
         do {
             let ticket = try await manualHostTicket(
                 name: trimmedName,
                 host: normalizedHost,
                 port: port
             )
+            guard isCurrentPairingAttempt(attemptID) else { return }
             try await connect(ticket: ticket, allowsStackAuthFallback: true)
+        } catch is CancellationError {
+            guard isCurrentPairingAttempt(attemptID) else { return }
+            connectionState = .disconnected
+            clearRemoteConnectionContext()
         } catch {
+            guard isCurrentPairingAttempt(attemptID) else { return }
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
             connectionError = Self.localizedConnectionError(for: error, route: activeRoute ?? directRoute)
             connectionState = .disconnected
@@ -647,27 +695,49 @@ public final class CMUXMobileShellStore {
 
     @discardableResult
     public func connectPairingURL(_ rawValue: String? = nil) async -> Bool {
+        await connectPairingURLResult(rawValue).didConnect
+    }
+
+    @discardableResult
+    public func connectPairingURLResult(_ rawValue: String? = nil) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
+        let attemptID = beginPairingAttempt()
         let ticket: CmxAttachTicket
         do {
             ticket = try CmxAttachTicketInput.decode(rawURL)
         } catch {
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             connectionError = L10n.string("mobile.pairing.invalidCode", defaultValue: "Invalid pairing code.")
             connectionState = .disconnected
             clearRemoteConnectionContext()
-            return false
+            return .failed
         }
 
         do {
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             try await connect(ticket: ticket)
-            return connectionState == .connected && activeTicket != nil
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
+            return connectionState == .connected && activeTicket != nil ? .connected : .failed
+        } catch is CancellationError {
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
+            connectionState = .disconnected
+            clearRemoteConnectionContext()
+            return .failed
         } catch {
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .private)")
             connectionError = Self.localizedConnectionError(for: error, route: activeRoute)
             connectionState = .disconnected
             clearRemoteConnectionContext()
-            return false
+            return .failed
         }
+    }
+
+    public func cancelPairing() {
+        pairingAttemptID = UUID()
+        connectionError = nil
+        connectionState = .disconnected
+        clearRemoteConnectionContext()
     }
 
     private static func normalizedPairingURL(_ rawValue: String) -> String {
@@ -904,13 +974,25 @@ public final class CMUXMobileShellStore {
             #endif
             return
         }
-        guard rawTerminalInputBuffer.enqueue(
+        switch rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
             terminalID: terminalID
-        ) else { return }
-        Task { @MainActor [weak self] in
-            await self?.drainRawTerminalInputBuffer()
+        ) {
+        case .startDraining:
+            Task { @MainActor [weak self] in
+                await self?.drainRawTerminalInputBuffer()
+            }
+        case .queued:
+            return
+        case .rejected:
+            mobileShellLog.error("disconnecting mobile terminal input because pending byte count exceeded limit")
+            connectionError = L10n.string(
+                "mobile.terminal.inputQueueFull",
+                defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
+            )
+            connectionState = .disconnected
+            clearRemoteConnectionContext()
         }
     }
 
@@ -1171,6 +1253,20 @@ public final class CMUXMobileShellStore {
         createTerminalTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
+    }
+
+    private func beginPairingAttempt() -> UUID {
+        let attemptID = UUID()
+        pairingAttemptID = attemptID
+        connectionGeneration = UUID()
+        cancelRemoteOperationTasks()
+        rawTerminalInputBuffer.clear()
+        connectionError = nil
+        return attemptID
+    }
+
+    private func isCurrentPairingAttempt(_ attemptID: UUID) -> Bool {
+        pairingAttemptID == attemptID && isSignedIn
     }
 
     private func clearCreateWorkspaceTask(id: UUID) {

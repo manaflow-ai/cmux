@@ -939,6 +939,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル入力" } }
       }
     },
+    "mobile.terminal.inputQueueFull" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルは現在これ以上の入力を受け付けられません。しばらくしてから再試行するか、利用できない状態が続く場合はターミナルを開き直してください。" } }
+      }
+    },
     "mobile.terminal.modifier.stickyFormat" : {
       "extractionState" : "manual",
       "localizations" : {

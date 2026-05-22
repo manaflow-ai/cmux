@@ -57,10 +57,13 @@ struct CMUXMobileRootView: View {
                     PairingView(
                         pairingCode: $store.pairingCode,
                         connectionError: store.connectionError,
-                        connectPairingCode: store.connectPreviewHost,
+                        connectPairingCode: {
+                            await store.connectPairingInput()
+                        },
                         connectManualHost: { name, host, port in
                             await store.connectManualHost(name: name, host: host, port: port)
                         },
+                        cancelPairing: store.cancelPairing,
                         cancel: { isShowingAddDeviceSheet = false }
                     )
                     #if os(iOS)
@@ -152,8 +155,12 @@ struct CMUXMobileRootView: View {
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
         Task {
-            let didConnect = await store.connectPairingURL(rawURL)
-            guard !didConnect else { return }
+            let result = await store.connectPairingURLResult(rawURL)
+            guard MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+                pairingResult: result,
+                connectionState: store.connectionState,
+                hasActiveTicket: store.activeTicket != nil
+            ) else { return }
             didAuthenticateWithAttachTicket = false
             syncShellAuthentication(authManager.isAuthenticated)
         }
@@ -207,6 +214,21 @@ enum MobileRootAuthGate {
             return false
         }
         return url.host?.caseInsensitiveCompare("attach") == .orderedSame
+    }
+
+    static func shouldClearAttachTicketAuthentication(
+        pairingResult: MobilePairingURLConnectionResult,
+        connectionState: MobileConnectionState,
+        hasActiveTicket: Bool
+    ) -> Bool {
+        switch pairingResult {
+        case .connected:
+            return false
+        case .failed:
+            return true
+        case .superseded:
+            return connectionState != .connected || !hasActiveTicket
+        }
     }
 
     @MainActor
@@ -947,8 +969,9 @@ private struct GlassInputPill<Content: View>: View {
 struct PairingView: View {
     @Binding var pairingCode: String
     let connectionError: String?
-    let connectPairingCode: () -> Void
+    let connectPairingCode: () async -> Void
     let connectManualHost: (String, String, Int) async -> Void
+    let cancelPairing: () -> Void
     let cancel: () -> Void
     @State private var isShowingScanner = false
     @State private var deviceName = UITestConfig.addDeviceName
@@ -958,6 +981,7 @@ struct PairingView: View {
     @State private var authManager = AuthManager.shared
     @State private var validationError: String?
     @State private var isPairing = false
+    @State private var pairingTaskID: UUID?
     @State private var pairingTask: Task<Void, Never>?
     @FocusState private var focusedField: AddDeviceField?
 
@@ -1122,7 +1146,9 @@ struct PairingView: View {
             MobilePairingScannerSheet { scannedCode in
                 pairingCode = scannedCode
                 isShowingScanner = false
-                connectPairingCode()
+                startPairingTask {
+                    await connectPairingCode()
+                }
             }
         }
         #endif
@@ -1131,8 +1157,10 @@ struct PairingView: View {
     private var cancelButton: some View {
         Button {
             pairingTask?.cancel()
+            pairingTaskID = nil
             pairingTask = nil
             isPairing = false
+            cancelPairing()
             cancel()
         } label: {
             Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
@@ -1186,7 +1214,9 @@ struct PairingView: View {
         }
         if trimmedHost.hasPrefix("cmux-ios://") {
             pairingCode = trimmedHost
-            connectPairingCode()
+            startPairingTask {
+                await connectPairingCode()
+            }
             return
         }
         guard MobileShellRouteAuthPolicy.normalizedManualHost(trimmedHost) != nil else {
@@ -1199,15 +1229,27 @@ struct PairingView: View {
             return
         }
 
-        pairingTask?.cancel()
-        isPairing = true
-        pairingTask = Task { @MainActor in
-            defer {
-                isPairing = false
-                pairingTask = nil
-            }
+        startPairingTask {
             await connectManualHost(deviceName, trimmedHost, parsedPort)
         }
+    }
+
+    private func startPairingTask(_ operation: @escaping @MainActor () async -> Void) {
+        pairingTask?.cancel()
+        let taskID = UUID()
+        pairingTaskID = taskID
+        isPairing = true
+        let task = Task { @MainActor in
+            defer {
+                if pairingTaskID == taskID {
+                    isPairing = false
+                    pairingTaskID = nil
+                    pairingTask = nil
+                }
+            }
+            await operation()
+        }
+        pairingTask = task
     }
 }
 
