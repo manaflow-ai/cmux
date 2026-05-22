@@ -17,6 +17,7 @@ public enum AgentLaunchSanitizer {
         var droppedOptionPrefixes: [String] = []
         var rejectOptions: Set<String> = []
         var resumeSubcommand: String?
+        var sessionSubcommands: Set<String> = []
         var preserveFirstPositional: Bool = false
         var skipClaudeHookSettings: Bool = false
     }
@@ -233,7 +234,7 @@ public enum AgentLaunchSanitizer {
         var result: [String] = []
         var index = 0
         var consumedFirstPositional = false
-        var skippingResumePositionals = false
+        var sessionPositionalsToSkip = 0
 
         while index < args.count {
             let arg = args[index]
@@ -242,13 +243,14 @@ public enum AgentLaunchSanitizer {
             }
 
             if !arg.hasPrefix("-") || arg == "-" {
-                if let resumeSubcommand = policy.resumeSubcommand, arg == resumeSubcommand {
-                    skippingResumePositionals = true
+                if isSessionSubcommandStart(args, index: index, policy: policy) {
+                    let hasSessionID = index + 1 < args.count && !args[index + 1].hasPrefix("-")
+                    sessionPositionalsToSkip = hasSessionID ? 1 : 0
                     index += 1
                     continue
                 }
-                if skippingResumePositionals {
-                    skippingResumePositionals = false
+                if sessionPositionalsToSkip > 0 {
+                    sessionPositionalsToSkip -= 1
                     index += 1
                     continue
                 }
@@ -358,12 +360,7 @@ public enum AgentLaunchSanitizer {
         return runtimeOnlyOptionWidths[String(arg[..<equals])].map { _ in 1 }
     }
 
-    private static func optionWidth(
-        _ args: [String],
-        index: Int,
-        policy: Policy,
-        stopVariadicAtPositionals: Set<String> = []
-    ) -> Int {
+    private static func optionWidth(_ args: [String], index: Int, policy: Policy) -> Int {
         let arg = args[index]
         if arg.contains("=") {
             return 1
@@ -383,14 +380,30 @@ public enum AgentLaunchSanitizer {
         }
         if policy.variadicOptions.contains(arg) {
             var end = index + 1
-            while end < args.count,
-                  !args[end].hasPrefix("-"),
-                  !stopVariadicAtPositionals.contains(args[end]) {
+            while end < args.count, !args[end].hasPrefix("-") {
+                if isSessionSubcommandStart(args, index: end, policy: policy) {
+                    break
+                }
                 end += 1
             }
             return max(1, end - index)
         }
         return 2
+    }
+
+    private static func isSessionSubcommandStart(
+        _ args: [String],
+        index: Int,
+        policy: Policy
+    ) -> Bool {
+        let arg = args[index]
+        if let resumeSubcommand = policy.resumeSubcommand, arg == resumeSubcommand {
+            return index + 1 < args.count && !args[index + 1].hasPrefix("-")
+        }
+        guard policy.sessionSubcommands.contains(arg) else {
+            return false
+        }
+        return index + 1 < args.count && !args[index + 1].hasPrefix("-")
     }
 
     private static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {

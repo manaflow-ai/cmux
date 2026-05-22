@@ -80,7 +80,6 @@ enum KeyboardShortcutSettings {
         case sendFeedback
         case showNotifications
         case jumpToUnread
-        case toggleUnread
         case markOldestUnreadAndJumpNext
         case focusRightSidebar
         case switchRightSidebarToFiles
@@ -124,6 +123,7 @@ enum KeyboardShortcutSettings {
         // Panels
         case saveFilePreview
         case openBrowser
+        case toggleTerminalSidekick
         case focusBrowserAddressBar
         case browserBack
         case browserForward
@@ -164,7 +164,6 @@ enum KeyboardShortcutSettings {
             case .sendFeedback: return String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")
             case .showNotifications: return String(localized: "shortcut.showNotifications.label", defaultValue: "Show Notifications")
             case .jumpToUnread: return String(localized: "shortcut.jumpToUnread.label", defaultValue: "Jump to Latest Unread")
-            case .toggleUnread: return String(localized: "shortcut.toggleUnread.label", defaultValue: "Toggle Unread")
             case .markOldestUnreadAndJumpNext:
                 return String(localized: "shortcut.markOldestUnreadAndJumpNext.label", defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread")
             case .focusRightSidebar: return String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Toggle Right Sidebar Focus")
@@ -202,6 +201,7 @@ enum KeyboardShortcutSettings {
             case .toggleRightSidebar: return String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
             case .saveFilePreview: return String(localized: "shortcut.saveFilePreview.label", defaultValue: "Save File Preview")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
+            case .toggleTerminalSidekick: return String(localized: "shortcut.toggleTerminalSidekick.label", defaultValue: "Toggle Terminal Sidekick")
             case .focusBrowserAddressBar: return String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")
             case .browserBack: return String(localized: "menu.view.back", defaultValue: "Back")
             case .browserForward: return String(localized: "menu.view.forward", defaultValue: "Forward")
@@ -280,8 +280,6 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
             case .jumpToUnread:
                 return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
-            case .toggleUnread:
-                return StoredShortcut(key: "u", command: true, shift: false, option: true, control: false)
             case .markOldestUnreadAndJumpNext:
                 return StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
             case .focusRightSidebar:
@@ -351,6 +349,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
+            case .toggleTerminalSidekick:
+                return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
             case .focusBrowserAddressBar:
                 return StoredShortcut(key: "l", command: true, shift: false, option: false, control: false)
             case .browserBack:
@@ -416,6 +416,9 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
+            if Self.allowsSharedShortcut(self, proposedAction) {
+                return false
+            }
             guard shortcutContext.overlaps(proposedAction.shortcutContext) else {
                 return false
             }
@@ -425,6 +428,11 @@ enum KeyboardShortcutSettings {
                 configuredShortcut,
                 configuredUsesNumberedDigitMatching: usesNumberedDigitMatching
             )
+        }
+
+        private static func allowsSharedShortcut(_ lhs: Action, _ rhs: Action) -> Bool {
+            (lhs == .toggleTerminalSidekick && rhs == .toggleRightSidebar) ||
+                (lhs == .toggleRightSidebar && rhs == .toggleTerminalSidekick)
         }
 
         func normalizedRecordedShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {

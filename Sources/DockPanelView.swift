@@ -796,7 +796,7 @@ private struct DockTerminalView: View {
             searchState: attachment.searchState,
             reattachToken: attachment.reattachToken,
             onFocus: { _ in
-                onKeyboardFocusIntent(attachment.terminalSurface.uiWindow)
+                onKeyboardFocusIntent(attachment.terminalSurface.hostedView.window)
             },
             onTriggerFlash: {
                 onTriggerFlash()

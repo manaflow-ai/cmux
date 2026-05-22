@@ -2056,6 +2056,47 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(permissions, 0o600)
     }
 
+    func testRestorableAgentStartupInputSkipsLauncherScriptForPreservedClaudeAuthSelectionEnvironment() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let longBaseURL = "https://api.example.test/" + String(repeating: "very-long-segment/", count: 90)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-env",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude"],
+                workingDirectory: nil,
+                environment: [
+                    "ANTHROPIC_BASE_URL": longBaseURL,
+                    "ANTHROPIC_MODEL": "sonnet"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1'"))
+        XCTAssertTrue(
+            resumeCommand.contains(
+                "'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_BASE_URL,ANTHROPIC_MODEL'"
+            )
+        )
+        XCTAssertGreaterThan(
+            resumeCommand.appending("\n").utf8.count,
+            SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
+        )
+        XCTAssertNil(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
+        let scriptDirectory = tempDir.appendingPathComponent("cmux-agent-resume", isDirectory: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scriptDirectory.path))
+    }
+
     func testRestorableAgentStartupInputSkipsOversizedCommandWhenScriptCannotBeWritten() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)

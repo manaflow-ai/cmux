@@ -14,7 +14,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
-            let context = ContentView.CommandPaletteContextSnapshot()
+            let context = CommandPaletteContextSnapshot()
 
             for mode in RightSidebarMode.availableModes() {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
@@ -57,11 +57,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
-    func testCommandPaletteUnreadActionsUseConfigurableShortcutActions() {
-        XCTAssertEqual(
-            ContentView.commandPaletteShortcutAction(forCommandID: "palette.toggleUnread"),
-            .toggleUnread
-        )
+    func testCommandPaletteUnreadDeferActionUsesConfigurableShortcutAction() {
         XCTAssertEqual(
             ContentView.commandPaletteShortcutAction(forCommandID: "palette.markOldestUnreadAndJumpNext"),
             .markOldestUnreadAndJumpNext

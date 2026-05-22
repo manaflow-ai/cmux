@@ -14056,7 +14056,7 @@ struct CMUXCLI {
         var parts = ["process", pid, label]
         let attributionReason = topLabelText(process["attribution_reason"] as? String)
         if !attributionReason.isEmpty {
-            parts.append("[\(attributionReason)]")
+            parts.append("reason=\(attributionReason)")
         }
         return parts.joined(separator: " ")
     }
@@ -21824,7 +21824,7 @@ struct CMUXCLI {
             let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
             var tail = original.tail
             if tail.first == "codex-teams" { tail.removeFirst() }
-            argv = AgentLaunchSanitizer.preservedCodexForkArguments(args: tail).map {
+            argv = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: tail).map {
                 [original.executable, "codex-teams", "resume", normalizedSessionId] + $0
             }
         case "omx", "omc":
@@ -21850,7 +21850,7 @@ struct CMUXCLI {
             return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "claude", option: "--resume", sessionId: sessionId)
         case "codex":
             let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            return AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail).map {
+            return AgentLaunchSanitizer.preservedArguments(kind: "codex", args: original.tail).map {
                 [original.executable, "resume", sessionId] + $0
             }
         case "pi":
@@ -28035,7 +28035,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           \(bold)\u{2318}\u{21E7}R\(reset)\(subdued)                 Rename workspace\(reset)
           \(bold)\u{2318}\u{21E7}L\(reset)\(subdued)                 New browser\(reset)
           \(bold)\u{2318}\u{21E7}U\(reset)\(subdued)                 Jump to latest unread\(reset)
-          \(bold)\u{2325}\u{2318}U\(reset)\(subdued)                 Toggle unread\(reset)
         """
 
         print()
@@ -28354,7 +28353,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           shortcuts
           disable-browser | enable-browser | browser-status
           restore-session
-          open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]

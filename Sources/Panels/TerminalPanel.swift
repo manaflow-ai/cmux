@@ -41,6 +41,11 @@ final class TerminalPanel: Panel, ObservableObject {
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
+    private lazy var sidekickCoordinator = TerminalSidekickCoordinator(
+        workspaceId: workspaceId
+    ) { [weak self] in
+        self?.objectWillChange.send()
+    }
 
     var displayTitle: String {
         title.isEmpty ? "Terminal" : title
@@ -69,6 +74,14 @@ final class TerminalPanel: Panel, ObservableObject {
 
     var requestedWorkingDirectory: String? {
         surface.requestedWorkingDirectory
+    }
+
+    var sidekickState: TerminalSidekickState {
+        sidekickCoordinator.state
+    }
+
+    var sidekickBrowserPanel: BrowserPanel? {
+        sidekickCoordinator.browserPanel
     }
 
     init(workspaceId: UUID, surface: TerminalSurface) {
@@ -105,7 +118,6 @@ final class TerminalPanel: Panel, ObservableObject {
             context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
-            portOrdinal: portOrdinal,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
@@ -113,6 +125,7 @@ final class TerminalPanel: Panel, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement
         )
+        surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)
     }
 
@@ -133,6 +146,41 @@ final class TerminalPanel: Panel, ObservableObject {
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
         surface.updateWorkspaceId(newWorkspaceId)
+        sidekickCoordinator.updateWorkspaceId(newWorkspaceId)
+    }
+
+    @discardableResult
+    func toggleSidekick() -> Bool {
+        sidekickCoordinator.toggleSidekick()
+    }
+
+    @discardableResult
+    func openSidekick(url: URL? = nil) -> Bool {
+        sidekickCoordinator.openSidekick(url: url)
+    }
+
+    func closeSidekick() {
+        sidekickCoordinator.closeSidekick()
+    }
+
+    func navigateSidekick(input: String) {
+        sidekickCoordinator.navigateSidekick(input: input)
+    }
+
+    func recordSidekickCurrentURL(_ url: URL?) {
+        sidekickCoordinator.recordSidekickCurrentURL(url)
+    }
+
+    func setSidekickSplitRatio(_ splitRatio: Double) {
+        sidekickCoordinator.setSidekickSplitRatio(splitRatio)
+    }
+
+    func restoreSidekick(_ snapshot: SessionTerminalSidekickSnapshot?) {
+        sidekickCoordinator.restoreSidekick(snapshot)
+    }
+
+    func sidekickSessionSnapshot() -> SessionTerminalSidekickSnapshot? {
+        sidekickCoordinator.sessionSnapshot()
     }
 
     func updateTmuxLayoutReport(_ report: TmuxPaneLayoutReport?) {
@@ -144,17 +192,15 @@ final class TerminalPanel: Panel, ObservableObject {
         // `unfocus()` force-disables active state to stop stale retries from stealing focus.
         // Re-enable it immediately for explicit focus requests (socket/UI) so ensureFocus can run.
         hostedView.setActive(true)
-        let focusWindow = surface.uiWindow
         guard AppDelegate.shared?.allowsTerminalKeyboardFocus(
             workspaceId: workspaceId,
             panelId: id,
-            in: focusWindow
+            in: hostedView.window
         ) != false else {
             surface.setFocus(false)
             return
         }
         surface.setFocus(true)
-        guard focusWindow != nil else { return }
         hostedView.ensureFocus(for: workspaceId, surfaceId: id)
     }
 
@@ -170,6 +216,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func close() {
+        sidekickCoordinator.closeBrowserPanel()
         // The surface will be cleaned up by its deinit
         // Detach from the window portal on real close so stale hosted views
         // cannot remain above browser panes after split close.
@@ -180,7 +227,7 @@ final class TerminalPanel: Panel, ObservableObject {
         cmuxDebugLog(
             "surface.panel.close.begin panel=\(id.uuidString.prefix(5)) " +
             "workspace=\(workspaceId.uuidString.prefix(5)) runtimeSurface=\(surface.surface != nil ? 1 : 0) " +
-            "inWindow=\(surface.isViewInWindow ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
+            "inWindow=\(hostedView.window != nil ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
             "hidden=\(hostedView.isHidden ? 1 : 0) frame=\(frame) bounds=\(bounds)"
         )
 #endif
@@ -190,7 +237,7 @@ final class TerminalPanel: Panel, ObservableObject {
 #if DEBUG
         cmuxDebugLog(
             "surface.panel.close.end panel=\(id.uuidString.prefix(5)) " +
-            "inWindow=\(surface.isViewInWindow ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
+            "inWindow=\(hostedView.window != nil ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
             "hidden=\(hostedView.isHidden ? 1 : 0)"
         )
 #endif

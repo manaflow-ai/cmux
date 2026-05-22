@@ -178,10 +178,7 @@ final class MainWindowFocusRedrawTests: XCTestCase {
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         window.contentView = contentView
-        defer {
-            window.orderOut(nil)
-            window.contentView = nil
-        }
+        defer { window.close() }
 
         contentView.layoutSubtreeIfNeeded()
         splitView.adjustSubviews()
@@ -499,8 +496,8 @@ final class FocusFlashPatternTests: XCTestCase {
         XCTAssertEqual(FocusFlashPattern.keyTimes, [0, 0.25, 0.5, 0.75, 1])
         XCTAssertEqual(FocusFlashPattern.duration, 0.9, accuracy: 0.0001)
         XCTAssertEqual(FocusFlashPattern.curves, [.easeOut, .easeIn, .easeOut, .easeIn])
-        XCTAssertEqual(FocusFlashPattern.ringInset, Double(PanelOverlayRingMetrics.inset), accuracy: 0.0001)
-        XCTAssertEqual(FocusFlashPattern.ringCornerRadius, Double(PanelOverlayRingMetrics.cornerRadius), accuracy: 0.0001)
+        XCTAssertEqual(FocusFlashPattern.ringInset, 6, accuracy: 0.0001)
+        XCTAssertEqual(FocusFlashPattern.ringCornerRadius, 10, accuracy: 0.0001)
     }
 
     func testFocusFlashPatternSegmentsCoverFullDoublePulseTimeline() {
@@ -2536,6 +2533,41 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 }
 
 
+private actor ControlledFilePreviewTextSaver {
+    private var capturedContent: String?
+    private var startContinuation: CheckedContinuation<String, Never>?
+    private var finishContinuation: CheckedContinuation<FilePreviewTextSaver.Result, Never>?
+
+    func save(
+        content: String,
+        to url: URL,
+        encoding: String.Encoding
+    ) async -> FilePreviewTextSaver.Result {
+        _ = url
+        _ = encoding
+        capturedContent = content
+        startContinuation?.resume(returning: content)
+        startContinuation = nil
+        return await withCheckedContinuation { continuation in
+            finishContinuation = continuation
+        }
+    }
+
+    func waitForSaveStart() async -> String {
+        if let capturedContent {
+            return capturedContent
+        }
+        return await withCheckedContinuation { continuation in
+            startContinuation = continuation
+        }
+    }
+
+    func finishSave(with result: FilePreviewTextSaver.Result = .saved) {
+        finishContinuation?.resume(returning: result)
+        finishContinuation = nil
+    }
+}
+
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
     func testNativePreviewSessionsDetachAndReuseViewsAcrossRecreation() throws {
@@ -2634,27 +2666,26 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        let saveProbe = ControlledFilePreviewTextSaver()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textSaver: { content, url, encoding in
+                await saveProbe.save(content: content, to: url, encoding: encoding)
+            }
+        )
         await panel.loadTextContent().value
         panel.updateTextContent("first save")
 
-        try FileManager.default.removeItem(at: url)
-        XCTAssertEqual(mkfifo(url.path, 0o600), 0)
-
         let firstSave = try XCTUnwrap(panel.saveTextContent())
         XCTAssertTrue(panel.isSaving)
+        let savedContent = await saveProbe.waitForSaveStart()
+        XCTAssertEqual(savedContent, "first save")
 
         panel.updateTextContent("second save")
         XCTAssertNil(panel.saveTextContent())
 
-        let pipeRead = Task.detached { () throws -> String in
-            let handle = try FileHandle(forReadingFrom: url)
-            defer { try? handle.close() }
-            return String(data: handle.availableData, encoding: .utf8) ?? ""
-        }
-
-        let savedContent = try await pipeRead.value
-        XCTAssertEqual(savedContent, "first save")
+        await saveProbe.finishSave()
         await firstSave.value
 
         XCTAssertEqual(panel.textContent, "second save")

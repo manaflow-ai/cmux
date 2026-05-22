@@ -2,14 +2,15 @@ import AppKit
 import Bonsplit
 import Foundation
 
-func browserOmnibarSelectionDeltaForControlNavigation(
+func browserOmnibarSelectionDeltaForCommandNavigation(
     hasFocusedAddressBar: Bool,
     flags: NSEvent.ModifierFlags,
     chars: String
 ) -> Int? {
     guard hasFocusedAddressBar else { return nil }
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    guard normalizedFlags == [.control] else { return nil }
+    let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
+    guard isCommandOrControlOnly else { return nil }
     if chars == "n" { return 1 }
     if chars == "p" { return -1 }
     return nil
@@ -46,7 +47,8 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
 }
 
 func browserOmnibarShouldContinueControlNavigationRepeat(flags: NSEvent.ModifierFlags) -> Bool {
-    browserOmnibarNormalizedModifierFlags(flags) == [.control]
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    return normalizedFlags == [.control] || normalizedFlags == [.command]
 }
 
 func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
@@ -117,31 +119,6 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
 
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     return normalizedFlags.isEmpty
-}
-
-struct BrowserAddressBarTrackingContext {
-    let trackedPanelMatchesWebView: Bool
-    let omnibarResponderActive: Bool
-    let preferredFocusIntentIsAddressBar: Bool
-    let suppressesWebViewFocus: Bool
-    let pointerInitiatedWebFocus: Bool
-    let liveOmnibarFieldExists: Bool
-}
-
-/// Decision order:
-/// 1. Reject WebView focus from another panel.
-/// 2. Preserve if an omnibar responder is already active.
-/// 3. Require address-bar focus intent.
-/// 4. Let pointer-initiated WebView focus clear tracking.
-/// 5. Preserve if WebView focus is suppressed or a live omnibar field exists.
-func shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-    _ context: BrowserAddressBarTrackingContext
-) -> Bool {
-    guard context.trackedPanelMatchesWebView else { return false }
-    if context.omnibarResponderActive { return true }
-    guard context.preferredFocusIntentIsAddressBar else { return false }
-    guard !context.pointerInitiatedWebFocus else { return false }
-    return context.suppressesWebViewFocus || context.liveOmnibarFieldExists
 }
 
 func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(

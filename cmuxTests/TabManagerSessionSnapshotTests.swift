@@ -1,3 +1,5 @@
+import CoreGraphics
+import Foundation
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -32,6 +34,197 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.selectedTabId, restored.tabs[1].id)
         XCTAssertEqual(restored.tabs[0].customTitle, "First")
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
+    }
+
+    func testTerminalSidekickStatePersistsAndRestoresWithTerminalSnapshot() throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let sidekickURL = try XCTUnwrap(URL(string: "data:text/html,Sidekick"))
+
+        XCTAssertTrue(terminalPanel.openSidekick(url: sidekickURL))
+        terminalPanel.setSidekickSplitRatio(0.45)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(
+            snapshot.workspaces.first?.panels.first { $0.id == terminalPanel.id }
+        )
+        let sidekickSnapshot = try XCTUnwrap(panelSnapshot.terminal?.sidekick)
+        XCTAssertEqual(sidekickSnapshot.urlString, sidekickURL.absoluteString)
+        XCTAssertTrue(sidekickSnapshot.isOpen)
+        XCTAssertEqual(sidekickSnapshot.splitRatio, 0.45, accuracy: 0.001)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredTerminal = try XCTUnwrap(restored.selectedWorkspace?.focusedTerminalPanel)
+        XCTAssertEqual(restoredTerminal.sidekickState.urlString, sidekickURL.absoluteString)
+        XCTAssertTrue(restoredTerminal.sidekickState.isOpen)
+        XCTAssertEqual(restoredTerminal.sidekickState.splitRatio, 0.45, accuracy: 0.001)
+        XCTAssertNotNil(restoredTerminal.sidekickBrowserPanel)
+    }
+
+    func testTerminalSidekickSplitRatioClampsWhenSetAndRestored() throws {
+        let manager = TabManager()
+        let terminalPanel = try XCTUnwrap(manager.selectedWorkspace?.focusedTerminalPanel)
+
+        terminalPanel.setSidekickSplitRatio(0.1)
+        XCTAssertEqual(terminalPanel.sidekickState.splitRatio, 0.25, accuracy: 0.001)
+
+        terminalPanel.restoreSidekick(
+            SessionTerminalSidekickSnapshot(
+                urlString: nil,
+                isOpen: false,
+                splitRatio: 0.9
+            )
+        )
+
+        XCTAssertEqual(terminalPanel.sidekickState.splitRatio, 0.7, accuracy: 0.001)
+    }
+
+    func testTerminalSidekickSnapshotSanitizesPersistedValues() throws {
+        let directSnapshot = SessionTerminalSidekickSnapshot(
+            urlString: "   ",
+            isOpen: true,
+            splitRatio: .nan
+        )
+
+        XCTAssertNil(directSnapshot.urlString)
+        XCTAssertEqual(directSnapshot.splitRatio, TerminalSidekickState.defaultSplitRatio, accuracy: 0.001)
+
+        let decoded = try JSONDecoder().decode(
+            SessionTerminalSidekickSnapshot.self,
+            from: Data(
+                #"{"urlString":" https://sidekick.example/restored ","isOpen":true,"splitRatio":9.0}"#
+                    .utf8
+            )
+        )
+
+        XCTAssertEqual(decoded.urlString, "https://sidekick.example/restored")
+        XCTAssertTrue(decoded.isOpen)
+        XCTAssertEqual(decoded.splitRatio, 0.7, accuracy: 0.001)
+    }
+
+    func testTerminalSidekickResizeRatioMatchesDisplayedMinimumSidekickWidth() throws {
+        let totalWidth: CGFloat = 1000
+        let ratio = try XCTUnwrap(
+            TerminalSidekickLayout.splitRatio(
+                totalWidth: totalWidth,
+                startRatio: 0.25,
+                translationWidth: 0
+            )
+        )
+
+        let renderedSidekickWidth = TerminalSidekickLayout.sidekickWidth(
+            totalWidth: totalWidth,
+            splitRatio: ratio
+        )
+        let availableWidth = totalWidth - TerminalSidekickLayout.dividerWidth
+
+        XCTAssertEqual(renderedSidekickWidth, 260, accuracy: 0.001)
+        XCTAssertEqual(ratio, Double(renderedSidekickWidth / availableWidth), accuracy: 0.001)
+    }
+
+    func testTerminalSidekickResizeRatioPreservesMinimumTerminalWidth() throws {
+        let totalWidth: CGFloat = 720
+        let ratio = try XCTUnwrap(
+            TerminalSidekickLayout.splitRatio(
+                totalWidth: totalWidth,
+                startRatio: 0.7,
+                translationWidth: -400
+            )
+        )
+
+        let renderedSidekickWidth = TerminalSidekickLayout.sidekickWidth(
+            totalWidth: totalWidth,
+            splitRatio: ratio
+        )
+        let renderedTerminalWidth = totalWidth - TerminalSidekickLayout.dividerWidth - renderedSidekickWidth
+
+        XCTAssertEqual(renderedTerminalWidth, 280, accuracy: 0.001)
+        XCTAssertEqual(
+            ratio,
+            Double(renderedSidekickWidth / (totalWidth - TerminalSidekickLayout.dividerWidth)),
+            accuracy: 0.001
+        )
+    }
+
+    func testTerminalSidekickRestoreStaysClosedWhenBrowserIsDisabled() throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(true)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let manager = TabManager()
+        let terminalPanel = try XCTUnwrap(manager.selectedWorkspace?.focusedTerminalPanel)
+
+        terminalPanel.restoreSidekick(
+            SessionTerminalSidekickSnapshot(
+                urlString: "https://sidekick.example/restored",
+                isOpen: true,
+                splitRatio: 0.4
+            )
+        )
+
+        XCTAssertFalse(terminalPanel.sidekickState.isOpen)
+        XCTAssertEqual(terminalPanel.sidekickState.urlString, "https://sidekick.example/restored")
+        XCTAssertNil(terminalPanel.sidekickBrowserPanel)
+    }
+
+    func testTerminalSidekickManualNavigationDoesNotPreloadStoredURL() throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let manager = TabManager()
+        let terminalPanel = try XCTUnwrap(manager.selectedWorkspace?.focusedTerminalPanel)
+
+        terminalPanel.restoreSidekick(
+            SessionTerminalSidekickSnapshot(
+                urlString: "https://sidekick.example/stale",
+                isOpen: false,
+                splitRatio: 0.4
+            )
+        )
+        terminalPanel.navigateSidekick(input: "https://sidekick.example/current")
+
+        let browserPanel = try XCTUnwrap(terminalPanel.sidekickBrowserPanel)
+        XCTAssertTrue(terminalPanel.sidekickState.isOpen)
+        XCTAssertEqual(browserPanel.currentURL?.absoluteString, "https://sidekick.example/current")
+    }
+
+    func testTerminalSidekickRestoreNavigatesExistingPanelToSnapshotURL() throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let manager = TabManager()
+        let terminalPanel = try XCTUnwrap(manager.selectedWorkspace?.focusedTerminalPanel)
+
+        terminalPanel.restoreSidekick(
+            SessionTerminalSidekickSnapshot(
+                urlString: "https://sidekick.example/first",
+                isOpen: true,
+                splitRatio: 0.4
+            )
+        )
+        let browserPanel = try XCTUnwrap(terminalPanel.sidekickBrowserPanel)
+        XCTAssertEqual(browserPanel.currentURL?.absoluteString, "https://sidekick.example/first")
+
+        terminalPanel.restoreSidekick(
+            SessionTerminalSidekickSnapshot(
+                urlString: "https://sidekick.example/second",
+                isOpen: true,
+                splitRatio: 0.4
+            )
+        )
+
+        let restoredBrowserPanel = try XCTUnwrap(terminalPanel.sidekickBrowserPanel)
+        XCTAssertTrue(browserPanel === restoredBrowserPanel)
+        XCTAssertEqual(restoredBrowserPanel.currentURL?.absoluteString, "https://sidekick.example/second")
     }
 
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {

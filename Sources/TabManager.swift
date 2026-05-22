@@ -2290,16 +2290,45 @@ class TabManager: ObservableObject {
         selectedWorkspace?.focusedTerminalPanel
     }
 
+    private var focusedTerminalSidekickBrowserPanel: BrowserPanel? {
+        guard let panel = selectedTerminalPanel,
+              panel.sidekickState.isOpen,
+              let sidekickPanel = panel.sidekickBrowserPanel else {
+            return nil
+        }
+        let window = sidekickPanel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let window,
+              let responder = window.firstResponder,
+              sidekickPanel.ownedFocusIntent(for: responder, in: window) != nil else {
+            return nil
+        }
+        return sidekickPanel
+    }
+
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
+        selectedTerminalPanel?.searchState != nil ||
+            focusedBrowserPanel?.searchState != nil ||
+            focusedTerminalSidekickBrowserPanel?.searchState != nil
     }
 
     var canUseSelectionForFind: Bool {
-        selectedTerminalPanel?.hasSelection() == true
+        guard focusedTerminalSidekickBrowserPanel == nil,
+              focusedBrowserPanel == nil else {
+            return false
+        }
+        return selectedTerminalPanel?.hasSelection() == true
     }
 
     @discardableResult
     func startSearch() -> Bool {
+        if let sidekickPanel = focusedTerminalSidekickBrowserPanel {
+            sidekickPanel.startFind()
+            return sidekickPanel.searchState != nil
+        }
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            return browserPanel.searchState != nil
+        }
         if let panel = selectedTerminalPanel {
             let hadExistingSearch = panel.searchState != nil
             panel.hostedView.preparePanelFocusIntentForActivation(.findField)
@@ -2316,18 +2345,18 @@ class TabManager: ObservableObject {
                 "find.startSearch workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
                 "panel=\(panel.id.uuidString.prefix(5)) existing=\(hadExistingSearch ? "yes" : "no") " +
                 "handled=\(handled ? 1 : 0) " +
-                "firstResponder=\(String(describing: panel.surface.uiWindow?.firstResponder))"
+                "firstResponder=\(String(describing: panel.surface.hostedView.window?.firstResponder))"
             )
 #endif
             return handled
         }
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        browserPanel.startFind()
-        return browserPanel.searchState != nil
+        return false
     }
 
     func searchSelection() {
-        guard let panel = selectedTerminalPanel else { return }
+        guard focusedTerminalSidekickBrowserPanel == nil,
+              focusedBrowserPanel == nil,
+              let panel = selectedTerminalPanel else { return }
         if panel.searchState == nil {
             panel.searchState = TerminalSurface.SearchState()
         }
@@ -2342,6 +2371,10 @@ class TabManager: ObservableObject {
     }
 
     func findNext() {
+        if let sidekickPanel = focusedTerminalSidekickBrowserPanel {
+            sidekickPanel.findNext()
+            return
+        }
         if let panel = selectedTerminalPanel {
             _ = panel.performBindingAction("search:next")
             return
@@ -2351,6 +2384,10 @@ class TabManager: ObservableObject {
     }
 
     func findPrevious() {
+        if let sidekickPanel = focusedTerminalSidekickBrowserPanel {
+            sidekickPanel.findPrevious()
+            return
+        }
         if let panel = selectedTerminalPanel {
             _ = panel.performBindingAction("search:previous")
             return
@@ -2366,6 +2403,10 @@ class TabManager: ObservableObject {
     }
 
     func hideFind() {
+        if let sidekickPanel = focusedTerminalSidekickBrowserPanel {
+            sidekickPanel.hideFind()
+            return
+        }
         if let panel = selectedTerminalPanel {
             panel.searchState = nil
             return
@@ -2456,7 +2497,6 @@ class TabManager: ObservableObject {
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
-        inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
@@ -2472,9 +2512,7 @@ class TabManager: ObservableObject {
         // entire creation path. Release ARC can otherwise drop retains early across the
         // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
-            let dir = inheritWorkingDirectory
-                ? implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
-                : nil
+            let dir = implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
             let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
@@ -7909,7 +7947,7 @@ class TabManager: ObservableObject {
             timeoutSeconds: timeoutSeconds
         ) { panel in
             panel.surface.requestBackgroundSurfaceStartIfNeeded()
-            attached = panel.surface.isViewInWindow
+            attached = panel.hostedView.window != nil
             hasSurface = panel.surface.surface != nil
             firstResponder = panel.hostedView.isSurfaceViewFirstResponder()
             return attached && hasSurface
@@ -8079,7 +8117,7 @@ class TabManager: ObservableObject {
                         }
                         if let terminal = panel as? TerminalPanel {
                             selectedTerminalCount += 1
-                            if terminal.surface.isViewInWindow {
+                            if terminal.hostedView.window != nil {
                                 selectedTerminalAttachedCount += 1
                             }
                             let size = terminal.hostedView.bounds.size
@@ -8547,7 +8585,7 @@ class TabManager: ObservableObject {
                     panelId: rightPanel.id,
                     timeoutSeconds: 2.0
                 ) { panel in
-                    panel.surface.isViewInWindow && panel.surface.surface != nil
+                    panel.hostedView.window != nil && panel.surface.surface != nil
                 }
                 // Use an explicit shell exit command for deterministic child-exit behavior across
                 // startup timing variance; this still exercises the same SHOW_CHILD_EXITED path.
@@ -8791,7 +8829,7 @@ class TabManager: ObservableObject {
                 }
                 self.ensureFocusedTerminalFirstResponder()
             } else if let exitPanel = tab.terminalPanel(for: exitPanelId) {
-                exitPanelAttachedBeforeCtrlD = exitPanel.surface.isViewInWindow
+                exitPanelAttachedBeforeCtrlD = exitPanel.hostedView.window != nil
                 exitPanelHasSurfaceBeforeCtrlD = exitPanel.surface.surface != nil
             }
 
@@ -8912,7 +8950,7 @@ class TabManager: ObservableObject {
                             panelId: exitPanelId,
                             timeoutSeconds: 5.0
                         ) { panel in
-                            attachedBeforeTrigger = panel.surface.isViewInWindow
+                            attachedBeforeTrigger = panel.hostedView.window != nil
                             hasSurfaceBeforeTrigger = panel.surface.surface != nil
                             return attachedBeforeTrigger && hasSurfaceBeforeTrigger
                         }
@@ -8922,7 +8960,7 @@ class TabManager: ObservableObject {
                             return
                         }
                     } else if let panel = tab.terminalPanel(for: exitPanelId) {
-                        attachedBeforeTrigger = panel.surface.isViewInWindow
+                        attachedBeforeTrigger = panel.hostedView.window != nil
                         hasSurfaceBeforeTrigger = panel.surface.surface != nil
                     }
                     write([
@@ -9344,8 +9382,4 @@ extension Notification.Name {
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
     static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
-}
-
-enum BrowserFirstResponderNotificationUserInfoKey {
-    static let pointerInitiated = "pointerInitiated"
 }

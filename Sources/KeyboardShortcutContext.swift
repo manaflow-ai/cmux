@@ -51,7 +51,7 @@ extension KeyboardShortcutSettings.Action {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace:
+        case .renameTab, .renameWorkspace, .toggleTerminalSidekick:
             return .nonBrowserPanel
         case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset:
@@ -169,6 +169,9 @@ extension AppDelegate {
                 if let panel = workspace.browserPanel(for: panelId) {
                     return panel
                 }
+                if let sidekickPanel = shortcutSidekickBrowserPanel(in: workspace, panelId: panelId) {
+                    return sidekickPanel
+                }
             }
         }
         return nil
@@ -184,7 +187,34 @@ extension AppDelegate {
                     }
                     return browserPanel
                 }
+                if let sidekickPanel = shortcutSidekickBrowserPanel(in: workspace, webView: webView) {
+                    return sidekickPanel
+                }
             }
+        }
+        return nil
+    }
+
+    private func shortcutSidekickBrowserPanel(in workspace: Workspace, panelId: UUID) -> BrowserPanel? {
+        for panel in workspace.panels.values {
+            guard let terminalPanel = panel as? TerminalPanel,
+                  let sidekickPanel = terminalPanel.sidekickBrowserPanel,
+                  sidekickPanel.id == panelId else {
+                continue
+            }
+            return sidekickPanel
+        }
+        return nil
+    }
+
+    private func shortcutSidekickBrowserPanel(in workspace: Workspace, webView: WKWebView) -> BrowserPanel? {
+        for panel in workspace.panels.values {
+            guard let terminalPanel = panel as? TerminalPanel,
+                  let sidekickPanel = terminalPanel.sidekickBrowserPanel,
+                  sidekickPanel.webView === webView else {
+                continue
+            }
+            return sidekickPanel
         }
         return nil
     }

@@ -17,6 +17,7 @@ extension AgentLaunchSanitizer {
             "--effort",
             "--fallback-model",
             "--file",
+            "--fork-session",
             "--from-pr",
             "--input-format",
             "--json-schema",
@@ -127,7 +128,8 @@ extension AgentLaunchSanitizer {
         ],
         variadicOptions: [
             "--image",
-            "-i"
+            "-i",
+            "--add-dir"
         ],
         nonRestorableCommands: [
             "exec",
@@ -144,7 +146,6 @@ extension AgentLaunchSanitizer {
             "debug",
             "apply",
             "a",
-            "fork",
             "cloud",
             "exec-server",
             "features",
@@ -162,7 +163,10 @@ extension AgentLaunchSanitizer {
             "--remote=",
             "--remote-auth-token-env="
         ],
-        resumeSubcommand: "resume"
+        resumeSubcommand: "resume",
+        sessionSubcommands: [
+            "fork"
+        ]
     )
 
     static let grokPolicy = Policy(

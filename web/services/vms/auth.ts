@@ -25,10 +25,7 @@ export type AuthedTeam = {
  *
  * Returns the resolved user or null if unauthenticated.
  */
-export async function verifyRequest(
-  request: Request,
-  options: { readonly requestedTeamId?: string | null } = {},
-): Promise<AuthedUser | null> {
+export async function verifyRequest(request: Request): Promise<AuthedUser | null> {
   if (!isStackConfigured()) {
     return null;
   }
@@ -45,7 +42,7 @@ export async function verifyRequest(
         tokenStore: { accessToken, refreshToken },
       });
       if (user) {
-        return await authedUserFromStackUser(user, options);
+        return await authedUserFromStackUser(user);
       }
     }
   }
@@ -53,21 +50,14 @@ export async function verifyRequest(
   // Fall back to the Next.js cookie flow (when browser hits the route).
   const user = await stackServerApp.getUser({ tokenStore: request as unknown as { headers: { get(name: string): string | null } } });
   if (user) {
-    return await authedUserFromStackUser(user, options);
+    return await authedUserFromStackUser(user);
   }
   return null;
 }
 
-async function authedUserFromStackUser(
-  user: StackUserLike,
-  options: { readonly requestedTeamId?: string | null },
-): Promise<AuthedUser> {
+async function authedUserFromStackUser(user: StackUserLike): Promise<AuthedUser> {
   const selectedTeam = teamLike(user.selectedTeam);
-  const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
-  // When the selected team is enough, entitlements resolve from it before any
-  // multi-team guard needs a full team list.
-  const needsListedTeams = !selectedTeam || (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
-  const listedTeams = needsListedTeams && typeof user.listTeams === "function"
+  const listedTeams = typeof user.listTeams === "function"
     ? (await user.listTeams()).map(teamLike).filter((team): team is TeamLike => !!team)
     : [];
   const teamIds = uniqueStrings([
@@ -140,11 +130,6 @@ function uniqueTeams(values: readonly (TeamLike | null | undefined)[]): readonly
     teams.push(team);
   }
   return teams;
-}
-
-function normalizedOptionalString(value: string | null | undefined): string | null {
-  const normalized = value?.trim();
-  return normalized ? normalized : null;
 }
 
 export function unauthorized(): Response {

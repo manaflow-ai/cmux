@@ -370,6 +370,7 @@ final class BrowserPaneDropTargetView: NSView {
     }
 
     private func focusBrowserPanelAfterSuccessfulFileDrop(context: BrowserPaneDropContext) {
+        guard context.allowsPanelFocusAfterFileDrop else { return }
         guard let workspace = AppDelegate.shared?.workspaceFor(tabId: context.workspaceId) else { return }
         FileDropTextDropController.focusPanelAfterSuccessfulTextDrop(
             workspace: workspace,

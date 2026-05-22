@@ -227,6 +227,46 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
     var isDirty: Bool
 }
 
+nonisolated struct SessionTerminalSidekickSnapshot: Codable, Equatable, Sendable {
+    var urlString: String?
+    var isOpen: Bool
+    var splitRatio: Double
+
+    init(
+        urlString: String? = nil,
+        isOpen: Bool,
+        splitRatio: Double = TerminalSidekickState.defaultSplitRatio
+    ) {
+        self.urlString = Self.sanitizedURLString(urlString)
+        self.isOpen = isOpen
+        self.splitRatio = Self.sanitizedSplitRatio(splitRatio)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            urlString: try container.decodeIfPresent(String.self, forKey: .urlString),
+            isOpen: try container.decodeIfPresent(Bool.self, forKey: .isOpen) ?? false,
+            splitRatio: try container.decodeIfPresent(Double.self, forKey: .splitRatio)
+                ?? TerminalSidekickState.defaultSplitRatio
+        )
+    }
+
+    private static func sanitizedURLString(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              URL(string: trimmed) != nil else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func sanitizedSplitRatio(_ value: Double) -> Double {
+        guard value.isFinite else { return TerminalSidekickState.defaultSplitRatio }
+        return TerminalSidekickState.clampedSplitRatio(value)
+    }
+}
+
 enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {
     case manual
     case prompt
@@ -1234,6 +1274,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
+    var sidekick: SessionTerminalSidekickSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
@@ -1244,6 +1285,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
+        sidekick: SessionTerminalSidekickSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         wasAgentRunning: Bool? = nil
     ) {
@@ -1251,6 +1293,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
+        self.sidekick = sidekick
         self.resumeBinding = resumeBinding
         self.wasAgentRunning = wasAgentRunning
     }

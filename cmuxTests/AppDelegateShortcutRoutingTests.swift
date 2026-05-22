@@ -941,8 +941,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let defaults = UserDefaults.standard
         let previousRightSidebarVisibility = defaults.object(forKey: "fileExplorer.isVisible")
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
         defer {
             restoreDefaultsValue(previousRightSidebarVisibility, forKey: "fileExplorer.isVisible", defaults: defaults)
+            BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled)
         }
 
         let windowId = UUID()
@@ -996,9 +999,44 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: leftSidebarEvent))
         XCTAssertFalse(sidebarState.isVisible, "Cmd+B should toggle the Welcome window left sidebar")
 
+        BrowserAvailabilitySettings.setDisabled(true)
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
         _ = waitForCondition { fileExplorerState.isVisible }
-        XCTAssertTrue(fileExplorerState.isVisible, "Cmd+Option+B should toggle the Welcome window right sidebar")
+        XCTAssertFalse(
+            tabManager.selectedWorkspace?.focusedTerminalPanel?.sidekickState.isOpen == true,
+            "Cmd+Option+B should not open a terminal sidekick when browser surfaces are disabled"
+        )
+        XCTAssertTrue(fileExplorerState.isVisible, "Cmd+Option+B should fall through to the right sidebar when browser surfaces are disabled")
+        fileExplorerState.setVisible(false)
+        BrowserAvailabilitySettings.setDisabled(false)
+
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
+        _ = waitForCondition {
+            tabManager.selectedWorkspace?.focusedTerminalPanel?.sidekickState.isOpen == true
+        }
+        XCTAssertTrue(
+            tabManager.selectedWorkspace?.focusedTerminalPanel?.sidekickState.isOpen == true,
+            "Cmd+Option+B should toggle the focused terminal sidekick before falling back to the right sidebar"
+        )
+        XCTAssertFalse(fileExplorerState.isVisible)
+
+        let previousTerminalPanel = tabManager.selectedWorkspace?.focusedTerminalPanel
+        let previousSidekickState = previousTerminalPanel?.sidekickState
+        if let workspace = tabManager.selectedWorkspace,
+           let paneId = workspace.bonsplitController.allPaneIds.first,
+           let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) {
+            workspace.focusPanel(browserPanel.id)
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
+            _ = waitForCondition { fileExplorerState.isVisible }
+            XCTAssertEqual(
+                previousTerminalPanel?.sidekickState,
+                previousSidekickState,
+                "Cmd+Option+B should not mutate the previous terminal sidekick when a browser panel is focused"
+            )
+            XCTAssertTrue(fileExplorerState.isVisible, "Cmd+Option+B should toggle the right sidebar outside focused terminals")
+        } else {
+            XCTFail("Expected to create a browser panel for right-sidebar shortcut routing")
+        }
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -1638,9 +1676,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         workspace.focusPanel(rightPanel.id)
         XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected Bonsplit selection to stay on the right pane")
-        leftPanel.hostedView.suppressReparentFocus()
+        leftPanel.hostedView.beginSuppressingReparentFocus()
         XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
-        leftPanel.hostedView.clearSuppressReparentFocus()
+        leftPanel.hostedView.endSuppressingReparentFocus()
         XCTAssertTrue(window.firstResponder === leftSurfaceView, "Expected left Ghostty surface to stay first responder")
         XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected selected pane to stay stale after first-responder change")
         XCTAssertEqual(leftSurfaceView.tabId, workspace.id, "Expected focused Ghostty view to keep its workspace ID")
@@ -3243,9 +3281,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "example"
         contentView.addSubview(field)
-        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
         defer {
-            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
@@ -3314,10 +3350,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "ㄉㄚˋ"
         contentView.addSubview(field)
-        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
 
         defer {
-            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
@@ -3393,10 +3427,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "example"
         contentView.addSubview(field)
-        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
         defer {
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: browserPanelId)
-            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
@@ -5099,6 +5131,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        guard let context = appDelegate.contextForMainTerminalWindow(window),
+              let workspace = context.tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.allPaneIds.first,
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected a browser panel for non-terminal shortcut routing")
+            return
+        }
+        workspace.focusPanel(browserPanel.id)
+
         let cases: [(action: KeyboardShortcutSettings.Action, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
             (
                 .toggleRightSidebar,
@@ -5118,15 +5163,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 "f",
                 3
             ),
-            (
-                .toggleUnread,
-                [.command, .option],
-                "u",
-                32
-            ),
         ]
 
         for testCase in cases {
+            workspace.focusPanel(browserPanel.id)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+
             var observedActions: [KeyboardShortcutSettings.Action] = []
             #if DEBUG
             KeyboardShortcutSettings.shortcutLookupObserver = { action in

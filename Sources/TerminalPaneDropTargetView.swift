@@ -294,7 +294,7 @@ final class PaneDropTargetView: NSView {
                 panelId: panelId,
                 hostedView: terminalPanel.hostedView,
                 urls: urls,
-                window: window ?? terminalPanel.surface.uiWindow
+                window: window ?? terminalPanel.hostedView.window
             )
         }
         if let filePreviewPanel = panel as? FilePreviewPanel {

@@ -115,128 +115,6 @@ private final class BrowserMarkedTextProbeTextView: NSTextView {
     }
 }
 
-final class BrowserAddressBarTrackingPolicyTests: XCTestCase {
-    func testNonPointerWebViewFocusPreservesTrackedAddressBarWithLiveOmnibarField() {
-        XCTAssertTrue(
-            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                BrowserAddressBarTrackingContext(
-                    trackedPanelMatchesWebView: true,
-                    omnibarResponderActive: false,
-                    preferredFocusIntentIsAddressBar: true,
-                    suppressesWebViewFocus: false,
-                    pointerInitiatedWebFocus: false,
-                    liveOmnibarFieldExists: true
-                )
-            )
-        )
-    }
-
-    func testPointerWebViewFocusCanClearTrackedAddressBar() {
-        XCTAssertFalse(
-            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                BrowserAddressBarTrackingContext(
-                    trackedPanelMatchesWebView: true,
-                    omnibarResponderActive: false,
-                    preferredFocusIntentIsAddressBar: true,
-                    suppressesWebViewFocus: true,
-                    pointerInitiatedWebFocus: true,
-                    liveOmnibarFieldExists: true
-                )
-            )
-        )
-    }
-
-    func testOtherPanelWebViewFocusDoesNotPreserveAddressBarTracking() {
-        XCTAssertFalse(
-            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                BrowserAddressBarTrackingContext(
-                    trackedPanelMatchesWebView: false,
-                    omnibarResponderActive: true,
-                    preferredFocusIntentIsAddressBar: true,
-                    suppressesWebViewFocus: true,
-                    pointerInitiatedWebFocus: false,
-                    liveOmnibarFieldExists: true
-                )
-            )
-        )
-    }
-}
-
-final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
-    @MainActor
-    func testSpecificWindowLookupDoesNotReturnFieldFromAnotherWindow() {
-        let panelId = UUID()
-        let registry = BrowserOmnibarNativeFieldRegistry.shared
-        let firstWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        let secondWindow = NSWindow(
-            contentRect: NSRect(x: 20, y: 20, width: 320, height: 200),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        let firstContainer = NSView(frame: firstWindow.contentRect(forFrameRect: firstWindow.frame))
-        let secondContainer = NSView(frame: secondWindow.contentRect(forFrameRect: secondWindow.frame))
-        firstWindow.contentView = firstContainer
-        secondWindow.contentView = secondContainer
-
-        let field = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
-        field.panelId = panelId
-        firstContainer.addSubview(field)
-        registry.register(field, panelId: panelId)
-
-        defer {
-            registry.unregister(field, panelId: panelId)
-            field.removeFromSuperview()
-            firstWindow.contentView = nil
-            secondWindow.contentView = nil
-            firstWindow.orderOut(nil)
-            secondWindow.orderOut(nil)
-        }
-
-        XCTAssertTrue(registry.field(for: panelId, in: firstWindow) === field)
-        XCTAssertNil(registry.field(for: panelId, in: secondWindow))
-    }
-
-    @MainActor
-    func testNilWindowLookupPrefersAttachedFieldBeforeDetachedField() {
-        let panelId = UUID()
-        let registry = BrowserOmnibarNativeFieldRegistry.shared
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
-        window.contentView = container
-
-        let attachedField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
-        attachedField.panelId = panelId
-        container.addSubview(attachedField)
-
-        let detachedField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
-        detachedField.panelId = panelId
-
-        registry.register(attachedField, panelId: panelId)
-        registry.register(detachedField, panelId: panelId)
-
-        defer {
-            registry.unregister(attachedField, panelId: panelId)
-            registry.unregister(detachedField, panelId: panelId)
-            attachedField.removeFromSuperview()
-            window.contentView = nil
-            window.orderOut(nil)
-        }
-
-        XCTAssertTrue(registry.field(for: panelId) === attachedField)
-    }
-}
-
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     private final class ActionSpy: NSObject {
         private(set) var invoked: Bool = false
@@ -3725,6 +3603,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            usesProvidedPaneContext: false,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
             shouldFocusWebView: false,
@@ -3768,6 +3647,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            usesProvidedPaneContext: false,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
             shouldFocusWebView: false,
@@ -3879,6 +3759,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            usesProvidedPaneContext: false,
             shouldAttachWebView: false,
             useLocalInlineHosting: true,
             shouldFocusWebView: false,
@@ -3973,6 +3854,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            usesProvidedPaneContext: false,
             shouldAttachWebView: false,
             useLocalInlineHosting: true,
             shouldFocusWebView: false,
@@ -4068,7 +3950,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 }
 
 
-final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
+final class BrowserOmnibarCommandOrControlNavigationTests: XCTestCase {
     func testArrowNavigationDeltaRequiresFocusedAddressBarAndNoModifierFlags() {
         XCTAssertNil(
             browserOmnibarSelectionDeltaForArrowNavigation(
@@ -4121,41 +4003,59 @@ final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
         )
     }
 
-    func testControlNavigationDeltaRequiresFocusedAddressBarAndControlOnly() {
+    func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOrControlOnly() {
         XCTAssertNil(
-            browserOmnibarSelectionDeltaForControlNavigation(
+            browserOmnibarSelectionDeltaForCommandNavigation(
                 hasFocusedAddressBar: false,
-                flags: [.control],
-                chars: "n"
-            )
-        )
-
-        XCTAssertNil(
-            browserOmnibarSelectionDeltaForControlNavigation(
-                hasFocusedAddressBar: true,
                 flags: [.command],
                 chars: "n"
             )
         )
 
-        XCTAssertNil(
-            browserOmnibarSelectionDeltaForControlNavigation(
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command],
+                chars: "n"
+            ),
+            1
+        )
+
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command],
                 chars: "p"
-            )
+            ),
+            -1
         )
 
         XCTAssertNil(
-            browserOmnibarSelectionDeltaForControlNavigation(
+            browserOmnibarSelectionDeltaForCommandNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command, .shift],
                 chars: "n"
             )
         )
 
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command, .control],
+                chars: "n"
+            )
+        )
+
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command, .control],
+                chars: "p"
+            )
+        )
+
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForControlNavigation(
+            browserOmnibarSelectionDeltaForCommandNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control],
                 chars: "p"
@@ -4164,7 +4064,7 @@ final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForControlNavigation(
+            browserOmnibarSelectionDeltaForCommandNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control],
                 chars: "n"
@@ -4173,21 +4073,22 @@ final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
         )
     }
 
-    func testControlNavigationDeltaIgnoresCapsLockModifier() {
+    func testCommandNavigationDeltaIgnoresCapsLockModifier() {
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForControlNavigation(
+            browserOmnibarSelectionDeltaForCommandNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control, .capsLock],
                 chars: "n"
             ),
             1
         )
-        XCTAssertNil(
-            browserOmnibarSelectionDeltaForControlNavigation(
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command, .capsLock],
                 chars: "p"
-            )
+            ),
+            -1
         )
     }
 
@@ -4236,9 +4137,11 @@ final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
         )
     }
 
-    func testControlNavigationRepeatLifecycleRequiresControlOnly() {
+    func testCommandNavigationRepeatLifecycleRequiresCommandOrControlOnly() {
         XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control]))
         XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .capsLock]))
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.command]))
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.command, .capsLock]))
         XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .command]))
         XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .option]))
         XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .shift]))
@@ -4946,33 +4849,6 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(blob))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
-    }
-
-    func testCustomAppSchemesRouteExternallyFromSubframes() throws {
-        let vscode = try XCTUnwrap(URL(string: "vscode://file/Users/example/project/README.md"))
-
-        XCTAssertTrue(browserShouldRouteExternalNavigation(vscode))
-        XCTAssertEqual(browserExternalNavigationAction(for: vscode), .promptToOpenApp(vscode))
-    }
-
-    func testEmbeddedSubframeNavigationStaysInWebView() throws {
-        let https = try XCTUnwrap(URL(string: "https://example.com/iframe"))
-
-        XCTAssertFalse(browserShouldRouteExternalNavigation(https))
-    }
-
-    func testIntentBrowserFallbackURLExtraction() throws {
-        let intent = try XCTUnwrap(URL(string: "intent://join/abc#Intent;scheme=zoommtg;package=us.zoom.videomeetings;S.browser_fallback_url=https%3A%2F%2Fzoom.us%2Fjoin%2Fabc;end"))
-        let fallback = try XCTUnwrap(URL(string: "https://zoom.us/join/abc"))
-
-        XCTAssertEqual(browserIntentFallbackURL(for: intent), fallback)
-        XCTAssertEqual(browserExternalNavigationAction(for: intent), .browserFallback(fallback))
-    }
-
-    func testIntentBrowserFallbackURLRejectsExternalSchemes() throws {
-        let intent = try XCTUnwrap(URL(string: "intent://open#Intent;S.browser_fallback_url=slack%3A%2F%2Fopen;end"))
-
-        XCTAssertNil(browserIntentFallbackURL(for: intent))
     }
 }
 

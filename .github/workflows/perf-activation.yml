@@ -77,16 +77,12 @@ jobs:
         run: |
           ./scripts/install-zig-ci.sh
 
-      - name: Install Rust
-        run: |
-          ./scripts/install-rust-ci.sh
-
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-
+          key: spm-activation-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-activation-
 
       - name: Resolve Swift packages
         run: |

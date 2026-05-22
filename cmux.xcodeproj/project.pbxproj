@@ -150,7 +150,6 @@
 		62270F3DCECB4787D789CCE3 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */; };
 		C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */; };
 		C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */; };
-		C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */; };
 		C0DEF4110000000000000001 /* CommandPaletteSettingsToggle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF4110000000000000002 /* CommandPaletteSettingsToggle.swift */; };
 		D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */; };
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
@@ -166,9 +165,6 @@
 		A5001800A1B2C3D4E5F60718 /* WindowBackdropController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001801A1B2C3D4E5F60718 /* WindowBackdropController.swift */; };
 		F57072635F25EBCA741E125D /* SidebarState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */; };
 		A8CBA43C2DA5AB9E3A1E65A4 /* CommandPaletteSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A09EB2E92203B2E95923A7 /* CommandPaletteSearch.swift */; };
-		C0DEFF100000000000000001 /* CommandPaletteNucleoSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFF100000000000000002 /* CommandPaletteNucleoSearch.swift */; };
-		C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFF200000000000000002 /* CommandPaletteOverlay.swift */; };
-		C0DEFF300000000000000001 /* CommandPaletteSearchOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFF300000000000000002 /* CommandPaletteSearchOrchestrator.swift */; };
 		B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */; };
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
 		0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */; };
@@ -266,6 +262,7 @@
 		F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
 		A5001401 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001411 /* TerminalPanel.swift */; };
+		C3866A000000000000000001 /* TerminalSidekickCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3866A000000000000000002 /* TerminalSidekickCoordinator.swift */; };
 		B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */; };
 		B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */; };
 		A5001402 /* BrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001412 /* BrowserPanel.swift */; };
@@ -274,7 +271,6 @@
 		D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
 		A5001404 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001414 /* BrowserPanelView.swift */; };
-		B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */; };
 		B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
@@ -342,12 +338,11 @@
 		B35751000000000000000002 /* TmuxResumeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35751000000000000000001 /* TmuxResumeParser.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
 		C3873001C3873001C3873001 /* GhosttyCrashBreadcrumb.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3873002C3873002C3873002 /* GhosttyCrashBreadcrumb.swift */; };
-		C3873003C3873003C3873003 /* GhosttyCrashReportMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */; };
 		A5001623 /* cmux.sdef in Resources */ = {isa = PBXBuildFile; fileRef = A5001622 /* cmux.sdef */; };
 		A5001640 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		A5001660 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
-		C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C10000000000000002 /* AgentForkSupport.swift */; };
-		C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C20000000000000002 /* SemanticVersion.swift */; };
+		A5001662 /* AgentForkSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001663 /* AgentForkSupport.swift */; };
+		A5001664 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001665 /* SemanticVersion.swift */; };
 		A5001650 /* CmuxConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001651 /* CmuxConfig.swift */; };
 		C10D00030000000000000003 /* CmuxSurfaceTabBarBuiltInAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */; };
 		E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */; };
@@ -360,9 +355,6 @@
 		A5008373 /* BrowserFindJavaScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindJavaScript.swift */; };
 		A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
 		A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
-		C0DEC0DE000000000000F102 /* CommandPaletteNucleoFFITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */; };
-		C0DEC0DE000000000000F202 /* CommandPaletteNucleoFFILibrarySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */; };
-		C0DEC0DE000000000000F204 /* CommandPaletteNucleoFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
 		A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */; };
 		A5F10013A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */; };
@@ -681,7 +673,6 @@
 		C0DE35010000000000000002 /* SidebarScrim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarScrim.swift; sourceTree = "<group>"; };
 		C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+RightSidebarCommandPalette.swift"; sourceTree = "<group>"; };
 		C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ViewCommandPalette.swift"; sourceTree = "<group>"; };
-		C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ForkAgentConversation.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		D7AB34300000000000000002 /* SidebarDropPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarDropPlanner.swift; sourceTree = "<group>"; };
 		D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabWorkspaceDropOverlay.swift; sourceTree = "<group>"; };
@@ -700,9 +691,6 @@
 		A5001801A1B2C3D4E5F60718 /* WindowBackdropController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowBackdropController.swift; sourceTree = "<group>"; };
 		D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarState.swift; sourceTree = "<group>"; };
 		38A09EB2E92203B2E95923A7 /* CommandPaletteSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteSearch.swift; sourceTree = "<group>"; };
-		C0DEFF100000000000000002 /* CommandPaletteNucleoSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteNucleoSearch.swift; sourceTree = "<group>"; };
-		C0DEFF200000000000000002 /* CommandPaletteOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteOverlay.swift; sourceTree = "<group>"; };
-		C0DEFF300000000000000002 /* CommandPaletteSearchOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteSearchOrchestrator.swift; sourceTree = "<group>"; };
 		C0DEF4110000000000000002 /* CommandPaletteSettingsToggle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteSettingsToggle.swift; sourceTree = "<group>"; };
 		9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GhosttySurfaceConfigurationRefresh.swift; sourceTree = "<group>"; };
 		6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalDirectoryOpenSupport.swift; sourceTree = "<group>"; };
@@ -776,7 +764,6 @@
 		C7A505000000000000000001 /* TerminalControllerTopSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerTopSupport.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		C3873002C3873002C3873002 /* GhosttyCrashBreadcrumb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCrashBreadcrumb.swift; sourceTree = "<group>"; };
-		C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCrashReportMetadata.swift; sourceTree = "<group>"; };
 		C3677002000000000000002 /* CmuxSSHURLRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSSHURLRequest.swift; sourceTree = "<group>"; };
 		C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CmuxSSHURL.swift"; sourceTree = "<group>"; };
 		E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+EqualizeSplitsShortcut.swift"; sourceTree = "<group>"; };
@@ -832,6 +819,7 @@
 		F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/FindTextFieldSupport.swift; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
 		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanel.swift; sourceTree = "<group>"; };
+		C3866A000000000000000002 /* TerminalSidekickCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalSidekickCoordinator.swift; sourceTree = "<group>"; };
 		B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardPolicy.swift; sourceTree = "<group>"; };
 		B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardManager.swift; sourceTree = "<group>"; };
 		A5001412 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanel.swift; sourceTree = "<group>"; };
@@ -842,7 +830,6 @@
 		D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		A5001414 /* BrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelView.swift; sourceTree = "<group>"; };
-		B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarAppKitBridge.swift; sourceTree = "<group>"; };
 		B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarPerformanceSupport.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
@@ -903,8 +890,8 @@
 		A5001641 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
 		D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxApplicationSupportDirectories.swift; sourceTree = "<group>"; };
 		A5001661 /* RestorableAgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSession.swift; sourceTree = "<group>"; };
-		C0DEF0C10000000000000002 /* AgentForkSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkSupport.swift; sourceTree = "<group>"; };
-		C0DEF0C20000000000000002 /* SemanticVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
+		A5001663 /* AgentForkSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkSupport.swift; sourceTree = "<group>"; };
+		A5001665 /* SemanticVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		A5001651 /* CmuxConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfig.swift; sourceTree = "<group>"; };
 		C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSurfaceTabBarBuiltInAction.swift; sourceTree = "<group>"; };
 		E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWorkspaceDefinition.swift; sourceTree = "<group>"; };
@@ -917,9 +904,6 @@
 		A5008372 /* BrowserFindJavaScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindJavaScript.swift; sourceTree = "<group>"; };
 		A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
 		A5008382 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
-		C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFFITests.swift; sourceTree = "<group>"; };
-		C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFFILibrarySupport.swift; sourceTree = "<group>"; };
-		C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFixtures.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
 		A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStore.swift; sourceTree = "<group>"; };
 		A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettingsFileStore+Template.swift"; sourceTree = "<group>"; };
@@ -1246,7 +1230,6 @@
 				D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */,
 				C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */,
 				C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */,
-				C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */,
 				D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */,
 				D7AB34300000000000000002 /* SidebarDropPlanner.swift */,
 				D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */,
@@ -1263,9 +1246,6 @@
 				A5001801A1B2C3D4E5F60718 /* WindowBackdropController.swift */,
 				D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */,
 				38A09EB2E92203B2E95923A7 /* CommandPaletteSearch.swift */,
-				C0DEFF100000000000000002 /* CommandPaletteNucleoSearch.swift */,
-				C0DEFF200000000000000002 /* CommandPaletteOverlay.swift */,
-				C0DEFF300000000000000002 /* CommandPaletteSearchOrchestrator.swift */,
 				C0DEF4110000000000000002 /* CommandPaletteSettingsToggle.swift */,
 				9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */,
 				6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */,
@@ -1372,7 +1352,6 @@
 				A5001090 /* AppDelegate.swift */,
 				3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */,
 				C3873002C3873002C3873002 /* GhosttyCrashBreadcrumb.swift */,
-				C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */,
 				C3677002000000000000002 /* CmuxSSHURLRequest.swift */,
 				C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */,
 				E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */,
@@ -1397,6 +1376,7 @@
 				3865B0033865B0033865B003 /* MenubarSearchPopover.swift */,
 				A5001410 /* Panel.swift */,
 				A5001411 /* TerminalPanel.swift */,
+				C3866A000000000000000002 /* TerminalSidekickCoordinator.swift */,
 				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				A5001412 /* BrowserPanel.swift */,
@@ -1408,7 +1388,6 @@
 				A500RG00 /* ReactGrab.swift */,
 				A5001413 /* TerminalPanelView.swift */,
 				A5001414 /* BrowserPanelView.swift */,
-				B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */,
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5007423 /* BrowserWebAuthnSupport.swift */,
@@ -1459,8 +1438,8 @@
 				A5001671 /* SessionRestoredTerminalCommandStore.swift */,
 				B35751000000000000000001 /* TmuxResumeParser.swift */,
 				A5001661 /* RestorableAgentSession.swift */,
-				C0DEF0C10000000000000002 /* AgentForkSupport.swift */,
-				C0DEF0C20000000000000002 /* SemanticVersion.swift */,
+				A5001663 /* AgentForkSupport.swift */,
+				A5001665 /* SemanticVersion.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */,
 				A5001651 /* CmuxConfig.swift */,
@@ -1587,9 +1566,6 @@
 					A5008380 /* BrowserFindJavaScriptTests.swift */,
 					C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */,
 					A5008382 /* CommandPaletteSearchEngineTests.swift */,
-					C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */,
-					C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */,
-					C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */,
 				A50019B3 /* SettingsSearchIndexTests.swift */,
 				D36090010000000000000004 /* SettingsWindowPresenterTests.swift */,
 				970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */,
@@ -1689,7 +1665,6 @@
 				D1320AA0D1320AA0D1320AA6 /* Copy Dock Tile Plugin */,
 				A5001020 /* Embed Frameworks */,
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
-				C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */,
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
 			);
 			buildRules = (
@@ -1938,29 +1913,6 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nGHOSTTY_DEST=\"${DEST}/ghostty\"\nTERMINFO_DEST=\"${DEST}/terminfo\"\nCMUX_SHELL_DEST=\"${DEST}/shell-integration\"\nBIN_DEST=\"${DEST}/bin\"\nSRC_SHARE=\"${SRCROOT}/ghostty/zig-out/share\"\nGHOSTTY_SRC=\"${SRC_SHARE}/ghostty\"\nTERMINFO_SRC=\"${SRC_SHARE}/terminfo\"\nFALLBACK_GHOSTTY=\"${SRCROOT}/Resources/ghostty\"\nFALLBACK_TERMINFO=\"${SRCROOT}/Resources/ghostty/terminfo\"\nTERMINFO_OVERLAY=\"${SRCROOT}/Resources/terminfo-overlay\"\nCMUX_SHELL_SRC=\"${SRCROOT}/Resources/shell-integration\"\nCMUX_GHOSTTY_ZSH_SRC=\"${SRCROOT}/ghostty/src/shell-integration/zsh/ghostty-integration\"\nBUILD_GHOSTTY_HELPER=\"${SRCROOT}/scripts/build-ghostty-cli-helper.sh\"\nGHOSTTY_HELPER_DEST=\"${BIN_DEST}/ghostty\"\nif [ -d \"$GHOSTTY_SRC\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$GHOSTTY_SRC/\" \"$GHOSTTY_DEST/\"\nelif [ -d \"$FALLBACK_GHOSTTY\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$FALLBACK_GHOSTTY/\" \"$GHOSTTY_DEST/\"\nfi\nif [ -d \"$TERMINFO_SRC\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$TERMINFO_SRC/\" \"$TERMINFO_DEST/\"\nelif [ -d \"$FALLBACK_TERMINFO\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$FALLBACK_TERMINFO/\" \"$TERMINFO_DEST/\"\nfi\n# Overlay any cmux-specific terminfo adjustments.\n# This intentionally does not use --delete so we only patch specific entries.\nif [ -d \"$TERMINFO_OVERLAY\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a \"$TERMINFO_OVERLAY/\" \"$TERMINFO_DEST/\"\nfi\nif [ -d \"$CMUX_SHELL_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  # Use '/.' so dotfiles like .zshenv/.zprofile are copied too.\n  rsync -a \"$CMUX_SHELL_SRC/.\" \"$CMUX_SHELL_DEST/\"\nfi\nif [ -f \"$CMUX_GHOSTTY_ZSH_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  rsync -a \"$CMUX_GHOSTTY_ZSH_SRC\" \"$CMUX_SHELL_DEST/ghostty-integration.zsh\"\nfi\nif [ ! -x \"$BUILD_GHOSTTY_HELPER\" ]; then\n  echo \"error: missing Ghostty CLI helper build script at $BUILD_GHOSTTY_HELPER\" >&2\n  exit 1\nfi\nARCHS_LIST=\" ${ARCHS:-} \"\nHAS_ARM64=0\nHAS_X86_64=0\nGHOSTTY_HELPER_TARGET=\"\"\ncase \"$ARCHS_LIST\" in\n  *\" arm64 \"*) HAS_ARM64=1 ;;\nesac\ncase \"$ARCHS_LIST\" in\n  *\" x86_64 \"*) HAS_X86_64=1 ;;\nesac\nif [ \"$HAS_ARM64\" -eq 1 ] && [ \"$HAS_X86_64\" -eq 1 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --universal --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"aarch64-macos\"\nelif [ \"$HAS_X86_64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"x86_64-macos\"\nfi\nif [ -n \"$GHOSTTY_HELPER_TARGET\" ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --target \"$GHOSTTY_HELPER_TARGET\" --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 0 ] || [ \"$HAS_X86_64\" -eq 0 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --output \"$GHOSTTY_HELPER_DEST\"\nfi\nif [ ! -x \"$GHOSTTY_HELPER_DEST\" ]; then\n  echo \"error: Ghostty CLI helper was not created at $GHOSTTY_HELPER_DEST\" >&2\n  exit 1\nfi\nINFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nCOMMIT=\"$(git -C \"${SRCROOT}\" rev-parse --short=9 HEAD 2>/dev/null || true)\"\nif [ -n \"$COMMIT\" ] && [ -f \"$INFO_PLIST\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CMUXCommit $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c \"Add :CMUXCommit string $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || true\nfi\n";
 		};
-		C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/Native/CommandPaletteNucleoFFI/Cargo.toml",
-				"$(SRCROOT)/Native/CommandPaletteNucleoFFI/Cargo.lock",
-				"$(SRCROOT)/Native/CommandPaletteNucleoFFI/src/lib.rs",
-				"$(SRCROOT)/scripts/build-command-palette-nucleo-ffi.sh",
-			);
-			name = "Build Command Palette Nucleo FFI";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libcmux_command_palette_nucleo_ffi.dylib",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${SRCROOT}/scripts/build-command-palette-nucleo-ffi.sh\"\n";
-		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -1991,7 +1943,6 @@
 				C0DE35010000000000000001 /* SidebarScrim.swift in Sources */,
 				C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */,
 				C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */,
-				C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */,
 				D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */,
 				D7AB34300000000000000001 /* SidebarDropPlanner.swift in Sources */,
 				D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */,
@@ -2008,9 +1959,6 @@
 				A5001800A1B2C3D4E5F60718 /* WindowBackdropController.swift in Sources */,
 				F57072635F25EBCA741E125D /* SidebarState.swift in Sources */,
 				A8CBA43C2DA5AB9E3A1E65A4 /* CommandPaletteSearch.swift in Sources */,
-				C0DEFF100000000000000001 /* CommandPaletteNucleoSearch.swift in Sources */,
-				C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */,
-				C0DEFF300000000000000001 /* CommandPaletteSearchOrchestrator.swift in Sources */,
 				C0DEF4110000000000000001 /* CommandPaletteSettingsToggle.swift in Sources */,
 				B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */,
 				0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */,
@@ -2118,7 +2066,6 @@
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				F4350A110000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */,
 				C3873001C3873001C3873001 /* GhosttyCrashBreadcrumb.swift in Sources */,
-				C3873003C3873003C3873003 /* GhosttyCrashReportMetadata.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
 				C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */,
 				C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */,
@@ -2146,6 +2093,7 @@
 				3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */,
 				A5001400 /* Panel.swift in Sources */,
 				A5001401 /* TerminalPanel.swift in Sources */,
+				C3866A000000000000000001 /* TerminalSidekickCoordinator.swift in Sources */,
 				B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */,
 				B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */,
 				A5001402 /* BrowserPanel.swift in Sources */,
@@ -2157,7 +2105,6 @@
 				A500RG01 /* ReactGrab.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,
-				B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */,
 				B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */,
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
 					A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
@@ -2208,8 +2155,8 @@
 				A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */,
 				B35751000000000000000002 /* TmuxResumeParser.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
-				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
-				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,
+				A5001662 /* AgentForkSupport.swift in Sources */,
+				A5001664 /* SemanticVersion.swift in Sources */,
 				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
 				A5001650 /* CmuxConfig.swift in Sources */,
 				C10D00030000000000000003 /* CmuxSurfaceTabBarBuiltInAction.swift in Sources */,
@@ -2376,9 +2323,6 @@
 				FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */,
 				A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
 				A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */,
-				C0DEC0DE000000000000F102 /* CommandPaletteNucleoFFITests.swift in Sources */,
-				C0DEC0DE000000000000F202 /* CommandPaletteNucleoFFILibrarySupport.swift in Sources */,
-				C0DEC0DE000000000000F204 /* CommandPaletteNucleoFixtures.swift in Sources */,
 				A50019B2 /* SettingsSearchIndexTests.swift in Sources */,
 				D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */,
 				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,

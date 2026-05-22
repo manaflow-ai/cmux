@@ -474,6 +474,91 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Stops Codex variadic add-dir before resume subcommand")
+    func stopsCodexVariadicAddDirBeforeResumeSubcommand() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--add-dir",
+                    "/tmp/shared",
+                    "resume",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--add-dir",
+                "/tmp/shared",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
+    @Test("Preserves Codex variadic add-dir literal resume value")
+    func preservesCodexVariadicAddDirLiteralResumeValue() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--add-dir",
+                    "resume",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--add-dir",
+                "resume",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
+    @Test("Stops Codex variadic add-dir before fork session subcommand")
+    func stopsCodexVariadicAddDirBeforeForkSessionSubcommand() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--add-dir",
+                    "/tmp/shared",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--add-dir",
+                "/tmp/shared",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
     @Test("Drops Pi session selectors and prompt while preserving configuration")
     func dropsPiSessionSelectorsAndPrompt() {
         #expect(

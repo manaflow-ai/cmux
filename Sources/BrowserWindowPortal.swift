@@ -1334,6 +1334,19 @@ struct BrowserPaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID
     let paneId: PaneID
+    let allowsPanelFocusAfterFileDrop: Bool
+
+    init(
+        workspaceId: UUID,
+        panelId: UUID,
+        paneId: PaneID,
+        allowsPanelFocusAfterFileDrop: Bool = true
+    ) {
+        self.workspaceId = workspaceId
+        self.panelId = panelId
+        self.paneId = paneId
+        self.allowsPanelFocusAfterFileDrop = allowsPanelFocusAfterFileDrop
+    }
 }
 
 struct BrowserPaneDragTransfer: Equatable {
@@ -3557,6 +3570,7 @@ final class WindowBrowserPortal: NSObject {
                 scheduleDeferredFullSynchronizeAll()
             }
             containerView.setPaneTopChromeHeight(0)
+            containerView.setOmnibarSuggestions(nil)
             return
         }
         let oldFrame = containerView.frame
