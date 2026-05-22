@@ -7704,7 +7704,7 @@ final class WorkspaceDockLayout: ObservableObject {
     ) -> Set<WorkspaceDockEdge> {
         guard let dockConfiguration else { return [] }
         return Set(WorkspaceDockEdge.allCases.filter { edge in
-            dockConfiguration.definitions(for: edge).contains { $0.open == true }
+            dockConfiguration.definitions(for: edge).contains { $0.open != false }
         })
     }
 
@@ -11413,6 +11413,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func openOrFocusMarkdownSurface(
         inPane paneId: PaneID,
+        controller targetController: BonsplitController? = nil,
         filePath: String,
         focus: Bool = true
     ) -> MarkdownPanel? {
@@ -11427,7 +11428,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return newMarkdownSurface(inPane: paneId, controller: targetController, filePath: filePath, focus: focus)
     }
 
     @discardableResult
@@ -11476,6 +11477,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func openOrFocusFilePreviewSurface(
         inPane paneId: PaneID,
+        controller targetController: BonsplitController? = nil,
         filePath: String,
         focus: Bool = true
     ) -> FilePreviewPanel? {
@@ -11490,7 +11492,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return newFilePreviewSurface(inPane: paneId, controller: targetController, filePath: filePath, focus: focus)
     }
 
     @discardableResult

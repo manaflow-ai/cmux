@@ -3596,7 +3596,7 @@ class TerminalController {
         ]
     }
 
-    private func v2PaneEntries(in workspace: Workspace) -> [(controller: BonsplitController, paneId: PaneID, index: Int)] {
+    func v2PaneEntries(in workspace: Workspace) -> [(controller: BonsplitController, paneId: PaneID, index: Int)] {
         var entries: [(controller: BonsplitController, paneId: PaneID, index: Int)] = []
         for controller in workspace.allBonsplitControllers {
             for paneId in controller.allPaneIds {
@@ -3606,7 +3606,7 @@ class TerminalController {
         return entries
     }
 
-    private func v2ResolvePane(
+    func v2ResolvePane(
         in workspace: Workspace,
         paneUUID: UUID?
     ) -> (controller: BonsplitController, paneId: PaneID)? {
@@ -6447,6 +6447,7 @@ class TerminalController {
                 // Roll back to source workspace if attach fails.
                 let rollbackPane = sourcePane.flatMap { sp in sourceWorkspace.bonsplitController(containingPane: sp).map { _ in sp } }
                     ?? sourceWorkspace.focusedBonsplitPaneForCommands()?.paneId
+                    ?? sourceWorkspace.allBonsplitControllers.lazy.compactMap { $0.allPaneIds.first }.first
                 if let rollbackPane {
                     _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: focus)
                 }
@@ -7375,8 +7376,10 @@ class TerminalController {
 
             let paneEntries = v2PaneEntries(in: ws)
             var geometryByPaneId: [String: PixelRect] = [:]
+            var containerFrameByController = [ObjectIdentifier: PixelRect]()
             for controller in ws.allBonsplitControllers {
                 let snapshot = controller.layoutSnapshot()
+                containerFrameByController[ObjectIdentifier(controller)] = snapshot.containerFrame
                 for pane in snapshot.panes {
                     geometryByPaneId[pane.paneId] = pane.frame
                 }
@@ -7409,6 +7412,12 @@ class TerminalController {
                     dict["pixel_frame"] = [
                         "x": frame.x, "y": frame.y,
                         "width": frame.width, "height": frame.height
+                    ]
+                }
+                if let containerFrame = containerFrameByController[ObjectIdentifier(entry.controller)] {
+                    dict["container_frame"] = [
+                        "width": containerFrame.width,
+                        "height": containerFrame.height
                     ]
                 }
 

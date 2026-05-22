@@ -47,7 +47,9 @@ final class CmuxMainWindow: NSWindow {
     }
 
     override func sendEvent(_ event: NSEvent) {
-        guard !isSoftHiddenForVisibilityController else { return }
+        if isSoftHiddenForVisibilityController, Self.isKeyboardEvent(event) {
+            return
+        }
         if handleWorkspaceDockTitlebarEvent(event) {
             return
         }
@@ -70,6 +72,7 @@ final class CmuxMainWindow: NSWindow {
     }
 
     private func handleWorkspaceDockTitlebarEvent(_ event: NSEvent) -> Bool {
+        guard Self.isMouseDownEvent(event) else { return false }
         guard let layout = workspaceDockTitlebarLayout,
               event.window === self,
               let edge = workspaceDockTitlebarEdge(at: event.locationInWindow) else {
@@ -86,6 +89,24 @@ final class CmuxMainWindow: NSWindow {
             return true
         case .rightMouseDown, .otherMouseDown:
             showWorkspaceDockTitlebarMenu(edge: edge, layout: layout, event: event)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isKeyboardEvent(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .keyDown, .keyUp, .flagsChanged:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isMouseDownEvent(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             return true
         default:
             return false

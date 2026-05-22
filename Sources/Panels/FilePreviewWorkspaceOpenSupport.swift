@@ -5,12 +5,14 @@ extension Workspace {
     @discardableResult
     func openFileSurfaces(
         inPane paneId: PaneID,
+        controller targetController: BonsplitController? = nil,
         filePaths: [String],
         focus: Bool? = nil,
         targetIndex: Int? = nil,
         reuseExisting: Bool = false
     ) -> [any Panel] {
-        let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let controller = targetController ?? bonsplitController(containingPane: paneId) ?? bonsplitController
+        let shouldFocusNewTabs = focus ?? (controller.focusedPaneId == paneId)
         var nextIndex = targetIndex
         var openedPanels: [any Panel] = []
 
@@ -20,12 +22,14 @@ extension Workspace {
                 if reuseExisting {
                     panel = openOrFocusMarkdownSurface(
                         inPane: paneId,
+                        controller: controller,
                         filePath: filePath,
                         focus: shouldFocusNewTabs
                     )
                 } else {
                     panel = newMarkdownSurface(
                         inPane: paneId,
+                        controller: controller,
                         filePath: filePath,
                         focus: shouldFocusNewTabs,
                         targetIndex: nextIndex
@@ -34,12 +38,14 @@ extension Workspace {
             } else if reuseExisting {
                 panel = openOrFocusFilePreviewSurface(
                     inPane: paneId,
+                    controller: controller,
                     filePath: filePath,
                     focus: shouldFocusNewTabs
                 )
             } else {
                 panel = newFilePreviewSurface(
                     inPane: paneId,
+                    controller: controller,
                     filePath: filePath,
                     focus: shouldFocusNewTabs,
                     targetIndex: nextIndex
@@ -60,12 +66,14 @@ extension Workspace {
     @discardableResult
     func openFilePreviewSurfaces(
         inPane paneId: PaneID,
+        controller targetController: BonsplitController? = nil,
         filePaths: [String],
         focus: Bool? = nil,
         targetIndex: Int? = nil,
         reuseExisting: Bool = false
     ) -> [FilePreviewPanel] {
-        let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let controller = targetController ?? bonsplitController(containingPane: paneId) ?? bonsplitController
+        let shouldFocusNewTabs = focus ?? (controller.focusedPaneId == paneId)
         var nextIndex = targetIndex
         var openedPanels: [FilePreviewPanel] = []
 
@@ -74,12 +82,14 @@ extension Workspace {
             if reuseExisting {
                 panel = openOrFocusFilePreviewSurface(
                     inPane: paneId,
+                    controller: controller,
                     filePath: filePath,
                     focus: shouldFocusNewTabs
                 )
             } else {
                 panel = newFilePreviewSurface(
                     inPane: paneId,
+                    controller: controller,
                     filePath: filePath,
                     focus: shouldFocusNewTabs,
                     targetIndex: nextIndex

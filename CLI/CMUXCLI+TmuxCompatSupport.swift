@@ -26,7 +26,8 @@ extension CMUXCLI {
             context["pane_top"] = String(Int(py) / cellH)
         }
 
-        if let cf = containerFrame {
+        let effectiveContainerFrame = pane["container_frame"] as? [String: Any] ?? containerFrame
+        if let cf = effectiveContainerFrame {
             let cw = cf["width"] as? Double ?? 0
             let ch = cf["height"] as? Double ?? 0
             context["window_width"] = String(max(Int(cw) / cellW, 1))

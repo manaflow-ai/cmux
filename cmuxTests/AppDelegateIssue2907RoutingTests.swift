@@ -263,6 +263,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             panes.contains { ($0["id"] as? String) == dockPaneId.id.uuidString },
             "pane.list should include panes owned by dock controllers"
         )
+        let dockPaneEntry = try XCTUnwrap(panes.first { ($0["id"] as? String) == dockPaneId.id.uuidString })
+        XCTAssertNotNil(
+            dockPaneEntry["container_frame"] as? [String: Any],
+            "Dock panes should report the container frame for their owning controller"
+        )
         let focusedPanes = panes.filter { ($0["focused"] as? Bool) == true }
         XCTAssertEqual(focusedPanes.map { $0["id"] as? String }, [dockPaneId.id.uuidString])
 
@@ -288,6 +293,25 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(created["pane_id"] as? String, dockPaneId.id.uuidString)
         XCTAssertEqual(workspace.paneId(forPanelId: createdSurfaceId), dockPaneId)
         XCTAssertTrue(dock.controller.allTabIds.contains { workspace.panelIdFromSurfaceId($0) == createdSurfaceId })
+
+        let dockPaneCountBeforeSplitOff = dock.controller.allPaneIds.count
+        let mainPaneCountBeforeSplitOff = workspace.bonsplitController.allPaneIds.count
+        let splitOff = try v2Result(
+            method: "surface.split_off",
+            params: [
+                "surface_id": createdSurfaceId.uuidString,
+                "direction": "right",
+                "focus": false
+            ]
+        )
+        let splitOffPaneIdString = try XCTUnwrap(splitOff["pane_id"] as? String)
+        let splitOffPaneId = try XCTUnwrap(UUID(uuidString: splitOffPaneIdString))
+        XCTAssertEqual(splitOff["surface_id"] as? String, createdSurfaceId.uuidString)
+        XCTAssertTrue(dock.controller.allPaneIds.contains { $0.id == splitOffPaneId })
+        XCTAssertFalse(workspace.bonsplitController.allPaneIds.contains { $0.id == splitOffPaneId })
+        XCTAssertEqual(workspace.paneId(forPanelId: createdSurfaceId)?.id, splitOffPaneId)
+        XCTAssertEqual(dock.controller.allPaneIds.count, dockPaneCountBeforeSplitOff + 1)
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, mainPaneCountBeforeSplitOff)
     }
 
     func testIssue2907NoTargetCommandsPreferKeyRecoveredWindowOverRegisteredWindow() throws {

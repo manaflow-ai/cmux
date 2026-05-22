@@ -1653,6 +1653,25 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(docks.right?.count, 0)
     }
 
+    func testDecodeRootNewWorkspaceDockNullDimensions() throws {
+        let json = """
+        {
+          "newWorkspace": {
+            "docks": {
+              "left": [{
+                "width": null,
+                "height": null
+              }]
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        let dock = try XCTUnwrap(config.newWorkspace?.docks?.left?.first)
+        XCTAssertNil(dock.width)
+        XCTAssertNil(dock.height)
+    }
+
     func testDecodeWorkspaceCommandDocks() throws {
         let json = """
         {

@@ -877,7 +877,13 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
 
     private var bottomDockStrip: some View {
         HStack(spacing: 0) {
-            ForEach(dockPaneEntries(for: layout.bottom)) { entry in
+            ForEach(
+                Array(dockPaneEntries(for: layout.bottom).enumerated()),
+                id: \.element.id
+            ) { index, entry in
+                if index > 0 {
+                    Divider()
+                }
                 WorkspaceDockPaneView(
                     snapshot: entry.snapshot,
                     isWorkspaceVisible: isWorkspaceVisible,
@@ -894,7 +900,6 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                     actions: entry.actions
                 )
                 .frame(maxWidth: .infinity)
-                Divider()
             }
         }
         .frame(height: bottomDockHeightForOpenDocks)
@@ -1092,6 +1097,7 @@ private struct WorkspaceDockResizeHandle: View {
     let onResize: (CGFloat) -> Void
     @State private var dragStartSize: CGFloat?
     @State private var isDragging = false
+    @State private var isHovering = false
 
     var body: some View {
         handleBody
@@ -1115,6 +1121,7 @@ private struct WorkspaceDockResizeHandle: View {
                     }
             )
             .onHover { hovering in
+                isHovering = hovering
                 if hovering {
                     placement.cursor.set()
                 } else if !isDragging {
@@ -1122,6 +1129,7 @@ private struct WorkspaceDockResizeHandle: View {
                 }
             }
             .onDisappear {
+                isHovering = false
                 dragStartSize = nil
                 finishResizeIfNeeded()
             }
@@ -1152,7 +1160,11 @@ private struct WorkspaceDockResizeHandle: View {
         guard isDragging else { return }
         TerminalWindowPortalRegistry.endInteractiveGeometryResize()
         isDragging = false
-        NSCursor.arrow.set()
+        if isHovering {
+            placement.cursor.set()
+        } else {
+            NSCursor.arrow.set()
+        }
     }
 }
 

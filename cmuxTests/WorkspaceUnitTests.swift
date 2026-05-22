@@ -4004,6 +4004,20 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         )
     }
 
+    func testConfiguredDocksDefaultOpenUnlessExplicitlyClosed() throws {
+        let workspace = Workspace(
+            dockConfiguration: CmuxWorkspaceDockConfiguration(
+                left: [CmuxWorkspaceDockDefinition(width: 260)],
+                right: [CmuxWorkspaceDockDefinition(open: false, width: 260)]
+            )
+        )
+
+        XCTAssertEqual(workspace.dockLayout.docksSnapshot(for: .left).count, 1)
+        XCTAssertEqual(workspace.dockLayout.docksSnapshot(for: .right).count, 1)
+        XCTAssertTrue(workspace.dockLayout.isEdgeOpen(.left))
+        XCTAssertFalse(workspace.dockLayout.isEdgeOpen(.right))
+    }
+
     func testDockLastPanelReplacementFocusUsesReplacementController() throws {
         let workspace = Workspace()
         let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)

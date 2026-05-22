@@ -116,8 +116,7 @@ struct CmuxWorkspaceDockDefinition: Codable, Sendable {
         forKey key: CodingKeys,
         in container: KeyedDecodingContainer<CodingKeys>
     ) throws -> Double? {
-        guard container.contains(key) else { return nil }
-        let value = try container.decode(Double.self, forKey: key)
+        guard let value = try container.decodeIfPresent(Double.self, forKey: key) else { return nil }
         guard value.isFinite, value > 0 else {
             throw DecodingError.dataCorruptedError(
                 forKey: key,
