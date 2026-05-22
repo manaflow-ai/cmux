@@ -2420,10 +2420,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(fixture.version, 1)
         XCTAssertEqual(fixture.captureSource, "real-cli-mitm-har")
 
-        let capturesByAgent = Dictionary(uniqueKeysWithValues: fixture.captures.map { ($0.agent, $0) })
+        let capturesByAgent = Dictionary(
+            fixture.captures.map { ($0.agent, $0) },
+            uniquingKeysWith: { _, new in new }
+        )
         XCTAssertTrue(Set(capturesByAgent.keys).isSuperset(of: ["claude", "codex", "opencode"]))
 
-        let unavailableByAgent = Dictionary(uniqueKeysWithValues: fixture.unavailable.map { ($0.agent, $0.reason) })
+        let unavailableByAgent = Dictionary(
+            fixture.unavailable.map { ($0.agent, $0.reason) },
+            uniquingKeysWith: { _, new in new }
+        )
         XCTAssertTrue(Set(capturesByAgent.keys).isDisjoint(with: Set(unavailableByAgent.keys)))
         XCTAssertTrue(capturesByAgent["gemini"] != nil || unavailableByAgent["gemini"] != nil)
         XCTAssertTrue(capturesByAgent["antigravity"] != nil || unavailableByAgent["antigravity"] != nil)
