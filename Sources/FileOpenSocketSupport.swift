@@ -1,18 +1,66 @@
 import Bonsplit
 import Foundation
 
-extension TerminalController {
-    func v2ResolveReadableFilePath(_ rawPath: String) -> (path: String?, error: V2CallResult?) {
+struct CmuxReadableFilePathResolutionFailure: Sendable {
+    let code: String
+    let message: String
+    let path: String
+}
+
+enum CmuxReadableFilePathResolver {
+    static func resolve(
+        _ rawPath: String,
+        relativeTo basePath: String? = nil
+    ) -> (path: String?, failure: CmuxReadableFilePathResolutionFailure?) {
+        guard !rawPath.isEmpty else {
+            return (
+                nil,
+                CmuxReadableFilePathResolutionFailure(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.filePath.empty",
+                        defaultValue: "Path must not be empty"
+                    ),
+                    path: rawPath
+                )
+            )
+        }
+
         let expandedPath = NSString(string: rawPath).expandingTildeInPath
-        let filePath = NSString(string: expandedPath).standardizingPath
+        let filePath: String
+        if expandedPath.hasPrefix("/") {
+            filePath = NSString(string: expandedPath).standardizingPath
+        } else if let basePath, !basePath.isEmpty {
+            let expandedBasePath = NSString(string: basePath).expandingTildeInPath
+            let standardizedBasePath = NSString(string: expandedBasePath).standardizingPath
+            filePath = NSString(
+                string: NSString(string: standardizedBasePath).appendingPathComponent(expandedPath)
+            ).standardizingPath
+        } else {
+            let standardizedPath = NSString(string: expandedPath).standardizingPath
+            return (
+                nil,
+                CmuxReadableFilePathResolutionFailure(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.filePath.absoluteRequired",
+                        defaultValue: "Path must be absolute"
+                    ),
+                    path: standardizedPath
+                )
+            )
+        }
 
         guard filePath.hasPrefix("/") else {
             return (
                 nil,
-                .err(
+                CmuxReadableFilePathResolutionFailure(
                     code: "invalid_params",
-                    message: "Path must be absolute: \(filePath)",
-                    data: ["path": filePath]
+                    message: String(
+                        localized: "socket.filePath.absoluteRequired",
+                        defaultValue: "Path must be absolute"
+                    ),
+                    path: filePath
                 )
             )
         }
@@ -21,31 +69,62 @@ extension TerminalController {
         guard FileManager.default.fileExists(atPath: filePath, isDirectory: &isDir) else {
             return (
                 nil,
-                .err(code: "not_found", message: "File not found: \(filePath)", data: ["path": filePath])
+                CmuxReadableFilePathResolutionFailure(
+                    code: "not_found",
+                    message: String(
+                        localized: "socket.filePath.notFound",
+                        defaultValue: "File not found"
+                    ),
+                    path: filePath
+                )
             )
         }
         guard !isDir.boolValue else {
             return (
                 nil,
-                .err(
+                CmuxReadableFilePathResolutionFailure(
                     code: "invalid_params",
-                    message: "Path is a directory, not a file: \(filePath)",
-                    data: ["path": filePath]
+                    message: String(
+                        localized: "socket.filePath.directory",
+                        defaultValue: "Path is a directory, not a file"
+                    ),
+                    path: filePath
                 )
             )
         }
         guard FileManager.default.isReadableFile(atPath: filePath) else {
             return (
                 nil,
-                .err(
+                CmuxReadableFilePathResolutionFailure(
                     code: "permission_denied",
-                    message: "File not readable: \(filePath)",
-                    data: ["path": filePath]
+                    message: String(
+                        localized: "socket.filePath.notReadable",
+                        defaultValue: "File not readable"
+                    ),
+                    path: filePath
                 )
             )
         }
 
         return (filePath, nil)
+    }
+}
+
+extension TerminalController {
+    func v2ResolveReadableFilePath(_ rawPath: String) -> (path: String?, error: V2CallResult?) {
+        let resolvedPath = CmuxReadableFilePathResolver.resolve(rawPath)
+        if let failure = resolvedPath.failure {
+            return (
+                nil,
+                .err(
+                    code: failure.code,
+                    message: failure.message,
+                    data: ["path": failure.path]
+                )
+            )
+        }
+
+        return (resolvedPath.path, nil)
     }
 
     private func v2FileOpenSurfacePayload(

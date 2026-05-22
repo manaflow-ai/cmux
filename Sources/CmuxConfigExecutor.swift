@@ -497,19 +497,32 @@ struct CmuxConfigExecutor {
             }
         }
 
-        let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
+        let absoluteBaseCwd = absoluteCustomLayoutDirectory(baseCwd)
+        let resolvedCwd = absoluteCustomLayoutDirectory(
+            CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: absoluteBaseCwd)
+        )
+        let resolvedLayout = wsDef.layout?.resolvingMarkdownPaths(relativeTo: resolvedCwd)
+        if let failure = resolvedLayout?.failure {
+            logCustomLayoutMarkdownPathFailure(failure, context: "workspace command execution")
+            return false
+        }
+        guard wsDef.layout == nil || resolvedLayout?.layout != nil else { return false }
+
         let newWorkspace = tabManager.addWorkspace(workingDirectory: resolvedCwd)
         newWorkspace.setCustomTitle(workspaceName)
         if let color = wsDef.color {
             newWorkspace.setCustomColor(color)
         }
 
-        if let existingWorkspaceToClose, existingWorkspaceToClose.id != newWorkspace.id {
-            tabManager.closeWorkspace(existingWorkspaceToClose)
+        if let layout = resolvedLayout?.layout {
+            guard newWorkspace.applyResolvedCustomLayout(layout, baseCwd: resolvedCwd).isSuccess else {
+                tabManager.closeWorkspace(newWorkspace)
+                return false
+            }
         }
 
-        if let layout = wsDef.layout {
-            newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd)
+        if let existingWorkspaceToClose, existingWorkspaceToClose.id != newWorkspace.id {
+            tabManager.closeWorkspace(existingWorkspaceToClose)
         }
         return true
     }

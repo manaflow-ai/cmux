@@ -4886,26 +4886,92 @@ class TerminalController {
                 return .err(code: "invalid_params", message: "Invalid layout: \(error.localizedDescription)", data: nil)
             }
         }
+        let layoutCreationContext: WorkspaceCustomLayoutCreationContext?
+        let resolvedLayoutNode: CmuxLayoutNode?
+        if let layoutNode {
+            let creationContext = v2MainSync {
+                customLayoutCreationContextForNewWorkspace(tabManager: tabManager, requestedCwd: cwd)
+            }
+            let resolution = layoutNode.resolvingMarkdownPaths(relativeTo: creationContext.layoutBaseCwd)
+            if let failure = resolution.failure {
+                return .err(
+                    code: failure.code,
+                    message: "Invalid layout: \(failure.message)",
+                    data: ["path": failure.path]
+                )
+            }
+            guard let layout = resolution.layout else {
+                return .err(code: "internal_error", message: "Failed to resolve custom layout", data: nil)
+            }
+            layoutCreationContext = creationContext
+            resolvedLayoutNode = layout
+        } else {
+            layoutCreationContext = nil
+            resolvedLayoutNode = nil
+        }
 
-        var newId: UUID?
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-        v2MainSync {
+        let creationResult: (
+            workspaceId: UUID?,
+            failure: CmuxReadableFilePathResolutionFailure?,
+            error: (code: String, message: String)?
+        ) = v2MainSync {
+            if let layoutCreationContext,
+               !layoutCreationContext.isCurrentSelection(in: tabManager) {
+                // Markdown path preflight runs off-main; refuse to create from a cwd
+                // snapshot after the workspace selection that supplied it has changed.
+                return (
+                    nil,
+                    nil,
+                    (
+                        code: "invalid_state",
+                        message: "Workspace selection changed while resolving custom layout"
+                    )
+                )
+            }
             let ws = tabManager.addWorkspace(
                 title: title,
-                workingDirectory: cwd,
+                workingDirectory: layoutCreationContext?.workspaceWorkingDirectory ?? cwd,
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
+                inheritWorkingDirectory: layoutCreationContext?.inheritWorkspaceWorkingDirectory ?? true,
                 select: shouldFocus,
                 eagerLoadTerminal: !shouldFocus
             )
             ws.setCustomDescription(description)
-            if let layoutNode {
-                ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
+            if let resolvedLayoutNode,
+               let layoutCreationContext {
+                let applyResult = ws.applyResolvedCustomLayout(
+                    resolvedLayoutNode,
+                    baseCwd: layoutCreationContext.layoutBaseCwd
+                )
+                guard applyResult.isSuccess else {
+                    tabManager.closeWorkspace(ws)
+                    return (
+                        nil,
+                        applyResult.markdownPathFailure,
+                        (
+                            code: "internal_error",
+                            message: "Failed to apply custom layout"
+                        )
+                    )
+                }
             }
-            newId = ws.id
+            return (ws.id, nil, nil)
         }
 
-        guard let newId else {
+        if let failure = creationResult.failure {
+            return .err(
+                code: failure.code,
+                message: "Invalid layout: \(failure.message)",
+                data: ["path": failure.path]
+            )
+        }
+        if let error = creationResult.error {
+            return .err(code: error.code, message: error.message, data: nil)
+        }
+
+        guard let newId = creationResult.workspaceId else {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
         }
         let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -6525,6 +6591,9 @@ class TerminalController {
                     item["initial_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugInitialCommand()))
                     item["tmux_start_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugTmuxStartCommand()))
                     item["resume_binding"] = v2SurfaceResumeBindingPayload(ws.surfaceResumeBinding(panelId: panel.id))
+                }
+                if let markdownPanel = panel as? MarkdownPanel {
+                    item["path"] = markdownPanel.filePath
                 }
                 return item
             }
@@ -8291,7 +8360,7 @@ class TerminalController {
             let surfaces: [[String: Any]] = tabs.enumerated().map { index, tab in
                 let panelId = ws.panelIdFromSurfaceId(tab.id)
                 let panel = panelId.flatMap { ws.panels[$0] }
-                return [
+                var item: [String: Any] = [
                     "id": v2OrNull(panelId?.uuidString),
                     "ref": v2Ref(kind: .surface, uuid: panelId),
                     "index": index,
@@ -8299,6 +8368,10 @@ class TerminalController {
                     "type": v2OrNull(panel?.panelType.rawValue),
                     "selected": tab.id == selectedTab?.id
                 ]
+                if let markdownPanel = panel as? MarkdownPanel {
+                    item["path"] = markdownPanel.filePath
+                }
+                return item
             }
 
             let windowId = v2ResolveWindowId(tabManager: tabManager)

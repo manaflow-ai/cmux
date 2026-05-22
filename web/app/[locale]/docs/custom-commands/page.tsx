@@ -372,6 +372,11 @@ export default function CustomCommandsPage() {
                     "command": "cargo watch -x run",
                     "cwd": "./server",
                     "env": { "RUST_LOG": "debug" }
+                  },
+                  {
+                    "type": "markdown",
+                    "name": "Plan",
+                    "path": "docs/plan.md"
                   }
                 ]
               }
@@ -417,12 +422,13 @@ export default function CustomCommandsPage() {
       <DocsHeading level={2} id="surface-definition">{t("surfaceDefinition")}</DocsHeading>
       <p>{t("surfaceDefinitionDesc")}</p>
       <ul>
-        <li><code>type</code>: <code>&quot;terminal&quot;</code> {t("or")} <code>&quot;browser&quot;</code></li>
+        <li><code>type</code>: <code>&quot;terminal&quot;</code>, <code>&quot;browser&quot;</code>, {t("or")} <code>&quot;markdown&quot;</code></li>
         <li><code>name</code>: {t("surfaceName")}</li>
         <li><code>command</code>: {t("surfaceCommand")}</li>
         <li><code>cwd</code>: {t("surfaceCwd")}</li>
         <li><code>env</code>: {t("surfaceEnv")}</li>
         <li><code>url</code>: {t("surfaceUrl")}</li>
+        <li><code>path</code>: {t("surfacePath")}</li>
         <li><code>focus</code>: {t("surfaceFocus")}</li>
       </ul>
 
