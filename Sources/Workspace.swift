@@ -452,14 +452,15 @@ extension Workspace {
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
         let panelNotificationSnapshots = notificationSnapshots(surfaceId: panelId)
+        let panelHasUnreadNotification = hasUnreadNotification(panelId: panelId)
         let hasUnreadIndicator =
             restoredUnreadPanelIds.contains(panelId) ||
-            hasUnreadNotification(panelId: panelId)
+            hasVisibleNotificationIndicator(panelId: panelId)
         let restoredUnreadContributesToWorkspace: Bool? = {
             if let restoredIndicator = restoredUnreadPanelIndicators[panelId] {
                 return restoredIndicator.contributesToWorkspaceUnread
             }
-            if hasUnreadIndicator && panelNotificationSnapshots.isEmpty {
+            if hasUnreadIndicator && !panelHasUnreadNotification {
                 return false
             }
             return nil
@@ -1104,11 +1105,13 @@ extension Workspace {
         } else {
             clearManualUnread(panelId: panelId)
         }
-        if snapshot.hasUnreadIndicator == true,
-           snapshot.notifications?.contains(where: { !$0.isRead }) != true {
+        let hasUnreadPanelNotification = snapshot.notifications?.contains(where: { !$0.isRead }) == true
+        if snapshot.hasUnreadIndicator == true, !hasUnreadPanelNotification {
+            let contributesToWorkspaceUnread = snapshot.restoredUnreadContributesToWorkspace
+                ?? (snapshot.notifications?.isEmpty ?? true)
             restorePanelUnreadIndicator(
                 panelId,
-                contributesToWorkspaceUnread: snapshot.restoredUnreadContributesToWorkspace != false
+                contributesToWorkspaceUnread: contributesToWorkspaceUnread
             )
         } else {
             clearRestoredUnreadIndicator(panelId: panelId)
@@ -10119,8 +10122,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func hasUnreadNotification(panelId: UUID) -> Bool {
+    private func hasVisibleNotificationIndicator(panelId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.hasVisibleNotificationIndicator(forTabId: id, surfaceId: panelId) ?? false
+    }
+
+    private func hasUnreadNotification(panelId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
     }
 
     private func attentionPersistentState() -> WorkspaceAttentionPersistentState {
@@ -10152,7 +10159,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
         let notificationStore = AppDelegate.shared?.notificationStore
         let shouldShowUnread = Self.shouldShowUnreadIndicator(
-            hasUnreadNotification: hasUnreadNotification(panelId: panelId),
+            hasUnreadNotification: hasVisibleNotificationIndicator(panelId: panelId),
             hasPanelUnreadIndicator: manualUnreadPanelIds.contains(panelId) || restoredUnreadPanelIds.contains(panelId),
             isWorkspaceManuallyUnread: notificationStore?.hasManualUnread(forTabId: id) ?? false,
             isWorkspaceManualUnreadRepresentative: representativePanelIdForWorkspaceManualUnread() == panelId
