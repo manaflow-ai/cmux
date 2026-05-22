@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import AppKit
 import Bonsplit
+import CMUXVNC
 import Combine
 import CryptoKit
 import Darwin
@@ -471,6 +472,7 @@ extension Workspace {
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
+        let vncSnapshot: SessionVNCPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -533,6 +535,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            vncSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -549,6 +552,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            vncSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
@@ -556,6 +560,7 @@ extension Workspace {
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            vncSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
             terminalSnapshot = nil
@@ -563,6 +568,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
             rightSidebarToolSnapshot = nil
+            vncSnapshot = nil
         case .rightSidebarTool:
             guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
             terminalSnapshot = nil
@@ -570,6 +576,15 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
+            vncSnapshot = nil
+        case .vnc:
+            guard let vncPanel = panel as? VNCPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            vncSnapshot = SessionVNCPanelSnapshot(session: vncPanel.session.nonSecretSnapshot)
         }
 
         return SessionPanelSnapshot(
@@ -589,7 +604,8 @@ extension Workspace {
             browser: browserSnapshot,
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
-            rightSidebarTool: rightSidebarToolSnapshot
+            rightSidebarTool: rightSidebarToolSnapshot,
+            vnc: vncSnapshot
         )
     }
 
@@ -1078,6 +1094,18 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
             return toolPanel.id
+        case .vnc:
+            guard let session = snapshot.vnc?.session,
+                  let vncPanel = newVNCSurface(
+                    inPane: paneId,
+                    session: session,
+                    credential: nil,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: vncPanel.id)
+            return vncPanel.id
         }
     }
 
@@ -9200,6 +9228,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let markdown = "markdown"
         static let filePreview = "filePreview"
         static let rightSidebarTool = "rightSidebarTool"
+        static let vnc = "vnc"
     }
 
     enum PanelShellActivityState: String {
@@ -10045,6 +10074,27 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? FilePreviewPanel
     }
 
+    func vncPanel(for panelId: UUID) -> VNCPanel? {
+        panels[panelId] as? VNCPanel
+    }
+
+    func containsVNCSessionConnectionIdentity(_ session: MacfleetVNCSession) -> Bool {
+        vncPanel(matchingConnectionIdentity: session) != nil
+    }
+
+    func vncPanel(matchingConnectionIdentity session: MacfleetVNCSession) -> VNCPanel? {
+        for tabId in bonsplitController.allTabIds {
+            guard let panelId = panelIdFromSurfaceId(tabId),
+                  let panel = vncPanel(for: panelId) else {
+                continue
+            }
+            if panel.session.hasSameConnectionIdentity(as: session) {
+                return panel
+            }
+        }
+        return nil
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
@@ -10057,6 +10107,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.filePreview
         case .rightSidebarTool:
             return SurfaceKind.rightSidebarTool
+        case .vnc:
+            return SurfaceKind.vnc
         }
     }
 
@@ -12974,6 +13026,55 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return toolPanel
+    }
+
+    @discardableResult
+    func newVNCSurface(
+        inPane paneId: PaneID,
+        session: MacfleetVNCSession,
+        credential: VNCResolvedCredential?,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> VNCPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let vncPanel = VNCPanel(workspaceId: id, session: session, credential: credential)
+        panels[vncPanel.id] = vncPanel
+        panelTitles[vncPanel.id] = vncPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: vncPanel.displayTitle,
+            icon: vncPanel.displayIcon,
+            kind: SurfaceKind.vnc,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: vncPanel.id)
+            panelTitles.removeValue(forKey: vncPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = vncPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(vncPanel.id, paneId: paneId, kind: "vnc", origin: "vnc_tab", focused: shouldFocusNewTab)
+
+        if shouldFocusNewTab {
+            focusPanel(vncPanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: vncPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return vncPanel
     }
 
     @discardableResult

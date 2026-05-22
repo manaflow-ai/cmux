@@ -132,6 +132,10 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Run CMUXVNC package tests
+        if: ${{ !inputs.skip_unit_tests }}
+        run: swift test --package-path Packages/CMUXVNC
+
       - name: Run unit tests
         if: ${{ !inputs.skip_unit_tests }}
         run: |

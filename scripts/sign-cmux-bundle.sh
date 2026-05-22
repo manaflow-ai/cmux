@@ -63,7 +63,11 @@ COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 for helper in "$APP_PATH/Contents/Resources/bin"/*; do
   [[ -f "$helper" && -x "$helper" ]] || continue
   echo "==> signing helper $(basename "$helper")"
-  /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+  if [[ "$helper" == *.dylib ]]; then
+    /usr/bin/codesign "${COMMON[@]}" "$helper"
+  else
+    /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+  fi
 done
 
 # 2. Plugins

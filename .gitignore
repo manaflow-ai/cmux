@@ -50,5 +50,6 @@ web/.pagefind-site/
 web/public/pagefind/
 
 # Local scratch (screenshots, etc.)
+artifacts/
 tmp/
 tmp-*/

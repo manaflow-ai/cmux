@@ -188,4 +188,13 @@ extension TerminalController {
             .lowercased()
         return PanelType(rawValue: normalized)
     }
+
+    func v2RejectGenericVNCPanelType(_ panelType: PanelType, method: String) -> V2CallResult? {
+        guard panelType == .vnc else { return nil }
+        return .err(
+            code: "invalid_params",
+            message: "\(method) cannot create VNC surfaces. Use the Macfleet VNC workspace flow.",
+            data: ["type": panelType.rawValue]
+        )
+    }
 }

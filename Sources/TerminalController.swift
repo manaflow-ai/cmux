@@ -3275,6 +3275,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugShortcutSimulate(params: params))
         case "debug.type":
             return v2Result(id: id, self.v2DebugType(params: params))
+        case "debug.vnc.pointer":
+            return v2Result(id: id, self.v2DebugVNCPointer(params: params))
         case "debug.app.activate":
             return v2Result(id: id, self.v2DebugActivateApp())
         case "debug.command_palette.toggle":
@@ -3545,6 +3547,7 @@ class TerminalController {
             "debug.shortcut.set",
             "debug.shortcut.simulate",
             "debug.type",
+            "debug.vnc.pointer",
             "debug.app.activate",
             "debug.command_palette.toggle",
             "debug.command_palette.rename_tab.open",
@@ -7859,6 +7862,9 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid direction (left|right|up|down)", data: nil)
         }
         let panelType = v2PanelType(params, "type") ?? .terminal
+        if let rejection = v2RejectGenericVNCPanelType(panelType, method: "surface.split") {
+            return rejection
+        }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
@@ -7955,6 +7961,9 @@ class TerminalController {
         }
 
         let panelType = v2PanelType(params, "type") ?? .terminal
+        if let rejection = v2RejectGenericVNCPanelType(panelType, method: "surface.create") {
+            return rejection
+        }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
@@ -8634,7 +8643,24 @@ class TerminalController {
                 return
             }
             guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
-                result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                if let vncPanel = ws.vncPanel(for: surfaceId) {
+                    guard vncPanel.sendText(text) == .sent else {
+                        result = .err(code: "surface_unavailable", message: "VNC surface is not connected", data: ["surface_id": surfaceId.uuidString])
+                        return
+                    }
+                    result = .ok([
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "surface_id": surfaceId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                        "surface_type": "vnc",
+                        "queued": false,
+                        "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+                    ])
+                    return
+                }
+                result = .err(code: "invalid_params", message: "Surface does not accept text input", data: ["surface_id": surfaceId.uuidString])
                 return
             }
             #if DEBUG
@@ -8700,7 +8726,30 @@ class TerminalController {
                 return
             }
             guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
-                result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                if let vncPanel = ws.vncPanel(for: surfaceId) {
+                    switch vncPanel.sendNamedKey(key) {
+                    case .sent:
+                        break
+                    case .unknownKey:
+                        result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
+                        return
+                    case .unavailable:
+                        result = .err(code: "surface_unavailable", message: "VNC surface is not connected", data: ["surface_id": surfaceId.uuidString])
+                        return
+                    }
+                    result = .ok([
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "surface_id": surfaceId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                        "surface_type": "vnc",
+                        "queued": false,
+                        "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+                    ])
+                    return
+                }
+                result = .err(code: "invalid_params", message: "Surface does not accept key input", data: ["surface_id": surfaceId.uuidString])
                 return
             }
             let sendResult = terminalPanel.surface.sendNamedKey(key)
@@ -9273,6 +9322,9 @@ class TerminalController {
         }
 
         let panelType = v2PanelType(params, "type") ?? .terminal
+        if let rejection = v2RejectGenericVNCPanelType(panelType, method: "pane.create") {
+            return rejection
+        }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
@@ -14486,6 +14538,73 @@ class TerminalController {
         return result
     }
 
+    private func v2DebugVNCPointer(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let x = params["x"] as? Int,
+              let y = params["y"] as? Int else {
+            return .err(code: "invalid_params", message: "Missing x/y", data: nil)
+        }
+        let hasButton = v2HasNonNullParam(params, "button")
+        let hasIsDown = v2HasNonNullParam(params, "is_down") || v2HasNonNullParam(params, "isDown")
+        let button = params["button"] as? Int
+        let isDown = (params["is_down"] as? Bool) ?? (params["isDown"] as? Bool)
+        if hasButton, button == nil {
+            return .err(code: "invalid_params", message: "button must be an integer", data: nil)
+        }
+        if hasIsDown, isDown == nil {
+            return .err(code: "invalid_params", message: "is_down must be a boolean", data: nil)
+        }
+        guard hasButton == hasIsDown else {
+            return .err(code: "invalid_params", message: "button and is_down must be provided together", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to send VNC pointer input", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard let vncPanel = ws.vncPanel(for: surfaceId) else {
+                result = .err(code: "invalid_params", message: "Surface is not a VNC surface", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            guard vncPanel.sendPointer(x: x, y: y, button: button, isDown: isDown) == .sent else {
+                result = .err(code: "surface_unavailable", message: "VNC surface is not connected", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "surface_type": "vnc",
+                "x": x,
+                "y": y,
+                "button": v2OrNull(button),
+                "is_down": v2OrNull(isDown),
+                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+            ])
+        }
+        return result
+    }
+
     private func v2DebugActivateApp() -> V2CallResult {
         let resp = activateApp()
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
@@ -17242,19 +17361,23 @@ class TerminalController {
         // Capture the main window on main thread
         var captureError: String?
         v2MainSync {
-            guard let window = NSApp.mainWindow ?? NSApp.windows.first else {
+            let preferredWindows = [NSApp.mainWindow, NSApp.keyWindow].compactMap { $0 } + NSApp.windows
+            let captureWindows = preferredWindows.compactMap { window -> (window: NSWindow, id: CGWindowID)? in
+                guard let id = CGWindowID(exactly: window.windowNumber) else { return nil }
+                return (window, id)
+            }
+            guard let captureWindow = captureWindows.first(where: { captureWindow in
+                captureWindow.window.isVisible && !captureWindow.window.isMiniaturized
+            }) ?? captureWindows.first else {
                 captureError = "No window available"
                 return
             }
-
-            // Get window's CGWindowID
-            let windowNumber = CGWindowID(window.windowNumber)
 
             // Capture the window using CGWindowListCreateImage
             guard let cgImage = CGWindowListCreateImage(
                 .null,  // Capture just the window bounds
                 .optionIncludingWindow,
-                windowNumber,
+                captureWindow.id,
                 [.boundsIgnoreFraming, .nominalResolution]
             ) else {
                 captureError = "Failed to capture window image"

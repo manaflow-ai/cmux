@@ -1,0 +1,642 @@
+import AppKit
+import CMUXVNC
+import Metal
+import QuartzCore
+import SwiftUI
+
+struct VNCMetalCanvasRepresentable: NSViewRepresentable {
+    @ObservedObject var panel: VNCPanel
+    let onRequestPanelFocus: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> VNCMetalCanvasView {
+        let view = VNCMetalCanvasView()
+        context.coordinator.attach(panel: panel, view: view)
+        configure(view)
+        return view
+    }
+
+    func updateNSView(_ view: VNCMetalCanvasView, context: Context) {
+        context.coordinator.attach(panel: panel, view: view)
+        configure(view)
+    }
+
+    private func configure(_ view: VNCMetalCanvasView) {
+        view.onText = { [weak panel] text in
+            panel?.sendText(text)
+        }
+        view.onKey = { [weak panel] keyCode, isDown, text in
+            panel?.sendKey(keyCode: keyCode, isDown: isDown, text: text)
+        }
+        view.onPointer = { [weak panel] x, y, button, isDown in
+            panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
+        }
+        view.onScroll = { [weak panel] x, y, wheel, steps in
+            panel?.sendWheel(x: x, y: y, wheel: wheel, steps: steps)
+        }
+        view.onRequestFocus = onRequestPanelFocus
+        view.onWindowAttachmentChanged = { [weak panel, weak view] in
+            guard let view else { return }
+            panel?.focusViewWindowDidChange(view)
+        }
+    }
+
+    static func dismantleNSView(_ view: VNCMetalCanvasView, coordinator: Coordinator) {
+        coordinator.detach()
+        view.onRequestFocus = nil
+        view.onWindowAttachmentChanged = nil
+        view.close()
+    }
+
+    @MainActor
+    final class Coordinator {
+        weak var panel: VNCPanel?
+        private weak var view: VNCMetalCanvasView?
+        private var frameHandlerID: UUID?
+
+        func attach(panel: VNCPanel, view: VNCMetalCanvasView) {
+            if self.panel === panel, self.view === view {
+                return
+            }
+            self.view?.resetInputStateForPanelReuse()
+            detach()
+            self.panel = panel
+            self.view = view
+            view.resetFrameSequence()
+            panel.attachFocusView(view)
+            frameHandlerID = panel.addFrameHandler { [weak view] frame in
+                if let frame {
+                    view?.apply(frame)
+                } else {
+                    view?.resetFrameSequence()
+                }
+            }
+        }
+
+        func detach() {
+            let currentPanel = panel
+            let currentView = view
+            currentPanel?.detachFocusView(currentView)
+            currentPanel?.removeFrameHandler(frameHandlerID)
+            frameHandlerID = nil
+            panel = nil
+            view = nil
+        }
+    }
+}
+
+final class VNCMetalCanvasView: NSView {
+    var onText: ((String) -> Void)?
+    var onKey: ((UInt16, Bool, String?) -> Void)?
+    var onPointer: ((Int, Int, Int?, Bool?) -> Void)?
+    var onScroll: ((Int, Int, Int, Int) -> Void)?
+    var onRequestFocus: (() -> Void)?
+    var onWindowAttachmentChanged: (() -> Void)?
+
+    private static let maxFramebufferDimension = 16_384
+    private static let maxFramebufferPixels = 33_554_432
+    private static let bytesPerPixel = 4
+
+    private let device = MTLCreateSystemDefaultDevice()
+    private var commandQueue: MTLCommandQueue?
+    private let rootLayer = CALayer()
+    private let metalLayer = CAMetalLayer()
+    private var framebuffer = Data()
+    private var framebufferWidth = 0
+    private var framebufferHeight = 0
+    private var lastSequence: UInt64?
+    private var pointerTrackingArea: NSTrackingArea?
+    private var pressedModifierKeyCodes = Set<UInt16>()
+    private var accumulatedScrollDeltaX: CGFloat = 0
+    private var accumulatedScrollDeltaY: CGFloat = 0
+
+    var appliedFrameSequenceForTesting: UInt64? {
+        lastSequence
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        rootLayer.backgroundColor = NSColor.black.cgColor
+        rootLayer.masksToBounds = true
+        layer = rootLayer
+        rootLayer.addSublayer(metalLayer)
+        metalLayer.device = device
+        metalLayer.pixelFormat = .bgra8Unorm
+        metalLayer.framebufferOnly = false
+        metalLayer.contentsGravity = .resize
+        metalLayer.masksToBounds = true
+        metalLayer.isHidden = true
+        commandQueue = device?.makeCommandQueue()
+        postsFrameChangedNotifications = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else {
+            releasePressedModifiers()
+            return
+        }
+        window?.acceptsMouseMovedEvents = true
+        updateMetalLayerGeometry()
+        drawFramebuffer()
+        onWindowAttachmentChanged?()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        releasePressedModifiers()
+        return super.resignFirstResponder()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        rootLayer.frame = bounds
+        updateMetalLayerGeometry()
+        drawFramebuffer()
+    }
+
+    func close() {
+        releasePressedModifiers()
+        onText = nil
+        onKey = nil
+        onPointer = nil
+        onScroll = nil
+        onRequestFocus = nil
+        accumulatedScrollDeltaX = 0
+        accumulatedScrollDeltaY = 0
+        resetFrameSequence()
+        removePointerTrackingArea()
+    }
+
+    func apply(_ frame: VNCDisplayFrame) {
+        if let lastSequence, frame.header.sequence <= lastSequence {
+            return
+        }
+        guard VNCFrameValidator.validate(header: frame.header, payloadByteCount: frame.payload.count) == nil,
+              resizeFramebufferIfNeeded(width: frame.header.framebufferWidth, height: frame.header.framebufferHeight) else {
+            return
+        }
+        lastSequence = frame.header.sequence
+        copy(frame)
+        metalLayer.isHidden = false
+        drawFramebuffer()
+    }
+
+    func resetFrameSequence() {
+        lastSequence = nil
+        framebuffer.removeAll(keepingCapacity: false)
+        framebufferWidth = 0
+        framebufferHeight = 0
+        metalLayer.isHidden = true
+        updateMetalLayerGeometry()
+    }
+
+    func resetInputStateForPanelReuse() {
+        releasePressedModifiers()
+        accumulatedScrollDeltaX = 0
+        accumulatedScrollDeltaY = 0
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if isDirectKeyEvent(event) {
+            onKey?(event.keyCode, true, event.charactersIgnoringModifiers)
+            return
+        }
+        if let text = remoteText(for: event) {
+            onText?(text)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if isDirectKeyEvent(event) {
+            onKey?(event.keyCode, false, event.charactersIgnoringModifiers)
+            return
+        }
+        super.keyUp(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard shouldForwardRemoteKeyEquivalent(event) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        forwardRemoteKeyEquivalent(event)
+        return true
+    }
+
+    override func insertText(_ insertString: Any) {
+        let text: String
+        if let value = insertString as? NSAttributedString {
+            text = value.string
+        } else if let value = insertString as? String {
+            text = value
+        } else {
+            text = String(describing: insertString)
+        }
+        guard !text.isEmpty else { return }
+        onText?(text)
+    }
+
+    override func doCommand(by selector: Selector) {
+        switch selector {
+        case #selector(insertNewline(_:)):
+            onText?("\n")
+        case #selector(insertTab(_:)):
+            onText?("\t")
+        case #selector(deleteBackward(_:)):
+            onText?("\u{7f}")
+        case #selector(cancelOperation(_:)):
+            onKey?(53, true, nil)
+            onKey?(53, false, nil)
+        default:
+            super.doCommand(by: selector)
+        }
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        guard isModifierKeyCode(event.keyCode) else {
+            super.flagsChanged(with: event)
+            return
+        }
+        onKey?(event.keyCode, updateModifierState(for: event), nil)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onRequestFocus?()
+        window?.makeFirstResponder(self)
+        sendPointer(event, button: 0, isDown: true)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        sendPointerMove(event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        sendPointerMove(event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        sendPointer(event, button: 0, isDown: true, clampOutside: true)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        sendPointer(event, button: 0, isDown: false, clampOutside: true)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onRequestFocus?()
+        window?.makeFirstResponder(self)
+        sendPointer(event, button: 2, isDown: true)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        sendPointer(event, button: 2, isDown: true, clampOutside: true)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        sendPointer(event, button: 2, isDown: false, clampOutside: true)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let remotePoint = remotePointerPoint(for: event, clampOutside: true) else { return }
+        if event.hasPreciseScrollingDeltas {
+            sendPreciseScroll(event, at: remotePoint)
+        } else {
+            sendImpreciseScroll(event, at: remotePoint)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        removePointerTrackingArea()
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        pointerTrackingArea = trackingArea
+    }
+
+    private func resizeFramebufferIfNeeded(width: Int, height: Int) -> Bool {
+        guard let byteCount = Self.framebufferByteCount(width: width, height: height) else {
+            return false
+        }
+        if width == framebufferWidth, height == framebufferHeight, framebuffer.count == byteCount {
+            return true
+        }
+        framebufferWidth = width
+        framebufferHeight = height
+        framebuffer = Data(repeating: 0, count: byteCount)
+        updateMetalLayerGeometry()
+        return true
+    }
+
+    private func copy(_ frame: VNCDisplayFrame) {
+        let header = frame.header
+        guard header.pixelFormat == .bgra8,
+              header.framebufferWidth == framebufferWidth,
+              header.framebufferHeight == framebufferHeight,
+              let expectedByteCount = Self.framebufferByteCount(width: framebufferWidth, height: framebufferHeight),
+              framebuffer.count == expectedByteCount,
+              VNCFrameValidator.validate(header: header, payloadByteCount: frame.payload.count) == nil else {
+            return
+        }
+
+        if header.x == 0,
+           header.y == 0,
+           header.width == framebufferWidth,
+           header.height == framebufferHeight,
+           header.stride == framebufferWidth * Self.bytesPerPixel,
+           frame.payload.count == framebuffer.count {
+            framebuffer = frame.payload
+            return
+        }
+
+        _ = VNCFrameBlitter.copyBGRAFrame(
+            header: header,
+            payload: frame.payload,
+            into: &framebuffer,
+            framebufferWidth: framebufferWidth,
+            framebufferHeight: framebufferHeight
+        )
+    }
+
+    private func drawFramebuffer() {
+        guard framebufferWidth > 0,
+              framebufferHeight > 0,
+              !framebuffer.isEmpty,
+              let commandBuffer = commandQueue?.makeCommandBuffer(),
+              let drawable = metalLayer.nextDrawable() else {
+            return
+        }
+
+        framebuffer.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress,
+                  drawable.texture.width >= framebufferWidth,
+                  drawable.texture.height >= framebufferHeight else { return }
+            drawable.texture.replace(
+                region: MTLRegionMake2D(0, 0, framebufferWidth, framebufferHeight),
+                mipmapLevel: 0,
+                withBytes: baseAddress,
+                bytesPerRow: framebufferWidth * Self.bytesPerPixel
+            )
+        }
+        commandBuffer.present(drawable)
+        commandBuffer.commit()
+    }
+
+    private func updateMetalLayerGeometry() {
+        metalLayer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        metalLayer.frame = aspectFittedFramebufferRect()
+        if framebufferWidth > 0, framebufferHeight > 0 {
+            metalLayer.drawableSize = CGSize(width: framebufferWidth, height: framebufferHeight)
+        } else {
+            let scale = metalLayer.contentsScale
+            metalLayer.drawableSize = CGSize(
+                width: max(1, bounds.width * scale),
+                height: max(1, bounds.height * scale)
+            )
+        }
+    }
+
+    private func removePointerTrackingArea() {
+        if let pointerTrackingArea {
+            removeTrackingArea(pointerTrackingArea)
+            self.pointerTrackingArea = nil
+        }
+    }
+
+    private func sendPointerMove(_ event: NSEvent) {
+        sendPointer(event, button: nil, isDown: nil)
+    }
+
+    private func sendPointer(_ event: NSEvent, button: Int?, isDown: Bool?, clampOutside: Bool = false) {
+        guard let remotePoint = remotePointerPoint(for: event, clampOutside: clampOutside) else { return }
+        onPointer?(remotePoint.x, remotePoint.y, button, isDown)
+    }
+
+    private func sendImpreciseScroll(_ event: NSEvent, at remotePoint: (x: Int, y: Int)) {
+        sendScrollSteps(delta: event.scrollingDeltaX, negativeWheel: 1, positiveWheel: 0, at: remotePoint)
+        sendScrollSteps(delta: event.scrollingDeltaY, negativeWheel: 3, positiveWheel: 2, at: remotePoint)
+    }
+
+    private func sendPreciseScroll(_ event: NSEvent, at remotePoint: (x: Int, y: Int)) {
+        let scrollStep: CGFloat = 12
+        accumulatedScrollDeltaX += event.scrollingDeltaX
+        accumulatedScrollDeltaY += event.scrollingDeltaY
+        flushPreciseScrollAxis(&accumulatedScrollDeltaX, step: scrollStep, negativeWheel: 1, positiveWheel: 0, at: remotePoint)
+        flushPreciseScrollAxis(&accumulatedScrollDeltaY, step: scrollStep, negativeWheel: 3, positiveWheel: 2, at: remotePoint)
+    }
+
+    private func flushPreciseScrollAxis(
+        _ accumulatedDelta: inout CGFloat,
+        step: CGFloat,
+        negativeWheel: Int,
+        positiveWheel: Int,
+        at remotePoint: (x: Int, y: Int)
+    ) {
+        guard abs(accumulatedDelta) >= step else { return }
+        let wheel = accumulatedDelta < 0 ? negativeWheel : positiveWheel
+        let steps = Int(abs(accumulatedDelta) / step)
+        accumulatedDelta += accumulatedDelta < 0 ? CGFloat(steps) * step : -CGFloat(steps) * step
+        onScroll?(remotePoint.x, remotePoint.y, wheel, steps)
+    }
+
+    private func sendScrollSteps(delta: CGFloat, negativeWheel: Int, positiveWheel: Int, at remotePoint: (x: Int, y: Int)) {
+        let steps = max(1, Int(abs(delta).rounded(.toNearestOrAwayFromZero)))
+        if delta < 0 {
+            onScroll?(remotePoint.x, remotePoint.y, negativeWheel, steps)
+        } else if delta > 0 {
+            onScroll?(remotePoint.x, remotePoint.y, positiveWheel, steps)
+        }
+    }
+
+    private func isDirectKeyEvent(_ event: NSEvent) -> Bool {
+        isSpecialKeyCode(event.keyCode)
+    }
+
+    private func shouldForwardRemoteKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return !flags.intersection([.command, .control, .option]).isEmpty
+    }
+
+    private func forwardRemoteKeyEquivalent(_ event: NSEvent) {
+        let syntheticModifierKeyCodes = ensurePressedModifierFamilies(for: event.modifierFlags)
+        onKey?(event.keyCode, true, event.charactersIgnoringModifiers)
+        onKey?(event.keyCode, false, event.charactersIgnoringModifiers)
+        for keyCode in syntheticModifierKeyCodes.reversed() {
+            pressedModifierKeyCodes.remove(keyCode)
+            onKey?(keyCode, false, nil)
+        }
+    }
+
+    private func remoteText(for event: NSEvent) -> String? {
+        if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+           let text = event.charactersIgnoringModifiers,
+           !text.isEmpty {
+            return text
+        }
+        guard let text = event.characters, !text.isEmpty else { return nil }
+        return text
+    }
+
+    private func isSpecialKeyCode(_ keyCode: UInt16) -> Bool {
+        switch keyCode {
+        case 36, 48, 51, 53, 71, 76, 96...126:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isModifierKeyCode(_ keyCode: UInt16) -> Bool {
+        switch keyCode {
+        case 54, 55, 56, 58, 59, 60, 61, 62:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func ensurePressedModifierFamilies(for flags: NSEvent.ModifierFlags) -> [UInt16] {
+        var syntheticKeyCodes: [UInt16] = []
+        if flags.contains(.command) {
+            if let keyCode = ensurePressedModifierFamily(keyCodes: [54, 55], preferredKeyCode: 55) {
+                syntheticKeyCodes.append(keyCode)
+            }
+        }
+        if flags.contains(.shift) {
+            if let keyCode = ensurePressedModifierFamily(keyCodes: [56, 60], preferredKeyCode: 56) {
+                syntheticKeyCodes.append(keyCode)
+            }
+        }
+        if flags.contains(.option) {
+            if let keyCode = ensurePressedModifierFamily(keyCodes: [58, 61], preferredKeyCode: 58) {
+                syntheticKeyCodes.append(keyCode)
+            }
+        }
+        if flags.contains(.control) {
+            if let keyCode = ensurePressedModifierFamily(keyCodes: [59, 62], preferredKeyCode: 59) {
+                syntheticKeyCodes.append(keyCode)
+            }
+        }
+        return syntheticKeyCodes
+    }
+
+    private func ensurePressedModifierFamily(keyCodes: [UInt16], preferredKeyCode: UInt16) -> UInt16? {
+        guard keyCodes.allSatisfy({ !pressedModifierKeyCodes.contains($0) }) else { return nil }
+        pressedModifierKeyCodes.insert(preferredKeyCode)
+        onKey?(preferredKeyCode, true, nil)
+        return preferredKeyCode
+    }
+
+    private func updateModifierState(for event: NSEvent) -> Bool {
+        if pressedModifierKeyCodes.contains(event.keyCode) {
+            pressedModifierKeyCodes.remove(event.keyCode)
+            return false
+        }
+        guard modifierFamilyIsDown(for: event) else {
+            pressedModifierKeyCodes.remove(event.keyCode)
+            return false
+        }
+        pressedModifierKeyCodes.insert(event.keyCode)
+        return true
+    }
+
+    private func modifierFamilyIsDown(for event: NSEvent) -> Bool {
+        switch event.keyCode {
+        case 54, 55:
+            return event.modifierFlags.contains(.command)
+        case 56, 60:
+            return event.modifierFlags.contains(.shift)
+        case 58, 61:
+            return event.modifierFlags.contains(.option)
+        case 59, 62:
+            return event.modifierFlags.contains(.control)
+        default:
+            return false
+        }
+    }
+
+    private func releasePressedModifiers() {
+        guard !pressedModifierKeyCodes.isEmpty else { return }
+        for keyCode in pressedModifierKeyCodes {
+            onKey?(keyCode, false, nil)
+        }
+        pressedModifierKeyCodes.removeAll()
+    }
+
+    private func remotePointerPoint(for event: NSEvent, clampOutside: Bool) -> (x: Int, y: Int)? {
+        guard framebufferWidth > 0, framebufferHeight > 0 else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        let drawRect = aspectFittedFramebufferRect()
+        guard drawRect.width > 0, drawRect.height > 0 else {
+            return nil
+        }
+        if !clampOutside, !drawRect.contains(point) {
+            return nil
+        }
+        let clampedPoint = CGPoint(
+            x: max(drawRect.minX, min(drawRect.maxX, point.x)),
+            y: max(drawRect.minY, min(drawRect.maxY, point.y))
+        )
+        let normalizedX = max(0, min(1, (clampedPoint.x - drawRect.minX) / drawRect.width))
+        let normalizedY = max(0, min(1, (drawRect.maxY - clampedPoint.y) / drawRect.height))
+        return (
+            Int((normalizedX * CGFloat(framebufferWidth - 1)).rounded()),
+            Int((normalizedY * CGFloat(framebufferHeight - 1)).rounded())
+        )
+    }
+
+    private func aspectFittedFramebufferRect() -> CGRect {
+        guard framebufferWidth > 0,
+              framebufferHeight > 0,
+              bounds.width > 0,
+              bounds.height > 0 else {
+            return .zero
+        }
+        let contentSize = CGSize(width: framebufferWidth, height: framebufferHeight)
+        let scale = min(bounds.width / contentSize.width, bounds.height / contentSize.height)
+        let fittedSize = CGSize(width: contentSize.width * scale, height: contentSize.height * scale)
+        return CGRect(
+            x: bounds.midX - fittedSize.width / 2,
+            y: bounds.midY - fittedSize.height / 2,
+            width: fittedSize.width,
+            height: fittedSize.height
+        )
+    }
+
+    private static func framebufferByteCount(width: Int, height: Int) -> Int? {
+        guard width > 0,
+              height > 0,
+              width <= maxFramebufferDimension,
+              height <= maxFramebufferDimension else {
+            return nil
+        }
+        let (pixels, pixelOverflow) = width.multipliedReportingOverflow(by: height)
+        guard !pixelOverflow, pixels <= maxFramebufferPixels else {
+            return nil
+        }
+        let (byteCount, byteOverflow) = pixels.multipliedReportingOverflow(by: bytesPerPixel)
+        guard !byteOverflow else { return nil }
+        return byteCount
+    }
+}

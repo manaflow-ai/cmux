@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Darwin
+import CMUXVNC
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -8,11 +9,145 @@ import Darwin
 #endif
 @MainActor
 final class TerminalControllerSocketSecurityTests: XCTestCase {
+    private final class FocusSpyWindow: NSWindow {
+        var requestedResponder: NSResponder?
+        var currentResponder: NSResponder?
+
+        override var firstResponder: NSResponder? {
+            currentResponder
+        }
+
+        override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+            requestedResponder = responder
+            currentResponder = responder
+            return true
+        }
+    }
+
+    private final class FocusableView: NSView {
+        weak var spyWindow: NSWindow?
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override var window: NSWindow? {
+            spyWindow ?? super.window
+        }
+    }
+
     private func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("csec-\(name.prefix(4))-\(shortID).sock")
             .path
+    }
+
+    private func makeVNCKeyEvent(
+        type: NSEvent.EventType = .keyDown,
+        modifierFlags: NSEvent.ModifierFlags,
+        characters: String = "",
+        charactersIgnoringModifiers: String = "",
+        keyCode: UInt16
+    ) -> NSEvent {
+        guard let event = NSEvent.keyEvent(
+            with: type,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            fatalError("Failed to construct VNC key event")
+        }
+        return event
+    }
+
+    private func makeVNCMouseEvent(type: NSEvent.EventType = .leftMouseDown) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: NSPoint(x: 1, y: 1),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ) else {
+            fatalError("Failed to construct VNC mouse event")
+        }
+        return event
+    }
+
+    private func makeVNCScrollEvent(deltaX: CGFloat = 0, deltaY: CGFloat = 1) -> NSEvent {
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .line,
+            wheelCount: 2,
+            wheel1: Int32(deltaY),
+            wheel2: Int32(deltaX),
+            wheel3: 0
+        ), let event = NSEvent(cgEvent: cgEvent) else {
+            fatalError("Failed to construct VNC scroll event")
+        }
+        return event
+    }
+
+    private func makeVNCPreciseScrollEvent(deltaX: Int32 = 0, deltaY: Int32 = 1) -> NSEvent {
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: deltaY,
+            wheel2: deltaX,
+            wheel3: 0
+        ), let event = NSEvent(cgEvent: cgEvent) else {
+            fatalError("Failed to construct VNC precise scroll event")
+        }
+        return event
+    }
+
+    private func makeVNCPanel(
+        name: String = "docker-vnc-1",
+        port: Int = 5900,
+        index: Int = 1
+    ) -> VNCPanel {
+        VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: name,
+                hostName: name,
+                address: "127.0.0.1",
+                port: port,
+                username: "cmux",
+                index: index
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+    }
+
+    private func makeVNCDisplayFrame(sequence: UInt64) -> VNCDisplayFrame {
+        VNCDisplayFrame(
+            header: VNCFrameHeader(
+                sequence: sequence,
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                framebufferWidth: 1,
+                framebufferHeight: 1,
+                stride: 4,
+                pixelFormat: .bgra8
+            ),
+            payload: Data([0, 0, 0, 255])
+        )
     }
 
     override func setUp() {
@@ -947,6 +1082,632 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(portsKickError["code"] as? String, "not_found")
         let portsKickData = try XCTUnwrap(portsKickError["data"] as? [String: Any], "Expected error data payload")
         XCTAssertEqual(portsKickData["surface_id"] as? String, unknownSurfaceId.uuidString)
+    }
+
+    func testGenericSurfaceCreationRejectsVNCType() async throws {
+        let socketPath = makeSocketPath("vnc-type")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let initialPanelCount = workspace.panels.count
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let cases: [(method: String, params: [String: Any])] = [
+            (
+                method: "surface.create",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "type": "vnc"
+                ]
+            ),
+            (
+                method: "surface.split",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": focusedPanelId.uuidString,
+                    "direction": "right",
+                    "type": "vnc"
+                ]
+            ),
+            (
+                method: "pane.create",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": focusedPanelId.uuidString,
+                    "direction": "right",
+                    "type": "vnc"
+                ]
+            )
+        ]
+
+        for testCase in cases {
+            let response = try await sendV2RequestAsync(
+                method: testCase.method,
+                params: testCase.params,
+                to: socketPath
+            )
+
+            XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+            let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+            XCTAssertEqual(error["code"] as? String, "invalid_params")
+            XCTAssertTrue((error["message"] as? String)?.contains("VNC") == true)
+            let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected error data payload")
+            XCTAssertEqual(data["type"] as? String, PanelType.vnc.rawValue)
+        }
+
+        XCTAssertEqual(
+            workspace.panels.count,
+            initialPanelCount,
+            "Generic socket creation methods must not create terminal fallbacks for unsupported VNC requests."
+        )
+    }
+
+    func testVNCPendingFocusAppliesWhenCanvasGetsWindow() throws {
+        let panel = VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: "docker-vnc-1",
+                hostName: "docker-vnc-1",
+                address: "127.0.0.1",
+                port: 5900,
+                username: "cmux",
+                index: 1
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+        let view = FocusableView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let window = FocusSpyWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        defer {
+            panel.close()
+        }
+
+        panel.focus()
+        panel.attachFocusView(view)
+        XCTAssertNil(window.requestedResponder)
+
+        view.spyWindow = window
+        panel.focusViewWindowDidChange(view)
+
+        XCTAssertTrue(window.requestedResponder === view)
+    }
+
+    func testVNCUnfocusClearsPendingFocusBeforeCanvasGetsWindow() throws {
+        let panel = VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: "docker-vnc-1",
+                hostName: "docker-vnc-1",
+                address: "127.0.0.1",
+                port: 5900,
+                username: "cmux",
+                index: 1
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+        let view = FocusableView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let window = FocusSpyWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        defer {
+            panel.close()
+        }
+
+        panel.focus()
+        panel.attachFocusView(view)
+        panel.unfocus()
+        view.spyWindow = window
+        panel.focusViewWindowDidChange(view)
+
+        XCTAssertNil(window.requestedResponder)
+    }
+
+    func testVNCUnfocusResignsOwnedFirstResponder() throws {
+        let panel = VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: "docker-vnc-1",
+                hostName: "docker-vnc-1",
+                address: "127.0.0.1",
+                port: 5900,
+                username: "cmux",
+                index: 1
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+        let view = FocusableView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let window = FocusSpyWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        defer {
+            panel.close()
+        }
+
+        panel.attachFocusView(view)
+        view.spyWindow = window
+        window.currentResponder = view
+
+        panel.unfocus()
+
+        XCTAssertNil(window.requestedResponder)
+        XCTAssertNil(window.currentResponder)
+    }
+
+    func testVNCCanvasResignFirstResponderReleasesModifiers() throws {
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        var keyEvents: [String] = []
+        view.onKey = { keyCode, isDown, _ in
+            keyEvents.append("\(keyCode):\(isDown)")
+        }
+        defer {
+            view.close()
+        }
+
+        view.flagsChanged(with: makeVNCKeyEvent(type: .flagsChanged, modifierFlags: .command, keyCode: 55))
+        XCTAssertEqual(keyEvents, ["55:true"])
+
+        XCTAssertTrue(view.resignFirstResponder())
+
+        XCTAssertEqual(keyEvents, ["55:true", "55:false"])
+    }
+
+    func testVNCCanvasCoordinatorTransfersFocusOwnershipWhenViewIsReused() throws {
+        let firstPanel = VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: "docker-vnc-1",
+                hostName: "docker-vnc-1",
+                address: "127.0.0.1",
+                port: 5900,
+                username: "cmux",
+                index: 1
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+        let secondPanel = VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: "docker-vnc-2",
+                hostName: "docker-vnc-2",
+                address: "127.0.0.1",
+                port: 5901,
+                username: "cmux",
+                index: 2
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+        let view = VNCMetalCanvasView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        let coordinator = VNCMetalCanvasRepresentable.Coordinator()
+        defer {
+            coordinator.detach()
+            firstPanel.close()
+            secondPanel.close()
+        }
+
+        coordinator.attach(panel: firstPanel, view: view)
+        view.apply(makeVNCDisplayFrame(sequence: 100))
+        XCTAssertNotNil(firstPanel.ownedFocusIntent(for: view, in: window))
+        XCTAssertNil(secondPanel.ownedFocusIntent(for: view, in: window))
+        XCTAssertEqual(view.appliedFrameSequenceForTesting, 100)
+
+        coordinator.attach(panel: secondPanel, view: view)
+        XCTAssertNil(firstPanel.ownedFocusIntent(for: view, in: window))
+        XCTAssertNotNil(secondPanel.ownedFocusIntent(for: view, in: window))
+        XCTAssertNil(view.appliedFrameSequenceForTesting)
+
+        view.apply(makeVNCDisplayFrame(sequence: 1))
+        XCTAssertEqual(view.appliedFrameSequenceForTesting, 1)
+
+        coordinator.detach()
+        XCTAssertNil(secondPanel.ownedFocusIntent(for: view, in: window))
+    }
+
+    func testVNCCanvasCoordinatorResetsInputStateWhenViewIsReused() throws {
+        let firstPanel = makeVNCPanel(name: "docker-vnc-1", port: 5900, index: 1)
+        let secondPanel = makeVNCPanel(name: "docker-vnc-2", port: 5901, index: 2)
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let coordinator = VNCMetalCanvasRepresentable.Coordinator()
+        var firstKeyEvents: [String] = []
+        var secondKeyEvents: [String] = []
+        var scrollEvents: [String] = []
+        defer {
+            coordinator.detach()
+            view.close()
+            firstPanel.close()
+            secondPanel.close()
+        }
+
+        view.onKey = { keyCode, isDown, _ in
+            firstKeyEvents.append("\(keyCode):\(isDown)")
+        }
+        view.onScroll = { _, _, wheel, steps in
+            scrollEvents.append("\(wheel):\(steps)")
+        }
+        coordinator.attach(panel: firstPanel, view: view)
+        view.apply(makeVNCDisplayFrame(sequence: 1))
+        view.flagsChanged(with: makeVNCKeyEvent(type: .flagsChanged, modifierFlags: .command, keyCode: 55))
+        view.scrollWheel(with: makeVNCPreciseScrollEvent(deltaY: 6))
+
+        XCTAssertEqual(firstKeyEvents, ["55:true"])
+        XCTAssertEqual(scrollEvents, [])
+
+        coordinator.attach(panel: secondPanel, view: view)
+        view.onKey = { keyCode, isDown, _ in
+            secondKeyEvents.append("\(keyCode):\(isDown)")
+        }
+        view.onScroll = { _, _, wheel, steps in
+            scrollEvents.append("\(wheel):\(steps)")
+        }
+        view.apply(makeVNCDisplayFrame(sequence: 1))
+        view.scrollWheel(with: makeVNCPreciseScrollEvent(deltaY: 6))
+
+        XCTAssertEqual(firstKeyEvents, ["55:true", "55:false"])
+        XCTAssertEqual(secondKeyEvents, [])
+        XCTAssertEqual(scrollEvents, [])
+    }
+
+    func testVNCOldCoordinatorDetachDoesNotClearReplacementCanvasFocus() throws {
+        let panel = makeVNCPanel()
+        let oldView = VNCMetalCanvasView()
+        let newView = VNCMetalCanvasView()
+        let oldCoordinator = VNCMetalCanvasRepresentable.Coordinator()
+        let newCoordinator = VNCMetalCanvasRepresentable.Coordinator()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        defer {
+            oldCoordinator.detach()
+            newCoordinator.detach()
+            oldView.close()
+            newView.close()
+            panel.close()
+        }
+
+        oldCoordinator.attach(panel: panel, view: oldView)
+        newCoordinator.attach(panel: panel, view: newView)
+        XCTAssertNil(panel.ownedFocusIntent(for: oldView, in: window))
+        XCTAssertNotNil(panel.ownedFocusIntent(for: newView, in: window))
+
+        oldCoordinator.detach()
+
+        XCTAssertNil(panel.ownedFocusIntent(for: oldView, in: window))
+        XCTAssertNotNil(panel.ownedFocusIntent(for: newView, in: window))
+
+        newCoordinator.detach()
+        XCTAssertNil(panel.ownedFocusIntent(for: newView, in: window))
+    }
+
+    func testVNCCanvasMouseDownRequestsPanelFocus() throws {
+        let view = VNCMetalCanvasView()
+        var focusRequestCount = 0
+        view.onRequestFocus = {
+            focusRequestCount += 1
+        }
+
+        view.mouseDown(with: makeVNCMouseEvent())
+        XCTAssertEqual(focusRequestCount, 1)
+
+        view.rightMouseDown(with: makeVNCMouseEvent(type: .rightMouseDown))
+        XCTAssertEqual(focusRequestCount, 2)
+    }
+
+    func testVNCCanvasScrollWheelForwardsRemoteWheelInput() throws {
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        var events: [String] = []
+        view.onScroll = { x, y, wheel, steps in
+            events.append("\(x):\(y):\(wheel):\(steps)")
+        }
+        defer {
+            view.onScroll = nil
+            view.close()
+        }
+
+        view.apply(makeVNCDisplayFrame(sequence: 1))
+        view.scrollWheel(with: makeVNCScrollEvent(deltaY: 1))
+
+        XCTAssertEqual(events, ["0:0:2:1"])
+    }
+
+    func testVNCCanvasImpreciseScrollPreservesStepMagnitude() throws {
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        var events: [String] = []
+        view.onScroll = { x, y, wheel, steps in
+            events.append("\(x):\(y):\(wheel):\(steps)")
+        }
+        defer {
+            view.onScroll = nil
+            view.close()
+        }
+
+        view.apply(makeVNCDisplayFrame(sequence: 1))
+        view.scrollWheel(with: makeVNCScrollEvent(deltaY: 3))
+
+        XCTAssertEqual(events, ["0:0:2:3"])
+    }
+
+    func testVNCWorkspaceIdentityMatchSurvivesRename() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let session = MacfleetVNCSession(
+            name: "docker-vnc-1",
+            hostName: "docker-vnc-1",
+            address: "127.0.0.1",
+            port: 5900,
+            username: "cmux",
+            tag: "mac-mini-cluster",
+            index: 1
+        )
+        let otherSession = MacfleetVNCSession(
+            name: "docker-vnc-2",
+            hostName: "docker-vnc-2",
+            address: "127.0.0.1",
+            port: 5901,
+            username: "cmux",
+            tag: "mac-mini-cluster",
+            index: 2
+        )
+        let credential = VNCResolvedCredential(
+            username: "cmux",
+            password: "secret",
+            source: .sessionPassword
+        )
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        XCTAssertNotNil(workspace.newVNCSurface(inPane: paneId, session: session, credential: credential, focus: false))
+        workspace.title = "Renamed workspace"
+
+        XCTAssertTrue(workspace.containsVNCSessionConnectionIdentity(session))
+        XCTAssertFalse(workspace.containsVNCSessionConnectionIdentity(otherSession))
+    }
+
+    func testMacfleetVNCCredentialSummaryReportsSkippedCredentialsWhenReusingWorkspace() {
+        var summary = MacfleetVNCLaunchCredentialSummary(skippedCredentialCount: 1)
+        summary.reusedCount = 1
+
+        XCTAssertEqual(
+            summary.alert,
+            .partial(openedCount: 0, reusedCount: 1, missingCount: 1)
+        )
+    }
+
+    func testMacfleetVNCCredentialSummaryReportsNoCredentialsWhenNothingAvailable() {
+        let summary = MacfleetVNCLaunchCredentialSummary(skippedCredentialCount: 2)
+
+        XCTAssertEqual(summary.alert, .noCredentials)
+    }
+
+    func testVNCKeychainInternetLookupsRequireExplicitSessionPort() {
+        let session = MacfleetVNCSession(
+            name: "mac3-1",
+            hostName: "mac3",
+            address: "mac3-1.local",
+            port: 5901,
+            username: "cmuxvnc",
+            tag: "tag:mac-mini-cluster",
+            index: 1
+        )
+
+        let lookups = VNCKeychainCredentialProvider.internetPasswordLookups(for: session)
+
+        XCTAssertFalse(lookups.isEmpty)
+        XCTAssertTrue(lookups.allSatisfy { $0.port == 5901 })
+        XCTAssertTrue(lookups.contains { $0.server == "mac3-1.local" })
+        XCTAssertFalse(lookups.contains { $0.server == "mac3-1.local:5901" })
+    }
+
+    func testVNCPanelConnectionPreservesPartialFrameForPublish() throws {
+        let header = VNCFrameHeader(
+            sequence: 2,
+            x: 1,
+            y: 0,
+            width: 1,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 1,
+            stride: 4,
+            pixelFormat: .bgra8
+        )
+        let payload = Data([1, 2, 3, 4])
+
+        let frame = try XCTUnwrap(VNCPanelConnection.validatedFrameForPublish(header: header, payload: payload))
+
+        XCTAssertEqual(frame.header, header)
+        XCTAssertEqual(frame.payload, payload)
+    }
+
+    func testVNCPanelConnectionPublishesFramesInReadOrder() async {
+        let session = MacfleetVNCSession(
+            name: "mac3-1",
+            hostName: "mac3",
+            address: "mac3-1.local",
+            port: 5901,
+            username: "cmuxvnc",
+            tag: "tag:mac-mini-cluster",
+            index: 1
+        )
+        let credential = VNCResolvedCredential(
+            username: "cmuxvnc",
+            password: "password",
+            source: .defaultPassword
+        )
+        let deliveredFrames = expectation(description: "VNC frames delivered")
+        deliveredFrames.expectedFulfillmentCount = 2
+        var deliveredSequences: [UInt64] = []
+        var deliveredPayloads: [Data] = []
+        let connection = VNCPanelConnection(
+            session: session,
+            credential: credential,
+            onControl: { _ in },
+            onFrame: { header, payload in
+                deliveredSequences.append(header.sequence)
+                deliveredPayloads.append(payload)
+                deliveredFrames.fulfill()
+            },
+            onExit: { _ in }
+        )
+        defer { connection.close() }
+
+        let fullHeader = VNCFrameHeader(
+            sequence: 1,
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 1,
+            stride: 8,
+            pixelFormat: .bgra8
+        )
+        let partialHeader = VNCFrameHeader(
+            sequence: 2,
+            x: 1,
+            y: 0,
+            width: 1,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 1,
+            stride: 4,
+            pixelFormat: .bgra8
+        )
+        let fullPayload = Data([1, 2, 3, 4, 5, 6, 7, 8])
+        let partialPayload = Data([9, 10, 11, 12])
+
+        connection.publishForTesting(.frame(fullHeader, fullPayload))
+        connection.publishForTesting(.frame(partialHeader, partialPayload))
+
+        await fulfillment(of: [deliveredFrames], timeout: 1.0)
+        XCTAssertEqual(deliveredSequences, [1, 2])
+        XCTAssertEqual(deliveredPayloads, [fullPayload, partialPayload])
+    }
+
+    func testVNCNamedKeyParserPreservesSocketModifiers() throws {
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "ctrl-c"),
+            VNCNamedKeyStroke(modifierKeyCodes: [59], keyCode: 8)
+        )
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "ctrl+c"),
+            VNCNamedKeyStroke(modifierKeyCodes: [59], keyCode: 8)
+        )
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "sigint"),
+            VNCNamedKeyStroke(modifierKeyCodes: [59], keyCode: 8)
+        )
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "shift+tab"),
+            VNCNamedKeyStroke(modifierKeyCodes: [56], keyCode: 48)
+        )
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "cmd+return"),
+            VNCNamedKeyStroke(modifierKeyCodes: [55], keyCode: 36)
+        )
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "ctrl+page_up"),
+            VNCNamedKeyStroke(modifierKeyCodes: [59], keyCode: 116)
+        )
+        XCTAssertNil(VNCPanel.namedKeyStroke(for: "ctrl+definitely-not-a-key"))
+    }
+
+    func testVNCKeyEquivalentForwardsRemoteCommandShortcut() throws {
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        var events: [String] = []
+        view.onKey = { keyCode, isDown, text in
+            events.append("\(keyCode):\(isDown ? "down" : "up"):\(text ?? "")")
+        }
+        defer {
+            view.onKey = nil
+            view.close()
+        }
+
+        let event = makeVNCKeyEvent(
+            modifierFlags: [.command],
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            keyCode: 8
+        )
+
+        XCTAssertTrue(view.performKeyEquivalent(with: event))
+        XCTAssertEqual(events, ["55:down:", "8:down:c", "8:up:c", "55:up:"])
+    }
+
+    func testVNCKeyEquivalentDoesNotDuplicateAlreadyPressedModifier() throws {
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        var events: [String] = []
+        view.onKey = { keyCode, isDown, text in
+            events.append("\(keyCode):\(isDown ? "down" : "up"):\(text ?? "")")
+        }
+        defer {
+            view.onKey = nil
+            view.close()
+        }
+
+        view.flagsChanged(with: makeVNCKeyEvent(type: .flagsChanged, modifierFlags: [.command], keyCode: 55))
+        events.removeAll()
+        let event = makeVNCKeyEvent(
+            modifierFlags: [.command],
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            keyCode: 8
+        )
+
+        XCTAssertTrue(view.performKeyEquivalent(with: event))
+        XCTAssertEqual(events, ["8:down:c", "8:up:c"])
     }
 
     func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
