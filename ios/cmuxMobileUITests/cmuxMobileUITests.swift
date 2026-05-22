@@ -41,7 +41,7 @@ final class cmuxMobileUITests: XCTestCase {
         XCTAssertTrue(pairButton.exists)
         XCTAssertFalse(pairButton.isEnabled)
 
-        try typeText("dev box.local", into: app.textFields["MobileAddDeviceHostField"], in: app)
+        try typeText("dev/path.local", into: app.textFields["MobileAddDeviceHostField"], in: app)
         tap(pairButton, in: app)
         assertPairingError(contains: "Enter a host or IP address", in: app)
 
