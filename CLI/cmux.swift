@@ -2213,9 +2213,6 @@ struct CMUXCLI {
             if messageText.contains("approve") || messageText.contains("approval") {
                 return .toolApproval
             }
-            if event == "stop" || lower.contains("idle") || lower.contains("waiting") || lower.contains("awaiting") || lower.contains("needs input") || lower.contains("needs your input") {
-                return .idlePrompt
-            }
             let metadataIndicatesError = metadata.contains("error")
                 || metadata.contains("failed")
                 || metadata.contains("failure")
@@ -2230,6 +2227,9 @@ struct CMUXCLI {
                 || messageText.hasPrefix("error ")
             if metadataIndicatesError || messageIndicatesError {
                 return .error
+            }
+            if event == "stop" || lower.contains("idle") || lower.contains("waiting") || lower.contains("awaiting") || lower.contains("needs input") || lower.contains("needs your input") {
+                return .idlePrompt
             }
             if lower.contains("question") || lower.contains("answer") || lower.contains("respond") || lower.contains("reply") || message.contains("?") {
                 return .question

@@ -271,6 +271,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "Claude failed to parse the tool result"
             ),
             (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","type":"error","message":"failed while waiting for tool output"}"#,
+                "Error",
+                "failed while waiting for tool output"
+            ),
+            (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","message":"Claude is waiting for your next prompt"}"#,
                 "Idle prompt",
                 "Claude is waiting for your next prompt"
