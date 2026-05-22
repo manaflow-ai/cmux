@@ -85,10 +85,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: MarkdownWebPortalHostView, coordinator: Coordinator) {
 #if DEBUG
-        if coordinator.webView != nil {
+        if coordinator.shouldRecordDismantleRetainedWebView(for: nsView) {
             coordinator.recordDismantleRetainedWebView()
         }
 #endif
+        coordinator.notePortalHostDismantled(nsView)
         nsView.onDidMoveToWindow = nil
         nsView.onGeometryChanged = nil
         // The WKWebView is panel-owned and portal-hosted. Do not detach it here:
@@ -198,6 +199,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastTheme: MarkdownWebTheme? = nil
         private var isLoaded = false
         private var isShellLoading = false
+        private weak var currentPortalHost: MarkdownWebPortalHostView?
+        private var currentPortalHostVisibleInUI = false
         private var webContentProcessRecoveryAttempts = 0
         private let maxWebContentProcessRecoveryAttempts = 2
 
@@ -279,6 +282,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
+        func shouldRecordDismantleRetainedWebView(for host: MarkdownWebPortalHostView) -> Bool {
+            webView != nil && currentPortalHost === host && currentPortalHostVisibleInUI
+        }
+
         private var debugFileName: String {
             let name = URL(fileURLWithPath: filePath).lastPathComponent
             return name.isEmpty ? "-" : name
@@ -309,6 +316,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             self.filePath = filePath
         }
 
+        func notePortalHostDismantled(_ host: MarkdownWebPortalHostView) {
+            guard currentPortalHost === host else { return }
+            currentPortalHost = nil
+            currentPortalHostVisibleInUI = false
+        }
+
         func installWebView(
             _ webView: MarkdownWebView,
             theme: MarkdownWebTheme,
@@ -335,6 +348,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         ) {
             guard let webView else { return }
             guard host.window != nil else {
+                if currentPortalHost === host {
+                    currentPortalHostVisibleInUI = visibleInUI
+                }
                 if !visibleInUI {
                     BrowserWindowPortalRegistry.hide(webView: webView, source: "markdown.\(reason).hiddenOffWindow")
 #if DEBUG
@@ -349,6 +365,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 visibleInUI: visibleInUI,
                 zPriority: zPriority
             )
+            currentPortalHost = host
+            currentPortalHostVisibleInUI = visibleInUI
             BrowserWindowPortalRegistry.updatePaneDropContext(
                 for: webView,
                 context: visibleInUI ? dropContext : nil
@@ -360,6 +378,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         func hidePortal(reason: String) {
             guard let webView else { return }
+            currentPortalHostVisibleInUI = false
             BrowserWindowPortalRegistry.hide(webView: webView, source: "markdown.\(reason)")
             BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
 #if DEBUG
@@ -385,6 +404,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
             }
             self.webView = nil
+            currentPortalHost = nil
+            currentPortalHostVisibleInUI = false
             isLoaded = false
             isShellLoading = false
             webContentProcessRecoveryAttempts = 0
