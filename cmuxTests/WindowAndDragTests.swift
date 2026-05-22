@@ -3380,33 +3380,39 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
         XCTAssertNotNil(BonsplitTabDragPayload.transfer(from: pasteboard))
     }
 
-    func testWorkspaceDropRoutingAcceptsTabTransferTypeOnly() {
+    func testWorkspaceDropRoutingAcceptsTabTransferTypeOnly() throws {
+        let pasteboard = try makeBonsplitPayloadPasteboard(kind: nil)
+
         XCTAssertTrue(
-            BonsplitTabDragPayload.canRouteWorkspaceDrop(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType]
-            )
+            BonsplitTabDragPayload.canRouteWorkspaceDrop(pasteboard: pasteboard)
         )
     }
 
-    func testWorkspaceDropRoutingRejectsFilePreviewCompatibilityTransfer() {
+    func testWorkspaceDropRoutingRejectsLiveFilePreviewCompatibilityTransfer() throws {
+        let dragID = FilePreviewDragRegistry.shared.register(
+            FilePreviewDragEntry(filePath: "/tmp/preview.txt", displayTitle: "preview.txt")
+        )
+        defer { FilePreviewDragRegistry.shared.discard(id: dragID) }
+        let pasteboard = try makeBonsplitPayloadPasteboard(
+            kind: "filePreview",
+            includesFilePreviewTransferType: true,
+            tabID: dragID
+        )
+
         XCTAssertFalse(
-            BonsplitTabDragPayload.canRouteWorkspaceDrop(
-                pasteboardTypes: [
-                    DragOverlayRoutingPolicy.filePreviewTransferType,
-                    DragOverlayRoutingPolicy.bonsplitTabTransferType,
-                ]
-            )
+            BonsplitTabDragPayload.canRouteWorkspaceDrop(pasteboard: pasteboard)
         )
     }
 
     private func makeBonsplitPayloadPasteboard(
         kind: String?,
-        includesFilePreviewTransferType: Bool = false
+        includesFilePreviewTransferType: Bool = false,
+        tabID: UUID = UUID()
     ) throws -> NSPasteboard {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.\(UUID().uuidString)"))
         pasteboard.clearContents()
 
-        var tab: [String: Any] = ["id": UUID().uuidString]
+        var tab: [String: Any] = ["id": tabID.uuidString]
         if let kind {
             tab["kind"] = kind
         }

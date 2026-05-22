@@ -61,6 +61,12 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         )
     }
 
+    func testRemotePreviewDisplayPathUsesSSHURIPathSeparator() {
+        let source = remotePreviewSource(remotePath: "/tmp/remote preview.mov")
+
+        XCTAssertEqual(source.displayPath, "ssh://dev@example.com:2222/tmp/remote preview.mov")
+    }
+
     func testSavingTextViewUsesChordedSaveShortcut() async throws {
         KeyboardShortcutSettings.resetAll()
         defer { KeyboardShortcutSettings.resetAll() }

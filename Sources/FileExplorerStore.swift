@@ -268,6 +268,18 @@ struct SSHFileExplorerConnection: Codable, Equatable, Sendable {
     let sshOptions: [String]
 }
 
+enum SSHFileExplorerDisplayPath {
+    static func displayPath(displayTarget: String, remotePath: String?) -> String {
+        let base = "ssh://\(displayTarget)"
+        guard let remotePath = remotePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !remotePath.isEmpty else {
+            return base
+        }
+        let separator = remotePath.hasPrefix("/") ? "" : "/"
+        return base + separator + remotePath
+    }
+}
+
 protocol SSHFileExplorerTransport: AnyObject {
     nonisolated func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String
     nonisolated func listDirectory(
@@ -666,10 +678,10 @@ final class FileExplorerStore: ObservableObject {
 
     var displayRootPath: String {
         if let sshProvider = provider as? SSHFileExplorerProvider {
-            guard !rootPath.isEmpty else {
-                return "ssh://\(sshProvider.displayTarget)"
-            }
-            return "ssh://\(sshProvider.displayTarget):\(rootPath)"
+            return SSHFileExplorerDisplayPath.displayPath(
+                displayTarget: sshProvider.displayTarget,
+                remotePath: rootPath
+            )
         }
         return FileExplorerRootResolver.displayPath(for: rootPath, homePath: provider?.homePath)
     }

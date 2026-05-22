@@ -7,7 +7,7 @@ struct RemoteFilePreviewSource: Codable, Equatable, Sendable {
     let remotePath: String
 
     var displayPath: String {
-        "ssh://\(displayTarget):\(remotePath)"
+        SSHFileExplorerDisplayPath.displayPath(displayTarget: displayTarget, remotePath: remotePath)
     }
 }
 
@@ -96,7 +96,6 @@ private final class RemoteFilePreviewDownloadOperation: @unchecked Sendable {
     private let source: RemoteFilePreviewSource
     private let destinationURL: URL
     private let process = Process()
-    private let stderrPipe = Pipe()
     private let lock = NSLock()
     private var isCancelled = false
 
@@ -116,27 +115,41 @@ private final class RemoteFilePreviewDownloadOperation: @unchecked Sendable {
         let fileManager = FileManager.default
         let directoryURL = destinationURL.deletingLastPathComponent()
         let temporaryURL = RemoteFilePreviewMaterializer.temporaryDownloadURL(for: destinationURL)
+        let stderrURL = directoryURL
+            .appendingPathComponent(".stderr-\(UUID().uuidString)", isDirectory: false)
 
         do {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
             fileManager.createFile(atPath: temporaryURL.path, contents: nil)
+            fileManager.createFile(atPath: stderrURL.path, contents: nil)
         } catch {
             RemoteFilePreviewMaterializerError.logDiagnostic("cache preparation failed: \(error.localizedDescription)")
             throw RemoteFilePreviewMaterializerError.materializationFailed
         }
         guard let outputHandle = try? FileHandle(forWritingTo: temporaryURL) else {
             try? fileManager.removeItem(at: temporaryURL)
+            try? fileManager.removeItem(at: stderrURL)
             RemoteFilePreviewMaterializerError.logDiagnostic("cache file handle creation failed")
             throw RemoteFilePreviewMaterializerError.materializationFailed
         }
         defer {
             try? outputHandle.close()
         }
+        guard let stderrHandle = try? FileHandle(forWritingTo: stderrURL) else {
+            try? fileManager.removeItem(at: temporaryURL)
+            try? fileManager.removeItem(at: stderrURL)
+            RemoteFilePreviewMaterializerError.logDiagnostic("stderr file handle creation failed")
+            throw RemoteFilePreviewMaterializerError.materializationFailed
+        }
+        defer {
+            try? stderrHandle.close()
+            try? fileManager.removeItem(at: stderrURL)
+        }
 
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         process.arguments = sshArguments(source: source)
         process.standardOutput = outputHandle
-        process.standardError = stderrPipe
+        process.standardError = stderrHandle
 
         do {
             try process.run()
@@ -153,8 +166,9 @@ private final class RemoteFilePreviewDownloadOperation: @unchecked Sendable {
             process.terminate()
         }
 
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        try? stderrHandle.close()
+        let stderrData = (try? Data(contentsOf: stderrURL)) ?? Data()
 
         lock.lock()
         let cancelledAfterExit = isCancelled

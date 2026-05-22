@@ -201,7 +201,7 @@ final class FileExplorerStoreTests: XCTestCase {
 
         XCTAssertTrue(store.provider is SSHFileExplorerProvider)
         XCTAssertEqual(store.rootPath, "/home/dev")
-        XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:2222:/home/dev")
+        XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:2222/home/dev")
         XCTAssertEqual(transport.resolvedHomeConnections, [connection])
         XCTAssertEqual(transport.listedPaths, ["/home/dev"])
     }
