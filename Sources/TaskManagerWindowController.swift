@@ -52,7 +52,7 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
 private struct TaskManagerRootView: View {
     @AppStorage(UIScaleSettings.userDefaultsKey) private var uiScaleRaw = UIScaleSettings.defaultValue
 
-    @ObservedObject var model: CmuxTaskManagerModel
+    let model: CmuxTaskManagerModel
 
     var body: some View {
         CmuxTaskManagerView(model: model)
