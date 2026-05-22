@@ -149,6 +149,7 @@ jobs:
           EXIT_CODE=$?
           set -e
           printf '%s\n' "$OUTPUT" > /tmp/test-output.txt
+          cat /tmp/test-output.txt
           ./scripts/ci-unit-test-output-guard.sh "$EXIT_CODE" /tmp/test-output.txt
 
           # SwiftPM binary artifact resolution can occasionally fail with
@@ -163,10 +164,10 @@ jobs:
             EXIT_CODE=$?
             set -e
             printf '%s\n' "$OUTPUT" > /tmp/test-output.txt
+            cat /tmp/test-output.txt
             ./scripts/ci-unit-test-output-guard.sh "$EXIT_CODE" /tmp/test-output.txt
           fi
 
-          echo "$OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
