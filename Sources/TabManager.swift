@@ -4890,6 +4890,10 @@ class TabManager: ObservableObject {
     }
 
 #if DEBUG
+    nonisolated static func resolvedGitRepositoryWorkTreeRootForTesting(directory: String) -> String? {
+        resolveGitRepository(containing: directory)?.workTreeRoot
+    }
+
     nonisolated static func workspaceGitMetadataWatchedPathsForTesting(directory: String) -> [String] {
         workspaceGitMetadataWatcherDescriptor(for: directory)?.watchedPaths ?? []
     }

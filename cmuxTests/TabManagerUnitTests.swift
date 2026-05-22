@@ -776,6 +776,21 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testResolveGitRepositoryStopsAtFilesystemRootForNonGitDirectory() throws {
+        XCTAssertNil(TabManager.resolvedGitRepositoryWorkTreeRootForTesting(directory: "/"))
+
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-git-root-stop-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("nested", isDirectory: true)
+            .appendingPathComponent("workspace", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL.deletingLastPathComponent().deletingLastPathComponent()) }
+
+        XCTAssertNil(TabManager.resolvedGitRepositoryWorkTreeRootForTesting(directory: directoryURL.path))
+        XCTAssertEqual(TabManager.workspaceGitMetadataWatchedPathsForTesting(directory: directoryURL.path), [])
+    }
+
     func testInheritedBackgroundWorkspaceFetchesGitBranchWithoutSelection() throws {
         let fileManager = FileManager.default
         let repoURL = fileManager.temporaryDirectory.appendingPathComponent(
