@@ -2541,6 +2541,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         matches: Data(responseBody.utf8).count,
                         context: "response \(capture.name) \(entry.request.url)"
                     )
+                    XCTAssertEqual(
+                        entry.response.content.size,
+                        Data(responseBody.utf8).count,
+                        "\(capture.name) \(entry.request.url) sanitized HAR response content size"
+                    )
                 }
                 if hasWebSocketFrames {
                     XCTAssertEqual(entry.resourceType, "websocket", "\(capture.name) \(entry.request.url)")
@@ -2727,6 +2732,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     private struct AgentNetworkHARContent: Decodable {
         let mimeType: String?
+        let size: Int
         let text: String?
     }
 

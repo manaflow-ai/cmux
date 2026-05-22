@@ -343,10 +343,11 @@ def sanitize_content(content: dict[str, Any]) -> dict[str, Any]:
     source_truncated = bool(content.get("_cmuxBodyTruncated"))
     result: dict[str, Any] = {
         "mimeType": content.get("mimeType", "application/octet-stream"),
-        "size": content.get("size", 0),
+        "size": 0,
     }
     if isinstance(text, str) and text:
         text, truncated = trim_text(sanitize_body_text(text))
+        result["size"] = len(text.encode("utf-8"))
         result["text"] = text
         if truncated or source_truncated or "<cmux-truncated>" in text:
             result["_cmuxBodyTruncated"] = True
