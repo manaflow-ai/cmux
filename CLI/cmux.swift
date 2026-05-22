@@ -8517,6 +8517,7 @@ struct CMUXCLI {
                 "token": token,
                 "cols": size.cols,
                 "rows": size.rows,
+                "client_pid": Int(getpid()),
             ], options: [])
             handshakeData.append(0x0A)
             try writeAll(fd: fd, data: handshakeData)

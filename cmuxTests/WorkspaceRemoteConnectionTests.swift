@@ -4003,6 +4003,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             "token": endpoint.token,
             "cols": 80,
             "rows": 24,
+            "client_pid": Int(getpid()),
         ], options: [])
         guard let handshake = String(data: handshakeData, encoding: .utf8) else {
             return XCTFail("Failed to encode bridge handshake")
@@ -4125,6 +4126,43 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(responseText.contains("\"ready\""), responseText)
         XCTAssertTrue(responseText.contains("after-half-close-output"), responseText)
         XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 0.1), .timedOut)
+    }
+
+    func testPTYBridgeDetachesWhenClientSocketClosesAfterAttach() throws {
+        let rpcClient = DelayedOutputPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-client-close",
+            attachmentID: "attachment-client-close",
+            command: nil,
+            requireExisting: false
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+            "client_pid": Int(Int32.max),
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            Darwin.close(fd)
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\n", to: fd))
+        let readyLine = try readLine(from: fd, timeout: 2)
+        XCTAssertTrue(readyLine.contains("\"ready\""), readyLine)
+
+        Darwin.close(fd)
+        XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
     }
 
     func testPTYBridgeClosesBackpressuredOutput() throws {
@@ -4282,6 +4320,29 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 continue
             }
             throw posixError("read bridge response")
+        }
+    }
+
+    private func readLine(from fd: Int32, timeout: TimeInterval) throws -> String {
+        try configureSocketTimeout(fd, option: SO_RCVTIMEO, timeout: timeout)
+        var data = Data()
+        var byte = [UInt8](repeating: 0, count: 1)
+        while true {
+            let count = Darwin.read(fd, &byte, 1)
+            if count > 0 {
+                if byte[0] == 0x0A {
+                    return String(data: data, encoding: .utf8) ?? ""
+                }
+                data.append(byte[0])
+                continue
+            }
+            if count == 0 {
+                return String(data: data, encoding: .utf8) ?? ""
+            }
+            if errno == EINTR {
+                continue
+            }
+            throw posixError("read bridge line")
         }
     }
 

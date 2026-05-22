@@ -4595,6 +4595,8 @@ final class WorkspaceRemotePTYBridgeServer {
         private var closeWhenOutputFlushes: (detach: Bool, gracefulOutputClose: Bool)?
         private var handshakeTimeoutWorkItem: DispatchWorkItem?
         private var remoteAttachment: WorkspaceRemotePTYBridgeAttachment?
+        private var clientPID: pid_t?
+        private var clientProcessExitSource: DispatchSourceProcess?
 
         init(
             connection: NWConnection,
@@ -4655,6 +4657,8 @@ final class WorkspaceRemotePTYBridgeServer {
                     // expects PTY output until the remote session exits.
                     if !self.isAttached {
                         self.close(detach: false)
+                    } else if self.clientHasExited() {
+                        self.close(detach: true)
                     }
                     return
                 }
@@ -4691,6 +4695,8 @@ final class WorkspaceRemotePTYBridgeServer {
             }
             let cols = Self.strictInt(payload["cols"]) ?? 80
             let rows = Self.strictInt(payload["rows"]) ?? 24
+            clientPID = Self.strictPositivePID(payload["client_pid"])
+            armClientProcessExitMonitor()
             handshakeTimeoutWorkItem?.cancel()
             handshakeTimeoutWorkItem = nil
             isAttaching = true
@@ -4957,6 +4963,8 @@ final class WorkspaceRemotePTYBridgeServer {
             pendingInputBeforeAttach.removeAll(keepingCapacity: false)
             pendingPTYEventsBeforeReady.removeAll(keepingCapacity: false)
             pendingPTYEventBytesBeforeReady = 0
+            clientProcessExitSource?.cancel()
+            clientProcessExitSource = nil
             if detach && isAttached, let remoteAttachment {
                 detachRemoteAttachment(remoteAttachment)
             }
@@ -4987,6 +4995,38 @@ final class WorkspaceRemotePTYBridgeServer {
                 return number.intValue
             }
             return nil
+        }
+
+        private static func strictPositivePID(_ value: Any?) -> pid_t? {
+            guard let intValue = strictInt(value),
+                  intValue > 0,
+                  intValue <= Int(Int32.max) else {
+                return nil
+            }
+            return pid_t(intValue)
+        }
+
+        private func armClientProcessExitMonitor() {
+            clientProcessExitSource?.cancel()
+            clientProcessExitSource = nil
+            guard let clientPID, Self.processIsRunning(clientPID) else { return }
+            let source = DispatchSource.makeProcessSource(identifier: clientPID, eventMask: .exit, queue: queue)
+            source.setEventHandler { [weak self] in
+                self?.close(detach: true)
+            }
+            clientProcessExitSource = source
+            source.resume()
+        }
+
+        private func clientHasExited() -> Bool {
+            guard let clientPID else { return true }
+            return !Self.processIsRunning(clientPID)
+        }
+
+        private static func processIsRunning(_ pid: pid_t) -> Bool {
+            guard pid > 0 else { return false }
+            if Darwin.kill(pid, 0) == 0 { return true }
+            return errno == EPERM
         }
 
         private static func userFacingBridgeErrorMessage(_ error: Error) -> String {
