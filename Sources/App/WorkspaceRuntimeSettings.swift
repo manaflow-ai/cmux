@@ -258,6 +258,23 @@ enum AgentHibernationSettings {
     }
 }
 
+enum AgentHibernationTrackingGate {
+    private static let lock = NSLock()
+    private static var enabled = AgentHibernationSettings.isEnabled()
+
+    static func isEnabled() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return enabled
+    }
+
+    static func setEnabled(_ nextEnabled: Bool) {
+        lock.lock()
+        enabled = nextEnabled
+        lock.unlock()
+    }
+}
+
 enum RightSidebarBetaFeatureSettings {
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
 

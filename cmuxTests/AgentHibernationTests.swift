@@ -712,6 +712,41 @@ final class AgentHibernationTests: XCTestCase {
     }
 
     @MainActor
+    func testMovedHibernatedTerminalResumesThroughDestinationWorkspace() throws {
+        let source = Workspace()
+        let panelId = try XCTUnwrap(source.focusedPanelId)
+        let panel = try XCTUnwrap(source.panels[panelId] as? TerminalPanel)
+        let detached = try XCTUnwrap(source.detachSurface(panelId: panelId))
+
+        let destination = Workspace()
+        let destinationPaneId = try XCTUnwrap(destination.bonsplitController.focusedPaneId)
+        XCTAssertEqual(
+            destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false),
+            panelId
+        )
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-moved-explicit-input-resume",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+        destination.enterAgentHibernation(
+            panelId: panelId,
+            agent: snapshot,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertTrue(panel.isAgentHibernated)
+
+        let result = panel.sendInputResult("pwd\r")
+
+        XCTAssertEqual(result, .queued)
+        XCTAssertFalse(panel.isAgentHibernated)
+        XCTAssertNil(source.restoredAgentResumeStatesByPanelId[panelId])
+        XCTAssertEqual(destination.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
+    }
+
+    @MainActor
     func testExplicitNamedKeyToHibernatedTerminalQueuesAndPreparesResume() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)

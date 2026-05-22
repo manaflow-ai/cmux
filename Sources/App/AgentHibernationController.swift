@@ -106,6 +106,7 @@ final class AgentHibernationController {
     func stop() {
         timer?.cancel()
         timer = nil
+        AgentHibernationTrackingGate.setEnabled(false)
         clearTrackingState()
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
@@ -113,16 +114,22 @@ final class AgentHibernationController {
         }
     }
 
-    func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
+    func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
+        guard AgentHibernationTrackingGate.isEnabled() else { return }
+        let recordedAt = recordedAt ?? Date()
         let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
         terminalInputByPanel[key] = recordedAt.timeIntervalSince1970
     }
 
-    func recordTerminalFocus(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
+    func recordTerminalFocus(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
+        guard AgentHibernationTrackingGate.isEnabled() else { return }
+        let recordedAt = recordedAt ?? Date()
         recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
     }
 
-    func recordAgentLifecycleChange(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
+    func recordAgentLifecycleChange(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
+        guard AgentHibernationTrackingGate.isEnabled() else { return }
+        let recordedAt = recordedAt ?? Date()
         let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
         lifecycleChangeByPanel[key] = recordedAt.timeIntervalSince1970
     }
@@ -136,7 +143,9 @@ final class AgentHibernationController {
     }
 
     private func updateTimerForCurrentSettings() {
-        guard AgentHibernationSettings.isEnabled() else {
+        let enabled = AgentHibernationSettings.isEnabled()
+        AgentHibernationTrackingGate.setEnabled(enabled)
+        guard enabled else {
             timer?.cancel()
             timer = nil
             clearTrackingState()
@@ -166,6 +175,7 @@ final class AgentHibernationController {
         now: Date
     ) {
         guard settings.enabled else {
+            AgentHibernationTrackingGate.setEnabled(false)
             clearTrackingState()
             return
         }

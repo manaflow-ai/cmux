@@ -12021,6 +12021,7 @@ final class Workspace: Identifiable, ObservableObject {
         panels[detached.panelId] = detached.panel
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
+            configureTerminalPanel(terminalPanel)
         } else if let browserPanel = detached.panel as? BrowserPanel {
             browserPanel.reattachToWorkspace(
                 id,

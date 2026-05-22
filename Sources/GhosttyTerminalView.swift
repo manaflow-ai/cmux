@@ -4533,6 +4533,7 @@ enum TerminalSurfaceFocusPlacement: Equatable {
 }
 
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
+    guard AgentHibernationTrackingGate.isEnabled() else { return }
     let recordedAt = Date()
     Task { @MainActor in
         AgentHibernationController.shared.recordTerminalInput(
