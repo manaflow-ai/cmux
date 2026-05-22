@@ -4093,6 +4093,39 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertNil(workspace.bonsplitController.tab(dockTabId))
     }
 
+    func testDockTabZoomToggleUsesWorkspaceRouting() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+        let dockTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(dockPanel.id))
+        _ = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: dockPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil,
+                focus: false
+            )
+        )
+
+        XCTAssertEqual(workspace.focusedPanelId, mainPanelId)
+        XCTAssertTrue(dock.controller.onTabZoomToggleRequest?(dockTabId, dockPaneId) == true)
+
+        XCTAssertTrue(dock.controller.isSplitZoomed)
+        XCTAssertEqual(dock.controller.zoomedPaneId, dockPaneId)
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+    }
+
     func testDockControllersReceiveSurfaceTabBarButtonConfiguration() {
         let workspace = Workspace()
         let existingDock = workspace.dockLayout.addDock(edge: .left)

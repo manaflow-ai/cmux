@@ -7604,6 +7604,11 @@ final class WorkspaceDock: ObservableObject, Identifiable {
         controller.onTabCloseRequest = { [weak workspace] tabId, _ in
             workspace?.markExplicitClose(surfaceId: tabId)
         }
+        controller.onTabZoomToggleRequest = { [weak workspace] tabId, _ in
+            guard let workspace,
+                  let panelId = workspace.panelIdFromSurfaceId(tabId) else { return false }
+            return workspace.toggleSplitZoom(panelId: panelId)
+        }
     }
 
     func setPreferredSize(_ size: CGFloat) {
@@ -13880,12 +13885,13 @@ final class Workspace: Identifiable, ObservableObject {
     private func browserSplitZoomExitFocusNeedsFollowUp(panelId: UUID) -> Bool {
         guard let browserPanel = browserPanel(for: panelId),
               let paneId = paneId(forPanelId: panelId),
+              let controller = bonsplitController(containingPane: paneId),
               let tabId = surfaceIdFromPanelId(panelId) else {
             return false
         }
         let selectionConverged =
-            bonsplitController.focusedPaneId == paneId &&
-            bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+            controller.focusedPaneId == paneId &&
+            controller.selectedTab(inPane: paneId)?.id == tabId
         return !selectionConverged || !browserPortalAnchorReady(for: browserPanel)
     }
 

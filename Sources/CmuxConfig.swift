@@ -2140,7 +2140,8 @@ final class CmuxConfigStore: ObservableObject {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = localPath
             }
-            if let newWorkspace = localConfig.newWorkspace {
+            if configuredNewWorkspaceActionID == nil,
+               let newWorkspace = localConfig.newWorkspace {
                 if let globalNewWorkspace = globalConfig?.newWorkspace {
                     configuredNewWorkspaceDefinition = Self.mergedNewWorkspaceDefinition(
                         primary: newWorkspace,

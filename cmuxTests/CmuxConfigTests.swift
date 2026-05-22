@@ -1089,6 +1089,50 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testLocalNewWorkspaceActionSuppressesLocalNewWorkspaceDefinition() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "actions": {
+            "open-local": { "type": "workspaceCommand", "commandName": "Local Dev" }
+          },
+          "ui": {
+            "newWorkspace": { "action": "open-local" }
+          },
+          "newWorkspace": {
+            "name": "Local Template",
+            "docks": {
+              "left": [{ "open": true, "width": 260 }]
+            }
+          },
+          "commands": [{
+            "name": "Local Dev",
+            "workspace": { "name": "Local" }
+          }]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.resolvedNewWorkspaceAction()?.id, "open-local")
+        XCTAssertEqual(store.resolvedNewWorkspaceCommand()?.command.name, "Local Dev")
+        XCTAssertNil(store.resolvedNewWorkspaceDefinition())
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
     func testLocalLegacyNewWorkspaceCommandSuppressesGlobalNewWorkspaceDefinition() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
