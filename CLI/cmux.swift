@@ -2175,7 +2175,7 @@ struct CMUXCLI {
             case .question:
                 return String(localized: "agent.claude.waiting.body.question", defaultValue: "Claude is asking a question")
             case .error:
-                return String(localized: "agent.claude.waiting.body.error", defaultValue: "Claude reported an error")
+                return String(localized: "agent.claude.waiting.body.error", defaultValue: "Something went wrong. Try again from the Claude surface.")
             case .idlePrompt:
                 return String(localized: "agent.claude.waiting.body.idlePrompt", defaultValue: "Claude is waiting for input")
             }
@@ -2195,26 +2195,32 @@ struct CMUXCLI {
             let messageText = message.lowercased()
             let lower = "\(metadata) \(messageText)"
 
+            if metadataIndicatesError(metadata) {
+                return .error
+            }
             if event == "askuserquestion" || tool == "askuserquestion" || lower.contains("askuserquestion") {
                 return .question
             }
-            if event == "permissionrequest" || metadata.contains("permissionrequest") || metadata.contains("permission_prompt") || metadata.contains("permission request") || metadata.contains("permission") {
+            if event == "permissionrequest" || metadata.contains("permissionrequest") {
                 return .permissionRequest
             }
             if event == "pretooluse", !tool.isEmpty {
                 return .toolApproval
             }
+            if metadata.contains("permission_prompt") || metadata.contains("permission request") || metadata.contains("permission") {
+                return .permissionRequest
+            }
             if metadata.contains("approve") || metadata.contains("approval") {
                 return .toolApproval
+            }
+            if messageIndicatesError(messageText) {
+                return .error
             }
             if messageText.contains("permissionrequest") || messageText.contains("permission request") || messageText.contains("permission_prompt") || messageText.contains("permission") {
                 return .permissionRequest
             }
             if messageText.contains("approve") || messageText.contains("approval") {
                 return .toolApproval
-            }
-            if metadataIndicatesError(metadata) || messageIndicatesError(messageText) {
-                return .error
             }
             if event == "stop" || lower.contains("idle") || lower.contains("waiting") || lower.contains("awaiting") || lower.contains("needs input") || lower.contains("needs your input") {
                 return .idlePrompt
@@ -18244,6 +18250,33 @@ struct CMUXCLI {
                 workspaceId: workspaceId ?? workspaceArg
             )
         }
+        func claudeNeedsInputStatusValue() -> String {
+            String(localized: "agent.claude.status.needsInput", defaultValue: "Needs input")
+        }
+        func claudeWaitingNotificationFingerprint(_ summary: (subtitle: String, body: String)) -> String {
+            "\(summary.subtitle)\n\(summary.body)"
+        }
+        func recentlySentClaudeWaitingNotification(
+            sessionId: String?,
+            summary: (subtitle: String, body: String)
+        ) -> Bool {
+            guard let sessionId else { return false }
+            return (try? sessionStore.recentlyEmittedNotification(
+                sessionId: sessionId,
+                fingerprint: claudeWaitingNotificationFingerprint(summary),
+                within: 30
+            )) == true
+        }
+        func markClaudeWaitingNotificationSent(
+            sessionId: String?,
+            summary: (subtitle: String, body: String)
+        ) {
+            guard let sessionId else { return }
+            try? sessionStore.markNotificationEmitted(
+                sessionId: sessionId,
+                fingerprint: claudeWaitingNotificationFingerprint(summary)
+            )
+        }
         defer {
             if !didSendFeedTelemetry {
                 sendClaudeFeedTelemetry()
@@ -18565,6 +18598,12 @@ struct CMUXCLI {
                 client: client
             )
 
+            if recentlySentClaudeWaitingNotification(sessionId: parsedInput.sessionId, summary: summary) {
+                telemetry.breadcrumb("claude-hook.notification.duplicate-suppressed")
+                print("OK")
+                return
+            }
+
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -18581,7 +18620,7 @@ struct CMUXCLI {
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                value: "Needs input",
+                value: claudeNeedsInputStatusValue(),
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
@@ -18591,6 +18630,7 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 client: client
             )
+            markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
             print(response)
 
         case "permission-request":
@@ -18633,6 +18673,11 @@ struct CMUXCLI {
                 parsedInput: parsedInput,
                 defaultReason: .permissionRequest
             )
+            if recentlySentClaudeWaitingNotification(sessionId: parsedInput.sessionId, summary: summary) {
+                telemetry.breadcrumb("claude-hook.permission-request.duplicate-suppressed")
+                print("OK")
+                return
+            }
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -18648,7 +18693,7 @@ struct CMUXCLI {
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                value: "Needs input",
+                value: claudeNeedsInputStatusValue(),
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
@@ -18658,6 +18703,7 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 client: client
             )
+            markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
             print(response)
 
         case "session-end":
@@ -18816,9 +18862,10 @@ struct CMUXCLI {
         case "help", "--help", "-h":
             telemetry.breadcrumb("claude-hook.help")
             print(
-                """
-                cmux claude-hook <session-start|stop|session-end|notification|prompt-submit|pre-tool-use|permission-request> [--workspace <id|index>] [--surface <id|index>]
-                """
+                String(
+                    localized: "cli.claude-hook.help.usage",
+                    defaultValue: "cmux claude-hook <session-start|stop|session-end|notification|prompt-submit|pre-tool-use|permission-request> [--workspace <id|index>] [--surface <id|index>]"
+                )
             )
 
         default:
@@ -19389,11 +19436,16 @@ struct CMUXCLI {
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
-            "additional_details", "additionalDetails", "description",
+            "additional_details", "additionalDetails", "description", "permission_prompt", "permissionPrompt",
         ] {
             if let value = compactClaudeHookValue(object[key], key: key) {
                 compact[key] = value
             }
+        }
+        if let allowedPrompts = compactClaudeAllowedPrompts(
+            object["allowedPrompts"] ?? object["allowed_prompts"]
+        ) {
+            compact["allowedPrompts"] = allowedPrompts
         }
 
         if let toolInput = object["tool_input"] as? [String: Any] {
@@ -19406,21 +19458,10 @@ struct CMUXCLI {
                     compactToolInput[key] = value
                 }
             }
-            if let allowedPrompts = (toolInput["allowedPrompts"] as? [[String: Any]])
-                ?? (toolInput["allowed_prompts"] as? [[String: Any]]) {
-                let compactPrompts: [[String: String]] = allowedPrompts.compactMap { prompt in
-                    guard let promptText = compactClaudeHookStringValue(prompt["prompt"], maxLength: 220) else {
-                        return nil
-                    }
-                    var out: [String: String] = ["prompt": promptText]
-                    if let tool = compactClaudeHookStringValue(prompt["tool"], maxLength: 80) {
-                        out["tool"] = tool
-                    }
-                    return out
-                }
-                if !compactPrompts.isEmpty {
-                    compactToolInput["allowedPrompts"] = compactPrompts
-                }
+            if let allowedPrompts = compactClaudeAllowedPrompts(
+                toolInput["allowedPrompts"] ?? toolInput["allowed_prompts"]
+            ) {
+                compactToolInput["allowedPrompts"] = allowedPrompts
             }
             if let questions = toolInput["questions"] as? [[String: Any]] {
                 compactToolInput["questions"] = questions.prefix(1).map { question in
@@ -19453,11 +19494,16 @@ struct CMUXCLI {
             var compactNested: [String: Any] = [:]
             for nestedKey in [
                 "type", "kind", "reason", "title", "summary", "message", "body", "text", "prompt", "error", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
-                "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description",
+                "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "permission_prompt", "permissionPrompt",
             ] {
                 if let value = compactClaudeHookValue(nested[nestedKey], key: nestedKey) {
                     compactNested[nestedKey] = value
                 }
+            }
+            if let allowedPrompts = compactClaudeAllowedPrompts(
+                nested["allowedPrompts"] ?? nested["allowed_prompts"]
+            ) {
+                compactNested["allowedPrompts"] = allowedPrompts
             }
             if !compactNested.isEmpty {
                 compact[key] = compactNested
@@ -19465,6 +19511,23 @@ struct CMUXCLI {
         }
 
         return compact
+    }
+
+    private func compactClaudeAllowedPrompts(_ rawValue: Any?) -> [[String: String]]? {
+        guard let allowedPrompts = rawValue as? [[String: Any]] else { return nil }
+        let compactPrompts: [[String: String]] = allowedPrompts.compactMap { prompt in
+            guard let promptText = firstString(in: prompt, keys: ["prompt", "message", "description"])
+                .flatMap({ compactClaudeHookStringValue($0, maxLength: 220) }) else {
+                return nil
+            }
+            var out: [String: String] = ["prompt": promptText]
+            if let tool = firstString(in: prompt, keys: ["tool", "tool_name", "toolName"])
+                .flatMap({ compactClaudeHookStringValue($0, maxLength: 80) }) {
+                out["tool"] = tool
+            }
+            return out
+        }
+        return compactPrompts.isEmpty ? nil : compactPrompts
     }
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
@@ -20900,7 +20963,7 @@ struct CMUXCLI {
                 signal: message,
                 message: message
             )
-            let body = message.isEmpty ? reason.fallbackBody : message
+            let body = reason == .error || message.isEmpty ? reason.fallbackBody : message
             return (subtitle: reason.subtitle, body: truncate(body, maxLength: 140))
         }
 
@@ -20915,7 +20978,12 @@ struct CMUXCLI {
             message: message ?? ""
         )
         let reason = (classifiedReason == .idlePrompt ? defaultReason : nil) ?? classifiedReason
-        let body = message.map(normalizedSingleLine).flatMap { $0.isEmpty ? nil : $0 } ?? reason.fallbackBody
+        let body: String
+        if reason == .error {
+            body = reason.fallbackBody
+        } else {
+            body = message.map(normalizedSingleLine).flatMap { $0.isEmpty ? nil : $0 } ?? reason.fallbackBody
+        }
         return (subtitle: reason.subtitle, body: truncate(body, maxLength: 140))
     }
 
@@ -20934,19 +21002,7 @@ struct CMUXCLI {
 
         let metadata = signal.lowercased()
         let messageText = message.lowercased()
-        guard !metadata.contains("permissionrequest"),
-              !metadata.contains("permission request"),
-              !metadata.contains("permission_prompt"),
-              !metadata.contains("permission"),
-              !metadata.contains("approve"),
-              !metadata.contains("approval"),
-              !ClaudeWaitingNotificationClassifier.metadataIndicatesError(metadata),
-              !messageText.contains("permissionrequest"),
-              !messageText.contains("permission request"),
-              !messageText.contains("permission_prompt"),
-              !messageText.contains("permission"),
-              !messageText.contains("approve"),
-              !messageText.contains("approval"),
+        guard !ClaudeWaitingNotificationClassifier.metadataIndicatesError(metadata),
               !ClaudeWaitingNotificationClassifier.messageIndicatesError(messageText) else {
             return nil
         }
@@ -20979,12 +21035,17 @@ struct CMUXCLI {
     private func claudeHookSignal(_ object: [String: Any]) -> String {
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
         let toolInput = object["tool_input"] as? [String: Any] ?? [:]
+        let hasPermissionPrompt =
+            firstString(in: object, keys: ["permission_prompt", "permissionPrompt"]) != nil ||
+            firstString(in: nested, keys: ["permission_prompt", "permissionPrompt"]) != nil ||
+            firstString(in: toolInput, keys: ["permission_prompt", "permissionPrompt"]) != nil
         let signalParts = [
             claudeHookEventName(object),
             claudeHookToolName(object),
             firstString(in: object, keys: ["notification_type", "matcher", "reason", "permissionDecision", "permission_decision"]),
             firstString(in: nested, keys: ["notification_type", "matcher", "reason", "permissionDecision", "permission_decision"]),
-            firstString(in: toolInput, keys: ["permission_prompt", "permissionPrompt", "reason", "kind"]),
+            hasPermissionPrompt ? "permission_prompt" : nil,
+            firstString(in: toolInput, keys: ["reason", "kind"]),
         ]
         return signalParts.compactMap { $0 }.joined(separator: " ")
     }
@@ -20993,12 +21054,19 @@ struct CMUXCLI {
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
         let toolInput = object["tool_input"] as? [String: Any] ?? [:]
         let messageCandidates = [
-            firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title", "reason"]),
-            firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title", "reason"]),
             describeAskUserQuestion(object),
+            describeClaudeAllowedPrompt(object),
+            describeClaudeAllowedPrompt(nested),
             describeClaudeAllowedPrompt(toolInput),
-            firstString(in: toolInput, keys: ["message", "body", "text", "prompt", "permission_prompt", "permissionPrompt", "summary", "description", "command", "file_path", "pattern", "query", "url"]),
+            firstString(in: object, keys: ["permission_prompt", "permissionPrompt"]),
+            firstString(in: nested, keys: ["permission_prompt", "permissionPrompt"]),
+            firstString(in: toolInput, keys: ["permission_prompt", "permissionPrompt"]),
             describeToolApprovalPrompt(object),
+            firstString(in: toolInput, keys: ["message", "body", "text", "prompt", "summary", "description", "command", "file_path", "pattern", "query", "url"]),
+            firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error"]),
+            firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error"]),
+            firstString(in: object, keys: ["title", "reason"]),
+            firstString(in: nested, keys: ["title", "reason"]),
         ]
         return messageCandidates.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
     }
@@ -21017,16 +21085,16 @@ struct CMUXCLI {
     private func describeToolApprovalPrompt(_ object: [String: Any]) -> String? {
         guard let toolName = claudeHookToolName(object) else { return nil }
         let input = object["tool_input"] as? [String: Any] ?? [:]
-        switch toolName {
-        case "Bash":
+        switch toolName.lowercased() {
+        case "bash":
             return firstString(in: input, keys: ["command"])
-        case "Read", "Edit", "Write":
+        case "read", "edit", "write":
             return firstString(in: input, keys: ["file_path"])
-        case "WebFetch":
+        case "webfetch":
             return firstString(in: input, keys: ["url"])
-        case "WebSearch":
+        case "websearch":
             return firstString(in: input, keys: ["query"])
-        case "Grep":
+        case "grep":
             return firstString(in: input, keys: ["pattern"])
         default:
             return firstString(in: input, keys: ["description", "prompt", "message"])
@@ -21034,13 +21102,19 @@ struct CMUXCLI {
     }
 
     private func isGenericClaudeWaitingBody(_ body: String) -> Bool {
-        let lower = body.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return lower == "claude needs your input"
-            || lower == "claude is waiting for your input"
-            || lower == "claude is waiting for input"
-            || lower == "claude code needs your attention"
-            || lower.contains("needs your attention")
-            || lower.contains("needs your input")
+        let normalized = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return false }
+        let genericBodies = [
+            "Claude needs your input",
+            "Claude is waiting for your input",
+            "Claude Code needs your attention",
+            ClaudeWaitingNotificationReason.permissionRequest.fallbackBody,
+            ClaudeWaitingNotificationReason.toolApproval.fallbackBody,
+            ClaudeWaitingNotificationReason.question.fallbackBody,
+            ClaudeWaitingNotificationReason.error.fallbackBody,
+            ClaudeWaitingNotificationReason.idlePrompt.fallbackBody,
+        ].map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        return genericBodies.contains(normalized.lowercased())
     }
 
     private func summarizeAgentHookNotification(

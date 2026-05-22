@@ -253,6 +253,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "grep error.log"
             ),
             (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Bash","reason":"permission required","message":"grep error.log"}"#,
+                "Claude Workspace - Claude waiting",
+                "Tool approval",
+                "grep error.log"
+            ),
+            (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Permission request: run grep error.log"}"#,
                 "Claude Workspace - Claude waiting",
                 "Permission request",
@@ -274,25 +280,31 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude failed to parse the tool result"}"#,
                 "Claude Workspace - Claude waiting",
                 "Error",
-                "Claude failed to parse the tool result"
+                "Something went wrong. Try again from the Claude surface."
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"There was an error."}"#,
                 "Claude Workspace - Claude waiting",
                 "Error",
-                "There was an error."
+                "Something went wrong. Try again from the Claude surface."
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Error"}"#,
                 "Claude Workspace - Claude waiting",
                 "Error",
-                "Error"
+                "Something went wrong. Try again from the Claude surface."
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"PermissionRequest failed"}"#,
+                "Claude Workspace - Claude waiting",
+                "Error",
+                "Something went wrong. Try again from the Claude surface."
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","type":"error","message":"failed while waiting for tool output"}"#,
                 "Claude Workspace - Claude waiting",
                 "Error",
-                "failed while waiting for tool output"
+                "Something went wrong. Try again from the Claude surface."
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","message":"Claude is waiting for your next prompt"}"#,
@@ -305,6 +317,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "Claude Workspace",
                 "Completed",
                 "Task completed"
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Task completed after checking permissions"}"#,
+                "Claude Workspace",
+                "Completed",
+                "Task completed after checking permissions"
             ),
         ]
 
@@ -372,6 +390,37 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let permissionPromptCommand = try XCTUnwrap(permissionPromptNotifyCommands.last)
         XCTAssertTrue(permissionPromptCommand.contains("Claude Workspace - Claude waiting|Permission request|"), permissionPromptCommand)
         XCTAssertTrue(permissionPromptCommand.contains("Allow Bash to scan grep error.log?"), permissionPromptCommand)
+
+        let allowedDescriptionCommandStart = context.state.commands.count
+        let allowedDescriptionResult = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","reason":"Claude Code needs your attention","tool_input":{"command":"grep error.log","allowed_prompts":[{"description":"Allow Bash to read grep error.log?"}]}}"#
+        )
+        XCTAssertFalse(allowedDescriptionResult.timedOut, allowedDescriptionResult.stderr)
+        XCTAssertEqual(allowedDescriptionResult.status, 0, allowedDescriptionResult.stderr)
+
+        let allowedDescriptionNotifyCommands = Array(context.state.commands.dropFirst(allowedDescriptionCommandStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let allowedDescriptionCommand = try XCTUnwrap(allowedDescriptionNotifyCommands.last)
+        XCTAssertTrue(allowedDescriptionCommand.contains("Claude Workspace - Claude waiting|Permission request|"), allowedDescriptionCommand)
+        XCTAssertTrue(allowedDescriptionCommand.contains("Allow Bash to read grep error.log?"), allowedDescriptionCommand)
+
+        let duplicateCommandStart = context.state.commands.count
+        let duplicateResult = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#
+        )
+        XCTAssertFalse(duplicateResult.timedOut, duplicateResult.stderr)
+        XCTAssertEqual(duplicateResult.status, 0, duplicateResult.stderr)
+
+        let duplicateNotifyCommands = Array(context.state.commands.dropFirst(duplicateCommandStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertTrue(
+            duplicateNotifyCommands.isEmpty,
+            "Expected generic Notification after PermissionRequest to be deduped, saw \(duplicateNotifyCommands)"
+        )
     }
 
     func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {
