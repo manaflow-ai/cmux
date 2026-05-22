@@ -752,8 +752,9 @@ private final class ClaudeHookSessionStore {
         updateRuntimeStatus: Bool,
         now: TimeInterval
     ) {
-        if let parentSessionId = normalizeOptional(parentSessionId) {
-            record.parentSessionId = parentSessionId
+        let normalizedParentSessionId = normalizeOptional(parentSessionId)
+        if let normalizedParentSessionId {
+            record.parentSessionId = normalizedParentSessionId
         }
         record.workspaceId = workspaceId
         if !surfaceId.isEmpty {
@@ -771,7 +772,9 @@ private final class ClaudeHookSessionStore {
         if let launchCommand, !launchCommand.arguments.isEmpty {
             record.launchCommand = launchCommand
         }
-        if let isRestorable {
+        // Late startup hooks pass false as routing state; only explicit child metadata can demote a restorable record.
+        if let isRestorable,
+           !(isRestorable == false && record.isRestorable == true && normalizedParentSessionId == nil) {
             record.isRestorable = isRestorable
         }
         if let subtitle = normalizeOptional(lastSubtitle) {
