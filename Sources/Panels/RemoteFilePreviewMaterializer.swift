@@ -49,13 +49,14 @@ enum RemoteFilePreviewMaterializer {
     static func materialize(source: RemoteFilePreviewSource, to destinationURL: URL? = nil) async throws -> URL {
         let destinationURL = destinationURL ?? cacheURL(for: source)
         let operation = RemoteFilePreviewDownloadOperation(source: source, destinationURL: destinationURL)
+        let worker = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            return try operation.run()
+        }
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    continuation.resume(with: Result { try operation.run() })
-                }
-            }
+            try await worker.value
         } onCancel: {
+            worker.cancel()
             operation.cancel()
         }
     }

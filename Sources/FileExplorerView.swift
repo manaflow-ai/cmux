@@ -1074,8 +1074,7 @@ final class FileExplorerContainerView: NSView {
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
             searchController.cancel(clear: true)
-            searchSnapshot = .empty
-            searchResultsView.reloadData()
+            applySearchSnapshot(.empty)
             refreshSearchIfNeeded()
         } else if contentRevisionChanged {
             refreshSearchAfterContentRevisionIfNeeded()
