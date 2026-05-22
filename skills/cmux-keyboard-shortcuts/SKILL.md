@@ -59,26 +59,34 @@ fi
    - Broad customization request: propose 3 to 5 templates from "Preset Templates" and ask the user to choose.
    - Named style such as tmux, Vim, iTerm, browser, or agent triage: select the closest template, show the changed actions and likely collisions, and ask before a bulk apply unless the user explicitly said to apply it.
 2. Inspect existing config:
+
    ```bash
    "$CMUX_SETTINGS" path
    "$CMUX_SETTINGS" get shortcuts.bindings 2>/dev/null || printf '{}\n'
    "$CMUX_SETTINGS" validate
    ```
+
 3. Before applying a template, snapshot prior values for every action you will change. A path that is absent must revert with `unset`; a path with an existing custom value must revert with `set <same-json-value>`.
+
    ```bash
    "$CMUX_SETTINGS" get shortcuts.bindings.focusLeft 2>/dev/null || printf '<absent>\n'
    ```
+
 4. Apply only the chosen action paths:
+
    ```bash
    "$CMUX_SETTINGS" set shortcuts.bindings.newSurface '["ctrl+b","c"]'
    "$CMUX_SETTINGS" set shortcuts.bindings.focusLeft cmd+opt+h
    "$CMUX_SETTINGS" set shortcuts.bindings.sendFeedback null
    "$CMUX_SETTINGS" validate
    ```
+
 5. Verify readback for changed actions:
+
    ```bash
    "$CMUX_SETTINGS" get shortcuts.bindings.newSurface
    ```
+
 6. Finish with the template name, changed actions, and exact revert commands from the snapshot. Use `unset` only for actions that were absent before the template; use `set` to restore previous custom bindings.
 
 ## Preset Templates
@@ -205,6 +213,7 @@ For users who want fewer app-level shortcuts. Prefer unbinding only the actions 
 - Do not promise conflict detection from `cmux-settings validate`; it validates JSON and supported keys, not shortcut syntax, macOS reservation, or every focus-context conflict.
 - Before assigning `cmd+[` or `cmd+]` to application-scoped actions, warn that they collide with common browser Back/Forward behavior unless the browser actions are also changed or unbound.
 - Prefer `unset` to clear file-managed overrides for individual actions. Do not call this a built-in default reset unless Settings UI/UserDefaults values have also been reset:
+
   ```bash
   "$CMUX_SETTINGS" unset shortcuts.bindings.focusLeft
   "$CMUX_SETTINGS" validate
