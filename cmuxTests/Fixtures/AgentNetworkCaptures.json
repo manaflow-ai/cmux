@@ -4,7 +4,7 @@
     {
       "agent": "claude",
       "captureBackend": "mitmproxy-hardump",
-      "capturedAt": "2026-05-22T09:24:25.568741Z",
+      "capturedAt": "2026-05-22T09:45:21.474029Z",
       "cliVersion": "2.1.148 (Claude Code)",
       "command": [
         "/Applications/cmux.app/Contents/Resources/bin/claude",
@@ -24,7 +24,7 @@
         "--no-session-persistence",
         "Reply with exactly: cmux-network-capture-ok"
       ],
-      "durationMs": 3933,
+      "durationMs": 2841,
       "exitCode": 0,
       "har": {
         "log": {
@@ -110,27 +110,27 @@
                   },
                   {
                     "name": "Content-Length",
-                    "value": "548"
+                    "value": "496"
                   }
                 ],
                 "httpVersion": "HTTP/1.1",
                 "method": "POST",
                 "postData": {
                   "mimeType": "application/json",
-                  "text": "{\"context_management\":{\"edits\":[{\"keep\":\"all\",\"type\":\"clear_thinking_20251015\"}]},\"diagnostics\":{\"previous_message_id\":null},\"max_tokens\":32000,\"messages\":[{\"content\":[{\"text\":\"<redacted-budget>\\n\",\"type\":\"text\"},{\"text\":\"<redacted-local-instructions>\\n\\n\",\"type\":\"text\"},{\"cache_control\":{\"ttl\":\"1h\",\"type\":\"ephemeral\"},\"text\":\"Reply with exactly: cmux-network-capture-ok\",\"type\":\"text\"}],\"role\":\"user\"}],\"model\":\"claude-haiku-4-5-20251001\",\"stream\":true,\"system\":\"<redacted-provider-metadata>\",\"thinking\":{\"budget_tokens\":31999,\"type\":\"enabled\"}}"
+                  "text": "{\"context_management\":{\"edits\":[{\"keep\":\"all\",\"type\":\"clear_thinking_20251015\"}]},\"diagnostics\":{\"previous_message_id\":null},\"max_tokens\":32000,\"messages\":[{\"content\":[{\"text\":\"<redacted-budget>\\n\",\"type\":\"text\"},{\"text\":\"<redacted-local-instructions>\\n\\n\",\"type\":\"text\"},{\"cache_control\":{\"ttl\":\"1h\",\"type\":\"ephemeral\"},\"text\":\"Reply with exactly: cmux-network-capture-ok\",\"type\":\"text\"}],\"role\":\"user\"}],\"model\":\"claude-haiku-4-5-20251001\",\"stream\":true,\"system\":\"<redacted-provider-metadata>\"}"
                 },
                 "url": "https://api.anthropic.com/v1/messages?beta=true"
               },
               "response": {
                 "content": {
                   "mimeType": "text/event-stream; charset=utf-8",
-                  "size": 1894,
-                  "text": "event: message_start\ndata: {\"message\":{\"content\":[],\"diagnostics\":null,\"id\":\"<redacted-id>\",\"model\":\"claude-haiku-4-5-20251001\",\"role\":\"assistant\",\"stop_details\":null,\"stop_reason\":null,\"stop_sequence\":null,\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":20867,\"inference_geo\":\"not_available\",\"input_tokens\":10,\"output_tokens\":7,\"service_tier\":\"standard\"}},\"type\":\"message_start\"}\n\nevent: content_block_start\ndata: {\"content_block\":{\"signature\":\"\",\"thinking\":\"\",\"type\":\"thinking\"},\"index\":0,\"type\":\"content_block_start\"}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"thinking\":\"The user is asking me to reply\",\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"thinking\":\" with exactly: \\\"cmux-network-capture-ok\\\"\\n\\nThis appears to be a test or acknowledgment message. Looking at the git status\",\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"thinking\":\", I can see there are modifications to:\\n- cmuxTests\",\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"thinking\":\"/CLIGenericHookPersist\",\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"thinking\":\"enceTests.swift\\n- cmuxTests/Fixtures/AgentNetworkCaptures\",\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"thinking\":\".json\\n- scripts/capture-agent-network-sessions.py\\n\\nAnd the recent\",\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"thinking\":\" commits mention network capture work. This seems to be related to that ongoing work\",\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"thinking\":\".\\n\\nThe instruction is clear - reply with exactly that phrase.\",\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"signature\":\"EroFCm0IDRgCKkCXZbH9EtdrW/GoRVAmn0mI7VdmDM9M4HnoFRl7sx/DDNAexBfjgKyB+m0AhXFKg4IB4cNJg+dxIxxlnJn284H+MhljbGF1ZGUtaGFpa3UtNC01LTIwMjUxMDAxOABCCHRoaW5raW5nEgz8O5oHXoNa5hW7E4IaDCje9UK2U0l+yJPqTSIwO1ycFuhE2UzF5VtuloW+Pf2qm3egstQdM1v6AC90dwlB02CQOKiYwBzKEuIF7D9/KvoDn/aMn9FRIJeBhwxDVfIUBkHfIo62fAZgAw9DISP+49FX9sZtn5Ymam7XKmCgnIF3z/AfTRQ5k+FROS04FXhEHsJ5Qss1kEVujqaNvaKYtq+cZFobb7CY2BhDHb6O3uTyEmRF0kboToHWrQrRBorXa6GwqsBgmQk3zkJ2HDA2ZNG8K/Cz1soVTShPcdwSp+5dfagd3atsql5Pp3B5FdsXu2lBqzsRmpbTM624MYdKhKVMhVw0TUPXAhOlCWrhRVZUWWW7a9iesRJIpOHYdpyxjRir4FP9UWw+pyJQPR5yra7xqVDqcvu9VrlRh0Xl7FrGUqoS8ovCqrn/GeZoNj1uCHiubvH0fI+9RXKLaT2+c0m2QUJ6uCUEhgcdd02wLI3R1UdGJuHFH32VAKvsro3g2dM1GbwUaG5sAF7/IzcojOU0R2fy6sw72FMqyQ4bTlQJWALFGdeeVh8t9Uf8vxYGNn9fj0j7FV2ZjjQ29NAsPTLO1Q/lxIXdka5oApdjZ4z7+B4Nsvna4FDcR061TIKaDKrRyzwqSwmyz9pw3ssJJDsl5VOfSwkjt2aCOlKkAmYSUHn25v/uUW6qAJnbs02xIOThiutzRqQnNymfe36wqlUbQcWNTR4iqkfhU/sYm37pISpDZsrhi2njN8rjT8BVJm76R2voMX0Mz3kYAQ==\",\"type\":\"signature_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_stop\ndata: {\"index\":0,\"type\":\"content_block_stop\"}\n\nevent: content_block_start\ndata: {\"content_block\":{\"text\":\"\",\"type\":\"text\"},\"index\":1,\"type\":\"content_block_start\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"text\":\"cmux-network-capture-\",\"type\":\"text_delta\"},\"index\":1,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"text\":\"ok\",\"type\":\"text_delta\"},\"index\":1,\"type\":\"content_block_delta\"}\n\nevent: content_block_stop\ndata: {\"index\":1,\"type\":\"content_block_stop\"}\n\nevent: message_delta\ndata: {\"context_management\":{\"applied_edits\":[]},\"delta\":{\"stop_details\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"type\":\"message_delta\",\"usage\":{\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":20867,\"input_tokens\":10,\"iterations\":[{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":20867,\"input_tokens\":10,\"output_tokens\":146,\"type\":\"message\"}],\"output_tokens\":146}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+                  "size": 1220,
+                  "text": "event: message_start\ndata: {\"message\":{\"content\":[],\"diagnostics\":null,\"id\":\"<redacted-id>\",\"model\":\"claude-haiku-4-5-20251001\",\"role\":\"assistant\",\"stop_details\":null,\"stop_reason\":null,\"stop_sequence\":null,\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":20850,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":20850,\"cache_read_input_tokens\":0,\"inference_geo\":\"not_available\",\"input_tokens\":10,\"output_tokens\":1,\"service_tier\":\"standard\"}},\"type\":\"message_start\"}\n\nevent: content_block_start\ndata: {\"content_block\":{\"type\":\"thinking\"},\"index\":0,\"type\":\"content_block_start\"}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"type\":\"signature_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_stop\ndata: {\"index\":0,\"type\":\"content_block_stop\"}\n\nevent: content_block_start\ndata: {\"content_block\":{\"text\":\"\",\"type\":\"text\"},\"index\":1,\"type\":\"content_block_start\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"text\":\"cmux-network-capture-ok\",\"type\":\"text_delta\"},\"index\":1,\"type\":\"content_block_delta\"}\n\nevent: content_block_stop\ndata: {\"index\":1,\"type\":\"content_block_stop\"}\n\nevent: message_delta\ndata: {\"context_management\":{\"applied_edits\":[]},\"delta\":{\"stop_details\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"type\":\"message_delta\",\"usage\":{\"cache_creation_input_tokens\":20850,\"cache_read_input_tokens\":0,\"input_tokens\":10,\"iterations\":[{\"cache_creation\":{\"ephemeral_1h_input_tokens\":20850,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":20850,\"cache_read_input_tokens\":0,\"input_tokens\":10,\"output_tokens\":56,\"type\":\"message\"}],\"output_tokens\":56}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
                 },
                 "headers": [
                   {
                     "name": "Date",
-                    "value": "Fri, 22 May 2026 09:24:22 GMT"
+                    "value": "Fri, 22 May 2026 09:45:19 GMT"
                   },
                   {
                     "name": "Content-Type",
@@ -174,15 +174,15 @@
                   },
                   {
                     "name": "CF-RAY",
-                    "value": "9ffac46e9f95eb32-SJC"
+                    "value": "9ffae3205ee9f8f3-SJC"
                   }
                 ],
                 "httpVersion": "HTTP/1.1",
                 "status": 200,
                 "statusText": "OK"
               },
-              "startedDateTime": "2026-05-22T09:24:20.875075+00:00",
-              "time": 2940.473794937134
+              "startedDateTime": "2026-05-22T09:45:18.115489+00:00",
+              "time": 1507.7037811279297
             }
           ],
           "version": "1.2"
@@ -600,7 +600,7 @@
       "status": "captured"
     }
   ],
-  "generatedAt": "2026-05-22T09:42:45.941367Z",
+  "generatedAt": "2026-05-22T09:45:21.579572Z",
   "prompt": "Reply with exactly: cmux-network-capture-ok",
   "unavailable": [
     {

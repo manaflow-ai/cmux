@@ -2452,6 +2452,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "set-cookie",
             "prompt_cache_key",
             "safety_identifier",
+            "\\\"signature\\\":",
+            "\\\"thinking\\\":",
             "encrypted_content",
             "obfuscation",
             "system-reminder",

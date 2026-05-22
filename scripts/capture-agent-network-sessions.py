@@ -47,6 +47,8 @@ JSON_DROPPED_KEYS = {
     "rate_limits",
     "reasoning",
     "safety_identifier",
+    "signature",
+    "thinking",
     "tools",
 }
 JSON_REDACTED_KEYS = {
