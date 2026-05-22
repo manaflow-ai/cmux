@@ -644,6 +644,111 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTurnStackPreservesAnonymousDepthBetweenKnownTurns() throws {
+        let context = try makeClaudeHookContext(name: "codex-mixed-anonymous-depth")
+        defer { context.cleanup() }
+
+        let sessionId = "mixed-anonymous-depth-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"parent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+
+        let anonymousChildPromptStart = context.state.commands.count
+        let anonymousChildPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"anonymous child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(anonymousChildPrompt.timedOut, anonymousChildPrompt.stderr)
+        XCTAssertEqual(anonymousChildPrompt.status, 0, anonymousChildPrompt.stderr)
+        let anonymousChildPromptCommands = Array(context.state.commands.dropFirst(anonymousChildPromptStart))
+        XCTAssertFalse(
+            anonymousChildPromptCommands.contains { (self.jsonObject($0)?["method"] as? String)?.hasPrefix("surface.resume.") == true },
+            "An anonymous child under a known parent must not replace the parent resume binding, saw \(anonymousChildPromptCommands)"
+        )
+        XCTAssertFalse(
+            anonymousChildPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "An anonymous child under a known parent must not rewrite parent Running status, saw \(anonymousChildPromptCommands)"
+        )
+
+        let grandchildPromptStart = context.state.commands.count
+        let grandchildPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"grandchild-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"grandchild"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(grandchildPrompt.timedOut, grandchildPrompt.stderr)
+        XCTAssertEqual(grandchildPrompt.status, 0, grandchildPrompt.stderr)
+        let grandchildPromptCommands = Array(context.state.commands.dropFirst(grandchildPromptStart))
+        XCTAssertFalse(
+            grandchildPromptCommands.contains { (self.jsonObject($0)?["method"] as? String)?.hasPrefix("surface.resume.") == true },
+            "A known grandchild after anonymous depth must stay nested, saw \(grandchildPromptCommands)"
+        )
+        XCTAssertFalse(
+            grandchildPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "A known grandchild after anonymous depth must not rewrite parent Running status, saw \(grandchildPromptCommands)"
+        )
+
+        let grandchildStopStart = context.state.commands.count
+        let grandchildStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"grandchild-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"grandchild done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(grandchildStop.timedOut, grandchildStop.stderr)
+        XCTAssertEqual(grandchildStop.status, 0, grandchildStop.stderr)
+        let grandchildStopCommands = Array(context.state.commands.dropFirst(grandchildStopStart))
+        XCTAssertFalse(
+            grandchildStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Grandchild Stop must not collapse anonymous child depth and notify, saw \(grandchildStopCommands)"
+        )
+
+        let anonymousChildStopStart = context.state.commands.count
+        let anonymousChildStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"anonymous child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(anonymousChildStop.timedOut, anonymousChildStop.stderr)
+        XCTAssertEqual(anonymousChildStop.status, 0, anonymousChildStop.stderr)
+        let anonymousChildStopCommands = Array(context.state.commands.dropFirst(anonymousChildStopStart))
+        XCTAssertFalse(
+            anonymousChildStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Anonymous child Stop must stay nested after a known grandchild Stop, saw \(anonymousChildStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The parent Stop must still notify after mixed anonymous depth, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "The parent Stop must still mark Codex idle after mixed anonymous depth, saw \(parentStopCommands)"
+        )
+    }
+
     func testCodexStopAfterInterruptedPriorTurnStillNotifies() throws {
         let context = try makeClaudeHookContext(name: "codex-interrupted-turn-depth")
         defer { context.cleanup() }
