@@ -2446,6 +2446,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "x-codex-credits",
             "used-percent",
             "billing",
+            "cc_version",
+            "cc_entrypoint",
+            "cch=",
             "quota",
             "subscription",
         ] {

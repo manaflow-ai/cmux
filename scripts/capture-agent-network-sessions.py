@@ -131,7 +131,7 @@ def sanitize_text(value: str) -> str:
 
     patterns = [
         (r"/var/folders/[^\"'\s]+/cmux-agent-network-captures\.[^/\"'\s]+", "${CAPTURE_ROOT}"),
-        (r"x-anthropic-billing-header:[^\"\\n]+", "<redacted-provider-metadata>"),
+        (r"x-anthropic-billing-header:[^\"\\\r\n]+", "<redacted-provider-metadata>"),
         (r"Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer <redacted>"),
         (r"sk-[A-Za-z0-9_-]{12,}", "sk-<redacted>"),
         (r"sess-[A-Za-z0-9_-]{12,}", "sess-<redacted>"),
