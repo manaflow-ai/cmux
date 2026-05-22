@@ -13057,7 +13057,12 @@ private struct TabItemView: View, Equatable {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .opacity(inlineRenameInitialTitle != nil && inlineRenameShowsNativeText ? 0 : 1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: sidebarTitleLineHeight,
+                    maxHeight: sidebarTitleLineHeight,
+                    alignment: .leading
+                )
 
             if let inlineRenameInitialTitle {
                 titleLabel
