@@ -81,8 +81,40 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
+
+          for attempt in 1 2 3; do
+            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -resolvePackageDependencies; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to resolve Swift packages after 3 attempts" >&2
+              exit 1
+            fi
+            echo "Package resolution failed on attempt $attempt, retrying..."
+            sleep $((attempt * 5))
+          done
+
       - name: Build tagged app
-        run: ./scripts/reload.sh --tag "$PERF_TAG"
+        run: |
+          set -euo pipefail
+          CMUX_SKIP_ZIG_BUILD=1 \
+            CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
+            ./scripts/reload.sh --tag "$PERF_TAG"
 
       - name: Run activation session benchmark
         run: |
