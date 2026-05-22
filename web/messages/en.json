@@ -318,7 +318,7 @@
         "getStartedP": "Install cmux via Homebrew or download the DMG from the <link>getting started guide</link>."
       },
       "cmuxFinder": {
-        "title": "Introducing cmux Finder",
+        "title": "cmux Finder",
         "summary": "cmux now has a file explorer that previews videos, images, PDFs, and markdown files.",
         "date": "May 22, 2026",
         "p1": "cmux now has a Finder-style file explorer in the sidebar.",
@@ -357,7 +357,7 @@
       }
     },
     "cmuxFinder": {
-      "metaTitle": "Introducing cmux Finder",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ includes a Finder-style file explorer that previews videos, images, PDFs, and markdown files inside your workspace.",
       "metaKeywords": [
         "cmux Finder",

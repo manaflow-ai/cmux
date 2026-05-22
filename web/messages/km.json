@@ -206,7 +206,7 @@
         "docsCta": "អាន<link>ឯកសារស្ដារសម័យ</link>សម្រាប់ពាក្យបញ្ជា setup, agent ដែលគាំទ្រ និងការដោះស្រាយបញ្ហា។"
       },
       "cmuxFinder": {
-        "title": "ណែនាំ cmux Finder",
+        "title": "cmux Finder",
         "summary": "cmux ឥឡូវមាន file explorer ដែល preview វីដេអូ រូបភាព PDF និងឯកសារ Markdown។",
         "date": "22 ឧសភា 2026",
         "p1": "cmux ឥឡូវមាន file explorer រចនាប័ទ្ម Finder ក្នុង sidebar។",
@@ -313,7 +313,7 @@
       "metaTitle": "ការស្ដារសម័យក្នុង cmux"
     },
     "cmuxFinder": {
-      "metaTitle": "ណែនាំ cmux Finder",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ មាន file explorer រចនាប័ទ្ម Finder ដែល preview វីដេអូ រូបភាព PDF និងឯកសារ Markdown ក្នុង workspace របស់អ្នក។",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "គ្មាន",
-      "supportedNote": "Claude Code ត្រូវបានគ្រប់គ្រងដោយ cmux Claude wrapper នៅពេលបើក Claude integration ក្នុង Settings។ Rovo Dev ក៏ទទួល rovo ជា setup alias ផងដែរ។",
+      "supportedNote": "Claude Code ត្រូវបានគ្រប់គ្រងដោយ cmux Claude wrapper នៅពេលបើក Claude integration ក្នុង Settings។ Antigravity ក៏ទទួល agy ជា setup alias ហើយ Rovo Dev ទទួល rovo។",
       "manualTitle": "ស្ដារដោយដៃ",
       "manualDesc": "cmux ស្ដារ snapshot ចុងក្រោយដែលបានរក្សាទុក ពេលបើកធម្មតា។ អ្នកក៏អាច apply snapshot មុនដោយដៃបាន៖",
       "manualItemMenu": "File > Reopen Previous Session",

@@ -206,7 +206,7 @@
         "docsCta": "Pročitajte <link>dokumentaciju za vraćanje sesije</link> za setup komande, podržane agente i rješavanje problema."
       },
       "cmuxFinder": {
-        "title": "Predstavljamo cmux Finder",
+        "title": "cmux Finder",
         "summary": "cmux sada ima file explorer koji prikazuje video, slike, PDF-ove i Markdown fajlove.",
         "date": "22. maj 2026.",
         "p1": "cmux sada ima file explorer u stilu Findera u sidebaru.",
@@ -313,7 +313,7 @@
       "metaTitle": "Vraćanje sesije u cmuxu"
     },
     "cmuxFinder": {
-      "metaTitle": "Predstavljamo cmux Finder",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ uključuje file explorer u stilu Findera koji prikazuje video, slike, PDF-ove i Markdown fajlove unutar vašeg workspacea.",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "nema",
-      "supportedNote": "Claude Code obrađuje cmux Claude wrapper kada je Claude integracija uključena u Settings. Rovo Dev prihvata i rovo kao setup alias.",
+      "supportedNote": "Claude Code obrađuje cmux Claude wrapper kada je Claude integracija uključena u Settings. Antigravity prihvata i agy kao setup alias, a Rovo Dev prihvata rovo.",
       "manualTitle": "Ručna obnova",
       "manualDesc": "cmux pri normalnom pokretanju obnavlja zadnji sačuvani snapshot. Prethodni snapshot možeš ponovno primijeniti i ručno:",
       "manualItemMenu": "File > Reopen Previous Session",

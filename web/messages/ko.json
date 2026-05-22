@@ -206,7 +206,7 @@
         "docsCta": "설정 명령, 지원 에이전트, 문제 해결은 <link>세션 복원 문서</link>를 읽어보세요."
       },
       "cmuxFinder": {
-        "title": "cmux Finder 소개",
+        "title": "cmux Finder",
         "summary": "cmux에 동영상, 이미지, PDF, Markdown 파일을 미리 보는 파일 탐색기가 생겼습니다.",
         "date": "2026년 5월 22일",
         "p1": "cmux 사이드바에 Finder 스타일 파일 탐색기가 추가되었습니다.",
@@ -313,7 +313,7 @@
       "metaTitle": "cmux의 세션 복원"
     },
     "cmuxFinder": {
-      "metaTitle": "cmux Finder 소개",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+에는 워크스페이스 안에서 동영상, 이미지, PDF, Markdown 파일을 미리 볼 수 있는 Finder 스타일 파일 탐색기가 포함됩니다.",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "없음",
-      "supportedNote": "Claude integration이 Settings에서 켜져 있으면 Claude Code는 cmux Claude wrapper가 처리합니다. Rovo Dev는 setup alias로 rovo도 받습니다.",
+      "supportedNote": "Claude integration이 Settings에서 켜져 있으면 Claude Code는 cmux Claude wrapper가 처리합니다. Antigravity는 setup alias로 agy도 받고, Rovo Dev는 rovo를 받습니다.",
       "manualTitle": "수동 복원",
       "manualDesc": "cmux는 일반 실행 시 마지막으로 저장된 snapshot을 복원합니다. 이전 snapshot을 수동으로 다시 적용할 수도 있습니다:",
       "manualItemMenu": "File > Reopen Previous Session",

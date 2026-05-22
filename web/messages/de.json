@@ -206,7 +206,7 @@
         "docsCta": "Lies die <link>Dokumentation zur Sitzungswiederherstellung</link> für Setup-Befehle, unterstützte Agenten und Fehlerbehebung."
       },
       "cmuxFinder": {
-        "title": "Einführung in cmux Finder",
+        "title": "cmux Finder",
         "summary": "cmux hat jetzt einen Dateiexplorer, der Videos, Bilder, PDFs und Markdown-Dateien anzeigt.",
         "date": "22. Mai 2026",
         "p1": "cmux hat jetzt einen Finder-artigen Dateiexplorer in der Seitenleiste.",
@@ -313,7 +313,7 @@
       "metaTitle": "Sitzungswiederherstellung in cmux"
     },
     "cmuxFinder": {
-      "metaTitle": "Einführung in cmux Finder",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ enthält einen Finder-artigen Dateiexplorer, der Videos, Bilder, PDFs und Markdown-Dateien direkt im Workspace anzeigt.",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "Plugin-Event-Bus",
       "none": "keine",
-      "supportedNote": "Claude Code wird vom cmux Claude-Wrapper verarbeitet, wenn die Claude-Integration in Settings aktiviert ist. Rovo Dev akzeptiert auch rovo als Setup-Alias.",
+      "supportedNote": "Claude Code wird vom cmux Claude-Wrapper verarbeitet, wenn die Claude-Integration in Settings aktiviert ist. Antigravity akzeptiert auch agy als Setup-Alias, und Rovo Dev akzeptiert rovo.",
       "manualTitle": "Manuelle Wiederherstellung",
       "manualDesc": "cmux stellt beim normalen Start den zuletzt gespeicherten Snapshot wieder her. Sie können den vorherigen Snapshot auch manuell erneut anwenden:",
       "manualItemMenu": "File > Reopen Previous Session",

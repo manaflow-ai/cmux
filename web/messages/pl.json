@@ -206,7 +206,7 @@
         "docsCta": "Przeczytaj <link>dokumentację przywracania sesji</link>, aby poznać polecenia setup, obsługiwanych agentów i rozwiązywanie problemów."
       },
       "cmuxFinder": {
-        "title": "Przedstawiamy cmux Finder",
+        "title": "cmux Finder",
         "summary": "cmux ma teraz eksplorator plików, który wyświetla podgląd filmów, obrazów, PDF-ów i plików Markdown.",
         "date": "22 maja 2026",
         "p1": "cmux ma teraz eksplorator plików w stylu Findera w pasku bocznym.",
@@ -313,7 +313,7 @@
       "metaTitle": "Przywracanie sesji w cmux"
     },
     "cmuxFinder": {
-      "metaTitle": "Przedstawiamy cmux Finder",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ zawiera eksplorator plików w stylu Findera, który pokazuje podgląd filmów, obrazów, PDF-ów i plików Markdown w workspace.",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "brak",
-      "supportedNote": "Claude Code obsługuje wrapper cmux Claude, gdy integracja Claude jest włączona w Settings. Rovo Dev akceptuje też rovo jako alias setup.",
+      "supportedNote": "Claude Code obsługuje wrapper cmux Claude, gdy integracja Claude jest włączona w Settings. Antigravity akceptuje też agy jako alias setup, a Rovo Dev akceptuje rovo.",
       "manualTitle": "Ręczne przywracanie",
       "manualDesc": "cmux przywraca ostatni zapisany snapshot przy normalnym starcie. Możesz też ręcznie zastosować poprzedni snapshot:",
       "manualItemMenu": "File > Reopen Previous Session",

@@ -206,7 +206,7 @@
         "docsCta": "setup komutları, desteklenen ajanlar ve sorun giderme için <link>oturum geri yükleme dokümanlarını</link> okuyun."
       },
       "cmuxFinder": {
-        "title": "cmux Finder tanıtımı",
+        "title": "cmux Finder",
         "summary": "cmux artık video, görsel, PDF ve Markdown dosyalarını önizleyen bir dosya gezginine sahip.",
         "date": "22 Mayıs 2026",
         "p1": "cmux artık kenar çubuğunda Finder tarzı bir dosya gezgini içeriyor.",
@@ -313,7 +313,7 @@
       "metaTitle": "cmux’ta oturum geri yükleme"
     },
     "cmuxFinder": {
-      "metaTitle": "cmux Finder tanıtımı",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+, workspace içinde video, görsel, PDF ve Markdown dosyalarını önizleyen Finder tarzı bir dosya gezgini içerir.",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "yok",
-      "supportedNote": "Claude Code, Settings'te Claude integration etkinse cmux Claude wrapper tarafından işlenir. Rovo Dev setup alias olarak rovo'yu da kabul eder.",
+      "supportedNote": "Claude Code, Settings'te Claude integration etkinse cmux Claude wrapper tarafından işlenir. Antigravity setup alias olarak agy'yi de kabul eder, Rovo Dev ise rovo'yu kabul eder.",
       "manualTitle": "Manuel geri yükleme",
       "manualDesc": "cmux normal açılışta son kaydedilen snapshot'ı geri yükler. Önceki snapshot'ı manuel olarak da tekrar uygulayabilirsiniz:",
       "manualItemMenu": "File > Reopen Previous Session",

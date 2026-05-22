@@ -206,7 +206,7 @@
         "docsCta": "Les <link>dokumentasjonen for øktgjenoppretting</link> for setup-kommandoer, støttede agenter og feilsøking."
       },
       "cmuxFinder": {
-        "title": "Vi introduserer cmux Finder",
+        "title": "cmux Finder",
         "summary": "cmux har nå en filutforsker som forhåndsviser videoer, bilder, PDF-er og Markdown-filer.",
         "date": "22. mai 2026",
         "p1": "cmux har nå en Finder-lignende filutforsker i sidelinjen.",
@@ -313,7 +313,7 @@
       "metaTitle": "Øktgjenoppretting i cmux"
     },
     "cmuxFinder": {
-      "metaTitle": "Vi introduserer cmux Finder",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ inneholder en Finder-lignende filutforsker som forhåndsviser videoer, bilder, PDF-er og Markdown-filer i workspacet.",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "ingen",
-      "supportedNote": "Claude Code håndteres av cmux Claude-wrapperen når Claude-integrasjonen er aktivert i Settings. Rovo Dev godtar også rovo som setup-alias.",
+      "supportedNote": "Claude Code håndteres av cmux Claude-wrapperen når Claude-integrasjonen er aktivert i Settings. Antigravity godtar også agy som setup-alias, og Rovo Dev godtar rovo.",
       "manualTitle": "Manuell gjenoppretting",
       "manualDesc": "cmux gjenoppretter siste lagrede snapshot ved normal oppstart. Du kan også bruke forrige snapshot manuelt igjen:",
       "manualItemMenu": "File > Reopen Previous Session",

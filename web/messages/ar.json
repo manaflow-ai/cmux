@@ -206,7 +206,7 @@
         "docsCta": "اقرأ <link>وثائق استعادة الجلسات</link> لأوامر setup والوكلاء المدعومين واستكشاف الأخطاء."
       },
       "cmuxFinder": {
-        "title": "تقديم cmux Finder",
+        "title": "cmux Finder",
         "summary": "أصبح لدى cmux مستكشف ملفات يعاين الفيديوهات والصور وملفات PDF وMarkdown.",
         "date": "22 مايو 2026",
         "p1": "أصبح لدى cmux مستكشف ملفات بأسلوب Finder في الشريط الجانبي.",
@@ -313,7 +313,7 @@
       "metaTitle": "استعادة الجلسات في cmux"
     },
     "cmuxFinder": {
-      "metaTitle": "تقديم cmux Finder",
+      "metaTitle": "cmux Finder",
       "metaDescription": "يتضمن cmux v0.64+ مستكشف ملفات بأسلوب Finder يعرض الفيديوهات والصور وملفات PDF وMarkdown داخل مساحة العمل.",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "حافلة أحداث plugin",
       "none": "لا يوجد",
-      "supportedNote": "يتعامل cmux Claude wrapper مع Claude Code عندما يكون تكامل Claude مفعّلًا في الإعدادات. يقبل Rovo Dev أيضًا rovo كاسم إعداد مستعار.",
+      "supportedNote": "يتعامل cmux Claude wrapper مع Claude Code عندما يكون تكامل Claude مفعّلًا في الإعدادات. يقبل Antigravity أيضًا agy كاسم إعداد مستعار، ويقبل Rovo Dev rovo.",
       "manualTitle": "استعادة يدوية",
       "manualDesc": "يستعيد cmux آخر snapshot محفوظ عند التشغيل العادي. يمكنك أيضًا إعادة تطبيق snapshot السابقة يدويًا:",
       "manualItemMenu": "File > Reopen Previous Session",

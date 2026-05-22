@@ -206,7 +206,7 @@
         "docsCta": "อ่าน<link>เอกสารการกู้คืนเซสชัน</link>สำหรับคำสั่ง setup เอเจนต์ที่รองรับ และการแก้ปัญหา"
       },
       "cmuxFinder": {
-        "title": "แนะนำ cmux Finder",
+        "title": "cmux Finder",
         "summary": "cmux ตอนนี้มีตัวสำรวจไฟล์ที่พรีวิววิดีโอ รูปภาพ PDF และไฟล์ Markdown ได้",
         "date": "22 พฤษภาคม 2026",
         "p1": "cmux ตอนนี้มีตัวสำรวจไฟล์สไตล์ Finder ใน sidebar",
@@ -313,7 +313,7 @@
       "metaTitle": "การกู้คืนเซสชันใน cmux"
     },
     "cmuxFinder": {
-      "metaTitle": "แนะนำ cmux Finder",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ มีตัวสำรวจไฟล์สไตล์ Finder ที่พรีวิววิดีโอ รูปภาพ PDF และไฟล์ Markdown ภายใน workspace ของคุณ",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "ไม่มี",
-      "supportedNote": "Claude Code ถูกจัดการโดย cmux Claude wrapper เมื่อเปิด Claude integration ใน Settings Rovo Dev ยังรับ rovo เป็น setup alias ด้วย",
+      "supportedNote": "Claude Code ถูกจัดการโดย cmux Claude wrapper เมื่อเปิด Claude integration ใน Settings Antigravity ยังรับ agy เป็น setup alias ด้วย และ Rovo Dev รับ rovo",
       "manualTitle": "กู้คืนด้วยตนเอง",
       "manualDesc": "cmux กู้คืน snapshot ล่าสุดที่บันทึกไว้ในการเปิดปกติ คุณยังสามารถใช้ snapshot ก่อนหน้าซ้ำด้วยตนเองได้:",
       "manualItemMenu": "File > Reopen Previous Session",

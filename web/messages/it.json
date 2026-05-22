@@ -206,7 +206,7 @@
         "docsCta": "Leggi la <link>documentazione sul ripristino sessione</link> per comandi di setup, agenti supportati e risoluzione dei problemi."
       },
       "cmuxFinder": {
-        "title": "Presentazione di cmux Finder",
+        "title": "cmux Finder",
         "summary": "cmux ora ha un esploratore file che mostra anteprime di video, immagini, PDF e file Markdown.",
         "date": "22 maggio 2026",
         "p1": "cmux ora ha un esploratore file in stile Finder nella barra laterale.",
@@ -313,7 +313,7 @@
       "metaTitle": "Ripristino sessione in cmux"
     },
     "cmuxFinder": {
-      "metaTitle": "Presentazione di cmux Finder",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ include un esploratore file in stile Finder che mostra anteprime di video, immagini, PDF e file Markdown nel workspace.",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "bus eventi plugin",
       "none": "nessuno",
-      "supportedNote": "Claude Code è gestito dal wrapper Claude di cmux quando l'integrazione Claude è abilitata in Settings. Rovo Dev accetta anche rovo come alias di setup.",
+      "supportedNote": "Claude Code è gestito dal wrapper Claude di cmux quando l'integrazione Claude è abilitata in Settings. Antigravity accetta anche agy come alias di setup e Rovo Dev accetta rovo.",
       "manualTitle": "Ripristino manuale",
       "manualDesc": "cmux ripristina l'ultimo snapshot salvato all'avvio normale. Puoi anche riapplicare manualmente lo snapshot precedente:",
       "manualItemMenu": "File > Reopen Previous Session",

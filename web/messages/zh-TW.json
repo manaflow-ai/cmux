@@ -206,7 +206,7 @@
         "docsCta": "閱讀<link>工作階段還原文件</link>，了解設定指令、支援代理與疑難排解。"
       },
       "cmuxFinder": {
-        "title": "cmux Finder 介紹",
+        "title": "cmux Finder",
         "summary": "cmux 現在有檔案瀏覽器，可預覽影片、圖片、PDF 與 Markdown 檔案。",
         "date": "2026年5月22日",
         "p1": "cmux 現在在側邊欄中提供 Finder 風格的檔案瀏覽器。",
@@ -313,7 +313,7 @@
       "metaTitle": "cmux 中的工作階段還原"
     },
     "cmuxFinder": {
-      "metaTitle": "cmux Finder 介紹",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ 提供 Finder 風格檔案瀏覽器，可在工作區內預覽影片、圖片、PDF 與 Markdown 檔案。",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "無",
-      "supportedNote": "啟用 Claude 整合時，Claude Code 由 cmux Claude wrapper 處理。Rovo Dev 也接受 rovo 作為 setup 別名。",
+      "supportedNote": "啟用 Claude 整合時，Claude Code 由 cmux Claude wrapper 處理。Antigravity 也接受 agy 作為 setup 別名，Rovo Dev 接受 rovo。",
       "manualTitle": "手動還原",
       "manualDesc": "cmux 正常啟動時會還原最後儲存的 snapshot。你也可以手動重新套用上一個 snapshot：",
       "manualItemMenu": "File > Reopen Previous Session",

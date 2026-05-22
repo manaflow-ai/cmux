@@ -206,7 +206,7 @@
         "docsCta": "阅读<link>会话恢复文档</link>，了解设置命令、受支持代理和故障排查。"
       },
       "cmuxFinder": {
-        "title": "cmux Finder 介绍",
+        "title": "cmux Finder",
         "summary": "cmux 现在有文件浏览器，可预览视频、图片、PDF 和 Markdown 文件。",
         "date": "2026年5月22日",
         "p1": "cmux 现在在侧边栏中提供 Finder 风格的文件浏览器。",
@@ -313,7 +313,7 @@
       "metaTitle": "cmux 中的会话恢复"
     },
     "cmuxFinder": {
-      "metaTitle": "cmux Finder 介绍",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ 提供 Finder 风格文件浏览器，可在工作区内预览视频、图片、PDF 和 Markdown 文件。",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "无",
-      "supportedNote": "启用 Claude 集成时，Claude Code 由 cmux Claude wrapper 处理。Rovo Dev 也接受 rovo 作为 setup 别名。",
+      "supportedNote": "启用 Claude 集成时，Claude Code 由 cmux Claude wrapper 处理。Antigravity 也接受 agy 作为 setup 别名，Rovo Dev 接受 rovo。",
       "manualTitle": "手动恢复",
       "manualDesc": "cmux 正常启动时会恢复最后保存的 snapshot。你也可以手动重新应用上一个 snapshot：",
       "manualItemMenu": "File > Reopen Previous Session",

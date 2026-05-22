@@ -206,7 +206,7 @@
         "docsCta": "Læs <link>dokumentationen for sessionsgendannelse</link> for setup-kommandoer, understøttede agenter og fejlfinding."
       },
       "cmuxFinder": {
-        "title": "Introduktion til cmux Finder",
+        "title": "cmux Finder",
         "summary": "cmux har nu en filbrowser, der viser videoer, billeder, PDF’er og Markdown-filer.",
         "date": "22. maj 2026",
         "p1": "cmux har nu en Finder-lignende filbrowser i sidepanelet.",
@@ -313,7 +313,7 @@
       "metaTitle": "Sessionsgendannelse i cmux"
     },
     "cmuxFinder": {
-      "metaTitle": "Introduktion til cmux Finder",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ indeholder en Finder-lignende filbrowser, der viser videoer, billeder, PDF’er og Markdown-filer inde i dit workspace.",
       "metaKeywords": [
         "cmux Finder",
@@ -968,7 +968,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "ingen",
-      "supportedNote": "Claude Code håndteres af cmux Claude-wrapperen, når Claude-integration er aktiveret i Settings. Rovo Dev accepterer også rovo som setup-alias.",
+      "supportedNote": "Claude Code håndteres af cmux Claude-wrapperen, når Claude-integration er aktiveret i Settings. Antigravity accepterer også agy som setup-alias, og Rovo Dev accepterer rovo.",
       "manualTitle": "Manuel gendannelse",
       "manualDesc": "cmux gendanner det senest gemte snapshot ved normal start. Du kan også genanvende det forrige snapshot manuelt:",
       "manualItemMenu": "File > Reopen Previous Session",

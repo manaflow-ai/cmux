@@ -222,7 +222,7 @@
         "docsCta": "Прочитайте <link>документацію з відновлення сеансів</link> для команд setup, підтримуваних агентів і діагностики."
       },
       "cmuxFinder": {
-        "title": "Представляємо cmux Finder",
+        "title": "cmux Finder",
         "summary": "У cmux тепер є файловий оглядач, який показує відео, зображення, PDF і Markdown-файли.",
         "date": "22 травня 2026 р.",
         "p1": "У бічній панелі cmux тепер є файловий оглядач у стилі Finder.",
@@ -313,7 +313,7 @@
       "metaTitle": "Відновлення сеансів у cmux"
     },
     "cmuxFinder": {
-      "metaTitle": "Представляємо cmux Finder",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+ містить файловий оглядач у стилі Finder, що показує відео, зображення, PDF і Markdown-файли у вашому workspace.",
       "metaKeywords": [
         "cmux Finder",
@@ -1053,7 +1053,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "немає",
-      "supportedNote": "Claude Code обробляється cmux Claude wrapper, коли Claude integration увімкнена в Settings. Rovo Dev також приймає rovo як setup alias.",
+      "supportedNote": "Claude Code обробляється cmux Claude wrapper, коли Claude integration увімкнена в Settings. Antigravity також приймає agy як setup alias, а Rovo Dev приймає rovo.",
       "manualTitle": "Ручне відновлення",
       "manualDesc": "cmux відновлює останній збережений snapshot під час звичайного запуску. Попередній snapshot також можна застосувати вручну:",
       "manualItemMenu": "File > Reopen Previous Session",

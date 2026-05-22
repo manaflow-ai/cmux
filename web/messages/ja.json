@@ -206,7 +206,7 @@
         "docsCta": "設定コマンド、対応エージェント、トラブルシューティングは<link>セッション復元ドキュメント</link>を読んでください。"
       },
       "cmuxFinder": {
-        "title": "cmux Finderのご紹介",
+        "title": "cmux Finder",
         "summary": "cmuxに動画、画像、PDF、Markdownファイルをプレビューできるファイルエクスプローラが追加されました。",
         "date": "2026年5月22日",
         "p1": "cmuxのサイドバーにFinder風のファイルエクスプローラが追加されました。",
@@ -313,7 +313,7 @@
       "metaTitle": "cmuxのセッション復元"
     },
     "cmuxFinder": {
-      "metaTitle": "cmux Finderのご紹介",
+      "metaTitle": "cmux Finder",
       "metaDescription": "cmux v0.64+には、ワークスペース内で動画、画像、PDF、MarkdownファイルをプレビューできるFinder風ファイルエクスプローラが含まれます。",
       "metaKeywords": [
         "cmux Finder",
@@ -443,7 +443,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "プラグインイベントバス",
       "none": "なし",
-      "supportedNote": "Claude Codeは、設定でClaude連携が有効な場合にcmux Claudeラッパーで処理されます。Rovo Devはセットアップエイリアスとしてrovoも受け付けます。",
+      "supportedNote": "Claude Codeは、設定でClaude連携が有効な場合にcmux Claudeラッパーで処理されます。Antigravityはセットアップエイリアスとしてagyも受け付け、Rovo Devはrovoを受け付けます。",
       "manualTitle": "手動復元",
       "manualDesc": "cmuxは通常起動時に最後に保存したスナップショットを復元します。以前のスナップショットを手動で再適用することもできます：",
       "manualItemMenu": "ファイル > 前回のセッションを再度開く",
