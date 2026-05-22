@@ -23,7 +23,7 @@ Review production Swift and runtime changes for:
 
 For agent hook install, uninstall, command generation, Feed bridge, hook config writer, docs, and tests, keep hook behavior routed through the shared `AgentHookDef`, `hookCommandString`, `feedHookCommandString`, and config builder paths.
 
-Flag new per-agent shell command generators, hardcoded app bundle paths, socket paths, release channel names, or special pinned dispatch markers unless the diff proves the agent cannot use `CMUX_SURFACE_ID`, `CMUX_SOCKET_PATH`, or `CMUX_BUNDLED_CLI_PATH` interpolation. Pinned dispatch must preserve owned-hook markers, install-time CLI/socket pinning, fallback to `command -v cmux`, disable-env handling, longer Feed timeouts, and legacy cmux-owned hook pruning.
+Flag new per-agent shell command generators, hardcoded app bundle paths, socket paths, release channel names, or special pinned dispatch markers unless the diff proves the agent cannot use `CMUX_SURFACE_ID`, `CMUX_SOCKET_PATH`, or `CMUX_BUNDLED_CLI_PATH` interpolation. Pinned dispatch must preserve owned-hook markers, install-time CLI/socket pinning, fallback to `command -v cmux`, disable-env handling, longer Feed timeouts, CLI source/event routing, direct plugin bridge contracts such as OpenCode `feed.push`, and legacy cmux-owned hook pruning.
 
 ## Runtime No Hacky Sleeps
 

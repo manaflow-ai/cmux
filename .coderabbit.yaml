@@ -73,6 +73,9 @@ reviews:
     - path: "cmuxTests/**/*Feed*.swift"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed bridge tests. Preserve source/event routing through `cmux hooks feed --source <agent> --event <event>` and the longer Feed timeout behavior.
+    - path: "cmuxTests/WorkspaceRemoteConnectionTests.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook and Feed regression hunks in this mixed test file. Do not apply the hook rule to unrelated remote connection coverage in the same file.
     - path: "tests/test_*hook*.py"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Python hook tests should preserve shared dispatch, socket routing, disable-env behavior, and Feed bridge timeout/source-event expectations.
@@ -90,7 +93,7 @@ reviews:
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Hook docs should describe shared setup commands and avoid hardcoded app bundle or socket paths.
     - path: "docs/feed.md"
       instructions: |
-        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Hook docs should describe shared setup commands and avoid hardcoded app bundle or socket paths. For Feed bridge event docs, verify the longer Feed timeout and source/event routing through `cmux hooks feed --source <agent> --event <event>` are preserved.
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Hook docs should describe shared setup commands and avoid hardcoded app bundle or socket paths. For Feed bridge event docs, verify the longer Feed timeout and source/event routing through `cmux hooks feed --source <agent> --event <event>` are preserved for CLI-backed hooks, and direct plugin bridge contracts such as OpenCode `feed.push` are preserved where applicable.
     - path: "docs/events.md"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed and agent hook event documentation.
@@ -106,7 +109,7 @@ reviews:
       - name: "cmux agent hook standardization"
         mode: error
         instructions: |
-          For agent hook install, uninstall, command generation, Feed bridge, hook config writer, hook docs, and hook tests, fail when the diff violates `.github/review-bot-rules/agent-hook-standardization.md`: new hook integrations must use shared `AgentHookDef` metadata and shared command generation, pinned dispatch needs agent-specific behavior coverage, and hook code/docs/tests must not hardcode app bundle paths, socket paths, or release channel names outside the shared pinned hook path. Pinned dispatch must preserve owned-hook markers, install-time CLI/socket pinning, fallback to `command -v cmux`, disable-env handling, longer Feed timeouts, and legacy cmux-owned hook pruning. Pass for agent-native config writers that still call shared command helpers and for existing complexity not worsened by the PR.
+          For agent hook install, uninstall, command generation, Feed bridge, hook config writer, hook docs, and hook tests, fail when the diff violates `.github/review-bot-rules/agent-hook-standardization.md`: new hook integrations must use shared `AgentHookDef` metadata and shared command generation, pinned dispatch needs agent-specific behavior coverage, and hook code/docs/tests must not hardcode app bundle paths, socket paths, or release channel names outside the shared pinned hook path. Pinned dispatch must preserve owned-hook markers, install-time CLI/socket pinning, fallback to `command -v cmux`, disable-env handling, longer Feed timeouts, CLI source/event routing, direct plugin bridge contracts such as OpenCode `feed.push`, and legacy cmux-owned hook pruning. Pass for agent-native config writers that still call shared command helpers, direct plugin Feed bridges that own their event bus, and existing complexity not worsened by the PR.
       - name: "cmux Swift actor isolation"
         mode: error
         instructions: |
