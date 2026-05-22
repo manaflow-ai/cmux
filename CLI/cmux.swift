@@ -630,6 +630,7 @@ private final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String? = nil,
         turnId: String? = nil,
+        terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         lastSubtitle: String?,
@@ -672,7 +673,20 @@ private final class ClaudeHookSessionStore {
             let normalizedTurnId = normalizeOptional(turnId)
             if let normalizedTurnId {
                 var turnStack = activePromptTurnStack(from: record)
-                let totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
+                var totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
+                if let activeTurnId = turnStack.last,
+                   activeTurnId != normalizedTurnId {
+                    var removedTerminalTurnIds: [String] = []
+                    while let activeTurnId = turnStack.last,
+                          terminalActivePromptTurnIds.contains(activeTurnId) {
+                        removedTerminalTurnIds.append(turnStack.removeLast())
+                    }
+                    if !removedTerminalTurnIds.isEmpty {
+                        totalDepthBeforeStop = max(0, totalDepthBeforeStop - removedTerminalTurnIds.count)
+                        setActivePromptTurnStack(turnStack, totalDepth: totalDepthBeforeStop, on: &record)
+                        markPromptTurnsTerminal(removedTerminalTurnIds, on: &record)
+                    }
+                }
                 if let lastTurnId = turnStack.last {
                     if lastTurnId == normalizedTurnId {
                         let nested = totalDepthBeforeStop > 1
@@ -705,21 +719,22 @@ private final class ClaudeHookSessionStore {
                     state.sessions[normalized] = record
                     return true
                 }
-                if depthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
+                if totalDepthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                     state.sessions[normalized] = record
                     return true
                 }
                 markPromptTurnTerminal(normalizedTurnId, on: &record)
-                if depthBeforeStop > 0 {
-                    if depthAfterStop == 0 {
+                if totalDepthBeforeStop > 0 {
+                    let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
+                    if depthAfterTurnStop == 0 {
                         record.activePromptDepth = nil
                     } else {
-                        record.activePromptDepth = depthAfterStop
+                        record.activePromptDepth = depthAfterTurnStop
                     }
                     record.activePromptTurnId = nil
                     record.activePromptTurnIds = nil
                     state.sessions[normalized] = record
-                    return depthBeforeStop > 1
+                    return totalDepthBeforeStop > 1
                 }
             }
             if depthAfterStop == 0 {
@@ -24762,6 +24777,27 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: cwd
             )
+            let terminalActivePromptTurnIdsForStop: Set<String>
+            if def.name == "codex",
+               let incomingTurnId = normalizedHookValue(input.turnId) {
+                let activePromptTurnStack = mapped?.activePromptTurnIds?
+                    .compactMap({ normalizedHookValue($0) }) ?? []
+                let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
+                if let activeTurnId = activePromptTurnId,
+                   activeTurnId != incomingTurnId,
+                   let transcriptPath = normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath)
+                       ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                    let activeTurnIds = activePromptTurnStack.isEmpty ? [activeTurnId] : activePromptTurnStack
+                    terminalActivePromptTurnIdsForStop = codexTranscriptTerminalTurnIds(
+                        path: transcriptPath,
+                        turnIds: Set(activeTurnIds)
+                    )
+                } else {
+                    terminalActivePromptTurnIdsForStop = []
+                }
+            } else {
+                terminalActivePromptTurnIdsForStop = []
+            }
             let nestedPromptStop: Bool
             if !sessionId.isEmpty {
                 nestedPromptStop = (try? store.recordPromptStop(
@@ -24771,6 +24807,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     turnId: input.turnId,
+                    terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
                     launchCommand: launchCommand,
                     lastSubtitle: nil,
