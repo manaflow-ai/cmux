@@ -167,6 +167,39 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertNotEqual(first, restarted)
     }
 
+    func testFirstTailSamplePreservesKnownIdleActivity() {
+        XCTAssertEqual(
+            AgentHibernationController.tailFingerprintStableSince(
+                previousFingerprint: nil,
+                previousStableSince: nil,
+                currentFingerprint: "tail-a",
+                lastActivityAt: 100,
+                now: 500
+            ),
+            100
+        )
+        XCTAssertEqual(
+            AgentHibernationController.tailFingerprintStableSince(
+                previousFingerprint: "tail-a",
+                previousStableSince: 100,
+                currentFingerprint: "tail-a",
+                lastActivityAt: 120,
+                now: 500
+            ),
+            100
+        )
+        XCTAssertEqual(
+            AgentHibernationController.tailFingerprintStableSince(
+                previousFingerprint: "tail-a",
+                previousStableSince: 100,
+                currentFingerprint: "tail-b",
+                lastActivityAt: 120,
+                now: 500
+            ),
+            500
+        )
+    }
+
     @MainActor
     func testClearingAgentPIDByPanelClearsLifecycleWithoutOwnedPID() throws {
         let workspace = Workspace()

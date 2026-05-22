@@ -294,12 +294,19 @@ final class AgentHibernationController {
             return nil
         }
 
-        if let sample = tailFingerprintSamples[record.key],
-           sample.fingerprint == fingerprint {
-            return sample.stableSince
+        let previousSample = tailFingerprintSamples[record.key]
+        if let previousSample,
+           previousSample.fingerprint == fingerprint {
+            return previousSample.stableSince
         }
 
-        let stableSince = now
+        let stableSince = Self.tailFingerprintStableSince(
+            previousFingerprint: previousSample?.fingerprint,
+            previousStableSince: previousSample?.stableSince,
+            currentFingerprint: fingerprint,
+            lastActivityAt: record.lastActivityAt,
+            now: now
+        )
         tailFingerprintSamples[record.key] = TailFingerprintSample(
             fingerprint: fingerprint,
             stableSince: stableSince
@@ -331,6 +338,19 @@ final class AgentHibernationController {
         processIDs: Set<Int>
     ) -> String {
         "process:\(kind.rawValue):\(sessionId):\(processIdentityFingerprint(processIDs))"
+    }
+
+    nonisolated static func tailFingerprintStableSince(
+        previousFingerprint: String?,
+        previousStableSince: TimeInterval?,
+        currentFingerprint: String,
+        lastActivityAt: TimeInterval,
+        now: TimeInterval
+    ) -> TimeInterval {
+        if previousFingerprint == currentFingerprint {
+            return previousStableSince ?? lastActivityAt
+        }
+        return previousFingerprint == nil ? lastActivityAt : now
     }
 
     private nonisolated static func processIdentityFingerprint(_ processIDs: Set<Int>) -> String {
