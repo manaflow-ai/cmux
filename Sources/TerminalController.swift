@@ -74,9 +74,6 @@ class TerminalController {
     private nonisolated static let acceptFailureMaxBackoffMs = 5_000
     private nonisolated static let acceptFailureMinimumRearmDelayMs = 100
     private nonisolated static let acceptFailureRearmThreshold = 50
-    private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
-    private nonisolated static let socketProbePollAttempts = 3
-    private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
     private nonisolated static let socketClientReadTimeout: TimeInterval = 30
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
@@ -1070,6 +1067,12 @@ class TerminalController {
         if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
             return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
         }
+        switch socketLiveListenerProbeResult(path, timeout: 0.2) {
+        case .liveListener:
+            return .failure(path: path, stage: "live_listener", errnoCode: EADDRINUSE)
+        case .indeterminate, .noListener:
+            break
+        }
         if unlink(path) != 0, errno != ENOENT {
             return .failure(path: path, stage: "unlink", errnoCode: errno)
         }
@@ -1114,18 +1117,13 @@ class TerminalController {
         errnoCode: Int32,
         currentUserID: uid_t = getuid()
     ) -> String? {
-        guard requestedPath == SocketControlSettings.stableDefaultSocketPath else {
-            return nil
-        }
-
-        switch stage {
-        case "unlink" where errnoCode == EACCES || errnoCode == EPERM:
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        default:
-            return nil
-        }
+        // Disabled for issue #3993: startup must refuse a live socket collision
+        // instead of silently falling back to a fragile /tmp socket path.
+        _ = requestedPath
+        _ = stage
+        _ = errnoCode
+        _ = currentUserID
+        return nil
     }
 
     func start(

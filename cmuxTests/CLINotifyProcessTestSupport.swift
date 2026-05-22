@@ -194,6 +194,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return data.base64EncodedString()
     }
 
+    func environmentAllowingSocketOverride(_ environment: [String: String]) -> [String: String] {
+        var environment = environment
+        if environment["CMUX_SOCKET_PATH"]?.isEmpty == false,
+           environment["CMUX_ALLOW_SOCKET_OVERRIDE"] == nil {
+            environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        }
+        return environment
+    }
+
     func runProcess(
         executablePath: String,
         arguments: [String],
@@ -207,7 +216,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stdinPipe = standardInput == nil ? nil : Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = environment
+        process.environment = environmentAllowingSocketOverride(environment)
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe

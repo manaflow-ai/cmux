@@ -1802,6 +1802,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         state.waitForCommand(timeout: timeout, matching: predicate)
     }
 
+    private func environmentAllowingSocketOverride(_ environment: [String: String]) -> [String: String] {
+        var environment = environment
+        if environment["CMUX_SOCKET_PATH"]?.isEmpty == false,
+           environment["CMUX_ALLOW_SOCKET_OVERRIDE"] == nil {
+            environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        }
+        return environment
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
@@ -1839,7 +1848,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let stdinPipe = standardInput == nil ? nil : Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = environment
+        process.environment = environmentAllowingSocketOverride(environment)
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -3160,7 +3169,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             "--transcript",
             transcriptURL.path,
         ]
-        process.environment = environment
+        process.environment = environmentAllowingSocketOverride(environment)
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -3260,7 +3269,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             "--transcript",
             transcriptURL.path,
         ]
-        process.environment = environment
+        process.environment = environmentAllowingSocketOverride(environment)
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -3442,7 +3451,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             "--transcript",
             transcriptURL.path,
         ]
-        process.environment = environment
+        process.environment = environmentAllowingSocketOverride(environment)
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe

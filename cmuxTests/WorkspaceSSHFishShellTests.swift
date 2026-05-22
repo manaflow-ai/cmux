@@ -343,7 +343,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = environment
+        process.environment = environmentAllowingSocketOverride(environment)
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -377,6 +377,15 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             stderr: stderr,
             timedOut: timedOut
         )
+    }
+
+    private func environmentAllowingSocketOverride(_ environment: [String: String]) -> [String: String] {
+        var environment = environment
+        if environment["CMUX_SOCKET_PATH"]?.isEmpty == false,
+           environment["CMUX_ALLOW_SOCKET_OVERRIDE"] == nil {
+            environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        }
+        return environment
     }
 
     private func bindUnixSocket(at path: String) throws -> Int32 {

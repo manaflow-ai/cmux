@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Darwin
 import Bonsplit
+import OSLog
 import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
@@ -21,6 +22,8 @@ struct cmuxApp: App {
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
     }
+
+    private static let startupLogger = Logger(subsystem: "com.cmuxterm.app", category: "startup")
 
     init() {
         StartupBreadcrumbLog.append("app.init.begin")
@@ -64,6 +67,13 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.cmuxOnly.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
+        if let occupiedSocketPath = Self.startupSocketCollisionPath(defaults: defaults) {
+            StartupBreadcrumbLog.append(
+                "app.init.socketCollision",
+                fields: ["socket": Self.socketCollisionLabel(for: occupiedSocketPath)]
+            )
+            Self.terminateForSocketPathCollision(occupiedSocketPath)
+        }
         // Skip keychain migration for DEV/staging builds. Each tagged build gets a
         // unique bundle ID with its own UserDefaults domain, so migration would run
         // on every launch and trigger a macOS keychain access prompt (the legacy
@@ -89,8 +99,47 @@ struct cmuxApp: App {
         let message = "error: refusing to launch untagged cmux DEV; start with ./scripts/reload.sh --tag <name> (or set CMUX_TAG for test harnesses)"
         fputs("\(message)\n", stderr)
         fflush(stderr)
-        NSLog("%@", message)
+        startupLogger.error("\(message, privacy: .public)")
         Darwin.exit(64)
+    }
+
+    private static func startupSocketCollisionPath(defaults: UserDefaults) -> String? {
+        guard let config = SocketControlSettings.listenerConfigurationIfEnabled(defaults: defaults) else {
+            return nil
+        }
+        let socketPath = config.path
+        switch socketLiveListenerProbeResult(socketPath, timeout: 0.2) {
+        case .liveListener:
+            return socketPath
+        case .noListener:
+            return nil
+        case .indeterminate(let errnoCode):
+            StartupBreadcrumbLog.append(
+                "app.init.socketProbeIndeterminate",
+                fields: [
+                    "socket": socketCollisionLabel(for: socketPath),
+                    "errno": String(errnoCode)
+                ]
+            )
+            return nil
+        }
+    }
+
+    private static func terminateForSocketPathCollision(_ path: String) -> Never {
+        let socketLabel = socketCollisionLabel(for: path)
+        let format = String(
+            localized: "socket.startup.collision",
+            defaultValue: "error: refusing to launch cmux because another process is already listening on socket %@. Quit that process or use a different cmux build tag, then reopen cmux."
+        )
+        let message = String(format: format, socketLabel)
+        fputs("\(message)\n", stderr)
+        fflush(stderr)
+        startupLogger.error("\(message, privacy: .public)")
+        Darwin.exit(73)
+    }
+
+    private static func socketCollisionLabel(for path: String) -> String {
+        URL(fileURLWithPath: path).lastPathComponent
     }
 
     private static func configureGhosttyEnvironment() {

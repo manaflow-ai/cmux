@@ -2510,6 +2510,12 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
 }
 
 final class SocketControlSettingsTests: XCTestCase {
+    private func expectedBundleScopedSocketPath(_ fileName: String) -> String {
+        SocketControlSettings.stableSocketDirectoryURL()!
+            .appendingPathComponent(fileName, isDirectory: false)
+            .path
+    }
+
     func testMigrateModeSupportsExpandedSocketModes() {
         XCTAssertEqual(SocketControlSettings.migrateMode("off"), .off)
         XCTAssertEqual(SocketControlSettings.migrateMode("cmuxOnly"), .cmuxOnly)
@@ -2568,7 +2574,7 @@ final class SocketControlSettingsTests: XCTestCase {
             isDebugBuild: true
         )
 
-        XCTAssertEqual(path, "/tmp/cmux-debug-my-tag.sock")
+        XCTAssertEqual(path, expectedBundleScopedSocketPath("com.cmuxterm.app.dev.my-tag.sock"))
     }
 
     func testTaggedDebugLaunchStillHonorsSocketOverride() {
@@ -2594,7 +2600,7 @@ final class SocketControlSettingsTests: XCTestCase {
             probeStableDefaultPathEntry: { _ in .missing }
         )
 
-        XCTAssertEqual(path, "/tmp/cmux-nightly.sock")
+        XCTAssertEqual(path, expectedBundleScopedSocketPath("com.cmuxterm.app.nightly.sock"))
     }
 
     func testTaggedDebugBundleKeepsMatchingSocketOverrideWithoutOptInFlag() {
@@ -2675,6 +2681,39 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, "/tmp/cmux-debug-forced.sock")
     }
 
+    func testListenerConfigurationHonorsEnvDisabledOverride() {
+        let suiteName = "SocketControlSettingsTests.disabled.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(SocketControlMode.password.rawValue, forKey: SocketControlSettings.appStorageKey)
+
+        let config = SocketControlSettings.listenerConfigurationIfEnabled(
+            defaults: defaults,
+            environment: ["CMUX_SOCKET_ENABLE": "0"],
+            bundleIdentifier: "com.cmuxterm.app.debug.test",
+            isDebugBuild: true
+        )
+
+        XCTAssertNil(config)
+    }
+
+    func testListenerConfigurationHonorsEffectiveSocketPathOverride() {
+        let suiteName = "SocketControlSettingsTests.path.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(SocketControlMode.cmuxOnly.rawValue, forKey: SocketControlSettings.appStorageKey)
+
+        let config = SocketControlSettings.listenerConfigurationIfEnabled(
+            defaults: defaults,
+            environment: ["CMUX_SOCKET_PATH": "/tmp/cmux-debug-forced.sock"],
+            bundleIdentifier: "com.cmuxterm.app.debug.test",
+            isDebugBuild: true
+        )
+
+        XCTAssertEqual(config?.mode, .cmuxOnly)
+        XCTAssertEqual(config?.path, "/tmp/cmux-debug-forced.sock")
+    }
+
     func testDefaultSocketPathByChannel() {
         XCTAssertEqual(
             SocketControlSettings.defaultSocketPath(
@@ -2690,7 +2729,7 @@ final class SocketControlSettingsTests: XCTestCase {
                 isDebugBuild: false,
                 probeStableDefaultPathEntry: { _ in .missing }
             ),
-            "/tmp/cmux-nightly.sock"
+            expectedBundleScopedSocketPath("com.cmuxterm.app.nightly.sock")
         )
         XCTAssertEqual(
             SocketControlSettings.defaultSocketPath(
@@ -2698,7 +2737,7 @@ final class SocketControlSettingsTests: XCTestCase {
                 isDebugBuild: false,
                 probeStableDefaultPathEntry: { _ in .missing }
             ),
-            "/tmp/cmux-nightly-tag.sock"
+            expectedBundleScopedSocketPath("com.cmuxterm.app.nightly.tag.sock")
         )
         XCTAssertEqual(
             SocketControlSettings.defaultSocketPath(
@@ -2706,7 +2745,7 @@ final class SocketControlSettingsTests: XCTestCase {
                 isDebugBuild: false,
                 probeStableDefaultPathEntry: { _ in .missing }
             ),
-            "/tmp/cmux-debug-tag.sock"
+            expectedBundleScopedSocketPath("com.cmuxterm.app.dev.tag.sock")
         )
         XCTAssertEqual(
             SocketControlSettings.defaultSocketPath(
@@ -2714,11 +2753,11 @@ final class SocketControlSettingsTests: XCTestCase {
                 isDebugBuild: false,
                 probeStableDefaultPathEntry: { _ in .missing }
             ),
-            "/tmp/cmux-staging-tag.sock"
+            expectedBundleScopedSocketPath("com.cmuxterm.app.staging.tag.sock")
         )
     }
 
-    func testStableReleaseFallsBackToUserScopedSocketWhenStablePathOwnedByDifferentUser() {
+    func testStableReleaseKeepsBundleScopedPathWhenStablePathOwnedByDifferentUser() {
         let path = SocketControlSettings.defaultSocketPath(
             bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false,
@@ -2726,10 +2765,10 @@ final class SocketControlSettingsTests: XCTestCase {
             probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 0) }
         )
 
-        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+        XCTAssertEqual(path, SocketControlSettings.stableDefaultSocketPath)
     }
 
-    func testStableReleaseFallsBackToUserScopedSocketWhenStablePathIsBlockedByNonSocketEntry() {
+    func testStableReleaseKeepsBundleScopedPathWhenStablePathIsBlockedByNonSocketEntry() {
         let path = SocketControlSettings.defaultSocketPath(
             bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false,
@@ -2737,7 +2776,7 @@ final class SocketControlSettingsTests: XCTestCase {
             probeStableDefaultPathEntry: { _ in .other(ownerUserID: 501) }
         )
 
-        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+        XCTAssertEqual(path, SocketControlSettings.stableDefaultSocketPath)
     }
 
     func testUntaggedDebugBundleBlockedWithoutLaunchTag() {

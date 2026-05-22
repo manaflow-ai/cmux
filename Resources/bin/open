@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # cmux open wrapper - routes HTTP(S) URLs to cmux's in-app browser
 #
-# When running inside a cmux terminal (CMUX_SOCKET_PATH is set), this wrapper
+# When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
 # intercepts `open https://...` invocations and opens them in cmux's built-in
 # browser within the same workspace. All other arguments pass through to
 # /usr/bin/open unchanged.
@@ -376,7 +376,7 @@ load_whitelist_patterns() {
 }
 
 # Pass through immediately if not in a cmux terminal.
-if [[ -z "$CMUX_SOCKET_PATH" ]]; then
+if [[ -z "${CMUX_SURFACE_ID:-}" && -z "${CMUX_WORKSPACE_ID:-}" ]]; then
     system_open "$@"
 fi
 

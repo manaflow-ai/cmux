@@ -298,7 +298,7 @@ struct SocketControlSettings {
     static let launchTagEnvKey = "CMUX_TAG"
     static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
     private static let socketDirectoryName = "cmux"
-    private static let stableSocketFileName = "cmux.sock"
+    private static let stableSocketFileName = SocketPathMarkerFiles.stableSocketFileName
     static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
 
     static var stableDefaultSocketPath: String {
@@ -454,6 +454,32 @@ struct SocketControlSettings {
         return fallback
     }
 
+    static func listenerConfigurationIfEnabled(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        isDebugBuild: Bool = SocketControlSettings.isDebugBuild,
+        currentUserID: uid_t = getuid(),
+        probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
+    ) -> (mode: SocketControlMode, path: String)? {
+        let rawMode = defaults.string(forKey: appStorageKey) ?? defaultMode.rawValue
+        let mode = effectiveMode(
+            userMode: migrateMode(rawMode),
+            environment: environment
+        )
+        guard mode != .off else { return nil }
+        return (
+            mode: mode,
+            path: socketPath(
+                environment: environment,
+                bundleIdentifier: bundleIdentifier,
+                isDebugBuild: isDebugBuild,
+                currentUserID: currentUserID,
+                probeStableDefaultPathEntry: probeStableDefaultPathEntry
+            )
+        )
+    }
+
     private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
         (lhs as NSString).standardizingPath == (rhs as NSString).standardizingPath
     }
@@ -487,14 +513,9 @@ struct SocketControlSettings {
         currentUserID: uid_t = getuid(),
         probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
     ) -> String {
-        switch probeStableDefaultPathEntry(stableDefaultSocketPath) {
-        case .missing:
-            return stableDefaultSocketPath
-        case .socket(let ownerUserID) where ownerUserID == currentUserID:
-            return stableDefaultSocketPath
-        case .socket, .other, .inaccessible:
-            return userScopedStableSocketPath(currentUserID: currentUserID)
-        }
+        _ = currentUserID
+        _ = probeStableDefaultPathEntry
+        return stableDefaultSocketPath
     }
 
     static func shouldHonorSocketPathOverride(
