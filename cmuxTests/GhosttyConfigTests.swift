@@ -1479,6 +1479,34 @@ final class BrowserPanelPopupContextTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelWebViewLifecycleTests: XCTestCase {
+    private final class HiddenDiscardTestDelegate: BrowserHiddenWebViewDiscardManagerDelegate {
+        var hiddenWebViewDiscardSnapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot
+        var hiddenWebViewDiscardHiddenAt: Date?
+        let hiddenWebViewDiscardWebViewInstanceID = UUID()
+        var discardRequestCount = 0
+
+        init(
+            hiddenAt: Date,
+            snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot
+        ) {
+            hiddenWebViewDiscardHiddenAt = hiddenAt
+            hiddenWebViewDiscardSnapshot = snapshot
+        }
+
+        func hiddenWebViewDiscardManagerDidRequestDiscard(
+            _ manager: BrowserHiddenWebViewDiscardManager,
+            reason: String
+        ) {
+            discardRequestCount += 1
+            manager.markDiscarded(reason: reason, now: Date.now)
+        }
+
+        func hiddenWebViewDiscardManagerPolicyDidChange(
+            _ manager: BrowserHiddenWebViewDiscardManager,
+            reason: String
+        ) {}
+    }
+
     private static var hasHiddenDiscardEnabledEnvironmentOverride: Bool {
         ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] != nil
     }
@@ -1499,6 +1527,27 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             return false
         }
         return ["0", "false", "no", "off"].contains(value)
+    }
+
+    private static func hiddenDiscardBlockerSnapshot(
+        isLoading: Bool = false
+    ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
+        BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
+            isClosing: false,
+            isVisibleInUI: false,
+            shouldRenderWebView: true,
+            hasPendingRemoteNavigation: false,
+            hasCurrentURL: true,
+            isLoading: isLoading,
+            webViewIsLoading: false,
+            isDownloading: false,
+            activeDownloadCount: 0,
+            preferredDeveloperToolsVisible: false,
+            isDeveloperToolsVisible: false,
+            isElementFullscreenActive: false,
+            isReactGrabActive: false,
+            hasPopups: false
+        )
     }
 
     private func withHiddenWebViewDiscardDefaults(
@@ -1692,7 +1741,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
 
         try withHiddenWebViewDiscardDefaults(enabled: true, delay: 3600, maxLiveHiddenCount: 2) {
-            let baseDate = Date(timeIntervalSince1970: 10_000)
+            let baseDate = Date.now.addingTimeInterval(-120)
             let oldest = BrowserPanel(
                 workspaceId: UUID(),
                 initialURL: URL(string: "about:blank#oldest")!,
@@ -1749,6 +1798,36 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             XCTAssertEqual(middle.webViewLifecycleState, .liveHidden)
             XCTAssertEqual(visible.webViewLifecycleState, .liveVisible)
             XCTAssertEqual(newest.webViewLifecycleState, .liveHidden)
+        }
+    }
+
+    func testLiveHiddenLimitKeepsTemporarilyBlockedEntriesRegistered() throws {
+        try XCTSkipIf(
+            Self.hiddenDiscardEnvironmentOverrideDisablesPolicy ||
+                Self.hasHiddenDiscardDelayEnvironmentOverride ||
+                Self.hasHiddenDiscardMaxLiveEnvironmentOverride,
+            "Environment override makes the hidden WebView LRU policy unobservable."
+        )
+
+        try withHiddenWebViewDiscardDefaults(enabled: true, delay: 3600, maxLiveHiddenCount: 0) {
+            let manager = BrowserHiddenWebViewDiscardManager()
+            let delegate = HiddenDiscardTestDelegate(
+                hiddenAt: Date.now.addingTimeInterval(-60),
+                snapshot: Self.hiddenDiscardBlockerSnapshot()
+            )
+            manager.delegate = delegate
+            defer { manager.cancel() }
+
+            manager.scheduleIfNeeded(reason: "test.register")
+
+            delegate.hiddenWebViewDiscardSnapshot = Self.hiddenDiscardBlockerSnapshot(isLoading: true)
+            BrowserHiddenWebViewDiscardManager.enforceLiveHiddenLimitForTesting(reason: "test.blocked")
+            XCTAssertEqual(delegate.discardRequestCount, 0)
+
+            delegate.hiddenWebViewDiscardSnapshot = Self.hiddenDiscardBlockerSnapshot()
+            BrowserHiddenWebViewDiscardManager.enforceLiveHiddenLimitForTesting(reason: "test.unblocked")
+            XCTAssertEqual(delegate.discardRequestCount, 1)
+            XCTAssertTrue(manager.isDiscardedForMemory)
         }
     }
 

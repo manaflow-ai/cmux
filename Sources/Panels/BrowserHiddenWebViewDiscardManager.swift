@@ -297,18 +297,15 @@ private final class BrowserHiddenWebViewDiscardRegistry {
     }
 
     private func liveEligibleEntries() -> [(manager: BrowserHiddenWebViewDiscardManager, entry: Entry)] {
-        var nextEntries: [ObjectIdentifier: Entry] = [:]
         var result: [(manager: BrowserHiddenWebViewDiscardManager, entry: Entry)] = []
-        for (id, entry) in entries {
+        for (_, entry) in entries {
             guard let manager = entry.manager else { continue }
             guard let delegate = manager.delegate,
                   manager.blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else {
                 continue
             }
-            nextEntries[id] = entry
             result.append((manager, entry))
         }
-        entries = nextEntries
         return result
     }
 }
