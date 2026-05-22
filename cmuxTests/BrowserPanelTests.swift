@@ -44,6 +44,20 @@ private final class BrowserPanelTestNavigationDelegate: NSObject, WKNavigationDe
     }
 }
 
+private final class BrowserPanelTestScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    let expectation: XCTestExpectation
+    var body: Any?
+
+    init(expectation: XCTestExpectation) {
+        self.expectation = expectation
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        body = message.body
+        expectation.fulfill()
+    }
+}
+
 @MainActor
 private func makeTemporaryBrowserPanelProfile(named prefix: String) throws -> BrowserProfileDefinition {
     try XCTUnwrap(
@@ -252,6 +266,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         <script type="module">
           import { marker } from "./assets/mod.mjs";
           document.body.dataset.loaded = marker;
+          window.webkit.messageHandlers.moduleLoaded.postMessage(marker);
         </script>
         </body>
         </html>
@@ -273,10 +288,18 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: queryURL))
 
         let config = WKWebViewConfiguration()
+        let contentController = WKUserContentController()
+        let moduleLoaded = expectation(description: "module evaluated")
+        let moduleHandler = BrowserPanelTestScriptMessageHandler(expectation: moduleLoaded)
+        contentController.add(moduleHandler, name: "moduleLoaded")
+        config.userContentController = contentController
         config.setURLSchemeHandler(
             CmuxDiffViewerURLSchemeHandler.shared,
             forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
         )
+        defer {
+            contentController.removeScriptMessageHandler(forName: "moduleLoaded")
+        }
         let webView = WKWebView(frame: .zero, configuration: config)
         let loaded = expectation(description: "diff viewer loaded")
         let delegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
@@ -284,6 +307,8 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         webView.load(URLRequest(url: allowedURL))
         wait(for: [loaded], timeout: 3)
         XCTAssertNil(delegate.error)
+        wait(for: [moduleLoaded], timeout: 3)
+        XCTAssertEqual(moduleHandler.body as? String, "module-ok")
 
         let evaluated = expectation(description: "module evaluated")
         webView.evaluateJavaScript("document.body.dataset.loaded || ''") { value, error in

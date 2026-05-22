@@ -3758,14 +3758,16 @@ extension CMUXCLI {
             function setupPierreFileTree(items, treesModule) {
               const { FileTree, preparePresortedFileTreeInput } = treesModule;
               const treeEntries = buildTreeEntries(items);
-              const paths = treeEntries.map((entry) => entry.path);
+              const sortedTreeEntries = [...treeEntries].sort(compareTreeEntryPaths);
+              const paths = sortedTreeEntries.map((entry) => entry.path);
+              const initialSelectedPath = treeEntries[0]?.path;
               const statsByPath = new Map(treeEntries.map((entry) => [entry.path, entry.stats]));
               fileList.dataset.treeMode = "pierre";
               fileTree = new FileTree({
                 flattenEmptyDirectories: true,
                 id: "cmux-diff-file-tree",
                 initialExpansion: "open",
-                initialSelectedPaths: paths.slice(0, 1),
+                initialSelectedPaths: initialSelectedPath ? [initialSelectedPath] : [],
                 initialVisibleRowCount: getInitialFileTreeRowCount(),
                 itemHeight: 24,
                 overscan: 12,
@@ -3774,7 +3776,7 @@ extension CMUXCLI {
                 search: true,
                 searchBlurBehavior: "retain",
                 stickyFolders: true,
-                gitStatus: treeEntries.map((entry) => ({ path: entry.path, status: entry.status })),
+                gitStatus: sortedTreeEntries.map((entry) => ({ path: entry.path, status: entry.status })),
                 renderRowDecoration(context) {
                   if (context.item.kind !== "file") {
                     return null;
@@ -3802,6 +3804,16 @@ extension CMUXCLI {
                 },
               });
               fileTree.render({ containerWrapper: fileList });
+            }
+
+            function compareTreeEntryPaths(left, right) {
+              if (left.path < right.path) {
+                return -1;
+              }
+              if (left.path > right.path) {
+                return 1;
+              }
+              return 0;
             }
 
             function setupFlatFileExplorer(items) {
