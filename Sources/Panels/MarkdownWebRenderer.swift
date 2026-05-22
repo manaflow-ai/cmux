@@ -446,6 +446,24 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
         }
 
+        @discardableResult
+        func restorePortalIfPossible(
+            zPriority: Int,
+            dropContext: BrowserPaneDropContext,
+            reason: String
+        ) -> Bool {
+            guard let probe = currentPortalProbe else { return false }
+            bindPortal(
+                to: probe,
+                visibleInUI: true,
+                zPriority: zPriority,
+                dropContext: dropContext,
+                reason: reason
+            )
+            let snapshot = portalSnapshot()
+            return snapshot?.visibleInUI == true && snapshot?.containerHidden == false
+        }
+
         func portalSnapshot() -> BrowserWindowPortalRegistry.DebugSnapshot? {
             guard let webView else { return nil }
             return BrowserWindowPortalRegistry.debugSnapshot(for: webView)

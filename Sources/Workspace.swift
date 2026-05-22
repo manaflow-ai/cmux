@@ -13299,14 +13299,32 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panel in panels.values {
             guard let markdownPanel = panel as? MarkdownPanel else { continue }
-            guard !visiblePanelIds.contains(markdownPanel.id) else { continue }
             let snapshot = markdownPanel.rendererSession.portalSnapshot()
-            let portalNeedsHide =
-                snapshot?.visibleInUI == true ||
-                snapshot?.containerHidden == false
-            if portalNeedsHide {
-                markdownPanel.rendererSession.hidePortal(reason: reason)
-                didChange = true
+            if visiblePanelIds.contains(markdownPanel.id) {
+                let portalNeedsShow =
+                    snapshot?.visibleInUI == false ||
+                    snapshot?.containerHidden == true
+                guard portalNeedsShow,
+                      let paneId = paneId(forPanelId: markdownPanel.id) else { continue }
+                let restored = markdownPanel.rendererSession.restorePortalIfPossible(
+                    zPriority: 2,
+                    dropContext: BrowserPaneDropContext(
+                        workspaceId: id,
+                        panelId: markdownPanel.id,
+                        paneId: paneId,
+                        allowsHostedWebViewTextDrop: false
+                    ),
+                    reason: reason
+                )
+                didChange = didChange || restored
+            } else {
+                let portalNeedsHide =
+                    snapshot?.visibleInUI == true ||
+                    snapshot?.containerHidden == false
+                if portalNeedsHide {
+                    markdownPanel.rendererSession.hidePortal(reason: reason)
+                    didChange = true
+                }
             }
         }
 
@@ -13318,15 +13336,27 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panel in panels.values {
             guard let markdownPanel = panel as? MarkdownPanel else { continue }
-            guard !visiblePanelIds.contains(markdownPanel.id) else { continue }
             let snapshot = markdownPanel.rendererSession.portalSnapshot()
-            if snapshot?.visibleInUI == true || snapshot?.containerHidden == false {
-                return true
+            if visiblePanelIds.contains(markdownPanel.id) {
+                if snapshot?.visibleInUI == false || snapshot?.containerHidden == true {
+                    return true
+                }
+            } else {
+                if snapshot?.visibleInUI == true || snapshot?.containerHidden == false {
+                    return true
+                }
             }
         }
 
         return false
     }
+
+#if DEBUG
+    @discardableResult
+    func debugReconcileMarkdownPortalVisibilityForTesting(reason: String) -> Bool {
+        reconcileMarkdownPortalVisibilityForCurrentRenderedLayout(reason: reason)
+    }
+#endif
 
     private func scheduleMovedTerminalRefresh(panelId: UUID) {
         guard terminalPanel(for: panelId) != nil else { return }
