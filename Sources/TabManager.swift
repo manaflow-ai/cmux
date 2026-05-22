@@ -3044,7 +3044,16 @@ class TabManager: ObservableObject {
     }
 
     nonisolated static func shouldStopGitRepositorySearch(currentURL: URL, parentURL: URL) -> Bool {
-        parentURL.path == currentURL.path
+        if parentURL.path == currentURL.path {
+            return true
+        }
+
+        let standardizedCurrentPath = currentURL.standardizedFileURL.path
+        if standardizedCurrentPath == "/" {
+            return true
+        }
+
+        return parentURL.standardizedFileURL.path == standardizedCurrentPath
     }
 
     private nonisolated static func gitDirectoryFromDotGitFile(
