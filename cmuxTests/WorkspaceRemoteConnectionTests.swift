@@ -593,6 +593,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
         XCTAssertEqual(workspace.currentDirectory, originalDirectory)
 
+        workspace.focusPanel(panelID)
+        XCTAssertEqual(workspace.currentDirectory, originalDirectory)
+
         let splitPanel = try XCTUnwrap(
             workspace.newTerminalSplit(from: panelID, orientation: .horizontal, focus: false)
         )

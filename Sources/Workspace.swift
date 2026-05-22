@@ -12777,7 +12777,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = targetPanel as? TerminalPanel {
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
         }
-        if let dir = panelDirectories[targetPanelId] {
+        if !isRemoteWorkspace, let dir = panelDirectories[targetPanelId] {
             currentDirectory = dir
         }
         gitBranch = panelGitBranches[targetPanelId]
@@ -14269,7 +14269,7 @@ extension Workspace: BonsplitDelegate {
         surfaceTabBarDirectory = configTrackingDirectory(for: panelId)
 
         // Update current directory if this is a terminal
-        if let dir = panelDirectories[panelId] {
+        if !isRemoteWorkspace, let dir = panelDirectories[panelId] {
             currentDirectory = dir
         }
         gitBranch = panelGitBranches[panelId]

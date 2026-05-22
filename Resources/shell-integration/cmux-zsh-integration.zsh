@@ -141,11 +141,11 @@ _cmux_ports_kick_via_relay() {
 }
 
 _cmux_report_pwd_if_changed() {
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
     local pwd="$PWD"
     [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]] || return 0
 
     if _cmux_socket_is_unix; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
         local qpwd="${pwd//\"/\\\"}"
         _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
         _CMUX_PWD_LAST_PWD="$pwd"
@@ -157,7 +157,11 @@ _cmux_report_pwd_if_changed() {
     workspace_id="$(_cmux_relay_workspace_id)" || return 0
     local pwd_json params
     pwd_json="$(_cmux_json_escape "$pwd")"
-    params="{\"workspace_id\":\"$workspace_id\",\"directory\":\"$pwd_json\",\"surface_id\":\"$CMUX_PANEL_ID\"}"
+    params="{\"workspace_id\":\"$workspace_id\",\"directory\":\"$pwd_json\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
     _cmux_relay_rpc_bg "surface.report_pwd" "$params" || return 0
     _CMUX_PWD_LAST_PWD="$pwd"
 }

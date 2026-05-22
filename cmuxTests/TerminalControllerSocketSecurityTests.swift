@@ -1085,6 +1085,9 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         }
         XCTAssertTrue(reportApplied)
         XCTAssertEqual(workspace.currentDirectory, originalDirectory)
+
+        workspace.focusPanel(panelId)
+        XCTAssertEqual(workspace.currentDirectory, originalDirectory)
     }
 
     func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
