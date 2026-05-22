@@ -13093,15 +13093,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     func focusedBonsplitPaneForCommands() -> (controller: BonsplitController, paneId: PaneID)? {
         let controller = currentFocusNavigationController()
-        guard let paneId = preferredNavigationPane(in: controller) else { return nil }
+        guard let paneId = commandNavigationPane(in: controller) else { return nil }
         return (controller, paneId)
     }
 
     func isFocusedBonsplitPaneForCommands(_ paneId: PaneID, controller: BonsplitController) -> Bool {
         let focusedController = currentFocusNavigationController()
         guard focusedController === controller else { return false }
-        if focusedController.focusedPaneId == paneId { return true }
-        return preferredNavigationPane(in: focusedController) == paneId
+        return commandNavigationPane(in: focusedController) == paneId
     }
 
     private func setFocusedBonsplitController(_ controller: BonsplitController?) {
@@ -13137,6 +13136,14 @@ final class Workspace: Identifiable, ObservableObject {
     private func focusPreferredPane(in controller: BonsplitController) -> Bool {
         guard let paneId = preferredNavigationPane(in: controller) else { return false }
         return focusPane(paneId, in: controller)
+    }
+
+    private func commandNavigationPane(in controller: BonsplitController) -> PaneID? {
+        if let focusedPaneId = controller.focusedPaneId,
+           controller.allPaneIds.contains(focusedPaneId) {
+            return focusedPaneId
+        }
+        return preferredNavigationPane(in: controller)
     }
 
     private func preferredNavigationPane(in controller: BonsplitController) -> PaneID? {

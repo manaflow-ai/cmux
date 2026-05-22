@@ -4171,6 +4171,36 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertGreaterThan(workspace.focusedBonsplitControllerRevision, leftFocusedRevision)
     }
 
+    func testFocusedBonsplitPaneForCommandsKeepsFocusedEmptyPaneWithSiblingSelection() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let emptyPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let terminalPanel = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: emptyPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil,
+                focus: false
+            )
+        )
+        let terminalPaneId = try XCTUnwrap(workspace.paneId(forPanelId: terminalPanel.id))
+
+        XCTAssertNotEqual(terminalPaneId, emptyPaneId)
+        XCTAssertNil(dock.controller.selectedTab(inPane: emptyPaneId))
+        XCTAssertNotNil(dock.controller.selectedTab(inPane: terminalPaneId))
+
+        workspace.focusBonsplitPane(emptyPaneId, controller: dock.controller)
+
+        let commandPane = try XCTUnwrap(workspace.focusedBonsplitPaneForCommands())
+        XCTAssertTrue(commandPane.controller === dock.controller)
+        XCTAssertEqual(commandPane.paneId, emptyPaneId)
+        XCTAssertTrue(workspace.isFocusedBonsplitPaneForCommands(emptyPaneId, controller: dock.controller))
+        XCTAssertFalse(workspace.isFocusedBonsplitPaneForCommands(terminalPaneId, controller: dock.controller))
+    }
+
     func testDockTargetTerminalSplitUpdatesWorkspaceFocus() throws {
         let workspace = Workspace()
         let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
