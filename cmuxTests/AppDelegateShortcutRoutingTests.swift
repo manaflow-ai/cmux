@@ -6682,6 +6682,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(dollarSkillQuery?.query, "axiom-swift")
         XCTAssertEqual(dollarSkillQuery?.range, NSRange(location: 4, length: 12))
 
+        let bareSlashPrompt = "cd /"
+        XCTAssertNil(TextBoxMentionCompletionDetector.query(
+            in: bareSlashPrompt,
+            selectedRange: NSRange(location: (bareSlashPrompt as NSString).length, length: 0)
+        ))
+
+        let bareDollarPrompt = "echo $"
+        XCTAssertNil(TextBoxMentionCompletionDetector.query(
+            in: bareDollarPrompt,
+            selectedRange: NSRange(location: (bareDollarPrompt as NSString).length, length: 0)
+        ))
+
         let emailPrompt = "mail lawrence@example.com"
         XCTAssertNil(TextBoxMentionCompletionDetector.query(
             in: emailPrompt,
@@ -7026,6 +7038,47 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #else
         XCTFail("debugRunDispatchEvents is only available in DEBUG")
 #endif
+    }
+
+    func testTextBoxFailedSubmitRollbackOnlyRestoresUnchangedClearedDraft() {
+        let rollbackSnapshot = TextBoxFailedSubmitRollbackSnapshot(
+            revision: 4,
+            text: "",
+            attachmentCount: 0
+        )
+
+        XCTAssertTrue(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
+            rollbackSnapshot: rollbackSnapshot,
+            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+                revision: 4,
+                text: "",
+                attachmentCount: 0
+            )
+        ))
+        XCTAssertFalse(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
+            rollbackSnapshot: rollbackSnapshot,
+            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+                revision: 4,
+                text: "new draft",
+                attachmentCount: 0
+            )
+        ))
+        XCTAssertFalse(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
+            rollbackSnapshot: rollbackSnapshot,
+            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+                revision: 4,
+                text: "",
+                attachmentCount: 1
+            )
+        ))
+        XCTAssertFalse(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
+            rollbackSnapshot: rollbackSnapshot,
+            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+                revision: 5,
+                text: "",
+                attachmentCount: 0
+            )
+        ))
     }
 
     func testTextBoxSubmitClipboardReadTimeoutRestoresPasteboard() throws {

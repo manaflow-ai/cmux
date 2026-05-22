@@ -35,6 +35,25 @@ private enum TextBoxLayout {
     }
 }
 
+struct TextBoxFailedSubmitRollbackSnapshot: Equatable {
+    let revision: UInt64
+    let text: String
+    let attachmentCount: Int
+
+    var isEmpty: Bool {
+        text.isEmpty && attachmentCount == 0
+    }
+}
+
+enum TextBoxFailedSubmitRollbackPolicy {
+    static func shouldRestore(
+        rollbackSnapshot: TextBoxFailedSubmitRollbackSnapshot,
+        currentSnapshot: TextBoxFailedSubmitRollbackSnapshot
+    ) -> Bool {
+        currentSnapshot.revision == rollbackSnapshot.revision && currentSnapshot.isEmpty
+    }
+}
+
 @MainActor
 private final class TextBoxInputViewReference {
     weak var textView: TextBoxInputTextView?
@@ -1131,6 +1150,9 @@ enum TextBoxMentionCompletionDetector {
         }
 
         let query = String(token.dropFirst())
+        if kind == .skill, query.isEmpty {
+            return nil
+        }
         return TextBoxMentionQuery(kind: kind, range: tokenRange, query: query, trigger: trigger)
     }
 }
@@ -2804,6 +2826,7 @@ struct TextBoxInputContainer: View {
     @State private var textViewHeight: CGFloat = 0
     @State private var hasPendingAttachmentUpload = false
     @State private var textViewReference = TextBoxInputViewReference()
+    @State private var contentRevision: UInt64 = 0
 
     private var textFont: NSFont {
         NSFont.systemFont(ofSize: max(14, terminalFont.pointSize + 2), weight: .regular)
@@ -2867,6 +2890,7 @@ struct TextBoxInputContainer: View {
                     onPaste: handlePaste(_:into:),
                     onInsertFileURLs: insertSelectedFileURLs(_:into:),
                     onChooseFiles: chooseFiles,
+                    onContentChanged: markContentChanged,
                     onTextViewCreated: registerTextView(_:),
                     onTextViewMovedToWindow: onTextViewMovedToWindow,
                     onTextViewDismantled: onTextViewDismantled
@@ -2970,12 +2994,24 @@ struct TextBoxInputContainer: View {
         attachments = []
         hasPendingAttachmentUpload = false
         textViewHeight = 0
+        let rollbackSnapshot = TextBoxFailedSubmitRollbackSnapshot(
+            revision: advanceContentRevision(),
+            text: "",
+            attachmentCount: 0
+        )
         TextBoxSubmit.send(
             submittedParts,
             via: surface,
             terminalAgentContext: terminalAgentContext
         ) { completionContext in
             guard completionContext.didSubmit else {
+                guard TextBoxFailedSubmitRollbackPolicy.shouldRestore(
+                    rollbackSnapshot: rollbackSnapshot,
+                    currentSnapshot: currentRollbackSnapshot()
+                ) else {
+                    NSSound.beep()
+                    return
+                }
                 if let preservedContent {
                     submittedTextView?.installPreservedContent(preservedContent)
                 } else {
@@ -3000,6 +3036,25 @@ struct TextBoxInputContainer: View {
             )
             submittedTextView?.cleanupDisposableAttachmentFiles(cleanupAttachments)
         }
+    }
+
+    private func markContentChanged() {
+        _ = advanceContentRevision()
+    }
+
+    @discardableResult
+    private func advanceContentRevision() -> UInt64 {
+        contentRevision &+= 1
+        return contentRevision
+    }
+
+    private func currentRollbackSnapshot() -> TextBoxFailedSubmitRollbackSnapshot {
+        let currentTextView = textViewReference.textView
+        return TextBoxFailedSubmitRollbackSnapshot(
+            revision: contentRevision,
+            text: currentTextView?.plainText() ?? text,
+            attachmentCount: currentTextView?.inlineAttachments().count ?? attachments.count
+        )
     }
 
     private func registerTextView(_ textView: TextBoxInputTextView) {
@@ -3259,6 +3314,7 @@ private struct TextBoxInputView: NSViewRepresentable {
     let onPaste: (NSPasteboard, TextBoxInputTextView) -> Bool
     let onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool
     let onChooseFiles: () -> Void
+    let onContentChanged: () -> Void
     let onTextViewCreated: (TextBoxInputTextView) -> Void
     let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
     let onTextViewDismantled: (TextBoxInputTextView) -> Void
@@ -3382,6 +3438,7 @@ private struct TextBoxInputView: NSViewRepresentable {
             parent.text = textView.plainText()
             parent.attachments = textView.inlineAttachments()
             parent.hasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
+            parent.onContentChanged()
             if parent.text.isEmpty,
                parent.attachments.isEmpty,
                !textView.hasPendingAttachmentUploadPlaceholder() {
