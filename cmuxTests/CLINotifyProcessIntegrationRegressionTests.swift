@@ -323,10 +323,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "Permission request: run grep error.log"
             ),
             (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Permission request: run finish-release.sh"}"#,
+                "Claude Workspace - Claude waiting",
+                "Permission request",
+                "Permission request: run finish-release.sh"
+            ),
+            (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Approval needed to run grep error.log"}"#,
                 "Claude Workspace - Claude waiting",
                 "Tool approval",
                 "Approval needed to run grep error.log"
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Approval needed to run success.log"}"#,
+                "Claude Workspace - Claude waiting",
+                "Tool approval",
+                "Approval needed to run success.log"
             ),
             (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Approval needed to run failed_tests.sh"}"#,
@@ -660,6 +672,57 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(sessionAfterPermission["lastSubtitle"])
         XCTAssertNil(sessionAfterPermission["lastBody"])
         XCTAssertNotNil(sessionAfterPermission["pendingNotificationClearedAt"])
+    }
+
+    func testClaudePermissionRequestDoesNotRecreateConsumedSession() throws {
+        let context = try makeClaudeHookContext(name: "claude-permission-consumed-session")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-permission-consumed-session"
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        XCTAssertNotNil(try readClaudeHookSessionIfPresent(sessionId, context: context))
+
+        let sessionEnd = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+        XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
+        XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
+
+        let stateAfterEnd = try readClaudeHookState(context: context)
+        let sessionsAfterEnd = try XCTUnwrap(stateAfterEnd["sessions"] as? [String: Any])
+        XCTAssertNil(sessionsAfterEnd[sessionId])
+        let tombstonesAfterEnd = try XCTUnwrap(stateAfterEnd["consumedSessionTombstones"] as? [String: Any])
+        XCTAssertNotNil(tombstonesAfterEnd[sessionId])
+
+        let commandStart = context.state.commands.count
+        let permission = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"finish-release.sh","allowed_prompts":[{"prompt":"Permission request: run finish-release.sh"}]}}"#
+        )
+        XCTAssertFalse(permission.timedOut, permission.stderr)
+        XCTAssertEqual(permission.status, 0, permission.stderr)
+        XCTAssertEqual(permission.stdout, "OK\n")
+
+        let commands = Array(context.state.commands.dropFirst(commandStart))
+        let notifyCommands = commands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertTrue(notifyCommands.isEmpty, "Expected consumed session to suppress delayed permission prompt, saw \(notifyCommands)")
+        XCTAssertFalse(commands.contains { $0.contains("set_status claude_code Needs input") }, commands.joined(separator: "\n"))
+
+        let stateAfterPermission = try readClaudeHookState(context: context)
+        let sessionsAfterPermission = try XCTUnwrap(stateAfterPermission["sessions"] as? [String: Any])
+        XCTAssertNil(sessionsAfterPermission[sessionId])
+        let tombstonesAfterPermission = try XCTUnwrap(stateAfterPermission["consumedSessionTombstones"] as? [String: Any])
+        XCTAssertNotNil(tombstonesAfterPermission[sessionId])
     }
 
     func testClaudeNotificationRefreshesSessionBeforeGenericDedupe() throws {
@@ -4702,10 +4765,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     private func readClaudeHookSession(_ sessionId: String, context: ClaudeHookContext) throws -> [String: Any] {
-        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
-        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        try XCTUnwrap(readClaudeHookSessionIfPresent(sessionId, context: context))
+    }
+
+    private func readClaudeHookSessionIfPresent(_ sessionId: String, context: ClaudeHookContext) throws -> [String: Any]? {
+        let state = try readClaudeHookState(context: context)
         let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
-        return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        return sessions[sessionId] as? [String: Any]
+    }
+
+    private func readClaudeHookState(context: ClaudeHookContext) throws -> [String: Any] {
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
     }
 
     private func clearClaudeHookPendingNotification(_ sessionId: String, context: ClaudeHookContext) throws {

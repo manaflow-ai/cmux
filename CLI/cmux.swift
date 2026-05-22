@@ -474,11 +474,13 @@ private struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
     var activeSessionsByWorkspace: [String: ClaudeHookActiveSessionRecord] = [:]
+    var consumedSessionTombstones: [String: TimeInterval] = [:]
 
     enum CodingKeys: String, CodingKey {
         case version
         case sessions
         case activeSessionsByWorkspace
+        case consumedSessionTombstones
     }
 
     init() {}
@@ -490,6 +492,10 @@ private struct ClaudeHookSessionStoreFile: Codable {
         activeSessionsByWorkspace = try container.decodeIfPresent(
             [String: ClaudeHookActiveSessionRecord].self,
             forKey: .activeSessionsByWorkspace
+        ) ?? [:]
+        consumedSessionTombstones = try container.decodeIfPresent(
+            [String: TimeInterval].self,
+            forKey: .consumedSessionTombstones
         ) ?? [:]
     }
 }
@@ -553,6 +559,7 @@ private final class ClaudeHookSessionStore {
                 surfaceId: surfaceId,
                 now: now
             )
+            state.consumedSessionTombstones.removeValue(forKey: normalized)
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -674,6 +681,9 @@ private final class ClaudeHookSessionStore {
                 startedAt: now,
                 updatedAt: now
             )
+            if markActive || updateRuntimeStatus {
+                state.consumedSessionTombstones.removeValue(forKey: normalized)
+            }
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -829,6 +839,9 @@ private final class ClaudeHookSessionStore {
         guard !normalizedFingerprint.isEmpty else { return false }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            guard state.sessions[normalized] != nil || state.consumedSessionTombstones[normalized] == nil else {
+                return false
+            }
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -1072,6 +1085,7 @@ private final class ClaudeHookSessionStore {
                 }
                 let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
                 clearActiveSessionIfMatching(&state, removed: removed, turnId: turnId)
+                state.consumedSessionTombstones[removed.sessionId] = Date().timeIntervalSince1970
                 return removed
             }
 
@@ -1087,6 +1101,7 @@ private final class ClaudeHookSessionStore {
             }
             state.sessions.removeValue(forKey: fallback.sessionId)
             clearActiveSessionIfMatching(&state, removed: fallback, turnId: turnId)
+            state.consumedSessionTombstones[fallback.sessionId] = Date().timeIntervalSince1970
             return fallback
         }
     }
@@ -1189,6 +1204,9 @@ private final class ClaudeHookSessionStore {
         }
         state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { _, active in
             active.updatedAt >= cutoff && state.sessions[active.sessionId] != nil
+        }
+        state.consumedSessionTombstones = state.consumedSessionTombstones.filter { _, consumedAt in
+            consumedAt >= cutoff
         }
     }
 
@@ -21272,6 +21290,13 @@ struct CMUXCLI {
               !ClaudeWaitingNotificationClassifier.messageIndicatesError(messageText) else {
             return nil
         }
+        guard !claudeHookIndicatesActionableWaitingRequest(
+            object: parsedInput.object,
+            signal: signal,
+            message: message
+        ) else {
+            return nil
+        }
         guard containsCompletionCue("\(metadata) \(messageText)") else {
             return nil
         }
@@ -21282,6 +21307,38 @@ struct CMUXCLI {
             subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
             body: truncate(body, maxLength: 140)
         )
+    }
+
+    private func claudeHookIndicatesActionableWaitingRequest(
+        object: [String: Any]?,
+        signal: String,
+        message: String
+    ) -> Bool {
+        let eventName = object.flatMap { claudeHookEventName($0) }?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let toolName = object.flatMap { claudeHookToolName($0) }?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let metadata = "\(eventName) \(toolName) \(signal)".lowercased()
+        let messageText = message.lowercased()
+
+        if eventName == "askuserquestion" || toolName == "askuserquestion" || metadata.contains("askuserquestion") {
+            return true
+        }
+        if eventName == "permissionrequest" || metadata.contains("permissionrequest") || metadata.contains("permission_prompt") {
+            return true
+        }
+        if eventName == "pretooluse" || metadata.contains("pretooluse") {
+            return true
+        }
+        if metadata.contains("permission request") || metadata.contains("permission required") || metadata.contains("permission needed") {
+            return true
+        }
+        if metadata.contains("approval") || metadata.contains("approve") {
+            return true
+        }
+        if ClaudeWaitingNotificationClassifier.messageIndicatesActionablePermissionRequest(messageText) ||
+            ClaudeWaitingNotificationClassifier.messageIndicatesActionableToolApproval(messageText) {
+            return true
+        }
+        return false
     }
 
     private func claudeHookEventName(_ object: [String: Any]) -> String? {
