@@ -674,12 +674,15 @@ private final class ClaudeHookSessionStore {
             if let normalizedTurnId {
                 var turnStack = activePromptTurnStack(from: record)
                 var totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
-                if let activeTurnId = turnStack.last,
-                   activeTurnId != normalizedTurnId {
+                let terminalTurnIdsToPrune = terminalActivePromptTurnIds.subtracting([normalizedTurnId])
+                if !terminalTurnIdsToPrune.isEmpty {
                     var removedTerminalTurnIds: [String] = []
-                    while let activeTurnId = turnStack.last,
-                          terminalActivePromptTurnIds.contains(activeTurnId) {
-                        removedTerminalTurnIds.append(turnStack.removeLast())
+                    turnStack.removeAll { activeTurnId in
+                        if terminalTurnIdsToPrune.contains(activeTurnId) {
+                            removedTerminalTurnIds.append(activeTurnId)
+                            return true
+                        }
+                        return false
                     }
                     if !removedTerminalTurnIds.isEmpty {
                         totalDepthBeforeStop = max(0, totalDepthBeforeStop - removedTerminalTurnIds.count)
@@ -24783,14 +24786,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let activePromptTurnStack = mapped?.activePromptTurnIds?
                     .compactMap({ normalizedHookValue($0) }) ?? []
                 let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
-                if let activeTurnId = activePromptTurnId,
-                   activeTurnId != incomingTurnId,
+                let activeTurnIds = activePromptTurnStack.isEmpty
+                    ? activePromptTurnId.map { [$0] } ?? []
+                    : activePromptTurnStack
+                let activeTurnIdsToCheck = activeTurnIds.filter { $0 != incomingTurnId }
+                if !activeTurnIdsToCheck.isEmpty,
                    let transcriptPath = normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath)
                        ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
-                    let activeTurnIds = activePromptTurnStack.isEmpty ? [activeTurnId] : activePromptTurnStack
                     terminalActivePromptTurnIdsForStop = codexTranscriptTerminalTurnIds(
                         path: transcriptPath,
-                        turnIds: Set(activeTurnIds)
+                        turnIds: Set(activeTurnIdsToCheck)
                     )
                 } else {
                     terminalActivePromptTurnIdsForStop = []
