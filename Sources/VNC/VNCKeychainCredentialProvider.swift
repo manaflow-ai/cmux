@@ -37,9 +37,7 @@ enum VNCKeychainCredentialProvider {
     static func internetPasswordLookups(for session: MacfleetVNCSession) -> [InternetPasswordLookup] {
         let servers = uniqueNonEmpty([
             session.address,
-            session.name,
-            "\(session.address):\(session.port)",
-            "\(session.name):\(session.port)",
+            session.name
         ])
         let accounts = uniqueNonEmpty([session.username, session.address, session.name])
         return servers.flatMap { server in

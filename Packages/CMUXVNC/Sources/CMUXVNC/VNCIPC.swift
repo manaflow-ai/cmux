@@ -214,12 +214,20 @@ public struct VNCIPCStreamDecoder: Sendable {
             guard buffer.count >= 4 else { break }
             let length = Int(buffer.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) })
             if length > VNCIPCCodec.maxMessageLength {
+                guard messages.isEmpty else { return messages }
                 throw VNCIPCError.payloadTooLarge
             }
             guard buffer.count >= 4 + length else { break }
             let payload = Data(buffer[4..<(4 + length)])
-            buffer.removeSubrange(0..<(4 + length))
-            messages.append(try VNCIPCCodec.decodePayload(payload))
+            do {
+                let message = try VNCIPCCodec.decodePayload(payload)
+                buffer.removeSubrange(0..<(4 + length))
+                messages.append(message)
+            } catch {
+                guard messages.isEmpty else { return messages }
+                buffer.removeSubrange(0..<(4 + length))
+                throw error
+            }
         }
         return messages
     }

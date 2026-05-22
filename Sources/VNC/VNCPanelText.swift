@@ -148,8 +148,8 @@ enum VNCPanelText {
     }
 
     static func helperExited(_ status: Int) -> String {
-        let format = String(localized: "vnc.error.helperExited", defaultValue: "The VNC helper exited with status %d.")
-        return String(format: format, status)
+        _ = status
+        return String(localized: "vnc.error.helperExited", defaultValue: "The VNC helper stopped unexpectedly.")
     }
 
     static func socketCreationFailed(_ error: Int32) -> String {

@@ -172,6 +172,29 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertNil(decoded.defaultPassword)
     }
 
+    func testSessionEncodingDropsPasswords() throws {
+        let session = MacfleetVNCSession(
+            name: "mac3-1",
+            hostName: "mac3",
+            address: "mac3-1",
+            port: 5900,
+            username: "cmuxvnc",
+            sessionPassword: "session-secret",
+            defaultPassword: "default-secret",
+            tag: "tag:mac-mini-cluster",
+            index: 1
+        )
+
+        let data = try JSONEncoder().encode(session)
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+        let decoded = try JSONDecoder().decode(MacfleetVNCSession.self, from: data)
+
+        XCTAssertFalse(json.contains("session-secret"))
+        XCTAssertFalse(json.contains("default-secret"))
+        XCTAssertNil(decoded.sessionPassword)
+        XCTAssertNil(decoded.defaultPassword)
+    }
+
     func testConnectionIdentityIgnoresPasswordFields() {
         let session = MacfleetVNCSession(
             name: "mac3-1",
@@ -451,6 +474,18 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertEqual(try decoder.append(validFrame), [.control(validControl)])
     }
 
+    func testIPCStreamDecoderReturnsValidMessagesBeforeLaterDecodeError() throws {
+        let validControl = VNCControlMessage(kind: "key", isDown: true, keyCode: 40)
+        var batch = try VNCIPCCodec.encodeControl(validControl)
+        batch.append(framedPayload([99]))
+        var decoder = VNCIPCStreamDecoder()
+
+        XCTAssertEqual(try decoder.append(batch), [.control(validControl)])
+        XCTAssertThrowsError(try decoder.append(Data())) { error in
+            XCTAssertEqual(error as? VNCIPCError, .unknownMessageType(99))
+        }
+    }
+
     func testControlMessageQueueCoalescesPointerMovesAndCapsOtherInput() {
         var queue = VNCControlMessageQueue(maxMessages: 2)
 
@@ -461,6 +496,16 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertTrue(queue.append(VNCControlMessage(kind: "key", isDown: true, keyCode: 12)))
         XCTAssertFalse(queue.append(VNCControlMessage(kind: "text", text: "overflow")))
         XCTAssertEqual(queue.messages.count, 2)
+    }
+
+    func testControlMessageQueueDoesNotCoalesceAfterCapacityShrinksBelowCurrentCount() {
+        var queue = VNCControlMessageQueue(maxMessages: 1)
+
+        XCTAssertTrue(queue.append(VNCControlMessage(kind: "pointer", x: 1, y: 1)))
+        queue.maxMessages = 0
+
+        XCTAssertFalse(queue.append(VNCControlMessage(kind: "pointer", x: 2, y: 2)))
+        XCTAssertEqual(queue.messages, [VNCControlMessage(kind: "pointer", x: 1, y: 1)])
     }
 
     func testVisibilityFrameGateDropsHiddenUpdatesAndRefreshesOnShow() {

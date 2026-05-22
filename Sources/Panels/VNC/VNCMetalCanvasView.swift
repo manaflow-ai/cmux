@@ -300,6 +300,7 @@ final class VNCMetalCanvasView: NSView {
 
     override func rightMouseDown(with event: NSEvent) {
         onRequestFocus?()
+        window?.makeFirstResponder(self)
         sendPointer(event, button: 2, isDown: true)
     }
 
@@ -387,7 +388,9 @@ final class VNCMetalCanvasView: NSView {
         }
 
         framebuffer.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return }
+            guard let baseAddress = bytes.baseAddress,
+                  drawable.texture.width >= framebufferWidth,
+                  drawable.texture.height >= framebufferHeight else { return }
             drawable.texture.replace(
                 region: MTLRegionMake2D(0, 0, framebufferWidth, framebufferHeight),
                 mipmapLevel: 0,
@@ -457,10 +460,11 @@ final class VNCMetalCanvasView: NSView {
     }
 
     private func sendScrollSteps(delta: CGFloat, negativeWheel: Int, positiveWheel: Int, at remotePoint: (x: Int, y: Int)) {
+        let steps = max(1, Int(abs(delta).rounded(.toNearestOrAwayFromZero)))
         if delta < 0 {
-            onScroll?(remotePoint.x, remotePoint.y, negativeWheel, 1)
+            onScroll?(remotePoint.x, remotePoint.y, negativeWheel, steps)
         } else if delta > 0 {
-            onScroll?(remotePoint.x, remotePoint.y, positiveWheel, 1)
+            onScroll?(remotePoint.x, remotePoint.y, positiveWheel, steps)
         }
     }
 

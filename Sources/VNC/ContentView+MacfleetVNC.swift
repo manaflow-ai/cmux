@@ -74,11 +74,15 @@ extension ContentView {
         launchSessions: [MacfleetVNCLaunchSession]
     ) {
         var firstWorkspace: Workspace?
+        var reusedPanels: [(workspace: Workspace, panelId: UUID)] = []
         var credentialSummary = MacfleetVNCLaunchCredentialSummary(skippedCredentialCount: 0)
 
         for launchSession in launchSessions {
             if let existingWorkspace = existingVNCWorkspace(for: launchSession.session) {
                 firstWorkspace = firstWorkspace ?? existingWorkspace
+                if let panel = existingWorkspace.vncPanel(matchingConnectionIdentity: launchSession.session) {
+                    reusedPanels.append((existingWorkspace, panel.id))
+                }
                 credentialSummary.reusedCount += 1
                 continue
             }
@@ -106,6 +110,9 @@ extension ContentView {
 
         if let firstWorkspace {
             tabManager.selectWorkspace(firstWorkspace)
+            for reusedPanel in reusedPanels where reusedPanel.workspace.id == firstWorkspace.id {
+                reusedPanel.workspace.triggerFocusFlash(panelId: reusedPanel.panelId)
+            }
         }
 
         switch credentialSummary.alert {

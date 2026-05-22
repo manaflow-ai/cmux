@@ -9,6 +9,7 @@ private enum HelperExit: Int32 {
     case socket = 65
     case protocolError = 66
     case connection = 67
+    case inputQueueFull = 68
 }
 
 private final class SocketChannel: @unchecked Sendable {
@@ -396,18 +397,22 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     }
 
     private func setVisible(_ visible: Bool) {
-        guard let refreshSequence = stateLock.withLock({ frameGate.setVisible(visible) }) else { return }
-        guard let framebuffer = currentFramebuffer() else { return }
-        sendFullFrame(framebuffer: framebuffer, sequence: refreshSequence)
-    }
-
-    private func sendFullFrame(framebuffer: VNCFramebuffer, sequence: UInt64) {
-        let width = UInt16(clamping: Int(framebuffer.size.width))
-        let height = UInt16(clamping: Int(framebuffer.size.height))
-        guard let snapshot = frameSnapshotLock.withLock({
-            snapshotFrame(framebuffer: framebuffer, sequence: sequence, x: 0, y: 0, width: width, height: height)
-        }) else {
-            close()
+        var shouldClose = false
+        let snapshot = frameSnapshotLock.withLock { () -> FrameSnapshot? in
+            guard let refreshSequence = stateLock.withLock({ frameGate.setVisible(visible) }) else { return nil }
+            guard let framebuffer = currentFramebuffer() else { return nil }
+            let width = UInt16(clamping: Int(framebuffer.size.width))
+            let height = UInt16(clamping: Int(framebuffer.size.height))
+            guard let snapshot = snapshotFrame(framebuffer: framebuffer, sequence: refreshSequence, x: 0, y: 0, width: width, height: height) else {
+                shouldClose = true
+                return nil
+            }
+            return snapshot
+        }
+        guard let snapshot else {
+            if shouldClose {
+                close()
+            }
             return
         }
         sendFrame(snapshot)
@@ -518,7 +523,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
 
     private func failInputQueueFull() {
         guard markClosed() else { return }
-        setExitCode(HelperExit.connection.rawValue)
+        setExitCode(HelperExit.inputQueueFull.rawValue)
         inputLock.withLock {
             isRemoteInputReady = false
             pendingInputMessages.removeAll(keepingCapacity: false)

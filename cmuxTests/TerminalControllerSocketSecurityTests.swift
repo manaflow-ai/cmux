@@ -1183,6 +1183,23 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(events, ["0:0:2:1"])
     }
 
+    func testVNCCanvasImpreciseScrollPreservesStepMagnitude() throws {
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        var events: [String] = []
+        view.onScroll = { x, y, wheel, steps in
+            events.append("\(x):\(y):\(wheel):\(steps)")
+        }
+        defer {
+            view.onScroll = nil
+            view.close()
+        }
+
+        view.apply(makeVNCDisplayFrame(sequence: 1))
+        view.scrollWheel(with: makeVNCScrollEvent(deltaY: 3))
+
+        XCTAssertEqual(events, ["0:0:2:3"])
+    }
+
     func testVNCWorkspaceIdentityMatchSurvivesRename() throws {
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true)
@@ -1254,7 +1271,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 
         XCTAssertFalse(lookups.isEmpty)
         XCTAssertTrue(lookups.allSatisfy { $0.port == 5901 })
-        XCTAssertTrue(lookups.contains { $0.server == "mac3-1.local:5901" })
+        XCTAssertTrue(lookups.contains { $0.server == "mac3-1.local" })
+        XCTAssertFalse(lookups.contains { $0.server == "mac3-1.local:5901" })
     }
 
     func testVNCPanelConnectionPreservesPartialFrameForPublish() throws {

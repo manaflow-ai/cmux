@@ -13,7 +13,8 @@ public struct VNCControlMessageQueue: Equatable, Sendable {
     public mutating func append(_ message: VNCControlMessage) -> Bool {
         if message.isCoalesciblePointerMove,
            let lastIndex = messages.indices.last,
-           messages[lastIndex].isCoalesciblePointerMove {
+           messages[lastIndex].isCoalesciblePointerMove,
+           messages.count <= maxMessages {
             messages[lastIndex] = message
             return true
         }

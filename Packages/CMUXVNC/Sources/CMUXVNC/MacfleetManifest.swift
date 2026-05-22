@@ -224,6 +224,42 @@ public struct MacfleetVNCSession: Equatable, Identifiable, Codable, Sendable {
         self.index = index
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case hostName
+        case address
+        case port
+        case username
+        case sessionPassword
+        case defaultPassword
+        case tag
+        case index
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        hostName = try container.decode(String.self, forKey: .hostName)
+        address = try container.decode(String.self, forKey: .address)
+        port = try container.decode(Int.self, forKey: .port)
+        username = try container.decode(String.self, forKey: .username)
+        sessionPassword = try container.decodeIfPresent(String.self, forKey: .sessionPassword)
+        defaultPassword = try container.decodeIfPresent(String.self, forKey: .defaultPassword)
+        tag = try container.decodeIfPresent(String.self, forKey: .tag)
+        index = try container.decode(Int.self, forKey: .index)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(hostName, forKey: .hostName)
+        try container.encode(address, forKey: .address)
+        try container.encode(port, forKey: .port)
+        try container.encode(username, forKey: .username)
+        try container.encodeIfPresent(tag, forKey: .tag)
+        try container.encode(index, forKey: .index)
+    }
+
     public var workspaceTitle: String { name }
 
     public var nonSecretSnapshot: MacfleetVNCSession {

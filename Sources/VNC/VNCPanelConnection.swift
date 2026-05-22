@@ -12,11 +12,13 @@ final class VNCPanelConnection {
     private static let helperSocketExitStatus: Int32 = 65
     private static let helperProtocolExitStatus: Int32 = 66
     private static let helperConnectionFailureExitStatus: Int32 = 67
+    private static let helperInputQueueFullExitStatus: Int32 = 68
     private static let nonRestartableHelperExitStatuses: Set<Int32> = [
         helperUsageExitStatus,
         helperSocketExitStatus,
         helperProtocolExitStatus,
-        helperConnectionFailureExitStatus
+        helperConnectionFailureExitStatus,
+        helperInputQueueFullExitStatus
     ]
     private static let maxPendingControlMessages = 256
 
@@ -302,7 +304,11 @@ final class VNCPanelConnection {
             return .disconnected
         }
         if status == Self.helperConnectionFailureExitStatus {
-            let reason = stateLock.withLock { helperReportedFailureReason } ?? VNCPanelText.stateFailed
+            let reason = stateLock.withLock { helperReportedFailureReason } ?? VNCPanelText.connectionFailed
+            return .failure(reason: reason, shouldRestart: false)
+        }
+        if status == Self.helperInputQueueFullExitStatus {
+            let reason = stateLock.withLock { helperReportedFailureReason } ?? VNCPanelText.inputQueueFull
             return .failure(reason: reason, shouldRestart: false)
         }
         if Self.nonRestartableHelperExitStatuses.contains(status) {
