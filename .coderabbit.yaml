@@ -64,6 +64,15 @@ reviews:
     - path: "Resources/opencode-plugin.js"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for the OpenCode Feed bridge. Preserve socket routing, `feed.push` event mapping, and the longer blocking permission timeout.
+    - path: "Sources/Feed/FeedCoordinator.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed bridge runtime behavior. Preserve `feed.push` blocking reply semantics, timeout handling, and source/event routing.
+    - path: "Packages/CMUXWorkstream/Sources/CMUXWorkstream/WorkstreamEvent.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed wire-frame changes. Preserve `_source`, `hook_event_name`, request id, and `tool_input` compatibility for CLI hooks and direct plugin bridges.
+    - path: "Packages/CMUXWorkstream/Sources/CMUXWorkstream/WorkstreamSource.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed source tag changes. Preserve agent source names emitted by cmux hooks and direct plugin bridges.
     - path: "Packages/CMUXAgentLaunch/**"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook config writers and agent launch environment policy.
