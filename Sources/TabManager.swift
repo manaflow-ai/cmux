@@ -3006,16 +3006,19 @@ class TabManager: ObservableObject {
     }
 
     private nonisolated static func resolveGitRepository(containing directory: String) -> ResolvedGitRepository? {
-        let startURL = URL(fileURLWithPath: directory).standardizedFileURL
         let fileManager = FileManager.default
-        var currentURL = startURL
+        var currentPath = URL(fileURLWithPath: directory).standardizedFileURL.path
         var isDirectory: ObjCBool = false
 
-        if !fileManager.fileExists(atPath: currentURL.path, isDirectory: &isDirectory) || !isDirectory.boolValue {
-            currentURL.deleteLastPathComponent()
+        if !fileManager.fileExists(atPath: currentPath, isDirectory: &isDirectory) || !isDirectory.boolValue {
+            guard let parentPath = gitProbeParentDirectoryPath(for: currentPath) else {
+                return nil
+            }
+            currentPath = parentPath
         }
 
         while true {
+            let currentURL = URL(fileURLWithPath: currentPath)
             let dotGitURL = currentURL.appendingPathComponent(".git")
             if fileManager.fileExists(atPath: dotGitURL.path, isDirectory: &isDirectory) {
                 let gitDirectory: String?
@@ -3035,12 +3038,21 @@ class TabManager: ObservableObject {
                 }
             }
 
-            let parentURL = currentURL.deletingLastPathComponent()
-            if parentURL.path == currentURL.path {
+            guard let parentPath = gitProbeParentDirectoryPath(for: currentPath) else {
                 return nil
             }
-            currentURL = parentURL
+            currentPath = parentPath
         }
+    }
+
+    private nonisolated static func gitProbeParentDirectoryPath(for path: String) -> String? {
+        let currentPath = (path as NSString).standardizingPath
+        guard currentPath != "/" else { return nil }
+
+        let parentPath = (currentPath as NSString).deletingLastPathComponent
+        let normalizedParentPath = parentPath.isEmpty ? "/" : parentPath
+        guard normalizedParentPath != currentPath else { return nil }
+        return normalizedParentPath
     }
 
     private nonisolated static func gitDirectoryFromDotGitFile(
@@ -4890,6 +4902,10 @@ class TabManager: ObservableObject {
     }
 
 #if DEBUG
+    nonisolated static func gitProbeParentDirectoryPathForTesting(_ path: String) -> String? {
+        gitProbeParentDirectoryPath(for: path)
+    }
+
     nonisolated static func workspaceGitMetadataWatchedPathsForTesting(directory: String) -> [String] {
         workspaceGitMetadataWatcherDescriptor(for: directory)?.watchedPaths ?? []
     }
