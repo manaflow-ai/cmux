@@ -1504,6 +1504,13 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         resetUnreadState()
         workspace.restorePanelUnreadIndicator(panelId)
         XCTAssertNotEqual(cleanFingerprint, manager.sessionAutosaveFingerprint())
+
+        resetUnreadState()
+        workspace.restorePanelUnreadIndicator(panelId, contributesToWorkspaceUnread: false)
+        let visualOnlyRestoredFingerprint = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(cleanFingerprint, visualOnlyRestoredFingerprint)
+        workspace.restorePanelUnreadIndicator(panelId, contributesToWorkspaceUnread: true)
+        XCTAssertNotEqual(visualOnlyRestoredFingerprint, manager.sessionAutosaveFingerprint())
     }
 
     func testShouldShowUnreadIndicatorWhenNotificationIsUnread() {

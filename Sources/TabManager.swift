@@ -8916,6 +8916,7 @@ extension TabManager {
                 hasher.combine(panelId)
                 hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))
                 hasher.combine(workspace.restoredUnreadPanelIds.contains(panelId))
+                hasher.combine(workspace.restoredUnreadIndicatorContributesToWorkspace(panelId: panelId))
                 hasher.combine(
                     notificationStore?.hasVisibleNotificationIndicator(
                         forTabId: workspace.id,
