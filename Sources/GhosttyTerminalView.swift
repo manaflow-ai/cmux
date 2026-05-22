@@ -4608,6 +4608,14 @@ final class GhosttyMetalLayer: CAMetalLayer {
     private var drawableCount: Int = 0
     private var lastDrawableTime: CFTimeInterval = 0
 
+    override var contents: Any? {
+        get { super.contents }
+        set {
+            guard shouldAccept(contents: newValue) else { return }
+            super.contents = newValue
+        }
+    }
+
     func debugStats() -> (count: Int, last: CFTimeInterval) {
         lock.lock()
         defer { lock.unlock() }
@@ -4620,6 +4628,23 @@ final class GhosttyMetalLayer: CAMetalLayer {
         lastDrawableTime = CACurrentMediaTime()
         lock.unlock()
         return super.nextDrawable()
+    }
+
+    private func shouldAccept(contents newValue: Any?) -> Bool {
+        guard let newValue else { return true }
+        guard let obj = newValue as AnyObject? else { return true }
+        let cf = obj as CFTypeRef
+        guard CFGetTypeID(cf) == IOSurfaceGetTypeID() else { return true }
+
+        let surfaceRef = obj as! IOSurfaceRef
+        let scale = max(contentsScale, 1.0)
+        let expectedWidth = Int((bounds.width * scale).rounded(.toNearestOrAwayFromZero))
+        let expectedHeight = Int((bounds.height * scale).rounded(.toNearestOrAwayFromZero))
+        let actualWidth = Int(IOSurfaceGetWidth(surfaceRef))
+        let actualHeight = Int(IOSurfaceGetHeight(surfaceRef))
+
+        guard expectedWidth > 0, expectedHeight > 0 else { return true }
+        return abs(actualWidth - expectedWidth) <= 1 && abs(actualHeight - expectedHeight) <= 1
     }
 }
 
@@ -6016,7 +6041,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             lastPixelHeight = hpx
         }
 
-        // Let Ghostty continue rendering on its own wakeups for steady-state frames.
+        // Resize/reflow-heavy apps like tmux can leave stale pixels visible until a
+        // later wakeup if we don't ask Ghostty for a fresh frame immediately.
+        ghostty_surface_refresh(surface)
         return true
     }
 
@@ -6892,6 +6919,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var pendingSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
+    private var lastCommandRefreshAt: CFTimeInterval = 0
     private var isFindEscapeSuppressionArmed = false
 #if DEBUG
     private var lastSizeSkipSignature: String?
@@ -6938,7 +6966,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func makeBackingLayer() -> CALayer {
-        let metalLayer = CAMetalLayer()
+        let metalLayer = GhosttyMetalLayer()
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.isOpaque = false
         // framebufferOnly=false lets the macOS compositor read the drawable
@@ -6946,12 +6974,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // standalone Ghostty's SurfaceView and is required for background-opacity
         // and background-blur to render correctly.
         metalLayer.framebufferOnly = false
+        // Match Ghostty's resize behavior so old IOSurface contents stay pinned
+        // instead of stretching while the resized grid renders.
+        metalLayer.contentsGravity = .topLeft
         return metalLayer
     }
 
     private func setup() {
-        // Only enable our instrumented CAMetalLayer in targeted debug/test scenarios.
-        // The lock in GhosttyMetalLayer.nextDrawable() adds overhead we don't want in normal runs.
+        // GhosttyMetalLayer validates IOSurface sizing during resize churn and also
+        // exposes lightweight drawable stats for debug tooling.
         wantsLayer = true
         layer?.masksToBounds = true
         installEventMonitor()
@@ -7433,6 +7464,46 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let scale = max(1.0, window?.backingScaleFactor ?? layer?.contentsScale ?? 1.0)
         return CGSize(width: pointsSize.width * scale, height: pointsSize.height * scale)
+    }
+
+    private func shouldRefreshAfterCommandKey(event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.control) || flags.contains(.option) {
+            return true
+        }
+
+        switch Int(event.keyCode) {
+        case kVK_LeftArrow,
+             kVK_RightArrow,
+             kVK_UpArrow,
+             kVK_DownArrow,
+             kVK_Return,
+             kVK_Tab,
+             kVK_Escape,
+             kVK_Delete,
+             kVK_Home,
+             kVK_End,
+             kVK_PageUp,
+             kVK_PageDown:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func refreshSurfaceAfterCommandIfNeeded(reason: String) {
+        guard let terminalSurface,
+              window != nil,
+              bounds.width > 0,
+              bounds.height > 0,
+              isVisibleInUI else { return }
+
+        let now = CACurrentMediaTime()
+        if now - lastCommandRefreshAt < 0.05 {
+            return
+        }
+        lastCommandRefreshAt = now
+        terminalSurface.forceRefresh(reason: reason)
     }
 
     // Convenience accessor for the ghostty surface
@@ -8360,7 +8431,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If Ghostty handled the key (action/encoding), we're done.
             // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
             // so the IME gets a chance to process this event.
-            if handled { return }
+            if handled {
+                refreshSurfaceAfterCommandIfNeeded(reason: "keyDown.ctrlCommand")
+                return
+            }
         }
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -8648,6 +8722,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let refreshStart = ProcessInfo.processInfo.systemUptime
 #endif
             terminalSurface?.forceRefresh(reason: "keyDown.textInput")
+#if DEBUG
+            refreshMs = (ProcessInfo.processInfo.systemUptime - refreshStart) * 1000.0
+#endif
+        } else if shouldRefreshAfterCommandKey(event: translationEvent) {
+#if DEBUG
+            let refreshStart = ProcessInfo.processInfo.systemUptime
+#endif
+            refreshSurfaceAfterCommandIfNeeded(reason: "keyDown.command")
 #if DEBUG
             refreshMs = (ProcessInfo.processInfo.systemUptime - refreshStart) * 1000.0
 #endif
