@@ -30,7 +30,6 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="/opt/homebrew/opt/postgresql@16/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 export TOOLCHAINS="${TOOLCHAINS:-com.apple.dt.toolchain.Metal.32023.864}"
-export CMUX_SKIP_ZIG_BUILD="${CMUX_SKIP_ZIG_BUILD:-1}"
 export SWIFT_BACKTRACE="${SWIFT_BACKTRACE:-enable=no,interactive=no,timeout=0s,color=no,symbolicate=off}"
 
 log() {
