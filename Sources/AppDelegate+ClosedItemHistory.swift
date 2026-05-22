@@ -106,11 +106,26 @@ extension AppDelegate {
             activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
             return true
         case .window(let windowEntry):
-            _ = createMainWindow(
+            var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
+            var restoredTabManager: TabManager?
+            let windowId = createMainWindow(
                 sessionWindowSnapshot: windowEntry.snapshot,
                 shouldActivate: shouldActivate,
-                closedWindowHistoryWorkspaceIds: windowEntry.workspaceIds
+                closedWindowHistoryWorkspaceIds: windowEntry.workspaceIds,
+                restoredSessionSnapshotHandler: { panelIdsByWorkspaceIndex, tabManager in
+                    restoredPanelIdsByWorkspaceIndex = panelIdsByWorkspaceIndex
+                    restoredTabManager = tabManager
+                }
             )
+            let hasLivePanels = restoredTabManager?.tabs.contains { !$0.panels.isEmpty } == true
+            guard ClosedWindowRestoreValidation.hasUsableRestoredContent(
+                snapshot: windowEntry.snapshot,
+                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+                hasLivePanels: hasLivePanels
+            ) else {
+                discardMainWindowWithoutClosedHistory(windowId: windowId)
+                return false
+            }
             return true
         }
     }

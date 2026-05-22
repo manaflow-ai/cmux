@@ -46,7 +46,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
-        case .history: return nil
+        case .history: return .switchRightSidebarToHistory
         }
     }
 }
@@ -78,6 +78,9 @@ extension RightSidebarMode {
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToDock).matches(event: event),
            RightSidebarMode.dock.isAvailable() {
             return .dock
+        }
+        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToHistory).matches(event: event) {
+            return .history
         }
         return nil
     }

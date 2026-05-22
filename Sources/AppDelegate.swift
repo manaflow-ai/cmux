@@ -5187,6 +5187,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    func discardMainWindowWithoutClosedHistory(windowId: UUID) {
+        guard let window = windowForMainWindowId(windowId) else { return }
+        closedWindowHistorySuppressedWindowIds.insert(windowId)
+        window.close()
+    }
+
     private func confirmCloseMainWindow(_ window: NSWindow) -> Bool {
 #if DEBUG
         if let debugCloseMainWindowConfirmationHandler {
@@ -7300,7 +7306,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil,
-        closedWindowHistoryWorkspaceIds: [UUID] = []
+        closedWindowHistoryWorkspaceIds: [UUID] = [],
+        restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         let windowId = UUID()
         let tabManager = TabManager(
@@ -7318,6 +7325,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 originalWorkspaceIds: closedWindowHistoryWorkspaceIds,
                 restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
             )
+        }
+        if sessionWindowSnapshot != nil {
+            restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
 
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width

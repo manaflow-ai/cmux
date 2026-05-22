@@ -1287,6 +1287,12 @@ extension SessionWorkspaceSnapshot {
     }
 }
 
+extension SessionWindowSnapshot {
+    var hasRestorablePanels: Bool {
+        tabManager.workspaces.contains { $0.hasRestorablePanels }
+    }
+}
+
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
