@@ -1,7 +1,8 @@
+import Observation
 import SwiftUI
 
 struct CmuxTaskManagerView: View {
-    @ObservedObject var model: CmuxTaskManagerModel
+    @Bindable var model: CmuxTaskManagerModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -61,6 +62,16 @@ struct CmuxTaskManagerView: View {
                 title: String(localized: "taskManager.summary.memory", defaultValue: "Memory"),
                 value: CmuxTaskManagerFormat.bytes(model.snapshot.total.memoryBytes)
             )
+            if let memoryDiagnostic = model.snapshot.memoryDiagnostic {
+                metric(
+                    title: String(localized: "taskManager.summary.appFootprint", defaultValue: "App Footprint"),
+                    value: CmuxTaskManagerFormat.bytes(memoryDiagnostic.appFootprintBytes)
+                )
+                metric(
+                    title: String(localized: "taskManager.summary.childRSS", defaultValue: "Child RSS"),
+                    value: CmuxTaskManagerFormat.bytes(memoryDiagnostic.childRSSBytes)
+                )
+            }
             metric(
                 title: String(localized: "taskManager.summary.processes", defaultValue: "Processes"),
                 value: "\(model.snapshot.total.processCount)"
@@ -159,6 +170,7 @@ struct CmuxTaskManagerView: View {
         let rows = model.sortedRows
         let agentRows = model.sortedAgentRows
         let aggregateRows = model.sortedAggregateRows
+        let childMemoryRows = model.sortedChildMemoryRows
         if let errorMessage = model.errorMessage {
             CmuxTaskManagerMessageView(
                 title: String(localized: "taskManager.error.title", defaultValue: "Unable to load resource usage"),
@@ -166,7 +178,7 @@ struct CmuxTaskManagerView: View {
             )
         } else if model.isInitialLoading {
             CmuxTaskManagerLoadingView()
-        } else if rows.isEmpty && agentRows.isEmpty && aggregateRows.isEmpty {
+        } else if rows.isEmpty && agentRows.isEmpty && aggregateRows.isEmpty && childMemoryRows.isEmpty {
             CmuxTaskManagerMessageView(
                 title: String(localized: "taskManager.empty.title", defaultValue: "No resource usage"),
                 detail: String(localized: "taskManager.empty.detail", defaultValue: "Open a workspace, terminal, or browser surface to see it here.")
@@ -210,7 +222,31 @@ struct CmuxTaskManagerView: View {
                                 .padding(.leading, 16)
                         }
                     }
-                    if !rows.isEmpty && (!agentRows.isEmpty || !aggregateRows.isEmpty) {
+                    if !childMemoryRows.isEmpty {
+                        CmuxTaskManagerSectionHeaderView(
+                            title: String(localized: "taskManager.section.childProcessRSS", defaultValue: "Child Process RSS")
+                        )
+                        ForEach(childMemoryRows) { row in
+                            CmuxTaskManagerRowView(
+                                row: row,
+                                onViewWorkspace: {
+                                    model.viewWorkspace(for: row)
+                                },
+                                onViewTerminal: {
+                                    model.viewTerminal(for: row)
+                                },
+                                onKillProcess: {
+                                    model.killProcess(for: row)
+                                },
+                                onActivate: {
+                                    model.viewBestTarget(for: row)
+                                }
+                            )
+                            Divider()
+                                .padding(.leading, 16)
+                        }
+                    }
+                    if !rows.isEmpty && (!agentRows.isEmpty || !aggregateRows.isEmpty || !childMemoryRows.isEmpty) {
                         CmuxTaskManagerSectionHeaderView(
                             title: String(localized: "taskManager.section.hierarchy", defaultValue: "Hierarchy")
                         )

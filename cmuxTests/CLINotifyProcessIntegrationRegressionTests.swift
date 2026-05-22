@@ -421,6 +421,221 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["source"] as? String, "agent-hook")
     }
 
+    func testNestedCodexPromptAndStopDoNotReplaceParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-nested-resume-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "same-process-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"spawn subagent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Parent Codex prompt should publish a resume binding, saw \(context.state.commands)"
+        )
+
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"return 1+1"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Nested Codex prompt should not replace the parent resume binding, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "Nested Codex prompt should not rewrite parent Running status, saw \(childPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"2"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertTrue(
+            childStopCommands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Nested Codex Stop should remain Feed telemetry, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Nested Codex Stop should not replace the parent resume binding, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Nested Codex Stop should not notify or mark the parent idle, saw \(childStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Parent Codex Stop should still refresh the resume binding, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Parent Codex Stop should still notify, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "Parent Codex Stop should mark Codex idle, saw \(parentStopCommands)"
+        )
+    }
+
+    func testManagedCodexSubagentStopDoesNotReplaceResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-resume-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-child-session"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Managed subagent Stop should remain Feed telemetry, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Managed subagent Stop should not publish a child resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Managed subagent Stop should not notify or clobber visible status, saw \(context.state.commands)"
+        )
+    }
+
+    func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
+        let context = try makeClaudeHookContext(name: "codex-stale-relay")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-stale-relay-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-stale-relay.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"old-turn"}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":"<subagent_notification>old child finished</subagent_notification>"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"top-level"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stopStart = context.state.commands.count
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        XCTAssertTrue(
+            stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Stale completed-turn subagent relay should not suppress the parent completion notification, saw \(stopCommands)"
+        )
+    }
+
+    func testManagedCodexSubagentSessionEndDoesNotClearParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-end-resume-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-child-session-end"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": 12345,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-end",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            extraEnvironment: [
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
+            "Managed subagent SessionEnd should not clear the parent resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("clear_agent_pid codex.") },
+            "Managed subagent SessionEnd should not clear the visible parent PID, saw \(context.state.commands)"
+        )
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        XCTAssertNotNil(savedSessions[sessionId], "Suppressed SessionEnd should leave the stored parent session intact")
+    }
+
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
         let cliPath = try bundledCLIPath()
         let cases: [(name: String, arguments: [String], expectedCommand: String, response: String, stdout: String)] = [
@@ -650,7 +865,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     @MainActor
-    func testNotifyWithUUIDSurfaceKeepsCallerWorkspaceFallback() throws {
+    func testNotifyWithUUIDSurfaceDoesNotRequireCallerWorkspaceOrWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify-uuid-surface")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -677,9 +892,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 }
 
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["workspace_id"] as? String, callerWorkspace)
+                XCTAssertNil(params["workspace_id"], "surface UUIDs should not be constrained to the caller workspace")
+                XCTAssertNil(params["window_id"], "surface UUIDs should not require an explicit window")
                 XCTAssertEqual(params["surface_id"] as? String, callerSurface)
-                XCTAssertEqual(params["body"] as? String, "--json")
+                XCTAssertEqual(params["body"] as? String, "Body")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -699,7 +915,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["notify", "--surface", callerSurface, "--title", "UUID", "--body", "--json"],
+            arguments: ["notify", "--surface", callerSurface, "--title", "UUID", "--body", "Body"],
             environment: environment,
             timeout: 5
         )
@@ -1076,6 +1292,1531 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             state.commands.contains { $0.contains("set_status codex Running") && $0.contains("--tab=\(currentWorkspaceId)") },
             "Expected Codex prompt status to target current workspace, saw \(state.commands)"
         )
+    }
+
+    func testNewPaneWindowFlagScopesWorkspaceIndex() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("pane-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let paneId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "workspace.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": workspaceId,
+                                "ref": "workspace:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "pane.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["direction"] as? String, "right")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "window_id": windowId,
+                        "workspace_id": workspaceId,
+                        "pane_id": paneId,
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["new-pane", "--window", windowId, "--workspace", "0", "--direction", "right"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.list", "pane.create"]
+        )
+    }
+
+    func testFocusPaneWindowFlagRejectsPaneFromOtherWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("pane-other-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let targetWindowId = "11111111-1111-1111-1111-111111111111"
+        let targetWorkspaceId = "22222222-2222-2222-2222-222222222222"
+        let targetPaneId = "33333333-3333-3333-3333-333333333333"
+        let otherPaneId = "44444444-4444-4444-4444-444444444444"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": targetWorkspaceId,
+                                "ref": "workspace:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "pane.list":
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "panes": [
+                            [
+                                "id": targetPaneId,
+                                "ref": "pane:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["focus-pane", "--window", targetWindowId, "--pane", otherPaneId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("Pane not found in window"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.list", "pane.list"]
+        )
+    }
+
+    func testReorderSurfaceWindowFlagRejectsSurfaceFromOtherWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("surface-other-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let targetWindowId = "11111111-1111-1111-1111-111111111111"
+        let targetWorkspaceId = "22222222-2222-2222-2222-222222222222"
+        let targetSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let otherSurfaceId = "44444444-4444-4444-4444-444444444444"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": targetWorkspaceId,
+                                "ref": "workspace:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "surface.list":
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": targetSurfaceId,
+                                "ref": "surface:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["reorder-surface", "--window", targetWindowId, "--surface", otherSurfaceId, "--index", "0"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("Surface not found in window"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.list", "surface.list"]
+        )
+    }
+
+    func testSendWindowFlagRejectsUnknownWindowRefBeforeMutation() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("send-window-ref")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let existingWindowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": existingWindowId,
+                                "ref": "window:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["send", "--window", "window:2", "--", "should-not-send"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("Window not found: window:2"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list"]
+        )
+    }
+
+    func testVMNewWindowFlagValidatesBeforeCreate() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-window-validate")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let missingWindowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            guard method == "window.list" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            return self.v2Response(id: id, ok: true, result: ["windows": []])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--window", missingWindowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("Window not found: \(missingWindowId)"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list"]
+        )
+    }
+
+    func testVMNewWindowFlagAcceptsCaseInsensitiveUUID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-window-case")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let listedWindowId = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
+        let requestedWindowId = listedWindowId.lowercased()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": listedWindowId,
+                                "ref": "window:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "vm.create":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "id": "vm-test-case-window",
+                        "provider": "freestyle",
+                        "image": "default",
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--window", requestedWindowId, "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("OK vm-test-case-window"), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list", "vm.create"]
+        )
+    }
+
+    func testPipePaneWindowFlagDoesNotBecomePositionalCommandText() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("pipe-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "system.identify":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "focused": [
+                            "window_id": windowId,
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                        ],
+                    ]
+                )
+            case "surface.read_text":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return self.v2Response(id: id, ok: true, result: ["text": "hello\n"])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["pipe-pane", "--window", "window:2", "cat"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "hello\nOK\n")
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list", "system.identify", "surface.read_text"]
+        )
+    }
+
+    func testPipePaneWindowWorkspaceOmittedSurfaceDoesNotUseSelectedWorkspaceSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("pipe-window-workspace")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let selectedWorkspaceSurfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": workspaceId,
+                                "ref": "workspace:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "system.identify":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "focused": [
+                            "window_id": windowId,
+                            "workspace_id": "44444444-4444-4444-4444-444444444444",
+                            "surface_id": selectedWorkspaceSurfaceId,
+                        ],
+                    ]
+                )
+            case "surface.read_text":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertNil(params["surface_id"], line)
+                return self.v2Response(id: id, ok: true, result: ["text": "workspace text\n"])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["pipe-pane", "--window", "window:2", "--workspace", "workspace:2", "cat"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "workspace text\nOK\n")
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list", "workspace.list", "surface.read_text"]
+        )
+    }
+
+    func testRespawnPaneWindowFlagDoesNotBecomePositionalCommandText() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("respawn-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "system.identify":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "focused": [
+                            "window_id": windowId,
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                        ],
+                    ]
+                )
+            case "surface.send_text":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["text"] as? String, "echo fresh\n")
+                return self.v2Response(id: id, ok: true, result: ["surface_id": surfaceId])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["respawn-pane", "--window", "window:2", "echo", "fresh"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list", "system.identify", "surface.send_text"]
+        )
+    }
+
+    func testMoveSurfaceWindowFlagKeepsIndexedSourceInCallerContext() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("move-surface-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let targetWindowId = "11111111-1111-1111-1111-111111111111"
+        let sourceSurfaceId = "22222222-2222-2222-2222-222222222222"
+        let targetWorkspaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "surface.list":
+                XCTAssertNil(params["window_id"])
+                XCTAssertNil(params["workspace_id"])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": sourceSurfaceId,
+                                "ref": "surface:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "surface.move":
+                XCTAssertEqual(params["surface_id"] as? String, sourceSurfaceId)
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surface_id": sourceSurfaceId,
+                        "window_id": targetWindowId,
+                        "workspace_id": targetWorkspaceId,
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["move-surface", "--surface", "0", "--workspace", targetWorkspaceId, "--window", targetWindowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["surface.list", "surface.move"]
+        )
+    }
+
+    func testMoveSurfaceWindowFlagAllowsSourceSurfaceRefFromOtherWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("move-surface-cross-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let targetWindowId = "11111111-1111-1111-1111-111111111111"
+        let sourceSurfaceRef = "surface:1"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            guard method == "surface.move" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            XCTAssertEqual(params["surface_id"] as? String, sourceSurfaceRef)
+            XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "surface_ref": sourceSurfaceRef,
+                    "window_id": targetWindowId,
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["move-surface", "--surface", sourceSurfaceRef, "--window", targetWindowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["surface.move"]
+        )
+    }
+
+    func testSidebarMetadataWindowFlagTargetsSelectedWorkspaceInWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("status-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let payload = self.jsonObject(line),
+               let id = payload["id"] as? String,
+               let method = payload["method"] as? String {
+                guard method == "workspace.current" else {
+                    return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+                }
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            }
+
+            XCTAssertTrue(line.hasPrefix("set_status build running"), line)
+            XCTAssertTrue(line.contains("--tab=\(workspaceId)"), line)
+            XCTAssertFalse(line.contains("--window"), line)
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["set-status", "build", "running", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+    }
+
+    func testSidebarMetadataWindowFlagAfterSeparatorStaysMessageText() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("log-separator")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let payload = self.jsonObject(line),
+               let id = payload["id"] as? String,
+               let method = payload["method"] as? String {
+                guard method == "workspace.current" else {
+                    return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+                }
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            }
+
+            XCTAssertEqual(line, "log --tab=\(workspaceId) -- --window target")
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["log", "--window", windowId, "--", "--window", "target"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+    }
+
+    func testSidebarMetadataWindowFlagFailsWhenWindowHasNoCurrentWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("status-window-empty")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.current" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["window_id"] as? String, windowId)
+            return self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["set-status", "build", "running", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("set-status: targeted window has no current workspace"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current"]
+        )
+    }
+
+    func testNotifyWindowFlagResolvesCurrentWorkspaceInWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "workspace.current":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            case "notification.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["title"] as? String, "Window Notify")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": workspaceId, "surface_id": surfaceId]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--window", windowId, "--title", "Window Notify"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current", "notification.create"]
+        )
+    }
+
+    func testNotifyWindowSurfaceRefResolvesAcrossTargetWindowWorkspaces() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-window-surface")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let selectedWorkspaceId = "22222222-2222-2222-2222-222222222222"
+        let targetWorkspaceId = "33333333-3333-3333-3333-333333333333"
+        let selectedSurfaceId = "44444444-4444-4444-4444-444444444444"
+        let targetSurfaceId = "55555555-5555-5555-5555-555555555555"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                XCTAssertTrue(line.hasPrefix("notify_target \(targetWorkspaceId) \(targetSurfaceId) "), line)
+                XCTAssertTrue(line.contains("Window Surface Notify"), line)
+                return "OK"
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": selectedWorkspaceId,
+                                "ref": "workspace:1",
+                                "index": 1,
+                            ],
+                            [
+                                "id": targetWorkspaceId,
+                                "ref": "workspace:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "surface.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                switch params["workspace_id"] as? String {
+                case selectedWorkspaceId:
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "surfaces": [
+                                [
+                                    "id": selectedSurfaceId,
+                                    "ref": "surface:1",
+                                    "index": 1,
+                                ],
+                            ],
+                        ]
+                    )
+                case targetWorkspaceId:
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "surfaces": [
+                                [
+                                    "id": targetSurfaceId,
+                                    "ref": "surface:3",
+                                    "index": 3,
+                                ],
+                            ],
+                        ]
+                    )
+                default:
+                    XCTFail("Unexpected surface.list params: \(params)")
+                    return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected workspace"])
+                }
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--window", "window:2", "--surface", "surface:3", "--title", "Window Surface Notify"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        let methods = state.commands.compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, ["window.list", "workspace.list", "surface.list", "surface.list"])
+    }
+
+    func testNotifyWindowSurfaceIndexUsesCurrentWorkspaceInTargetWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-window-surface-index")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let selectedWorkspaceId = "22222222-2222-2222-2222-222222222222"
+        let selectedSurfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                XCTAssertTrue(line.hasPrefix("notify_target \(selectedWorkspaceId) \(selectedSurfaceId) "), line)
+                XCTAssertTrue(line.contains("Window Indexed Notify"), line)
+                return "OK"
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.current":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": selectedWorkspaceId])
+            case "surface.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, selectedWorkspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": selectedSurfaceId,
+                                "ref": "surface:8",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--window", "window:2", "--surface", "0", "--title", "Window Indexed Notify"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        let methods = state.commands.compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, ["window.list", "workspace.current", "surface.list"])
+    }
+
+    func testWorkspaceActionWindowFlagResolvesCurrentWorkspaceInWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("action-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "workspace.current":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            case "workspace.action":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["action"] as? String, "pin")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["window_id": windowId, "workspace_id": workspaceId, "action": "pin"]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["workspace-action", "--window", windowId, "--action", "pin"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current", "workspace.action"]
+        )
+    }
+
+    func testClearNotificationsWindowFlagFailsWhenWindowHasNoCurrentWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("clear-window-empty")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.current" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["window_id"] as? String, windowId)
+            return self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["clear-notifications", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("clear-notifications: targeted window has no current workspace"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current"]
+        )
+    }
+
+    func testTreeCommandForwardsWindowFlag() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tree-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            guard method == "system.tree" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["window_id"] as? String, windowId)
+            XCTAssertEqual(params["all_windows"] as? Bool, false)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "active": NSNull(),
+                    "caller": NSNull(),
+                    "windows": [],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["tree", "--json", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+    }
+
+    func testTreeCommandWindowFlagSurvivesLegacyFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tree-legacy-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let otherWindowId = "22222222-2222-2222-2222-222222222222"
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let paneId = "44444444-4444-4444-4444-444444444444"
+        let surfaceId = "55555555-5555-5555-5555-555555555555"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "system.tree":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "method_not_found", "message": "system.tree"]
+                )
+            case "system.identify":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "focused": [
+                            "window_id": windowId,
+                            "workspace_id": workspaceId,
+                            "pane_id": paneId,
+                            "surface_id": surfaceId,
+                        ],
+                        "caller": NSNull(),
+                    ]
+                )
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            ["id": otherWindowId, "ref": "window:1", "index": 0],
+                            ["id": windowId, "ref": "window:2", "index": 1],
+                        ],
+                    ]
+                )
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, "window:2")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "window_id": windowId,
+                        "window_ref": "window:2",
+                        "workspaces": [
+                            ["id": workspaceId, "ref": "workspace:1", "index": 0, "selected": true],
+                        ],
+                    ]
+                )
+            case "pane.list":
+                XCTAssertTrue([workspaceId, "workspace:1"].contains(params["workspace_id"] as? String))
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "panes": [
+                            ["id": paneId, "ref": "pane:1", "index": 0],
+                        ],
+                    ]
+                )
+            case "surface.list":
+                XCTAssertTrue([workspaceId, "workspace:1"].contains(params["workspace_id"] as? String))
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": surfaceId,
+                                "ref": "surface:1",
+                                "pane_id": paneId,
+                                "pane_ref": "pane:1",
+                                "index": 0,
+                                "type": "terminal",
+                                "focused": true,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--id-format", "uuids", "tree", "--json", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        let windows = try XCTUnwrap(payload["windows"] as? [[String: Any]])
+        XCTAssertEqual(windows.count, 1, result.stdout)
+        XCTAssertEqual(windows.first?["id"] as? String, windowId)
+        XCTAssertFalse(result.stdout.contains(otherWindowId), result.stdout)
     }
 
     func testCodexPromptSubmitWithForeignCmuxEnvDoesNotFallbackToSelectedWorkspace() throws {
@@ -1518,98 +3259,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(
             request["command"] as? String,
             "cd '\(root.path)' && '/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
-        )
-    }
-
-    func testGrokHookPublishesResumeBindingWithNativeResumeFlag() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("grok-resume")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-grok-resume-\(UUID().uuidString)", isDirectory: true)
-        let workspaceId = "11111111-1111-1111-1111-111111111111"
-        let surfaceId = "22222222-2222-2222-2222-222222222222"
-        let sessionId = "grok-session-123"
-        let grokHome = root.appendingPathComponent("grok-home", isDirectory: true)
-
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-            try? FileManager.default.removeItem(at: root)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = self.jsonObject(line) else {
-                return "OK"
-            }
-            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-            }
-            switch method {
-            case "surface.list":
-                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-            case "feed.push":
-                return self.v2Response(id: id, ok: true, result: [:])
-            case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
-            default:
-                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-            }
-        }
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_WORKSPACE_ID"] = workspaceId
-        environment["CMUX_SURFACE_ID"] = surfaceId
-        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_AGENT_LAUNCH_KIND"] = "grok"
-        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/Users/example/.grok/bin/grok"
-        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
-        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
-            "/Users/example/.grok/bin/grok",
-            "--model",
-            "grok-4",
-            "--resume",
-            "old-session",
-            "--permission-mode",
-            "auto",
-            "--cwd",
-            root.path,
-            "initial prompt should not replay"
-        ])
-        environment["GROK_HOME"] = grokHome.path
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["hooks", "grok", "prompt-submit"],
-            environment: environment,
-            standardInput: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"continue"}"#,
-            timeout: 5
-        )
-
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-
-        let resumeBindingRequests = state.commands.compactMap { command -> [String: Any]? in
-            guard let payload = jsonObject(command),
-                  payload["method"] as? String == "surface.resume.set" else {
-                return nil
-            }
-            return payload["params"] as? [String: Any]
-        }
-        XCTAssertEqual(resumeBindingRequests.count, 1, state.commands.joined(separator: "\n"))
-        let request = try XCTUnwrap(resumeBindingRequests.first)
-        XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
-        XCTAssertEqual(request["auto_resume"] as? Bool, true)
-        XCTAssertEqual(request["kind"] as? String, "grok")
-        XCTAssertEqual(request["environment"] as? [String: String], ["GROK_HOME": grokHome.path])
-        XCTAssertEqual(
-            request["command"] as? String,
-            "cd '\(root.path)' && '/Users/example/.grok/bin/grok' '-r' '\(sessionId)' '--model' 'grok-4' '--permission-mode' 'auto' '--cwd' '\(root.path)'"
         )
     }
 
@@ -2188,6 +3837,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
 
         let windowId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let surfaceId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
         let surfaceRef = "surface:7"
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line),
@@ -2206,11 +3856,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.v2Response(id: id, ok: true, result: ["window_id": windowId])
             case "surface.list":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["window_id"] as? String, "window:1")
+                XCTAssertEqual(params["window_id"] as? String, windowId)
                 return self.v2Response(
                     id: id,
                     ok: true,
-                    result: ["surfaces": [["id": "ignored-id", "ref": surfaceRef, "index": 0]]]
+                    result: ["surfaces": [["id": surfaceId, "ref": surfaceRef, "index": 0]]]
                 )
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
@@ -2249,9 +3899,83 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "surface resume metadata commands should route by window_id without focusing the window"
         )
         let request = try XCTUnwrap(clearRequests.first)
-        XCTAssertEqual(request["window_id"] as? String, "window:1")
+        XCTAssertEqual(request["window_id"] as? String, windowId)
         XCTAssertNotEqual(request["window_id"] as? String, "0")
-        XCTAssertEqual(request["surface_id"] as? String, surfaceRef)
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+    }
+
+    func testSurfaceResumeClearCLIParsesLocalWindowOption() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-clear-local-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let windowId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let surfaceId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["windows": [["id": windowId, "ref": "window:1", "index": 0]]]
+                )
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "ref": "surface:7", "index": 0]]]
+                )
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "clear", "--window", "0", "--surface", "0"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertFalse(
+            state.commands.contains { command in
+                jsonObject(command)?["method"] as? String == "window.focus"
+            },
+            "local --window should route surface resume metadata without focusing the window"
+        )
+
+        let clearRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(clearRequests.first)
+        XCTAssertEqual(request["window_id"] as? String, windowId)
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
     }
 
     private struct ClaudeHookContext {
@@ -2267,6 +3991,115 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String) -> [String: String] {
+        [
+            "CMUX_AGENT_LAUNCH_KIND": "codex",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/codex",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+            ]),
+        ]
+    }
+
+    private func runCodexHook(
+        context: ClaudeHookContext,
+        subcommand: String,
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": context.root.path,
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
+
+        return runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "codex", subcommand],
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
+    private func startAgentHookMockServerAccepting(
+        context: ClaudeHookContext,
+        connectionLimit: Int
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var accepted = 0
+            while accepted < connectionLimit {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(context.listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                if clientFD < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                accepted += 1
+
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { Darwin.close(clientFD) }
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            context.state.append(line)
+                            let response = self.agentHookMockResponse(line: line, context: context) + "\n"
+                            _ = response.withCString { ptr in
+                                Darwin.write(clientFD, ptr, strlen(ptr))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
+        guard let payload = jsonObject(line) else {
+            return "OK"
+        }
+        guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+            return malformedRequestResponse(id: payload["id"] as? String, raw: line)
+        }
+        switch method {
+        case "surface.list":
+            return surfaceListResponse(id: id, surfaceId: context.surfaceId)
+        case "feed.push":
+            return v2Response(id: id, ok: true, result: [:])
+        case "surface.resume.set":
+            return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+        case "surface.resume.clear":
+            return v2Response(id: id, ok: true, result: ["cleared": true])
+        default:
+            return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }
     }
 

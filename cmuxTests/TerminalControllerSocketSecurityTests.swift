@@ -519,6 +519,59 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
 
+    func testPaneCreateStartupEnvironmentMarksManagedSubagentForRawNotificationSuppression() async throws {
+        let socketPath = makeSocketPath("pane-env")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        let defaults = UserDefaults.standard
+        let previousSuppressionDefault = defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+
+        defaults.set(true, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            if let previousSuppressionDefault {
+                defaults.set(previousSuppressionDefault, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+            } else {
+                defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+            }
+        }
+
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: sourcePanelId))
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "pane.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": sourcePanelId.uuidString,
+                "direction": "right",
+                "startup_environment": [
+                    "CMUX_AGENT_MANAGED_SUBAGENT": "1"
+                ]
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        let newSurfaceIDString = try XCTUnwrap(result["surface_id"] as? String)
+        let newSurfaceID = try XCTUnwrap(UUID(uuidString: newSurfaceIDString))
+        let newPanel = try XCTUnwrap(workspace.panels[newSurfaceID] as? TerminalPanel)
+
+        XCTAssertEqual(newPanel.surface.startupEnvironmentValue("CMUX_AGENT_MANAGED_SUBAGENT"), "1")
+        XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: newSurfaceID))
+        XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: sourcePanelId))
+    }
+
     func testSurfaceRelayRPCsReturnResolvedFocusedSurfaceWhenSurfaceIDOmitted() async throws {
         let socketPath = makeSocketPath("relay-fallback")
         let manager = TabManager()
