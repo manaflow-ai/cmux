@@ -677,6 +677,50 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testLegacyWarnBeforeQuitMapsToConfirmQuitWhenConfirmQuitIsAbsent() throws {
+        let defaults = UserDefaults.standard
+        let confirmQuitKey = QuitWarningSettings.confirmQuitKey
+        let warnBeforeQuitKey = QuitWarningSettings.warnBeforeQuitKey
+
+        try preservingDefaults(keys: [
+            confirmQuitKey,
+            warnBeforeQuitKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.set(QuitConfirmationMode.always.rawValue, forKey: confirmQuitKey)
+            defaults.removeObject(forKey: warnBeforeQuitKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "warnBeforeQuit": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: confirmQuitKey), QuitConfirmationMode.never.rawValue)
+            XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, false)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+        }
+    }
+
     func testInvalidConfirmQuitDoesNotAbortRemainingAppSettings() throws {
         let defaults = UserDefaults.standard
         let confirmQuitKey = QuitWarningSettings.confirmQuitKey
@@ -716,7 +760,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 startWatching: false
             )
 
-            XCTAssertNil(defaults.string(forKey: confirmQuitKey))
+            XCTAssertEqual(defaults.string(forKey: confirmQuitKey), QuitConfirmationMode.never.rawValue)
             XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, false)
             XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
         }

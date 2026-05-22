@@ -421,8 +421,10 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["sendAnonymousTelemetry"]) {
             snapshot.managedUserDefaults[TelemetrySettings.sendAnonymousTelemetryKey] = .bool(value)
         }
+        var parsedConfirmQuitMode: QuitConfirmationMode?
         if let raw = jsonString(section["confirmQuit"]) {
             if let mode = QuitConfirmationMode(rawValue: raw) {
+                parsedConfirmQuitMode = mode
                 snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
             } else {
                 logInvalid("app.confirmQuit", sourcePath: sourcePath)
@@ -430,6 +432,10 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["warnBeforeQuit"]) {
             snapshot.managedUserDefaults[QuitWarningSettings.warnBeforeQuitKey] = .bool(value)
+            if parsedConfirmQuitMode == nil {
+                let mode: QuitConfirmationMode = value ? .always : .never
+                snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
+            }
         }
         if let value = jsonBool(section["warnBeforeClosingTab"]) {
             snapshot.managedUserDefaults[CloseTabWarningSettings.warnBeforeClosingTabKey] = .bool(value)
