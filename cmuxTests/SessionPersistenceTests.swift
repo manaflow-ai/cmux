@@ -111,6 +111,50 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotRestoresDockOnlyLayoutWithoutSeededMainTerminal() throws {
+        let workspace = Workspace()
+        let seededMainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        workspace.dockLayout.openEdge(.right)
+
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        workspace.setPanelCustomTitle(panelId: dockPanel.id, title: "Dock only")
+
+        XCTAssertTrue(workspace.closePanel(seededMainPanelId, force: true))
+        XCTAssertEqual(workspace.panels.count, 1)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        if case .pane(let mainPane) = snapshot.layout {
+            XCTAssertTrue(mainPane.panelIds.isEmpty)
+        } else {
+            XCTFail("Expected single empty main pane")
+        }
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredMainPanelIds = restored.bonsplitController.allTabIds.compactMap {
+            restored.panelIdFromSurfaceId($0)
+        }
+        XCTAssertTrue(restoredMainPanelIds.isEmpty)
+        XCTAssertEqual(restored.panels.count, 1)
+
+        let restoredDock = try XCTUnwrap(restored.dockLayout.docksSnapshot(for: .right).first)
+        let restoredDockPanelIds = restoredDock.controller.allTabIds.compactMap {
+            restored.panelIdFromSurfaceId($0)
+        }
+        XCTAssertEqual(restoredDockPanelIds.count, 1)
+        XCTAssertEqual(restored.panelTitle(panelId: restoredDockPanelIds[0]), "Dock only")
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-markdown-\(UUID().uuidString)", isDirectory: true)

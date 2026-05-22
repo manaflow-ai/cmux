@@ -252,6 +252,9 @@ extension Workspace {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
+        isRestoringSessionSnapshot = true
+        defer { isRestoringSessionSnapshot = false }
+
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
@@ -292,6 +295,10 @@ extension Workspace {
             )
         }
         applySessionDockOpenStates(snapshot.docks ?? [])
+
+        if panels.isEmpty {
+            _ = createAndFocusReplacementTerminalPanel()
+        }
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
         applySessionDividerPositions(
@@ -904,11 +911,11 @@ extension Workspace {
             oldToNewPanelIds[oldPanelId] = createdPanelId
         }
 
-        guard !createdPanelIds.isEmpty else { return }
-
         for oldPanelId in existingPanelIds where !createdPanelIds.contains(oldPanelId) {
             _ = closePanel(oldPanelId, force: true)
         }
+
+        guard !createdPanelIds.isEmpty else { return }
 
         for (index, panelId) in createdPanelIds.enumerated() {
             _ = reorderSurface(panelId: panelId, toIndex: index, focus: false)
@@ -7999,6 +8006,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
+    private var isRestoringSessionSnapshot = false
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
@@ -13578,6 +13586,23 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
+    @discardableResult
+    private func createAndFocusReplacementTerminalPanel() -> TerminalPanel {
+        let replacement = createReplacementTerminalPanel()
+        if let replacementTabId = surfaceIdFromPanelId(replacement.id),
+           let replacementController = bonsplitController(containingTab: replacementTabId),
+           let replacementPane = paneId(forPanelId: replacement.id) ?? replacementController.allPaneIds.first {
+            replacementController.focusPane(replacementPane)
+            replacementController.selectTab(replacementTabId)
+            applyTabSelection(
+                tabId: replacementTabId,
+                inPane: replacementPane,
+                controller: replacementController
+            )
+        }
+        return replacement
+    }
+
     /// Check if any panel needs close confirmation
     func needsConfirmClose() -> Bool {
         for (panelId, _) in panels {
@@ -15717,29 +15742,23 @@ extension Workspace: BonsplitDelegate {
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
         // prune the source workspace/window after the tab is attached elsewhere.
         if panels.isEmpty {
-            if isDetaching {
-                // Detach path also doesn't create a replacement panel this turn, so any
-                // pending banner state would survive and leak into a later close. Drop it.
-                pendingReplacementBannerRemoteTarget = nil
+            if isDetaching || isRestoringSessionSnapshot {
+                // Detach and restore paths intentionally allow a temporary empty workspace.
+                // For detach, drop any pending banner state so it cannot leak into a later close.
+                if isDetaching {
+                    pendingReplacementBannerRemoteTarget = nil
+                }
                 scheduleTerminalGeometryReconcile()
+                if !isDetaching {
+                    scheduleFocusReconcile()
+                }
                 return
             }
 
             #if DEBUG
             dlog("replacement.banner.fire target=\(pendingReplacementBannerRemoteTarget ?? "nil")")
             #endif
-            let replacement = createReplacementTerminalPanel()
-            if let replacementTabId = surfaceIdFromPanelId(replacement.id),
-               let replacementController = bonsplitController(containingTab: replacementTabId),
-               let replacementPane = paneId(forPanelId: replacement.id) ?? replacementController.allPaneIds.first {
-                replacementController.focusPane(replacementPane)
-                replacementController.selectTab(replacementTabId)
-                applyTabSelection(
-                    tabId: replacementTabId,
-                    inPane: replacementPane,
-                    controller: replacementController
-                )
-            }
+            _ = createAndFocusReplacementTerminalPanel()
             scheduleTerminalGeometryReconcile()
             scheduleFocusReconcile()
             return
