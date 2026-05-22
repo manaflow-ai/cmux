@@ -1368,6 +1368,67 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testReloadConfigurationMenuActionReloadsRegisteredCmuxConfigStore() throws {
+#if DEBUG
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "actions": {
+                "first": { "type": "command", "command": "echo first" }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let tabManager = TabManager()
+        let cmuxConfigStore = CmuxConfigStore(
+            globalConfigPath: settingsFileURL.path,
+            startFileWatchers: false
+        )
+        cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
+        cmuxConfigStore.loadAll()
+        XCTAssertNotNil(cmuxConfigStore.resolvedAction(id: "first"))
+        XCTAssertNil(cmuxConfigStore.resolvedAction(id: "second"))
+
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: tabManager,
+            cmuxConfigStore: cmuxConfigStore
+        )
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        try writeSettingsFile(
+            """
+            {
+              "actions": {
+                "second": { "type": "command", "command": "echo second" }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let selector = NSSelectorFromString("reloadConfigurationMenuItem:")
+        XCTAssertTrue(
+            appDelegate.responds(to: selector),
+            "Reload Configuration menu item must have an AppKit selector-backed action path"
+        )
+
+        _ = appDelegate.perform(selector, with: nil)
+
+        XCTAssertNil(cmuxConfigStore.resolvedAction(id: "first"))
+        XCTAssertNotNil(cmuxConfigStore.resolvedAction(id: "second"))
+#else
+        throw XCTSkip("menu selector regression requires DEBUG app test helpers")
+#endif
+    }
+
     func testSettingsFileShortcutCanBeOverriddenFromUI() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
