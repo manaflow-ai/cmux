@@ -513,13 +513,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "interrupted-depth-session"
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-interrupted-turn-depth.jsonl",
+            turnId: "old-turn",
+            eventType: "turn_aborted"
+        )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
         startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
 
         let interruptedPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"interrupted"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"interrupted"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(interruptedPrompt.timedOut, interruptedPrompt.stderr)
@@ -528,7 +534,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"finish now"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"finish now"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
@@ -538,7 +544,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentStop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
@@ -560,13 +566,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "stale-turn-stop-session"
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-stale-turn-stop.jsonl",
+            turnId: "old-turn",
+            eventType: "turn_aborted"
+        )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
         startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
 
         let oldPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
@@ -575,7 +587,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
@@ -585,7 +597,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let staleStop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(staleStop.timedOut, staleStop.stderr)
@@ -601,7 +613,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentStop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
@@ -619,13 +631,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "late-stale-turn-stop-session"
+        let transcriptURL = try writeCodexTerminalTranscript(
+            context: context,
+            name: "codex-late-stale-turn-stop.jsonl",
+            turnId: "old-turn",
+            eventType: "turn_aborted"
+        )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
         startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
 
         let oldPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
@@ -634,7 +652,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
@@ -644,7 +662,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentStop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
@@ -659,7 +677,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let lateStop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(lateStop.timedOut, lateStop.stderr)
@@ -4169,6 +4187,20 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "gpt-5.4",
             ]),
         ]
+    }
+
+    private func writeCodexTerminalTranscript(
+        context: ClaudeHookContext,
+        name: String,
+        turnId: String,
+        eventType: String = "turn_complete"
+    ) throws -> URL {
+        let transcriptURL = context.root.appendingPathComponent(name)
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"\#(turnId)"}}"#,
+            #"{"type":"event_msg","payload":{"type":"\#(eventType)","turn_id":"\#(turnId)"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        return transcriptURL
     }
 
     private func runCodexHook(
