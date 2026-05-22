@@ -9734,6 +9734,7 @@ final class Workspace: Identifiable, ObservableObject {
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         remoteConfiguration = configuration
+        Self.discardWarmTerminalPoolIfOwned(by: id, reason: "remote.configure")
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
@@ -10601,6 +10602,9 @@ final class Workspace: Identifiable, ObservableObject {
 
         if let title = metadata.title {
             _ = updatePanelTitle(panelId: panel.id, title: title)
+            if focusedPanelId == panel.id {
+                owningTabManager?.focusedSurfaceTitleDidChange(tabId: id)
+            }
         }
 
         if let directory = metadata.directory {
