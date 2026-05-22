@@ -29,6 +29,12 @@ struct BrowserImageCopyPasteboardPayload {
     let sourceURL: URL?
 }
 
+enum BrowserFocusModeKeyDecision: Equatable {
+    case inactive
+    case forwardToWebView
+    case consume
+}
+
 enum BrowserImageCopyPasteboardBuilder {
     private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
     private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
@@ -604,10 +610,35 @@ final class CmuxWebView: WKWebView {
         func finish(_ result: Bool) -> Bool { result }
 #endif
         if event.keyCode == 36 || event.keyCode == 76 {
+            if AppDelegate.shared?.isBrowserFocusModeActive(for: self) == true {
+                return finish(false)
+            }
             return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
+            event,
+            webView: self,
+            source: "web.performKeyEquivalent"
+        ), decision != .inactive {
+            switch decision {
+            case .inactive:
+                break
+            case .forwardToWebView:
+                if flags.isEmpty && event.keyCode == 53 {
+                    super.keyDown(with: event)
+                    return finish(true)
+                }
+                let result = super.performKeyEquivalent(with: event)
+                // While focus mode is active, the page gets the shortcut once and cmux/main-menu
+                // fallback must not see unhandled command equivalents.
+                return finish(result || flags.contains(.command) || (flags.isEmpty && event.keyCode == 53))
+            case .consume:
+                return finish(true)
+            }
+        }
+
         // Menu/app shortcut routing is only needed for Command equivalents
         // (New Tab, Close Tab, tab switching, split commands, etc).
         guard flags.contains(.command) else {
@@ -688,6 +719,28 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
+        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
+            event,
+            webView: self,
+            source: "web.keyDown"
+        ), decision != .inactive {
+            switch decision {
+            case .inactive:
+                break
+            case .forwardToWebView:
+#if DEBUG
+                route = "focusModeWebView"
+#endif
+                super.keyDown(with: event)
+                return
+            case .consume:
+#if DEBUG
+                route = "focusModeExit"
+#endif
+                return
+            }
+        }
+
         if Self.isPasteAsPlainTextCommandEquivalent(event) {
             if shouldSkipRepeatedPasteAsPlainTextPreflight(for: event) {
 #if DEBUG
@@ -1130,6 +1183,9 @@ final class CmuxWebView: WKWebView {
 
     private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
         guard target === self else { return false }
+        if action == #selector(contextMenuToggleBrowserFocusMode(_:)) {
+            return true
+        }
         if action == #selector(contextMenuCopyImage(_:)) {
             return true
         }
@@ -1505,6 +1561,25 @@ final class CmuxWebView: WKWebView {
             return
         }
         _ = NSWorkspace.shared.open(url)
+    }
+
+    private func appendBrowserFocusModeContextMenuItem(to menu: NSMenu) {
+        let state = AppDelegate.shared?.browserFocusModeContextMenuState(for: self) ?? (isActive: false, canToggle: false)
+        guard state.isActive || state.canToggle else { return }
+
+        if menu.items.last?.isSeparatorItem == false {
+            menu.addItem(.separator())
+        }
+        let item = NSMenuItem(
+            title: state.isActive
+                ? String(localized: "browser.focusMode.context.exit", defaultValue: "Exit Browser Focus Mode")
+                : String(localized: "browser.focusMode.context.enter", defaultValue: "Enter Browser Focus Mode"),
+            action: #selector(contextMenuToggleBrowserFocusMode(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.state = state.isActive ? .on : .off
+        menu.addItem(item)
     }
 
     private func runContextMenuFallback(
@@ -2129,7 +2204,16 @@ final class CmuxWebView: WKWebView {
         }
         appendScreenshotContextMenuItems(to: menu)
         appendMoveTabToNewWorkspaceContextMenuItem(to: menu)
+        appendBrowserFocusModeContextMenuItem(to: menu)
     }
+
+    @objc private func contextMenuToggleBrowserFocusMode(_ sender: Any?) {
+        _ = sender
+        if AppDelegate.shared?.toggleBrowserFocusModeFromContextMenu(for: self) != true {
+            NSSound.beep()
+        }
+    }
+
     @objc private func contextMenuOpenLinkInDefaultBrowser(_ sender: Any?) {
         _ = sender
         let point = lastContextMenuPoint

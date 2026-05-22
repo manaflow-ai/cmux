@@ -724,6 +724,17 @@ struct cmuxApp: App {
                 }
             }
 
+            Button(
+                activeTabManager.focusedBrowserPanel?.isBrowserFocusModeActive == true
+                    ? String(localized: "menu.view.exitBrowserFocusMode", defaultValue: "Exit Browser Focus Mode")
+                    : String(localized: "menu.view.enterBrowserFocusMode", defaultValue: "Enter Browser Focus Mode")
+            ) {
+                if !activeTabManager.toggleBrowserFocusModeForFocusedBrowser(reason: "viewMenu") {
+                    NSSound.beep()
+                }
+            }
+            .disabled(!activeTabManager.canToggleBrowserFocusModeForFocusedBrowser)
+
             splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                 _ = activeTabManager.zoomInFocusedBrowser()
             }

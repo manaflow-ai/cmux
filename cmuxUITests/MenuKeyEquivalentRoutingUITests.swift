@@ -209,6 +209,86 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         )
     }
 
+    func testBrowserFocusModeRoutesPageShortcutsAndDoubleEscapeExits() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserFocusModePageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "focus-ready"
+            },
+            "Expected the focus-mode test page to finish loading. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-escape-1" &&
+                    data["browserFocusModeActive"] == "false"
+            },
+            "Expected first Escape outside focus mode to reach the page and arm focus-mode entry. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-escape-1" &&
+                    data["browserFocusModeActive"] == "true"
+            },
+            "Expected second Escape outside focus mode to enter browser focus mode. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey("f", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-cmdf-1"
+            },
+            "Expected Cmd+F to reach the page while focus mode is active. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey("p", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-cmdp-1"
+            },
+            "Expected Cmd+P to reach the page while focus mode is active. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey("s", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-cmds-1"
+            },
+            "Expected Cmd+S to reach the page while focus mode is active. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-escape-2" &&
+                    data["browserFocusModeActive"] == "true" &&
+                    data["browserFocusModeExitArmed"] == "true"
+            },
+            "Expected first Escape to reach the page and arm focus-mode exit. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-escape-2" &&
+                    data["browserFocusModeActive"] == "false" &&
+                    data["browserFocusModeExitArmed"] == "false"
+            },
+            "Expected second Escape to exit focus mode without reaching the page. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        let baselineAddTabInvocations = loadKeyequiv()["addTabInvocations"].flatMap(Int.init) ?? 0
+        app.typeKey("n", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForKeyequivInt(key: "addTabInvocations", toBeAtLeast: baselineAddTabInvocations + 1, timeout: 5.0),
+            "Expected Cmd+N to resume normal cmux routing after focus mode exit. data=\(loadKeyequiv())"
+        )
+    }
+
     private func launchWithBrowserSetup(browserURL: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -320,6 +400,46 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
                 event.preventDefault();
                 event.stopImmediatePropagation();
                 document.title = 'page-handled-cmdshiftf';
+              }
+            }, true);
+          </script>
+        </body>
+        </html>
+        """
+        return makeDataURL(html)
+    }
+
+    private func makeBrowserFocusModePageURL() -> String {
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>focus-loading</title>
+        </head>
+        <body tabindex="-1">
+          <main>Browser focus mode shortcut passthrough</main>
+          <script>
+            const counts = { f: 0, p: 0, s: 0, escape: 0 };
+            window.addEventListener('load', () => {
+              document.body.focus();
+              document.title = 'focus-ready';
+            });
+            window.addEventListener('keydown', (event) => {
+              const key = String(event.key || '').toLowerCase();
+              const plainCommand = event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey;
+              if (plainCommand && (key === 'f' || key === 'p' || key === 's')) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                counts[key] += 1;
+                document.title = `focus-cmd${key}-${counts[key]}`;
+                return;
+              }
+              if (!event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && key === 'escape') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                counts.escape += 1;
+                document.title = `focus-escape-${counts.escape}`;
               }
             }, true);
           </script>

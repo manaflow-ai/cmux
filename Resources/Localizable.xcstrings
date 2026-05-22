@@ -10662,6 +10662,108 @@
         }
       }
     },
+    "browser.focusMode.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスモード"
+          }
+        }
+      }
+    },
+    "browser.focusMode.armed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc again to exit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度Escで終了"
+          }
+        }
+      }
+    },
+    "browser.focusMode.context.enter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter Browser Focus Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザフォーカスモードに入る"
+          }
+        }
+      }
+    },
+    "browser.focusMode.context.exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit Browser Focus Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザフォーカスモードを終了"
+          }
+        }
+      }
+    },
+    "browser.focusMode.enter.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter browser focus mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザフォーカスモードに入る"
+          }
+        }
+      }
+    },
+    "browser.focusMode.exit.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit browser focus mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザフォーカスモードを終了"
+          }
+        }
+      }
+    },
     "browser.contextMenu.openLinkInDefaultBrowser": {
       "extractionState": "manual",
       "localizations": {
@@ -17471,6 +17573,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Фокус на адресному рядку"
+          }
+        }
+      }
+    },
+    "command.browserFocusMode.enter.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter Browser Focus Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザフォーカスモードに入る"
+          }
+        }
+      }
+    },
+    "command.browserFocusMode.exit.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit Browser Focus Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザフォーカスモードを終了"
           }
         }
       }
@@ -50156,6 +50292,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "React Grab 전환"
+          }
+        }
+      }
+    },
+    "menu.view.enterBrowserFocusMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter Browser Focus Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザフォーカスモードに入る"
+          }
+        }
+      }
+    },
+    "menu.view.exitBrowserFocusMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit Browser Focus Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザフォーカスモードを終了"
           }
         }
       }

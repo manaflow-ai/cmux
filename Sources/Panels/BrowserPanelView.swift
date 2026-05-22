@@ -706,6 +706,18 @@ struct BrowserPanelView: View {
         }
     }
 
+    private func handleBrowserFocusModeButtonAction() {
+        if !panel.toggleBrowserFocusMode(reason: "toolbarButton", focusWebView: true) {
+            NSSound.beep()
+        }
+    }
+
+    private var browserFocusModeButtonHelp: String {
+        panel.isBrowserFocusModeActive
+            ? String(localized: "browser.focusMode.exit.help", defaultValue: "Exit browser focus mode")
+            : String(localized: "browser.focusMode.enter.help", defaultValue: "Enter browser focus mode")
+    }
+
     var body: some View {
         // Layering contract: browser find UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
@@ -925,6 +937,7 @@ struct BrowserPanelView: View {
                 autoFocusOmnibarIfBlank()
             } else {
                 panel.invalidateAddressBarPageFocusRestoreAttempts()
+                panel.clearBrowserFocusMode(reason: "panelFocus.onChange.unfocused")
                 hideSuggestions()
                 setAddressBarFocused(false, reason: "panelFocus.onChange.unfocused")
                 // Surface switches in split layouts can keep the browser visible, so
@@ -1029,6 +1042,7 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
+                browserFocusModeButton
                 screenshotPageButton
                 reactGrabButton
                 browserProfileButton
@@ -1148,6 +1162,43 @@ struct BrowserPanelView: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: screenshotPageCopied)
+    }
+
+    private var browserFocusModeButton: some View {
+        Button(action: handleBrowserFocusModeButtonAction) {
+            HStack(spacing: 5) {
+                Image(systemName: "keyboard")
+                    .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                    .scaleEffect(panel.isBrowserFocusModeActive ? 1.08 : 1.0)
+                    .animation(.spring(response: 0.18, dampingFraction: 0.82), value: panel.isBrowserFocusModeActive)
+                if panel.isBrowserFocusModeActive {
+                    Text(
+                        panel.isBrowserFocusModeExitArmed
+                            ? String(localized: "browser.focusMode.armed", defaultValue: "Esc again to exit")
+                            : String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
+                    )
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
+            }
+            .foregroundStyle(panel.isBrowserFocusModeActive ? Color.orange : devToolsColorOption.color)
+            .padding(.horizontal, panel.isBrowserFocusModeActive ? 7 : 0)
+            .frame(
+                minWidth: panel.isBrowserFocusModeActive ? 0 : addressBarButtonSize,
+                minHeight: addressBarButtonSize,
+                alignment: .center
+            )
+            .animation(.easeOut(duration: 0.14), value: panel.isBrowserFocusModeActive)
+            .animation(.easeOut(duration: 0.12), value: panel.isBrowserFocusModeExitArmed)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(height: addressBarButtonSize, alignment: .center)
+        .disabled(!panel.canToggleBrowserFocusMode)
+        .opacity(panel.canToggleBrowserFocusMode ? 1.0 : 0.4)
+        .safeHelp(browserFocusModeButtonHelp)
+        .accessibilityIdentifier("BrowserFocusModeButton")
     }
 
     private var screenshotPageButtonColor: Color {
