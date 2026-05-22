@@ -5494,12 +5494,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var hasDeferredStartupWork: Bool {
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let inheritedInput = configTemplate?.initialInput
+        let hasPendingSocketInput = withInputLifecycleLock {
+            pendingSocketInputBytes > 0
+        }
         return initialCommand != nil ||
             tmuxStartCommand != nil ||
             initialInput != nil ||
             inheritedCommand?.isEmpty == false ||
             inheritedInput?.isEmpty == false ||
-            pendingSocketInputBytes > 0
+            hasPendingSocketInput
     }
 
     func hasDeferredStartupWorkForBackgroundStart() -> Bool {
@@ -6854,12 +6857,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     @MainActor
     func debugPendingSocketInputForTesting() -> (items: Int, bytes: Int, keyEvents: Int) {
-        let keyEvents = pendingSocketInputQueue.reduce(into: 0) { count, item in
-            if case .key = item {
-                count += 1
+        withInputLifecycleLock {
+            let keyEvents = pendingSocketInputQueue.reduce(into: 0) { count, item in
+                if case .key = item {
+                    count += 1
+                }
             }
+            return (pendingSocketInputQueue.count, pendingSocketInputBytes, keyEvents)
         }
-        return (pendingSocketInputQueue.count, pendingSocketInputBytes, keyEvents)
     }
 
     /// Test-only helper to deterministically simulate a released runtime surface.
