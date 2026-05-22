@@ -1641,18 +1641,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func hasQuitConfirmationDirtyWorkspaces() -> Bool {
         var visitedManagers = Set<ObjectIdentifier>()
+
+        func managerHasDirtyWorkspace(_ manager: TabManager?) -> Bool {
+            guard let manager else { return false }
+            let managerId = ObjectIdentifier(manager)
+            guard visitedManagers.insert(managerId).inserted else { return false }
+            return manager.tabs.contains(where: { $0.needsConfirmClose() })
+        }
+
         for context in mainWindowContexts.values {
-            let managerId = ObjectIdentifier(context.tabManager)
-            guard visitedManagers.insert(managerId).inserted else { continue }
-            if context.tabManager.tabs.contains(where: { $0.needsConfirmClose() }) {
+            if managerHasDirtyWorkspace(context.tabManager) {
                 return true
             }
         }
 
-        if let tabManager {
-            let managerId = ObjectIdentifier(tabManager)
-            if !visitedManagers.contains(managerId),
-               tabManager.tabs.contains(where: { $0.needsConfirmClose() }) {
+        if managerHasDirtyWorkspace(tabManager) {
+            return true
+        }
+
+        for route in recoverableMainWindowRoutes() {
+            if managerHasDirtyWorkspace(route.tabManager) {
                 return true
             }
         }
