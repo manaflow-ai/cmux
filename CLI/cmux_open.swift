@@ -2286,15 +2286,41 @@ extension CMUXCLI {
         )
         let timestamp = Int(Date().timeIntervalSince1970)
         let groupID = "\(timestamp)-\(UUID().uuidString.prefix(8))"
-        var selectedContext = context
-        selectedContext.repoRoot = try gitRepoRootForDiff(context)
-        if selectedSource == .branch {
-            selectedContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(
-                selectedContext.branchBaseRef,
-                in: selectedContext.repoRoot ?? FileManager.default.currentDirectoryPath
-            )
+        let requestedSource = selectedSource
+        let repoRoot = try gitRepoRootForDiff(context)
+        var selectedSource = requestedSource
+        func sourceContext(for source: DiffSource, repoRoot: String) throws -> DiffSourceContext {
+            var sourceContext = context
+            sourceContext.repoRoot = repoRoot
+            if source == .branch {
+                sourceContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(
+                    sourceContext.branchBaseRef,
+                    in: repoRoot
+                )
+            } else {
+                sourceContext.branchBaseRef = nil
+            }
+            return sourceContext
         }
-        let selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: selectedContext)
+        var selectedContext = try sourceContext(for: selectedSource, repoRoot: repoRoot)
+        let selectedInput: DiffInput
+        do {
+            selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: selectedContext)
+        } catch {
+            var fallback: (source: DiffSource, context: DiffSourceContext, input: DiffInput)?
+            for candidate in DiffSource.allCases where candidate != selectedSource {
+                guard let candidateContext = try? sourceContext(for: candidate, repoRoot: repoRoot),
+                      let candidateInput = try? nonEmptyGitDiffInput(source: candidate, context: candidateContext) else {
+                    continue
+                }
+                fallback = (candidate, candidateContext, candidateInput)
+                break
+            }
+            guard let fallback else { throw error }
+            selectedSource = fallback.source
+            selectedContext = fallback.context
+            selectedInput = fallback.input
+        }
         let fileURLs = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
             (
                 source,
@@ -2308,7 +2334,6 @@ extension CMUXCLI {
             (source, try mapper.viewerURL(for: fileURL))
         })
         let sourceOptions = diffViewerSourceOptions(selected: selectedSource, urls: urls)
-        let repoRoot = selectedContext.repoRoot ?? FileManager.default.currentDirectoryPath
         guard let selectedFileURL = fileURLs[selectedSource],
               let selectedURL = urls[selectedSource] else {
             throw CLIError(message: "Failed to write diff viewer")

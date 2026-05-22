@@ -464,6 +464,42 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("--base <ref>"), result.stdout)
     }
 
+    func testDiffCommandFallsBackToNonEmptyGitSourceForSelector() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let fileURL = repoURL.appendingPathComponent("story.txt")
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["checkout", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+        try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+
+        let stagedFallback = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--unstaged"],
+            currentDirectoryURL: repoURL
+        )
+
+        XCTAssertTrue(stagedFallback.html.contains("Staged changes"), stagedFallback.html)
+        XCTAssertTrue(stagedFallback.html.contains("\"sourceLabel\":\"git staged\""), stagedFallback.html)
+        XCTAssertTrue(stagedFallback.html.contains("+two"), stagedFallback.html)
+        let payload = try diffViewerPayload(from: stagedFallback.html)
+        let sourceOptions = try XCTUnwrap(payload["sourceOptions"] as? [[String: Any]])
+        let stagedOption = try XCTUnwrap(sourceOptions.first { $0["value"] as? String == "staged" })
+        let unstagedOption = try XCTUnwrap(sourceOptions.first { $0["value"] as? String == "unstaged" })
+        XCTAssertEqual(stagedOption["selected"] as? Bool, true)
+        XCTAssertEqual(unstagedOption["selected"] as? Bool, false)
+    }
+
     func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
