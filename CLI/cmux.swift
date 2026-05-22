@@ -8577,6 +8577,17 @@ struct CMUXCLI {
                 )
             return decoded
         }
+        var bridgeReachedReady = false
+        defer {
+            if !bridgeReachedReady {
+                cleanupFailedSSHPTYAttach(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceID: surfaceID,
+                    sessionID: sessionID
+                )
+            }
+        }
 
         let bridge: [String: Any]
         do {
@@ -8623,6 +8634,7 @@ struct CMUXCLI {
             handshakeData.append(0x0A)
             try writeAll(fd: fd, data: handshakeData)
             attachmentToken = try readSSHPTYBridgeReady(fd: fd)
+            bridgeReachedReady = true
         } catch {
             if let connectedFD {
                 Darwin.close(connectedFD)
@@ -8698,6 +8710,20 @@ struct CMUXCLI {
                 throw CLIError(message: "ssh-pty-attach: bridge read failed")
             }
         }
+    }
+
+    private func cleanupFailedSSHPTYAttach(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceID: String?,
+        sessionID: String
+    ) {
+        guard let surfaceID else { return }
+        _ = try? client.sendV2(method: "workspace.remote.pty_attach_end", params: [
+            "workspace_id": workspaceId,
+            "surface_id": surfaceID,
+            "session_id": sessionID,
+        ])
     }
 
     private func sshPTYBridgeReadErrorIsEOF(_ errnoValue: Int32) -> Bool {

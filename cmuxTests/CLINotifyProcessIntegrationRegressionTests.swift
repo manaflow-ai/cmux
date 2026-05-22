@@ -1663,11 +1663,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(params["remote_pty_session_id"] as? String, sessionId)
             XCTAssertEqual(params["focus"] as? Bool, true)
             let initialCommand = params["initial_command"] as? String ?? ""
-        XCTAssertTrue(initialCommand.contains("ssh-pty-attach"), initialCommand)
-        XCTAssertTrue(initialCommand.contains("--require-existing"), initialCommand)
-        XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
-        XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
-        XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
+            XCTAssertTrue(initialCommand.contains("ssh-pty-attach"), initialCommand)
+            XCTAssertTrue(initialCommand.contains("--require-existing"), initialCommand)
+            XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
+            XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
+            XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
             return self.v2Response(
                 id: id,
                 ok: true,
@@ -1795,6 +1795,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods, [
             "workspace.remote.pty_bridge",
+            "workspace.remote.pty_attach_end",
         ])
     }
 
@@ -1881,6 +1882,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods, [
             "workspace.remote.pty_bridge",
+            "workspace.remote.pty_attach_end",
         ])
     }
 
