@@ -1847,7 +1847,9 @@ actor TextBoxMentionIndexStore {
         }
 
         let home = fileManager.homeDirectoryForCurrentUser
+#if DEBUG
         roots.append(home.appendingPathComponent("fun/cmuxterm-hq/skills", isDirectory: true))
+#endif
         roots.append(home.appendingPathComponent(".codex/skills", isDirectory: true))
         roots.append(home.appendingPathComponent(".codex/skills/.system", isDirectory: true))
         roots.append(home.appendingPathComponent(".agents/skills", isDirectory: true))

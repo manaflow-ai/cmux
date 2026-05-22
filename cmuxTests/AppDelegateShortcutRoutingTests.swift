@@ -9062,6 +9062,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
+        XCTAssertFalse(
+            cmuxCloseFocusedTerminalFindForEscape(event: escapeEvent, appDelegate: appDelegate),
+            "The app-level find escape preflight must not close find while TextBox owns focus"
+        )
         XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: escapeEvent))
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
