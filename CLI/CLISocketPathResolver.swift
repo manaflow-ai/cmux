@@ -45,13 +45,13 @@ enum CLIExecutableLocator {
 
         var current = executableURL.deletingLastPathComponent().standardizedFileURL
         while true {
-            if current.pathExtension == "app", let bundle = Bundle(url: current) {
+            if current.pathExtension == "app", let bundle = validBundle(at: current) {
                 return bundle
             }
 
             if current.lastPathComponent == "Contents" {
                 let appURL = current.deletingLastPathComponent().standardizedFileURL
-                if appURL.pathExtension == "app", let bundle = Bundle(url: appURL) {
+                if appURL.pathExtension == "app", let bundle = validBundle(at: appURL) {
                     return bundle
                 }
             }
@@ -61,6 +61,15 @@ enum CLIExecutableLocator {
             }
             current = parent
         }
+    }
+
+    private static func validBundle(at url: URL) -> Bundle? {
+        guard let bundle = Bundle(url: url),
+              let identifier = bundle.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !identifier.isEmpty else {
+            return nil
+        }
+        return bundle
     }
 }
 

@@ -457,6 +457,11 @@
           "default": true,
           "description": "Show pull request metadata in the sidebar."
         },
+        "watchGitStatus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Watch repository files for sidebar branch and pull request metadata without polling git."
+        },
         "makePullRequestsClickable": {
           "type": "boolean",
           "default": true,
@@ -655,6 +660,17 @@
           "default": "",
           "description": "Custom path to the claude binary."
         },
+        "ripgrepBinaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the ripgrep (rg) binary used by project search."
+        },
+        "suppressSubagentNotifications": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.automation.suppressSubagentNotifications",
+          "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+        },
         "cursorIntegration": {
           "type": "boolean",
           "default": true,
@@ -701,6 +717,18 @@
           "enum": ["system", "light", "dark"],
           "default": "system",
           "description": "Embedded browser theme."
+        },
+        "discardHiddenWebViews": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow hidden browser tabs to release page memory and restore when shown again."
+        },
+        "hiddenWebViewDiscardDelaySeconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3600,
+          "default": 300,
+          "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
         },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",

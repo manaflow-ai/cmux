@@ -438,6 +438,9 @@ struct BrowserPanelView: View {
     @State private var emptyStateImportBrowserRefreshTask: Task<Void, Never>?
     @State private var emptyStateImportBrowserRefreshGeneration: UInt64 = 0
     @State private var inlineCompletion: OmnibarInlineCompletion?
+    @State private var screenshotPageCopied: Bool = false
+    @State private var screenshotPageCaptureInProgress: Bool = false
+    @State private var screenshotPageCopiedTimer: Timer?
     @State private var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
     @State private var omnibarHasMarkedText: Bool = false
     @State private var suppressNextFocusLostRevert: Bool = false
@@ -485,6 +488,10 @@ struct BrowserPanelView: View {
             return false
         }
         return searchSuggestionsEnabled
+    }
+
+    private var hasActionableOmnibarSuggestions: Bool {
+        !omnibarHasMarkedText && !omnibarState.suggestions.isEmpty
     }
 
     private var devToolsIconOption: BrowserDevToolsIconOption {
@@ -544,7 +551,7 @@ struct BrowserPanelView: View {
     }
 
     private var hasVisibleOmnibarSuggestions: Bool {
-        addressBarFocused && !omnibarState.suggestions.isEmpty && omnibarPillFrame.width > 0
+        addressBarFocused && hasActionableOmnibarSuggestions && omnibarPillFrame.width > 0
     }
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
@@ -670,6 +677,33 @@ struct BrowserPanelView: View {
         cmuxDebugLog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
 #endif
         panel.reload()
+    }
+
+    private func handleScreenshotPageButtonAction() {
+        guard !screenshotPageCaptureInProgress else { return }
+        screenshotPageCaptureInProgress = true
+#if DEBUG
+        cmuxDebugLog("browser.screenshot.page.toolbar panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        Task { @MainActor in
+            defer {
+                screenshotPageCaptureInProgress = false
+            }
+            let didCopy = await panel.captureScreenshotPageToClipboard()
+            guard didCopy else { return }
+            showScreenshotPageCopiedIndicator()
+        }
+    }
+
+    private func showScreenshotPageCopiedIndicator() {
+        screenshotPageCopiedTimer?.invalidate()
+        screenshotPageCopied = true
+        screenshotPageCopiedTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                screenshotPageCopiedTimer = nil
+                screenshotPageCopied = false
+            }
+        }
     }
 
     var body: some View {
@@ -804,6 +838,11 @@ struct BrowserPanelView: View {
 #if DEBUG
             logBrowserFocusState(event: "view.onAppear")
 #endif
+        }
+        .onDisappear {
+            screenshotPageCopiedTimer?.invalidate()
+            screenshotPageCopiedTimer = nil
+            screenshotPageCopied = false
         }
         .onChange(of: panel.focusFlashToken) { _ in
             triggerFocusFlashAnimation()
@@ -949,7 +988,7 @@ struct BrowserPanelView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
-            guard canHandleOmnibarSelectionNavigation(), !omnibarState.suggestions.isEmpty else { return }
+            guard canHandleOmnibarSuggestionInteraction() else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.moveSelection", detail: "delta=\(delta)")
@@ -990,6 +1029,7 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
+                screenshotPageButton
                 reactGrabButton
                 browserProfileButton
                 browserThemeModeButton
@@ -1068,6 +1108,53 @@ struct BrowserPanelView: View {
                 .safeHelp(String(localized: "browser.downloadInProgress", defaultValue: "Download in progress"))
             }
         }
+    }
+
+    private var screenshotPageButton: some View {
+        Button(action: handleScreenshotPageButtonAction) {
+            Image(systemName: screenshotPageCopied ? "checkmark" : "camera")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(screenshotPageButtonColor)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .disabled(!panel.shouldRenderWebView || screenshotPageCaptureInProgress)
+        .opacity(panel.shouldRenderWebView ? 1.0 : 0.4)
+        .safeHelp(
+            screenshotPageCopied
+                ? String(localized: "browser.screenshotPage.copied.help", defaultValue: "Screenshot copied to clipboard")
+                : String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard")
+        )
+        .accessibilityIdentifier("BrowserScreenshotPageButton")
+        .overlay(alignment: .top) {
+            if screenshotPageCopied {
+                Label(String(localized: "browser.screenshotPage.copied", defaultValue: "Copied"), systemImage: "checkmark")
+                    .font(.system(size: 11, weight: .medium))
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.thinMaterial, in: Capsule())
+                    .overlay(
+                        Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
+                    )
+                    .fixedSize()
+                    .offset(y: -28)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: screenshotPageCopied)
+    }
+
+    private var screenshotPageButtonColor: Color {
+        if screenshotPageCopied {
+            return .green
+        }
+        return panel.shouldRenderWebView ? devToolsColorOption.color : Color.secondary
     }
 
     private var reactGrabButton: some View {
@@ -1315,7 +1402,7 @@ struct BrowserPanelView: View {
                     handleOmnibarTap()
                 },
                 onSubmit: {
-                    if addressBarFocused, !omnibarState.suggestions.isEmpty {
+                    if canHandleOmnibarSuggestionInteraction() {
                         commitSelectedSuggestion()
                     } else {
                         panel.navigateSmart(omnibarState.buffer)
@@ -1331,7 +1418,7 @@ struct BrowserPanelView: View {
                     setAddressBarFocused(false, reason: "omnibar.fieldLostFocus")
                 },
                 onMoveSelection: { delta in
-                    guard canHandleOmnibarSelectionNavigation(), !omnibarState.suggestions.isEmpty else { return }
+                    guard canHandleOmnibarSuggestionInteraction() else { return }
                     let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
                     applyOmnibarEffects(effects)
                     refreshInlineCompletion()
@@ -1529,6 +1616,10 @@ struct BrowserPanelView: View {
             return true
         }
         return false
+    }
+
+    private func canHandleOmnibarSuggestionInteraction() -> Bool {
+        canHandleOmnibarSelectionNavigation() && hasActionableOmnibarSuggestions
     }
 
     private func setAddressBarFocused(_ focused: Bool, reason: String) {
@@ -2047,9 +2138,16 @@ struct BrowserPanelView: View {
     }
 
     private func handleOmnibarSelectionChange(range: NSRange, hasMarkedText: Bool) {
+        let didBeginComposition = !omnibarHasMarkedText && hasMarkedText
         omnibarSelectionRange = range
         omnibarHasMarkedText = hasMarkedText
-        refreshInlineCompletion()
+        if didBeginComposition {
+            hideSuggestions()
+        } else {
+            // Do not refresh suggestions from selection-state publication. On
+            // composition end, the committed buffer change immediately follows.
+            refreshInlineCompletion()
+        }
     }
 
     private func acceptInlineCompletion() {
@@ -2189,11 +2287,13 @@ struct BrowserPanelView: View {
         suggestionTask = nil
         isLoadingRemoteSuggestions = false
 
-        guard addressBarFocused else {
+        guard addressBarFocused, !omnibarHasMarkedText else {
 #if DEBUG
             cmuxDebugLog(
-                "browser.omnibar.suggestions refresh=skip_unfocused " +
-                "panel=\(panel.id.uuidString.prefix(5)) bufferLen=\(omnibarState.buffer.utf8.count)"
+                "browser.omnibar.suggestions refresh=skip " +
+                "panel=\(panel.id.uuidString.prefix(5)) " +
+                "focused=\(addressBarFocused ? 1 : 0) marked=\(omnibarHasMarkedText ? 1 : 0) " +
+                "bufferLen=\(omnibarState.buffer.utf8.count)"
             )
 #endif
             let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated([]))
@@ -2277,7 +2377,8 @@ struct BrowserPanelView: View {
             if Task.isCancelled { return }
 
             await MainActor.run {
-                guard addressBarFocused else { return }
+                guard !Task.isCancelled else { return }
+                guard addressBarFocused, !omnibarHasMarkedText else { return }
                 let current = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard current == query else { return }
                 latestRemoteSuggestionQuery = query
@@ -3887,13 +3988,13 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
             let editor = field.currentEditor() as? NSTextView
+            publishSelectionState()
             parent.text = omnibarPublishedBufferTextForFieldChange(
                 fieldValue: field.stringValue,
                 inlineCompletion: parent.inlineCompletion,
                 selectionRange: editor?.selectedRange(),
                 hasMarkedText: editor?.hasMarkedText() ?? false
             )
-            publishSelectionState()
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -3909,6 +4010,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 )
             }
 #endif
+            guard !textView.hasMarkedText() else { return false }
             switch commandSelector {
             case #selector(NSResponder.moveDown(_:)):
                 parent.onMoveSelection(+1)
@@ -4093,6 +4195,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 )
             }
 #endif
+            guard editor?.hasMarkedText() != true else { return false }
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])
             // When a non-Latin input source is active (Korean, Chinese, Japanese),
@@ -6563,6 +6666,23 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.layoutSubtreeIfNeeded()
     }
 
+    private func schedulePortalLifecycleVisibilityUpdate(
+        coordinator: Coordinator,
+        generation: Int,
+        visibleInUI: Bool,
+        reason: String,
+        requireDesiredVisibilityMatch: Bool = true
+    ) {
+        let browserPanel = panel
+        Task { @MainActor [weak coordinator] in
+            guard let coordinator else { return }
+            guard coordinator.attachGeneration == generation else { return }
+            guard !requireDesiredVisibilityMatch ||
+                coordinator.desiredPortalVisibleInUI == visibleInUI else { return }
+            browserPanel.noteWebViewVisibility(visibleInUI, reason: reason)
+        }
+    }
+
     private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
         let slotView = host.ensureLocalInlineSlotView()
@@ -6824,7 +6944,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         if portalHostAccepted || didReleasePortalHost {
             let lifecycleVisibleInUI = portalHostAccepted && coordinator.desiredPortalVisibleInUI
             let lifecycleReason = lifecycleVisibleInUI ? "portal.update.visible" : "portal.update.hidden"
-            panel.noteWebViewVisibility(lifecycleVisibleInUI, reason: lifecycleReason)
+            schedulePortalLifecycleVisibilityUpdate(
+                coordinator: coordinator,
+                generation: generation,
+                visibleInUI: lifecycleVisibleInUI,
+                reason: lifecycleReason,
+                requireDesiredVisibilityMatch: portalHostAccepted
+            )
         }
 #if DEBUG
         if !isCurrentPaneOwner && (shouldAttachWebView || host.window != nil) {
@@ -7019,6 +7145,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         let hostOwnsPortal = useLocalInlineHosting
             ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
             : updateUsingWindowPortal(nsView, context: context, webView: webView)
+        if hostOwnsPortal {
+            panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "representable.update")
+        }
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,
