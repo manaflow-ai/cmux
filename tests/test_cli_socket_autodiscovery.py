@@ -253,6 +253,62 @@ def expect_ping_uses_socket(cli_path: str, home: str, socket_path: str, label: s
     return True
 
 
+def expect_ping_prefers_socket_over_default(
+    cli_path: str,
+    home: str,
+    socket_path: str,
+    default_socket_path: str,
+    label: str,
+) -> bool:
+    server = PingServer(socket_path)
+    default_server = PingServer(default_socket_path, response=b"WRONG\n", accept_timeout=1.0)
+    server.start()
+    default_server.start()
+
+    for server_label, active_server in [
+        (label, server),
+        (f"{label} default", default_server),
+    ]:
+        if not active_server.wait_ready(2.0):
+            print(f"FAIL: {server_label} socket server did not become ready")
+            return False
+        if active_server.error is not None:
+            print(f"FAIL: {server_label} socket server failed to start: {active_server.error}")
+            return False
+
+    try:
+        proc = run_ping(cli_path, home)
+    except Exception as exc:
+        print(f"FAIL: invoking {label} cmux ping failed: {exc}")
+        return False
+    finally:
+        server.join(timeout=2.0)
+        default_server.join(timeout=2.0)
+        for path in [socket_path, default_socket_path]:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    if server.error is not None:
+        print(f"FAIL: {label} socket server error: {server.error}")
+        return False
+
+    if proc.returncode != 0:
+        print(f"FAIL: {label} cmux ping returned non-zero status")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if proc.stdout.strip() != "PONG":
+        print(f"FAIL: {label} cmux ping did not prefer the marker socket")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    return True
+
+
 def expect_ping_ignores_dev_tag(
     cli_path: str,
     home: str,
@@ -463,6 +519,7 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
     pid = os.getpid()
     stable_socket = f"/tmp/cmux-issue3542-stable-{pid}.sock"
     nightly_socket = f"/tmp/cmux-issue3542-nightly-{pid}.sock"
+    rc_socket = f"/tmp/cmux-issue3542-rc-{pid}.sock"
     dev_agent_socket = f"/tmp/cmux-issue3542-dev-agent-{pid}.sock"
     rogue_stable_socket = f"/tmp/cmux-debug-rogue-stable-{pid}.sock"
     rogue_stable_tag = f"rogue-stable-{pid}"
@@ -485,6 +542,12 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
             "cmux NIGHTLY",
             "com.cmuxterm.app.nightly",
         )
+        rc_cli = bundled_cli_for_variant(
+            cli_path,
+            apps,
+            "cmux RC",
+            "com.cmuxterm.app.rc",
+        )
         isolated_nightly_cli = bundled_cli_for_variant(
             cli_path,
             apps,
@@ -500,12 +563,28 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
 
         write_marker(home, "last-socket-path", stable_socket)
         write_marker(home, "nightly-last-socket-path", nightly_socket)
+        write_marker(home, "rc-last-socket-path", rc_socket)
         write_marker(home, "dev-agent-last-socket-path", dev_agent_socket)
 
         try:
-            if not expect_ping_uses_socket(stable_cli, home, stable_socket, "stable"):
+            stable_default_socket = os.path.join(
+                home,
+                "Library",
+                "Application Support",
+                "cmux",
+                "cmux.sock",
+            )
+            if not expect_ping_prefers_socket_over_default(
+                stable_cli,
+                home,
+                stable_socket,
+                stable_default_socket,
+                "stable",
+            ):
                 return False
             if not expect_ping_uses_socket(nightly_cli, home, nightly_socket, "nightly"):
+                return False
+            if not expect_ping_uses_socket(rc_cli, home, rc_socket, "rc"):
                 return False
             if not expect_ping_uses_socket(dev_agent_cli, home, dev_agent_socket, "dev-agent"):
                 return False
@@ -537,13 +616,6 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
             ):
                 return False
 
-            stable_default_socket = os.path.join(
-                home,
-                "Library",
-                "Application Support",
-                "cmux",
-                "cmux.sock",
-            )
             if not expect_ping_does_not_use_socket(
                 isolated_nightly_cli,
                 home,
@@ -555,6 +627,7 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
             for path in [
                 stable_socket,
                 nightly_socket,
+                rc_socket,
                 dev_agent_socket,
                 rogue_stable_socket,
                 rogue_nightly_socket,

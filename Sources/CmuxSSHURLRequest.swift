@@ -21,7 +21,7 @@ enum CmuxSSHURLParseError: Error, Equatable {
 struct CmuxSSHURLRequest: Equatable {
     static let maxDestinationLength = 256
     static let maxTitleLength = 160
-    static let supportedSchemes: Set<String> = ["cmux", "cmux-nightly", "cmux-dev"]
+    static let supportedSchemes: Set<String> = ["cmux", "cmux-nightly", "cmux-rc", "cmux-dev"]
     static var activeSupportedSchemes: Set<String> {
         [AuthEnvironment.callbackScheme.lowercased()]
     }

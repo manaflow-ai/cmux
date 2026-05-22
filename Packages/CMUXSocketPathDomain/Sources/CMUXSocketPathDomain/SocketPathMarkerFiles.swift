@@ -3,6 +3,7 @@ import Foundation
 public enum SocketPathVariant: Equatable {
     case stable
     case nightly(slug: String?)
+    case rc(slug: String?)
     case staging(slug: String?)
     case dev(slug: String?)
 
@@ -15,6 +16,11 @@ public enum SocketPathVariant: Equatable {
                 return "nightly-\(slug)-last-socket-path"
             }
             return "nightly-last-socket-path"
+        case .rc(let slug):
+            if let slug {
+                return "rc-\(slug)-last-socket-path"
+            }
+            return "rc-last-socket-path"
         case .staging(let slug):
             if let slug {
                 return "staging-\(slug)-last-socket-path"
@@ -37,6 +43,11 @@ public enum SocketPathVariant: Equatable {
                 return "/tmp/cmux-nightly-\(slug)-last-socket-path"
             }
             return "/tmp/cmux-nightly-last-socket-path"
+        case .rc(let slug):
+            if let slug {
+                return "/tmp/cmux-rc-\(slug)-last-socket-path"
+            }
+            return "/tmp/cmux-rc-last-socket-path"
         case .staging(let slug):
             if let slug {
                 return "/tmp/cmux-staging-\(slug)-last-socket-path"
@@ -60,10 +71,12 @@ public enum SocketPathMarkerFiles {
     public static let stableAppSupportFileName = "last-socket-path"
     public static let stableTmpPath = "/tmp/cmux-last-socket-path"
     public static let nightlyBundleIdentifier = "com.cmuxterm.app.nightly"
+    public static let rcBundleIdentifier = "com.cmuxterm.app.rc"
     public static let stagingBundleIdentifier = "com.cmuxterm.app.staging"
     public static let defaultBaseDebugBundleIdentifier = "com.cmuxterm.app.debug"
     public static let defaultDebugSocketPath = "/tmp/cmux-debug.sock"
     public static let defaultNightlySocketPath = "/tmp/cmux-nightly.sock"
+    public static let defaultRCSocketPath = "/tmp/cmux-rc.sock"
     public static let defaultStagingSocketPath = "/tmp/cmux-staging.sock"
 
     public static func appSupportFileURL(
@@ -108,6 +121,13 @@ public enum SocketPathMarkerFiles {
         if bundleId.hasPrefix(nightlyPrefix) {
             return .nightly(slug: bundleSuffixSlug(bundleId, prefix: nightlyPrefix))
         }
+        if bundleId == rcBundleIdentifier {
+            return .rc(slug: nil)
+        }
+        let rcPrefix = rcBundleIdentifier + "."
+        if bundleId.hasPrefix(rcPrefix) {
+            return .rc(slug: bundleSuffixSlug(bundleId, prefix: rcPrefix))
+        }
         if bundleId == stagingBundleIdentifier {
             return .staging(slug: nil)
         }
@@ -136,6 +156,7 @@ public enum SocketPathMarkerFiles {
         baseDebugBundleIdentifier: String = defaultBaseDebugBundleIdentifier,
         debugSocketPath: String = defaultDebugSocketPath,
         nightlySocketPath: String = defaultNightlySocketPath,
+        rcSocketPath: String = defaultRCSocketPath,
         stagingSocketPath: String = defaultStagingSocketPath
     ) -> String {
         switch variant(
@@ -150,6 +171,11 @@ public enum SocketPathMarkerFiles {
                 return "/tmp/cmux-nightly-\(slug).sock"
             }
             return nightlySocketPath
+        case .rc(let slug):
+            if let slug {
+                return "/tmp/cmux-rc-\(slug).sock"
+            }
+            return rcSocketPath
         case .staging(let slug):
             if let slug {
                 return "/tmp/cmux-staging-\(slug).sock"
