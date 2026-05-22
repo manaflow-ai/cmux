@@ -12424,16 +12424,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .focusHistoryBack) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            if routedManager?.navigateBack() == true {
-                return true
-            }
+            _ = routedManager?.navigateBack()
+            return true
         }
 
         if matchConfiguredShortcut(event: event, action: .focusHistoryForward) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            if routedManager?.navigateForward() == true {
-                return true
-            }
+            _ = routedManager?.navigateForward()
+            return true
         }
 
         if matchConfiguredShortcut(event: event, action: .browserBack) {

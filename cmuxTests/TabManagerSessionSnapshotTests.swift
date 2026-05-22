@@ -1271,6 +1271,46 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(store.revision, revision)
     }
 
+    func testFailedRestoreReinsertPreservesProtectedRecordWhenStoreIsAtCapacity() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        var protectedSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        protectedSnapshot.customTitle = "Failed Restore"
+        var firstNewSnapshot = protectedSnapshot
+        firstNewSnapshot.customTitle = "First Newer"
+        var secondNewSnapshot = protectedSnapshot
+        secondNewSnapshot.customTitle = "Second Newer"
+        let store = ClosedItemHistoryStore(capacity: 2)
+        let protectedRecord = ClosedItemHistoryRecord(entry: .panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: protectedSnapshot
+        )))
+
+        store.push(protectedRecord)
+        store.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: firstNewSnapshot
+        )))
+        let removed = try XCTUnwrap(store.removeRecord(id: protectedRecord.id))
+        store.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: secondNewSnapshot
+        )))
+
+        store.insert(removed.record, at: removed.index)
+
+        let snapshot = store.menuSnapshot()
+        XCTAssertEqual(snapshot.totalItemCount, 2)
+        XCTAssertTrue(snapshot.items.contains { $0.id == protectedRecord.id })
+        XCTAssertEqual(snapshot.items.map(\.title), ["Second Newer", "Failed Restore"])
+    }
+
     func testFailedClosedWorkspaceRestoreRemovesCreatedWorkspaceAndKeepsHistoryRecord() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil

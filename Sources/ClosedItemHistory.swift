@@ -189,7 +189,15 @@ final class ClosedItemHistoryStore: ObservableObject {
     func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
         records.insert(record, at: min(max(0, index), records.count))
         if records.count > capacity {
-            records.removeFirst(records.count - capacity)
+            let protectedRecordId = record.id
+            let overflow = records.count - capacity
+            for _ in 0..<overflow {
+                guard let removalIndex = records.firstIndex(where: { $0.id != protectedRecordId }) else {
+                    records.removeFirst()
+                    continue
+                }
+                records.remove(at: removalIndex)
+            }
         }
         revision &+= 1
     }

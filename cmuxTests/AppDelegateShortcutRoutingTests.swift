@@ -191,6 +191,41 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(KeyboardShortcutRecorderActivity.isAnyRecorderActive)
     }
 
+    func testFocusHistoryShortcutsConsumeEventWhenNoHistoryIsAvailable() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        let originalTabManager = appDelegate.tabManager
+        let manager = TabManager()
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.tabManager = originalTabManager
+        }
+
+        XCTAssertFalse(manager.canNavigateBack)
+        XCTAssertFalse(manager.canNavigateForward)
+        let backEvent = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "[",
+            charactersIgnoringModifiers: "[",
+            keyCode: 33
+        )
+        let forwardEvent = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "]",
+            charactersIgnoringModifiers: "]",
+            keyCode: 30
+        )
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: backEvent))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: forwardEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
