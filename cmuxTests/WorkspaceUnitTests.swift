@@ -4274,6 +4274,19 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertFalse(workspace.dockLayout.isEdgeOpen(.right))
     }
 
+    func testOpeningMissingDockEdgeCreatesVisibleDock() {
+        let workspace = Workspace()
+
+        XCTAssertEqual(workspace.dockLayout.docksSnapshot(for: .left).count, 0)
+        XCTAssertFalse(workspace.dockLayout.isEdgeOpen(.left))
+
+        workspace.dockLayout.openEdge(.left)
+
+        XCTAssertEqual(workspace.dockLayout.docksSnapshot(for: .left).count, 1)
+        XCTAssertTrue(workspace.dockLayout.isEdgeOpen(.left))
+        XCTAssertEqual(workspace.dockLayout.openDocksSnapshot(for: .left).count, 1)
+    }
+
     func testDockLastPanelReplacementFocusUsesReplacementController() throws {
         let workspace = Workspace()
         let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)

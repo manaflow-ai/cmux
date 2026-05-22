@@ -7783,7 +7783,6 @@ final class WorkspaceDockLayout: ObservableObject {
     func openEdge(_ edge: WorkspaceDockEdge) {
         if docks(for: edge).isEmpty {
             _ = addDock(edge: edge)
-            return
         }
         guard !openEdges.contains(edge) else { return }
         var nextOpenEdges = openEdges
@@ -7897,6 +7896,9 @@ final class WorkspaceDockLayout: ObservableObject {
             right = right.filter { !ids.contains($0.id) }
         case .bottom:
             bottom = bottom.filter { !ids.contains($0.id) }
+        }
+        if docks(for: edge).isEmpty {
+            closeEdge(edge)
         }
     }
 
