@@ -773,6 +773,19 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
             )
         )
     }
+
+    func testTerminalFocusTextBoxCommandRestoresTextBoxAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalFocusTextBoxInput"),
+            .terminal(.textBoxInput)
+        )
+    }
+
+    func testOtherCommandPaletteCommandsDoNotForcePostRunFocusRestore() {
+        XCTAssertNil(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalToggleTextBoxInput")
+        )
+    }
 }
 
 

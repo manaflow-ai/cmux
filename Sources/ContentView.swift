@@ -8321,11 +8321,28 @@ struct ContentView: View {
 #if DEBUG
         cmuxDebugLog("palette.run commandId=\(command.id) dismissOnRun=\(command.dismissOnRun ? 1 : 0)")
 #endif
+        let postRunFocusTarget = commandPalettePostRunFocusTarget(for: command)
         recordCommandPaletteUsage(command.id)
         command.action()
         if command.dismissOnRun {
-            dismissCommandPalette(restoreFocus: false)
+            if let postRunFocusTarget {
+                dismissCommandPalette(restoreFocus: true, preferredFocusTarget: postRunFocusTarget)
+            } else {
+                dismissCommandPalette(restoreFocus: false)
+            }
         }
+    }
+
+    private func commandPalettePostRunFocusTarget(for command: CommandPaletteCommand) -> CommandPaletteRestoreFocusTarget? {
+        guard let intent = Self.commandPalettePostRunRestoreFocusIntent(forCommandId: command.id),
+              let panelContext = focusedPanelContext else {
+            return nil
+        }
+        return CommandPaletteRestoreFocusTarget(
+            workspaceId: panelContext.workspace.id,
+            panelId: panelContext.panelId,
+            intent: intent
+        )
     }
 
     private func toggleCommandPalette() {
@@ -8426,6 +8443,15 @@ struct ContentView: View {
         focusedPanelId: UUID?
     ) -> Bool {
         focusedPanelIsBrowser && focusedBrowserAddressBarPanelId == focusedPanelId
+    }
+
+    static func commandPalettePostRunRestoreFocusIntent(forCommandId commandId: String) -> PanelFocusIntent? {
+        switch commandId {
+        case "palette.terminalFocusTextBoxInput":
+            return .terminal(.textBoxInput)
+        default:
+            return nil
+        }
     }
 
     private func syncCommandPaletteDebugStateForObservedWindow() {
