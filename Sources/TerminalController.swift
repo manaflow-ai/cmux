@@ -1774,6 +1774,7 @@ class TerminalController {
         "browser.profiles.delete",
         "browser.import.cookies",
         "system.top",
+        "system.memory",
     ]
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
@@ -1883,6 +1884,8 @@ class TerminalController {
             }
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
+        case "system.memory":
+            return v2Result(id: request.id, v2SystemMemory(params: request.params))
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         default:
@@ -3271,6 +3274,7 @@ class TerminalController {
             "system.identify",
             "system.tree",
             "system.top",
+            "system.memory",
             "events.stream",
             "auth.login",
             "auth.status",
@@ -3588,31 +3592,113 @@ class TerminalController {
         ]
     }
 
-    private func v2SystemTree(params: [String: Any]) -> V2CallResult {
-        let workspaceFilter = v2UUID(params, "workspace_id")
-        if params["workspace_id"] != nil && workspaceFilter == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+    private struct V2WindowRouting {
+        let includeAllWindows: Bool
+        let requestedWindowId: UUID?
+        let focused: [String: Any]
+        let caller: [String: Any]
+        let focusedWindowId: UUID?
+    }
+
+    private func v2WindowSelectorDetails(params: [String: Any]) -> [String: Any]? {
+        guard let rawWindowId = params["window_id"] else { return nil }
+        if let string = rawWindowId as? String {
+            return ["window_id": string]
         }
+        return ["window_id": String(describing: rawWindowId)]
+    }
+
+    private func parseV2WindowRouting(params: [String: Any]) -> (routing: V2WindowRouting?, error: V2CallResult?) {
+        if params["all_windows"] != nil, v2Bool(params, "all_windows") == nil {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: "Invalid all_windows. Pass true or false, or omit it. Use --window <id|ref|index> to target one window or --all-windows to target all windows.",
+                    data: nil
+                )
+            )
+        }
+
         let includeAllWindows = v2Bool(params, "all_windows") ?? false
+        let requestedWindowId = v2UUID(params, "window_id")
+        if params["window_id"] != nil && requestedWindowId == nil {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: "Invalid window selector. Use --window <id|ref|index> to target one window, or run `cmux list-windows` to see available windows and retry.",
+                    data: v2WindowSelectorDetails(params: params)
+                )
+            )
+        }
+        if includeAllWindows, requestedWindowId != nil {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: "Choose either --window <id|ref|index> or --all-windows, not both. Run `cmux list-windows` to see available windows and retry.",
+                    data: v2WindowSelectorDetails(params: params)
+                )
+            )
+        }
 
         var identifyParams: [String: Any] = [:]
         if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
             identifyParams["caller"] = caller
         }
+        if let requestedWindowId {
+            identifyParams["window_id"] = requestedWindowId.uuidString
+        }
         let identifyPayload = v2Identify(params: identifyParams)
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
         let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
+        return (
+            V2WindowRouting(
+                includeAllWindows: includeAllWindows,
+                requestedWindowId: requestedWindowId,
+                focused: focused,
+                caller: caller,
+                focusedWindowId: focusedWindowId
+            ),
+            nil
+        )
+    }
+
+    private func v2WindowNotFoundResult(params: [String: Any], windowId: UUID) -> V2CallResult {
+        .err(
+            code: "not_found",
+            message: "Window not found. Run `cmux list-windows` to see available windows, then retry with --window <id|ref|index>.",
+            data: v2WindowSelectorDetails(params: params) ?? ["window_id": windowId.uuidString]
+        )
+    }
+
+    private func v2SystemTree(params: [String: Any]) -> V2CallResult {
+        let workspaceFilter = v2UUID(params, "workspace_id")
+        if params["workspace_id"] != nil && workspaceFilter == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let routingResult = parseV2WindowRouting(params: params)
+        if let error = routingResult.error { return error }
+        guard let routing = routingResult.routing else {
+            return .err(code: "internal_error", message: "Invalid window routing payload", data: nil)
+        }
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
+        var windowFound = (routing.requestedWindowId == nil)
 
         v2MainSync {
             guard let app = AppDelegate.shared else { return }
             let summaries = app.listMainWindowSummaries()
-            let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+            let defaultWindowId = routing.requestedWindowId ?? routing.focusedWindowId ?? summaries.first?.windowId
 
             for (windowIndex, summary) in summaries.enumerated() {
+                if let requestedWindowId = routing.requestedWindowId, summary.windowId != requestedWindowId {
+                    continue
+                }
+                windowFound = true
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
 
                 if let workspaceFilter {
@@ -3636,7 +3722,7 @@ class TerminalController {
                     break
                 }
 
-                if !includeAllWindows && summary.windowId != defaultWindowId {
+                if !routing.includeAllWindows && summary.windowId != defaultWindowId {
                     continue
                 }
 
@@ -3658,6 +3744,9 @@ class TerminalController {
             }
         }
 
+        if let requestedWindowId = routing.requestedWindowId, !windowFound {
+            return v2WindowNotFoundResult(params: params, windowId: requestedWindowId)
+        }
         if let workspaceFilter, !workspaceFound {
             return .err(
                 code: "not_found",
@@ -3670,8 +3759,8 @@ class TerminalController {
         }
 
         return .ok([
-            "active": focused.isEmpty ? (NSNull() as Any) : focused,
-            "caller": caller.isEmpty ? (NSNull() as Any) : caller,
+            "active": routing.focused.isEmpty ? (NSNull() as Any) : routing.focused,
+            "caller": routing.caller.isEmpty ? (NSNull() as Any) : routing.caller,
             "windows": windowNodes
         ])
     }
@@ -3764,12 +3853,17 @@ class TerminalController {
             includeProcesses: includeProcesses
         )
         let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
+        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
+            processSnapshot: processSnapshot,
+            annotatedWindows: annotatedWindows
+        )
 
         return [
             "active": focused.isEmpty ? (NSNull() as Any) : focused,
             "caller": NSNull(),
             "sample": processSnapshot.samplePayload(),
             "totals": processSnapshot.summaryPayload(for: totalPIDs),
+            "memory_diagnostic": memoryDiagnostic,
             "program_totals": aggregates.programs,
             "coding_agents": aggregates.codingAgents,
             "windows": annotatedWindows
@@ -3806,12 +3900,90 @@ class TerminalController {
             includeProcesses: includeProcesses
         )
         let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
+        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
+            processSnapshot: processSnapshot,
+            annotatedWindows: windowNodes
+        )
 
         payload["sample"] = processSnapshot.samplePayload()
         payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
+        payload["memory_diagnostic"] = memoryDiagnostic
         payload["program_totals"] = aggregates.programs
         payload["coding_agents"] = aggregates.codingAgents
         payload["windows"] = windowNodes
+        return .ok(payload)
+    }
+
+    private nonisolated func v2SystemMemory(params: [String: Any]) -> V2CallResult {
+        var baseParams = params
+        baseParams["include_processes"] = false
+        let base = v2MainSync {
+            self.v2RefreshKnownRefs()
+            return self.v2SystemTopBasePayload(params: baseParams)
+        }
+        guard case .ok(let value) = base else { return base }
+        guard var payload = value as? [String: Any],
+              var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
+            return .err(code: "internal_error", message: "Invalid system.memory payload", data: nil)
+        }
+        func intParam(_ key: String) -> Int? {
+            if let i = params[key] as? Int { return i }
+            if let n = params[key] as? NSNumber {
+                guard CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+                let value = n.doubleValue
+                guard value.isFinite,
+                      value.rounded(.towardZero) == value,
+                      value >= Double(Int.min),
+                      value <= Double(Int.max) else {
+                    return nil
+                }
+                return n.intValue
+            }
+            if let s = params[key] as? String {
+                let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty,
+                      trimmed.range(of: #"^[+-]?\d+$"#, options: .regularExpression) != nil else {
+                    return nil
+                }
+                return Int(trimmed)
+            }
+            return nil
+        }
+        var invalidLimitKey: String?
+        func groupLimitParam(_ key: String) -> Int? {
+            guard params[key] != nil else { return nil }
+            guard let value = intParam(key), (1...100).contains(value) else {
+                invalidLimitKey = key
+                return nil
+            }
+            return value
+        }
+        let topGroupLimitValue = groupLimitParam("top_group_limit")
+        if let invalidLimitKey {
+            return .err(code: "invalid_params", message: "\(invalidLimitKey) must be an integer from 1 to 100", data: nil)
+        }
+        let groupLimitValue = groupLimitParam("group_limit")
+        if let invalidLimitKey {
+            return .err(code: "invalid_params", message: "\(invalidLimitKey) must be an integer from 1 to 100", data: nil)
+        }
+        let topGroupLimit = topGroupLimitValue ?? groupLimitValue ?? 12
+        let processSnapshot = CmuxTopProcessSnapshot.captureCached(
+            includeProcessDetails: true,
+            maximumAge: 2
+        )
+        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
+        _ = v2AnnotateTopWindows(
+            &windowNodes,
+            processSnapshot: processSnapshot,
+            browserPIDOccurrences: browserPIDOccurrences,
+            includeProcesses: false
+        )
+        payload["sample"] = processSnapshot.samplePayload()
+        payload["memory_diagnostic"] = v2TopMemoryDiagnosticPayload(
+            processSnapshot: processSnapshot,
+            annotatedWindows: windowNodes,
+            topGroupLimit: topGroupLimit
+        )
         return .ok(payload)
     }
 
@@ -3820,28 +3992,27 @@ class TerminalController {
         if params["workspace_id"] != nil && workspaceFilter == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
-        if params["all_windows"] != nil, v2Bool(params, "all_windows") == nil { return .err(code: "invalid_params", message: "Missing or invalid all_windows", data: nil) }
-        let includeAllWindows = v2Bool(params, "all_windows") ?? false
         if params["include_processes"] != nil, v2Bool(params, "include_processes") == nil { return .err(code: "invalid_params", message: "Missing or invalid include_processes", data: nil) }
         let includeProcesses = v2Bool(params, "include_processes") ?? false
-
-        var identifyParams: [String: Any] = [:]
-        if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
-            identifyParams["caller"] = caller
+        let routingResult = parseV2WindowRouting(params: params)
+        if let error = routingResult.error { return error }
+        guard let routing = routingResult.routing else {
+            return .err(code: "internal_error", message: "Invalid window routing payload", data: nil)
         }
-        let identifyPayload = v2Identify(params: identifyParams)
-        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
-        let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
-        let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
+        var windowFound = (routing.requestedWindowId == nil)
 
         if let app = AppDelegate.shared {
             let summaries = app.listMainWindowSummaries()
-            let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+            let defaultWindowId = routing.requestedWindowId ?? routing.focusedWindowId ?? summaries.first?.windowId
 
             for (windowIndex, summary) in summaries.enumerated() {
+                if let requestedWindowId = routing.requestedWindowId, summary.windowId != requestedWindowId {
+                    continue
+                }
+                windowFound = true
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
 
                 if let workspaceFilter {
@@ -3865,7 +4036,7 @@ class TerminalController {
                     break
                 }
 
-                if !includeAllWindows && summary.windowId != defaultWindowId {
+                if !routing.includeAllWindows && summary.windowId != defaultWindowId {
                     continue
                 }
 
@@ -3889,6 +4060,9 @@ class TerminalController {
 
         v2AttachTopApplicationProcess(to: &windowNodes, workspaceFilter: workspaceFilter)
 
+        if let requestedWindowId = routing.requestedWindowId, !windowFound {
+            return v2WindowNotFoundResult(params: params, windowId: requestedWindowId)
+        }
         if let workspaceFilter, !workspaceFound {
             return .err(
                 code: "not_found",
@@ -3901,8 +4075,8 @@ class TerminalController {
         }
 
         return .ok([
-            "active": focused.isEmpty ? (NSNull() as Any) : focused,
-            "caller": caller.isEmpty ? (NSNull() as Any) : caller,
+            "active": routing.focused.isEmpty ? (NSNull() as Any) : routing.focused,
+            "caller": routing.caller.isEmpty ? (NSNull() as Any) : routing.caller,
             "include_processes": includeProcesses,
             "windows": windowNodes
         ])
@@ -4508,7 +4682,8 @@ class TerminalController {
     func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
         // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id/tab_id,
         // and finally to the active window's TabManager.
-        if let windowId = v2UUID(params, "window_id") {
+        if v2HasNonNullParam(params, "window_id") {
+            guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
         }
         if let wsId = v2UUID(params, "workspace_id") {
@@ -5112,54 +5287,68 @@ class TerminalController {
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
             let tree = ws.bonsplitController.treeSnapshot()
-            let success = v2ProportionalEqualize(node: tree, controller: ws.bonsplitController, orientationFilter: orientationFilter)
+            let equalizeResult = Self.equalizeSplitsProportionally(
+                in: tree,
+                controller: ws.bonsplitController,
+                fromExternal: true,
+                orientationFilter: orientationFilter
+            )
             result = .ok([
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "equalized": success
+                "equalized": equalizeResult.foundSplit
             ])
         }
         return result
     }
 
-    /// Count leaf panes in a tree node.
-    private func v2CountLeaves(_ node: ExternalTreeNode) -> Int {
-        switch node {
-        case .pane:
-            return 1
-        case .split(let s):
-            return v2CountLeaves(s.first) + v2CountLeaves(s.second)
-        }
+    struct EqualizeSplitsResult {
+        let foundSplit: Bool
+        let allSucceeded: Bool
+
+        var didFullyEqualize: Bool { foundSplit && allSucceeded }
     }
 
     /// Proportionally equalize splits so each leaf pane gets equal space.
-    /// For a split with N1 leaves on the left and N2 on the right,
-    /// the divider is set to N1/(N1+N2).
-    /// When orientationFilter is set (e.g. "vertical"), only splits matching
-    /// that orientation are equalized. This lets main-vertical layout equalize
-    /// the agent column without squishing the main pane.
+    /// When an orientation filter is set, only matching splits are adjusted, while leaf counts still come from the full subtree.
     @discardableResult
-    private func v2ProportionalEqualize(
-        node: ExternalTreeNode,
+    static func equalizeSplitsProportionally(
+        in node: ExternalTreeNode,
         controller: BonsplitController,
+        fromExternal: Bool,
         orientationFilter: String? = nil
-    ) -> Bool {
-        guard case .split(let s) = node else { return false }
-        guard let splitId = UUID(uuidString: s.id) else { return false }
+    ) -> EqualizeSplitsResult {
+        var foundSplit = false
+        var allSucceeded = true
 
-        var didEqualize = false
-        if orientationFilter == nil || s.orientation == orientationFilter {
-            let leftLeaves = v2CountLeaves(s.first)
-            let rightLeaves = v2CountLeaves(s.second)
-            let total = leftLeaves + rightLeaves
-            let position = CGFloat(leftLeaves) / CGFloat(total)
-            controller.setDividerPosition(position, forSplit: splitId, fromExternal: true)
-            didEqualize = true
+        @discardableResult
+        func equalize(_ node: ExternalTreeNode) -> Int {
+            switch node {
+            case .pane:
+                return 1
+            case .split(let split):
+                let firstLeafCount = equalize(split.first)
+                let secondLeafCount = equalize(split.second)
+                let totalLeafCount = firstLeafCount + secondLeafCount
+
+                if orientationFilter == nil || split.orientation == orientationFilter {
+                    foundSplit = true
+                    if let splitId = UUID(uuidString: split.id) {
+                        let position = CGFloat(firstLeafCount) / CGFloat(totalLeafCount)
+                        if !controller.setDividerPosition(position, forSplit: splitId, fromExternal: fromExternal) {
+                            allSucceeded = false
+                        }
+                    } else {
+                        allSucceeded = false
+                    }
+                }
+
+                return totalLeafCount
+            }
         }
 
-        let l = v2ProportionalEqualize(node: s.first, controller: controller, orientationFilter: orientationFilter)
-        let r = v2ProportionalEqualize(node: s.second, controller: controller, orientationFilter: orientationFilter)
-        return didEqualize || l || r
+        equalize(node)
+        return EqualizeSplitsResult(foundSplit: foundSplit, allSucceeded: allSucceeded)
     }
 
     private func v2WorkspaceRemoteConfigure(params: [String: Any]) -> V2CallResult {
@@ -6281,6 +6470,7 @@ class TerminalController {
         }
         if let paneId = v2UUID(params, "pane_id"),
            let located = v2LocatePane(paneId) {
+            guard located.tabManager === tabManager else { return nil }
             return located.workspace
         }
         guard let wsId = tabManager.selectedTabId else { return nil }
@@ -6733,6 +6923,7 @@ class TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        let startupEnvironment = v2TrimmedStringMap(params, keys: ["startup_environment", "initial_env"])
         let parsedInitialDivider = v2InitialDividerPosition(params)
         if let error = parsedInitialDivider.error {
             return error
@@ -6790,6 +6981,7 @@ class TerminalController {
                     workingDirectory: workingDirectory,
                     initialCommand: initialCommand,
                     tmuxStartCommand: tmuxStartCommand,
+                    startupEnvironment: startupEnvironment,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )
             }
@@ -6825,6 +7017,7 @@ class TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        let startupEnvironment = v2TrimmedStringMap(params, keys: ["startup_environment", "initial_env"])
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -6866,7 +7059,8 @@ class TerminalController {
                     focus: focus,
                     workingDirectory: workingDirectory,
                     initialCommand: initialCommand,
-                    tmuxStartCommand: tmuxStartCommand
+                    tmuxStartCommand: tmuxStartCommand,
+                    startupEnvironment: startupEnvironment
                 )?.id
             }
 
@@ -8139,6 +8333,7 @@ class TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        let startupEnvironment = v2TrimmedStringMap(params, keys: ["startup_environment", "initial_env"])
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -8187,6 +8382,7 @@ class TerminalController {
                     workingDirectory: workingDirectory,
                     initialCommand: initialCommand,
                     tmuxStartCommand: tmuxStartCommand,
+                    startupEnvironment: startupEnvironment,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
             }
@@ -14171,7 +14367,7 @@ class TerminalController {
           list_log [--limit=N] [--tab=X] - List log entries
           set_progress <0.0-1.0> [--label=X] [--tab=X] - Set progress bar
           clear_progress [--tab=X] - Clear progress bar
-          report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y] - Report git branch
+          report_git_branch <branch> [--status=dirty|clean|unknown] [--tab=X] [--panel=Y] - Report git branch
           clear_git_branch [--tab=X] [--panel=Y] - Clear git branch
           report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y] - Report pull request / review item
           report_review <number> <url> [--label=MR] [--state=open|merged|closed] [--tab=X] [--panel=Y] - Alias for provider-specific review item
@@ -17833,9 +18029,19 @@ class TerminalController {
     private func reportGitBranch(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard let branch = parsed.positional.first else {
-            return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty] [--tab=X]"
+            return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty|clean|unknown] [--tab=X]"
         }
-        let isDirty = parsed.options["status"]?.lowercased() == "dirty"
+        let status = parsed.options["status"]?.lowercased()
+        let isDirty: Bool? = {
+            switch status {
+            case "dirty":
+                return true
+            case "unknown":
+                return nil
+            default:
+                return false
+            }
+        }()
 
         // Shell integration always includes explicit workspace/panel IDs.
         // Keep this telemetry path off-main so wake/main-thread stalls don't
@@ -17849,6 +18055,10 @@ class TerminalController {
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
+                guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+                    tabManager.clearSurfaceGitBranch(tabId: scope.workspaceId, surfaceId: scope.panelId)
+                    return
+                }
                 tabManager.updateSurfaceGitBranch(
                     tabId: scope.workspaceId,
                     surfaceId: scope.panelId,
@@ -17865,7 +18075,16 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
-            tab.gitBranch = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+                tab.gitBranch = nil
+                return
+            }
+            let existingGitBranch = tab.gitBranch
+            let nextIsDirty = isDirty ?? (existingGitBranch?.branch == branch ? existingGitBranch?.isDirty ?? false : false)
+            tab.gitBranch = SidebarGitBranchState(
+                branch: branch,
+                isDirty: nextIsDirty
+            )
         }
         return result
     }
@@ -17941,6 +18160,11 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
+            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+                tab.clearPanelPullRequest(panelId: surfaceId)
+                return
+            }
+
             guard Self.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
                 number: number,
@@ -18173,6 +18397,11 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
+            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+                tab.clearPanelPullRequest(panelId: surfaceId)
+                return
+            }
+
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else { return }
             tabManager.handleWorkspacePullRequestCommandHint(
                 tabId: tab.id,

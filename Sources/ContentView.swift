@@ -1985,6 +1985,7 @@ struct ContentView: View {
                     debugSource: "titlebar.hiddenNewWorkspace"
                 )
             },
+            observedWindow: observedWindow,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
@@ -2137,6 +2138,7 @@ struct ContentView: View {
         ZStack(alignment: alignment) {
             sidebarBackdropLayer(width: width, role: role, appearance: appearance)
             content()
+                .environment(\.colorScheme, appearance.sidebarContentColorScheme)
         }
         .frame(width: width)
     }
@@ -2606,6 +2608,7 @@ struct ContentView: View {
                 .overlay(alignment: .topLeading) {
                     if isFullScreen && sidebarState.isVisible && !isMinimalMode {
                         fullscreenControls
+                            .environment(\.colorScheme, appearance.sidebarContentColorScheme)
                             .padding(.leading, 10)
                             .padding(.top, 4)
                     }
@@ -3195,12 +3198,10 @@ struct ContentView: View {
             window.isRestorable = false
             setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
             window.titlebarAppearsTransparent = true
-            // Keep background dragging disabled so app content gestures and
-            // minimal-mode titlebar controls still receive clicks, while the
-            // window itself stays movable for macOS tiling and third-party
-            // window managers.
-            window.isMovableByWindowBackground = false
-            window.isMovable = true
+            // Native AppKit titlebar dragging steals pane-tab drags in minimal
+            // mode. Keep the main window immovable by default; explicit chrome
+            // drag zones temporarily enable performDrag for real app moves.
+            configureCmuxMainWindowDragBehavior(window)
             window.styleMask.insert(.fullSizeContentView)
 
             // Track this window for fullscreen notifications
@@ -5699,7 +5700,11 @@ struct ContentView: View {
         // without being blocked by the palette-visibility guard.
         DispatchQueue.main.async {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            tabManager.focusTab(workspaceId, suppressFlash: true)
+            tabManager.focusTab(
+                workspaceId,
+                suppressFlash: true,
+                dismissRestoredUnreadOnResume: true
+            )
         }
     }
 
@@ -5711,7 +5716,12 @@ struct ContentView: View {
     ) {
         DispatchQueue.main.async {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            tabManager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
+            tabManager.focusTab(
+                workspaceId,
+                surfaceId: panelId,
+                suppressFlash: true,
+                dismissRestoredUnreadOnResume: true
+            )
         }
     }
 
@@ -8678,7 +8688,12 @@ struct ContentView: View {
         if let window = observedWindow, !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
         }
-        tabManager.focusTab(target.workspaceId, surfaceId: target.panelId, suppressFlash: true)
+        tabManager.focusTab(
+            target.workspaceId,
+            surfaceId: target.panelId,
+            suppressFlash: true,
+            dismissRestoredUnreadOnResume: true
+        )
 
         guard let context = focusedPanelContext,
               context.workspace.id == target.workspaceId,
@@ -9387,6 +9402,7 @@ struct VerticalTabsSidebar: View {
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
+    let observedWindow: NSWindow?
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @Binding var selection: SidebarSelection
@@ -9423,6 +9439,13 @@ struct VerticalTabsSidebar: View {
 
     private var isMinimalMode: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
+
+    private var minimalModeSidebarTitlebarControlsTopPadding: CGFloat {
+        guard let observedWindow else {
+            return MinimalModeSidebarTitlebarControlsMetrics.topInset
+        }
+        return minimalModeSidebarTitlebarControlsTopInset(in: observedWindow)
     }
 
     private var showsSidebarNotificationMessage: Bool {
@@ -9695,7 +9718,7 @@ struct VerticalTabsSidebar: View {
                             )
                             .padding(
                                 .top,
-                                MinimalModeTitlebarDebugSettings.leftControlsTopInset()
+                                minimalModeSidebarTitlebarControlsTopPadding
                             )
                     }
                 }
@@ -12422,6 +12445,20 @@ private struct TabItemView: View, Equatable {
         settings.notificationBadgeColorHex
     }
 
+    private var selectedWorkspaceBackgroundNSColor: NSColor {
+        sidebarSelectedWorkspaceBackgroundNSColor(
+            for: colorScheme,
+            sidebarSelectionColorHex: sidebarSelectionColorHex
+        )
+    }
+
+    private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
+        sidebarSelectedWorkspaceForegroundNSColor(
+            on: selectedWorkspaceBackgroundNSColor,
+            opacity: opacity
+        )
+    }
+
     private var openSidebarPullRequestLinksInCmuxBrowser: Bool {
         settings.openPullRequestLinksInCmuxBrowser
     }
@@ -12463,13 +12500,13 @@ private struct TabItemView: View, Equatable {
 
     private var activePrimaryTextColor: Color {
         usesInvertedActiveForeground
-            ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 1.0))
+            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
             : .primary
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
         usesInvertedActiveForeground
-            ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
+            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
             : .secondary
     }
 
@@ -12477,15 +12514,19 @@ private struct TabItemView: View, Equatable {
         if let hex = sidebarNotificationBadgeColorHex, let nsColor = NSColor(hex: hex) {
             return Color(nsColor: nsColor)
         }
-        return usesInvertedActiveForeground ? Color.white.opacity(0.25) : cmuxAccentColor()
+        return usesInvertedActiveForeground ? activePrimaryTextColor.opacity(0.25) : cmuxAccentColor()
+    }
+
+    private var activeUnreadBadgeTextColor: Color {
+        usesInvertedActiveForeground ? activePrimaryTextColor : .white
     }
 
     private var activeProgressTrackColor: Color {
-        usesInvertedActiveForeground ? Color.white.opacity(0.15) : Color.secondary.opacity(0.2)
+        usesInvertedActiveForeground ? activeSecondaryColor(0.15) : Color.secondary.opacity(0.2)
     }
 
     private var activeProgressFillColor: Color {
-        usesInvertedActiveForeground ? Color.white.opacity(0.8) : cmuxAccentColor()
+        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : cmuxAccentColor()
     }
 
     private var shortcutHintEmphasis: Double {
@@ -12633,7 +12674,7 @@ private struct TabItemView: View, Equatable {
                             .fill(activeUnreadBadgeFillColor)
                         Text("\(unreadCount)")
                             .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(activeUnreadBadgeTextColor)
                     }
                     .frame(width: 16, height: 16)
                 }
@@ -12657,7 +12698,8 @@ private struct TabItemView: View, Equatable {
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(
                     markdown: description,
-                    isActive: usesInvertedActiveForeground
+                    isActive: usesInvertedActiveForeground,
+                    activeForegroundColor: activeSecondaryColor(0.84)
                 )
                 .id(description)
             }
@@ -12680,6 +12722,8 @@ private struct TabItemView: View, Equatable {
                     SidebarMetadataRows(
                         entries: metadataEntries,
                         isActive: usesInvertedActiveForeground,
+                        activeForegroundColor: activeSecondaryColor(0.95),
+                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
                         onFocus: { updateSelection() }
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -12688,6 +12732,8 @@ private struct TabItemView: View, Equatable {
                     SidebarMetadataMarkdownBlocks(
                         blocks: metadataBlocks,
                         isActive: usesInvertedActiveForeground,
+                        activeForegroundColor: activeSecondaryColor(0.8),
+                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
                         onFocus: { updateSelection() }
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -12803,6 +12849,7 @@ private struct TabItemView: View, Equatable {
                         if settings.makesPullRequestsClickable {
                             Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
                                 .buttonStyle(.plain)
+                                .tint(pullRequestForegroundColor)
                                 .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
                                 .accessibilityIdentifier("SidebarPullRequestRow")
                         } else {
@@ -13767,7 +13814,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private var pullRequestForegroundColor: Color {
-        isActive ? .white.opacity(0.75) : .secondary
+        isActive ? activeSecondaryColor(0.75) : .secondary
     }
 
     private func openPullRequestLink(_ url: URL) {
@@ -13825,15 +13872,15 @@ private struct TabItemView: View, Equatable {
         if isActive {
             switch level {
             case .info:
-                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.5))
+                return activeSecondaryColor(0.5)
             case .progress:
-                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.8))
+                return activeSecondaryColor(0.8)
             case .success:
-                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.9))
+                return activeSecondaryColor(0.9)
             case .warning:
-                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.9))
+                return activeSecondaryColor(0.9)
             case .error:
-                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.9))
+                return activeSecondaryColor(0.9)
             }
         }
         switch level {
@@ -14042,6 +14089,7 @@ private struct TabItemView: View, Equatable {
 private struct SidebarWorkspaceDescriptionText: View {
     let markdown: String
     let isActive: Bool
+    let activeForegroundColor: Color
 
     var body: some View {
         let renderedMarkdown = SidebarMarkdownRenderer.renderWorkspaceDescription(markdown)
@@ -14088,7 +14136,7 @@ private struct SidebarWorkspaceDescriptionText: View {
     }
 
     private var foregroundColor: Color {
-        isActive ? .white.opacity(0.84) : .secondary.opacity(0.95)
+        isActive ? activeForegroundColor : .secondary.opacity(0.95)
     }
 
     private func accessibilityText(renderedMarkdown: AttributedString?) -> String {
@@ -14111,6 +14159,8 @@ enum SidebarMarkdownRenderer {
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
+    let activeForegroundColor: Color
+    let activeSecondaryForegroundColor: Color
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
@@ -14119,7 +14169,12 @@ private struct SidebarMetadataRows: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(visibleEntries, id: \.key) { entry in
-                SidebarMetadataEntryRow(entry: entry, isActive: isActive, onFocus: onFocus)
+                SidebarMetadataEntryRow(
+                    entry: entry,
+                    isActive: isActive,
+                    activeForegroundColor: activeForegroundColor,
+                    onFocus: onFocus
+                )
             }
 
             if shouldShowToggle {
@@ -14131,15 +14186,11 @@ private struct SidebarMetadataRows: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isActive ? activeSecondaryTextColor : .secondary.opacity(0.9))
+                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .safeHelp(helpText)
-    }
-
-    private var activeSecondaryTextColor: Color {
-        Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.65))
     }
 
     private var visibleEntries: [SidebarStatusEntry] {
@@ -14163,6 +14214,7 @@ private struct SidebarMetadataRows: View {
 private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
+    let activeForegroundColor: Color
     let onFocus: () -> Void
 
     var body: some View {
@@ -14204,12 +14256,12 @@ private struct SidebarMetadataEntryRow: View {
         if isActive,
            let raw = entry.color,
            Color(hex: raw) != nil {
-            return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.95))
+            return activeForegroundColor
         }
         if let raw = entry.color, let explicit = Color(hex: raw) {
             return explicit
         }
-        return isActive ? .white.opacity(0.8) : .secondary
+        return isActive ? activeForegroundColor.opacity(0.84) : .secondary
     }
 
     private var iconView: AnyView? {
@@ -14260,6 +14312,8 @@ private struct SidebarMetadataEntryRow: View {
 private struct SidebarMetadataMarkdownBlocks: View {
     let blocks: [SidebarMetadataBlock]
     let isActive: Bool
+    let activeForegroundColor: Color
+    let activeSecondaryForegroundColor: Color
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
@@ -14271,6 +14325,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
                 SidebarMetadataMarkdownBlockRow(
                     block: block,
                     isActive: isActive,
+                    activeForegroundColor: activeForegroundColor,
                     onFocus: onFocus
                 )
             }
@@ -14284,7 +14339,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
+                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -14303,6 +14358,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
 private struct SidebarMetadataMarkdownBlockRow: View {
     let block: SidebarMetadataBlock
     let isActive: Bool
+    let activeForegroundColor: Color
     let onFocus: () -> Void
 
     @State private var renderedMarkdown: AttributedString?
@@ -14329,7 +14385,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     }
 
     private var foregroundColor: Color {
-        isActive ? .white.opacity(0.8) : .secondary
+        isActive ? activeForegroundColor : .secondary
     }
 
     private func renderMarkdown() {
@@ -15101,7 +15157,11 @@ private struct WindowBackdropLayer: View {
                 }
             }
         case .clear:
-            Color.clear
+            if let sidebarOverlay = snapshot.sidebarContrastOverlayColor(for: role) {
+                Color(nsColor: sidebarOverlay)
+            } else {
+                Color.clear
+            }
         }
     }
 }
