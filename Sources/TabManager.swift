@@ -3034,7 +3034,7 @@ class TabManager: ObservableObject {
         parentResolver: (URL) -> URL = { $0.deletingLastPathComponent() }
     ) -> URL? {
         let parent = parentResolver(current).standardizedFileURL
-        if parent.path == current.path {
+        if parent.path == current.standardizedFileURL.path {
             return nil
         }
         return parent
