@@ -44,6 +44,18 @@ extension TerminalController {
         return nil
     }
 
+    func v2TrimmedStringMap(_ params: [String: Any], keys: [String]) -> [String: String] {
+        for key in keys {
+            guard let raw = v2StringMap(params, key) else { continue }
+            return raw.reduce(into: [String: String]()) { result, pair in
+                let normalizedKey = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !normalizedKey.isEmpty else { return }
+                result[normalizedKey] = pair.value
+            }
+        }
+        return [:]
+    }
+
     func v2ActionKey(_ params: [String: Any], _ key: String = "action") -> String? {
         guard let action = v2String(params, key) else { return nil }
         return action.lowercased().replacingOccurrences(of: "-", with: "_")
