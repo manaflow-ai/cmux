@@ -520,6 +520,53 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testWebSocketRemoteTerminalEndLeavesConnectedStateWithinBoundedTime() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:issue-4509",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "cmux vm-pty-attach --id issue-4509",
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://vm.example.invalid/daemon",
+                headers: [:],
+                token: "token",
+                sessionId: "session",
+                expiresAtUnix: 4_102_444_800
+            ),
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to vm:issue-4509 via shared local proxy 127.0.0.1:59999",
+            target: "vm:issue-4509"
+        )
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(panelID))
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
+
+        let deadline = Date().addingTimeInterval(0.5)
+        while workspace.remoteConnectionState == .connected && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertNotEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
