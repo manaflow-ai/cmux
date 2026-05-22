@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Carbon.HIToolbox
+import Quartz
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -64,6 +65,105 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testQuickLookSessionCloseDoesNotDeactivateMountedRepresentableView() throws {
+        let url = try temporaryBinaryFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        XCTAssertEqual(panel.previewMode, .quickLook)
+
+        let view = panel.nativeViewSessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        guard let previewView = view as? QLPreviewView else {
+            return XCTFail("Expected Quick Look to vend a QLPreviewView")
+        }
+        XCTAssertNotNil(previewView.previewItem)
+
+        panel.nativeViewSessions.quickLook.close()
+
+        panel.nativeViewSessions.quickLook.update(
+            view,
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        XCTAssertNil(previewView.previewItem)
+    }
+
+    func testQuickLookSessionDismantlingRetiredViewDoesNotResetActivePreviewItem() throws {
+        let url = try temporaryBinaryFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        let retiredView = panel.nativeViewSessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        guard retiredView is QLPreviewView else {
+            return XCTFail("Expected Quick Look to vend a QLPreviewView")
+        }
+
+        panel.nativeViewSessions.quickLook.close()
+
+        let activeView = panel.nativeViewSessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        guard let activePreviewView = activeView as? QLPreviewView else {
+            return XCTFail("Expected Quick Look to vend a QLPreviewView")
+        }
+        let activeItem = try XCTUnwrap(activePreviewView.previewItem as AnyObject?)
+
+        panel.nativeViewSessions.quickLook.dismantle(retiredView)
+        panel.nativeViewSessions.quickLook.update(
+            activeView,
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+
+        let updatedItem = try XCTUnwrap(activePreviewView.previewItem as AnyObject?)
+        XCTAssertTrue(updatedItem === activeItem)
+    }
+
+    func testNativeViewSessionDismantlesRetiredViewAfterClose() {
+        let view = NSView()
+        var closeCount = 0
+        var dismantleCount = 0
+        let session = PanelOwnedNativeViewSession<NSView>(
+            makeView: { view },
+            closeView: {
+                XCTAssertTrue($0 === view)
+                closeCount += 1
+            },
+            dismantleView: {
+                XCTAssertTrue($0 === view)
+                dismantleCount += 1
+            }
+        )
+
+        XCTAssertTrue(session.view(configure: { _ in }) === view)
+        session.close()
+        XCTAssertEqual(closeCount, 1)
+        XCTAssertEqual(dismantleCount, 0)
+
+        XCTAssertFalse(session.dismantle(view))
+        XCTAssertEqual(dismantleCount, 1)
+
+        XCTAssertFalse(session.dismantle(view))
+        XCTAssertEqual(dismantleCount, 1)
     }
 
     func testTextLoaderRejectsOversizedTextFiles() throws {
@@ -150,6 +250,14 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("txt")
         try contents.write(to: url, atomically: true, encoding: encoding)
+        return url
+    }
+
+    private func temporaryBinaryFile() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("bin")
+        try Data([0, 1, 2, 3, 0, 4]).write(to: url, options: .atomic)
         return url
     }
 

@@ -1586,6 +1586,24 @@ final class QuitWarningSettingsTests: XCTestCase {
         defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
         XCTAssertTrue(QuitWarningSettings.isEnabled(defaults: defaults))
     }
+
+    func testShouldShowConfirmationFollowsEnabledPreference() {
+        let suiteName = "QuitWarningSettingsTests.ShouldShow.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        XCTAssertTrue(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
+
+        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
+
+        defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
+        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
+    }
 }
 
 
