@@ -180,6 +180,18 @@ def wait_for_notify_count(server: HookSocketServer, expected_at_least: int, time
     return latest
 
 
+def age_pending_ask_user_question_state(state_path: Path, session_id: str, seconds_ago: float) -> None:
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    sessions = state.get("sessions")
+    if not isinstance(sessions, dict):
+        raise RuntimeError("session state missing sessions")
+    record = sessions.get(session_id)
+    if not isinstance(record, dict):
+        raise RuntimeError(f"session state missing record for {session_id}")
+    record["lastAskUserQuestionNotificationAt"] = time.time() - seconds_ago
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+
 def ask_user_question_payload(session_id: str, index: int) -> dict[str, object]:
     return {
         "session_id": session_id,
@@ -385,6 +397,27 @@ def main() -> int:
             print(f"commands={server.commands_snapshot()!r}")
             return 1
 
+        age_pending_ask_user_question_state(state_path, session_id, seconds_ago=2 * 60 * 60)
+        expired_pending_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            generic_attention_payload(session_id, 99),
+            env,
+        )
+        if expired_pending_proc.returncode != 0:
+            print("FAIL: expired-pending claude-hook notification failed")
+            print(f"stdout={expired_pending_proc.stdout!r}")
+            print(f"stderr={expired_pending_proc.stderr!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+        notify_after_expired_pending = wait_for_notify_count(server, 4)
+        if len(notify_after_expired_pending) != 4:
+            print("FAIL: stale AskUserQuestion state should not suppress generic attention forever")
+            print(f"notify_commands={notify_after_expired_pending!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+
         resume_proc = run_claude_hook(
             cli_path,
             server.socket_path,
@@ -417,8 +450,8 @@ def main() -> int:
             print(f"stderr={post_answer_attention_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_post_answer = wait_for_notify_count(server, 4)
-        if len(notify_after_post_answer) != 4:
+        notify_after_post_answer = wait_for_notify_count(server, 5)
+        if len(notify_after_post_answer) != 5:
             print("FAIL: prompt-submit should stop suppressing later generic attention notifications")
             print(f"notify_commands={notify_after_post_answer!r}")
             print(f"commands={server.commands_snapshot()!r}")
@@ -437,8 +470,8 @@ def main() -> int:
             print(f"stderr={repeated_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_repeat = wait_for_notify_count(server, 5)
-        if len(notify_after_repeat) != 5:
+        notify_after_repeat = wait_for_notify_count(server, 6)
+        if len(notify_after_repeat) != 6:
             print("FAIL: prompt-submit should clear the needs-input dedup fingerprint")
             print(f"notify_commands={notify_after_repeat!r}")
             print(f"commands={server.commands_snapshot()!r}")

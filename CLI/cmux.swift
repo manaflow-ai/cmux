@@ -943,27 +943,21 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func hasPendingAskUserQuestionNotification(sessionId: String, fingerprint: String) throws -> Bool {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
-        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedFingerprint.isEmpty else { return false }
-        return try withLockedState { state in
-            guard let record = state.sessions[normalized] else { return false }
-            return record.lastAskUserQuestionNotificationFingerprint == normalizedFingerprint
-        }
-    }
-
-    func hasPendingAskUserQuestionNotification(sessionId: String) throws -> Bool {
+    func hasPendingAskUserQuestionNotification(
+        sessionId: String,
+        within interval: TimeInterval = 60 * 60
+    ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
             guard let record = state.sessions[normalized],
                   let fingerprint = record.lastAskUserQuestionNotificationFingerprint?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) else {
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !fingerprint.isEmpty,
+                  let emittedAt = record.lastAskUserQuestionNotificationAt else {
                 return false
             }
-            return !fingerprint.isEmpty
+            return Date().timeIntervalSince1970 - emittedAt <= interval
         }
     }
 
