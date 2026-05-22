@@ -11905,13 +11905,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
-        // address bar is focused. Without this, app-level Cmd+N can steal focus.
-        if hasFocusedAddressBarInShortcutContext,
-           shouldBypassAppShortcutForFocusedBrowserAddressBar(flags: flags, chars: chars) {
-            return false
-        }
-
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
             let focusContext = shortcutEventFocusContext(event)
             let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
@@ -12855,27 +12848,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func requestBrowserAddressBarFocus(panelId: UUID) -> Bool {
         focusBrowserAddressBar(panelId: panelId)
-    }
-
-    private func shouldBypassAppShortcutForFocusedBrowserAddressBar(
-        flags: NSEvent.ModifierFlags,
-        chars: String
-    ) -> Bool {
-        guard browserAddressBarFocusedPanelId != nil else { return false }
-        let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-        let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
-        guard isCommandOrControlOnly else { return false }
-        let shouldBypass = chars == "n" || chars == "p"
-#if DEBUG
-        if shouldBypass {
-            let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-            cmuxDebugLog(
-                "browser.focus.addressBar.shortcutBypass panel=\(panelToken) " +
-                "chars=\(chars) flags=\(normalizedFlags.rawValue)"
-            )
-        }
-#endif
-        return shouldBypass
     }
 
     private func commandOmnibarSelectionDelta(
