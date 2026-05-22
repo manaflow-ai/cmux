@@ -1732,6 +1732,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
+            XCTAssertTrue(initialCommand.contains("254|255"), initialCommand)
             return self.v2Response(
                 id: id,
                 ok: true,

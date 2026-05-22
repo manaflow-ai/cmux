@@ -128,7 +128,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             "while :; do",
             "  \(command)",
             "  cmux_ssh_attach_status=$?",
-            "  if [ \"$cmux_ssh_attach_status\" -ne 254 ]; then exit \"$cmux_ssh_attach_status\"; fi",
+            "  case \"$cmux_ssh_attach_status\" in 254|255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
             "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
             "  if [ -t 2 ]; then printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s/%s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\" >&2 || true; fi",
