@@ -269,6 +269,57 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(secondReplacement.surface.initialCommand)
     }
 
+    func testPaneCloseOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                transport: .websocket,
+                destination: "vm:issue-4509",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "cmux remote websocket"
+            ),
+            autoConnect: false
+        )
+
+        guard let browserPanel = workspace.newBrowserSplit(
+            from: remotePanelId,
+            orientation: .horizontal,
+            focus: false,
+            creationPolicy: .restoration
+        ),
+              let remotePaneId = workspace.paneId(forPanelId: remotePanelId) else {
+            XCTFail("Expected split browser and remote terminal panes")
+            return
+        }
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        XCTAssertTrue(workspace.bonsplitController.closePane(remotePaneId))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertNil(workspace.panels[remotePanelId])
+        XCTAssertNotNil(workspace.panels[browserPanel.id])
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+    }
+
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
