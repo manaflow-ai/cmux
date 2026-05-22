@@ -4590,6 +4590,8 @@ final class WorkspaceRemotePTYBridgeServer {
         private var pendingInputBytes = 0
         private var pendingOutputSends = 0
         private var pendingOutputBytes = 0
+        private var pendingPTYEventsBeforeReady: [WorkspaceRemotePTYBridgeEvent] = []
+        private var pendingPTYEventBytesBeforeReady = 0
         private var closeWhenOutputFlushes: (detach: Bool, gracefulOutputClose: Bool)?
         private var handshakeTimeoutWorkItem: DispatchWorkItem?
         private var remoteAttachment: WorkspaceRemotePTYBridgeAttachment?
@@ -4736,6 +4738,13 @@ final class WorkspaceRemotePTYBridgeServer {
                     "attachment_token": remoteAttachment.token,
                 ])
                 isAttached = true
+                let pendingPTYEvents = pendingPTYEventsBeforeReady
+                pendingPTYEventsBeforeReady.removeAll(keepingCapacity: false)
+                pendingPTYEventBytesBeforeReady = 0
+                for event in pendingPTYEvents {
+                    handleAttachedPTYEvent(event)
+                    if isClosed { return }
+                }
                 if !pendingInputBeforeAttach.isEmpty {
                     let pendingInput = pendingInputBeforeAttach
                     pendingInputBeforeAttach.removeAll(keepingCapacity: false)
@@ -4823,6 +4832,37 @@ final class WorkspaceRemotePTYBridgeServer {
         }
 
         private func handlePTYEvent(_ event: WorkspaceRemotePTYBridgeEvent) {
+            guard !isClosed else { return }
+            guard !isAttaching else {
+                bufferPTYEventUntilReady(event)
+                return
+            }
+            handleAttachedPTYEvent(event)
+        }
+
+        private func bufferPTYEventUntilReady(_ event: WorkspaceRemotePTYBridgeEvent) {
+            switch event {
+            case .ready:
+                return
+            case .data(let data):
+                guard !data.isEmpty else { return }
+                guard pendingPTYEventsBeforeReady.count < Self.maxPendingOutputSends,
+                      pendingPTYEventBytesBeforeReady <= Self.maxPendingOutputBytes - data.count else {
+                    close(detach: true)
+                    return
+                }
+                pendingPTYEventBytesBeforeReady += data.count
+                pendingPTYEventsBeforeReady.append(event)
+            case .exit, .error:
+                guard pendingPTYEventsBeforeReady.count < Self.maxPendingOutputSends else {
+                    close(detach: true)
+                    return
+                }
+                pendingPTYEventsBeforeReady.append(event)
+            }
+        }
+
+        private func handleAttachedPTYEvent(_ event: WorkspaceRemotePTYBridgeEvent) {
             guard !isClosed else { return }
             switch event {
             case .ready:
@@ -4915,6 +4955,8 @@ final class WorkspaceRemotePTYBridgeServer {
             handshakeTimeoutWorkItem = nil
             isAttaching = false
             pendingInputBeforeAttach.removeAll(keepingCapacity: false)
+            pendingPTYEventsBeforeReady.removeAll(keepingCapacity: false)
+            pendingPTYEventBytesBeforeReady = 0
             if detach && isAttached, let remoteAttachment {
                 detachRemoteAttachment(remoteAttachment)
             }
@@ -4963,7 +5005,7 @@ final class WorkspaceRemotePTYBridgeServer {
             if lowered.contains("timed out") || lowered.contains("timeout") {
                 return "remote daemon did not respond in time"
             }
-            return message.isEmpty ? "remote PTY attach failed" : "remote PTY attach failed"
+            return message.isEmpty ? "remote PTY attach failed" : message
         }
     }
 

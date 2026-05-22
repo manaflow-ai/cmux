@@ -2095,6 +2095,28 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
     }
 
+    private final class ImmediateOutputThenExitPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+        func attachBridgePTY(
+            sessionID: String,
+            attachmentID: String,
+            cols: Int,
+            rows: Int,
+            command: String?,
+            requireExisting: Bool,
+            queue: DispatchQueue,
+            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            queue.async {
+                onEvent(.data(Data("early-output".utf8)))
+                onEvent(.exit)
+            }
+            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-output-token")
+        }
+
+        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {}
+        func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
+    }
+
     private final class FloodPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
         let detachSemaphore = DispatchSemaphore(value: 0)
 
@@ -3991,21 +4013,57 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
         let responseText = String(data: responseData, encoding: .utf8) ?? ""
         let responseLines = responseText.split(separator: "\n").map(String.init)
-        XCTAssertTrue(
-            responseLines.contains { line in
-                guard let data = line.data(using: .utf8),
-                      let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-                    return false
-                }
-                return payload["type"] as? String == "ready"
-            },
-            "Expected ready frame before bridge EOF, saw \(responseText)"
+        let firstPayload = try XCTUnwrap(responseLines.first?.data(using: .utf8))
+        let firstJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: firstPayload, options: []) as? [String: Any]
         )
+        XCTAssertEqual(firstJSON["type"] as? String, "ready", "Expected ready frame first, saw \(responseText)")
         XCTAssertEqual(rpcClient.attachCalls.count, 1)
         XCTAssertEqual(rpcClient.attachCalls.first?.sessionID, "session-short-lived")
         XCTAssertEqual(rpcClient.attachCalls.first?.attachmentID, "attachment-short-lived")
         XCTAssertEqual(rpcClient.attachCalls.first?.command, "printf done")
         XCTAssertEqual(rpcClient.attachCalls.first?.requireExisting, true)
+    }
+
+    func testPTYBridgeBuffersOutputUntilReadyFrame() throws {
+        let rpcClient = ImmediateOutputThenExitPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-early-output",
+            attachmentID: "attachment-early-output",
+            command: nil,
+            requireExisting: true
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\n", to: fd))
+
+        let responseData = try readUntilEOF(from: fd, timeout: 2)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+        let responseText = String(data: responseData, encoding: .utf8) ?? ""
+        let responseLines = responseText.split(separator: "\n", maxSplits: 1).map(String.init)
+        let firstPayload = try XCTUnwrap(responseLines.first?.data(using: .utf8))
+        let firstJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: firstPayload, options: []) as? [String: Any]
+        )
+        XCTAssertEqual(firstJSON["type"] as? String, "ready", responseText)
+        XCTAssertTrue(responseText.contains("early-output"), responseText)
     }
 
     func testPTYBridgeStopRetainsServerUntilCleanupRuns() throws {
