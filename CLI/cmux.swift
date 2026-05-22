@@ -439,6 +439,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var activePromptTurnId: String?
     var activePromptTurnIds: [String]?
     var lastPromptTurnId: String?
+    var terminalPromptTurnIds: [String]?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
 }
@@ -497,6 +498,7 @@ private struct ClaudeHookSessionStoreFile: Codable {
 private final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+    private static let maxRememberedTerminalPromptTurnIds = 32
 
     private let statePath: String
     private let fileManager: FileManager
@@ -575,6 +577,7 @@ private final class ClaudeHookSessionStore {
             )
             let normalizedTurnId = normalizeOptional(turnId)
             if let normalizedTurnId {
+                markPromptTurnActive(normalizedTurnId, on: &record)
                 var turnStack = activePromptTurnStack(from: record)
                 let legacyDepth = max(0, record.activePromptDepth ?? 0)
                 if turnStack.isEmpty, legacyDepth > 0 {
@@ -587,18 +590,20 @@ private final class ClaudeHookSessionStore {
                 } else if let activeTurnId = turnStack.last,
                           activeTurnId != normalizedTurnId {
                     var removedTurnCount = 0
+                    var removedTerminalTurnIds: [String] = []
                     if previousActivePromptTurnIsTerminal {
-                        turnStack.removeLast()
+                        removedTerminalTurnIds.append(turnStack.removeLast())
                         removedTurnCount += 1
                         while let activeTurnId = turnStack.last,
                               terminalActivePromptTurnIds.contains(activeTurnId) {
-                            turnStack.removeLast()
+                            removedTerminalTurnIds.append(turnStack.removeLast())
                             removedTurnCount += 1
                         }
                     }
                     let totalDepth = max(0, max(legacyDepth, turnStack.count + removedTurnCount) - removedTurnCount) + 1
                     turnStack.append(normalizedTurnId)
                     setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
+                    markPromptTurnsTerminal(removedTerminalTurnIds, on: &record)
                     record.lastPromptTurnId = normalizedTurnId
                     state.sessions[normalized] = record
                     return totalDepth > 1
@@ -677,6 +682,7 @@ private final class ClaudeHookSessionStore {
                             totalDepth: max(0, totalDepthBeforeStop - 1),
                             on: &record
                         )
+                        markPromptTurnTerminal(normalizedTurnId, on: &record)
                         state.sessions[normalized] = record
                         return nested
                     }
@@ -687,15 +693,16 @@ private final class ClaudeHookSessionStore {
                             totalDepth: max(0, totalDepthBeforeStop - 1),
                             on: &record
                         )
+                        markPromptTurnTerminal(normalizedTurnId, on: &record)
                     }
                     state.sessions[normalized] = record
                     return true
                 }
-                let lastPromptTurnId = normalizeOptional(record.lastPromptTurnId)
-                if depthBeforeStop == 0, let lastPromptTurnId, lastPromptTurnId != normalizedTurnId {
+                if depthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                     state.sessions[normalized] = record
                     return true
                 }
+                markPromptTurnTerminal(normalizedTurnId, on: &record)
                 if depthBeforeStop > 0 {
                     if depthAfterStop == 0 {
                         record.activePromptDepth = nil
@@ -775,6 +782,7 @@ private final class ClaudeHookSessionStore {
                 activePromptTurnId: nil,
                 activePromptTurnIds: nil,
                 lastPromptTurnId: nil,
+                terminalPromptTurnIds: nil,
                 startedAt: now,
                 updatedAt: now
             )
@@ -833,6 +841,7 @@ private final class ClaudeHookSessionStore {
             activePromptTurnId: nil,
             activePromptTurnIds: nil,
             lastPromptTurnId: nil,
+            terminalPromptTurnIds: nil,
             startedAt: now,
             updatedAt: now
         )
@@ -863,6 +872,37 @@ private final class ClaudeHookSessionStore {
             record.activePromptTurnId = normalizedStack.last
             record.activePromptTurnIds = normalizedStack.isEmpty ? nil : normalizedStack
         }
+    }
+
+    private func terminalPromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
+        record.terminalPromptTurnIds?.compactMap { normalizeOptional($0) } ?? []
+    }
+
+    private func terminalPromptTurnSet(from record: ClaudeHookSessionRecord) -> Set<String> {
+        Set(terminalPromptTurnStack(from: record))
+    }
+
+    private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
+        var terminalTurnIds = terminalPromptTurnStack(from: record)
+        terminalTurnIds.removeAll { $0 == turnId }
+        record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
+    }
+
+    private func markPromptTurnsTerminal(_ turnIds: [String], on record: inout ClaudeHookSessionRecord) {
+        for turnId in turnIds {
+            markPromptTurnTerminal(turnId, on: &record)
+        }
+    }
+
+    private func markPromptTurnTerminal(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
+        guard let normalizedTurnId = normalizeOptional(turnId) else { return }
+        var terminalTurnIds = terminalPromptTurnStack(from: record)
+        terminalTurnIds.removeAll { $0 == normalizedTurnId }
+        terminalTurnIds.append(normalizedTurnId)
+        if terminalTurnIds.count > Self.maxRememberedTerminalPromptTurnIds {
+            terminalTurnIds.removeFirst(terminalTurnIds.count - Self.maxRememberedTerminalPromptTurnIds)
+        }
+        record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
     }
 
     private func update(
