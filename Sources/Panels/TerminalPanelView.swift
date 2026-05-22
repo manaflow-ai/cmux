@@ -48,6 +48,8 @@ struct TerminalPanelView: View {
             // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
             .id(panel.id)
             .background(Color.clear)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .layoutPriority(1)
 
             if panel.isTextBoxActive {
                 TextBoxInputContainer(
@@ -84,6 +86,7 @@ struct TerminalPanelView: View {
                 )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load().fontSize
         }

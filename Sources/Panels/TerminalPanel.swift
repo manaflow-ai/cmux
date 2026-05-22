@@ -656,8 +656,7 @@ final class TerminalPanel: Panel, ObservableObject {
         case .terminal(let target):
             switch target {
             case .surface:
-                focusTerminalSurface(respectForeignFirstResponder: false)
-                return true
+                return focusTerminalSurface(respectForeignFirstResponder: false)
             case .textBoxInput:
                 return focusTextBoxInput()
             case .findField:
