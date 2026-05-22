@@ -168,6 +168,7 @@ final class MobileHostService {
     private var lastErrorDescription: String?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
+    private var debugClearedViewportClientIDs: [Set<String>] = []
     #endif
 
     private init() {}
@@ -414,7 +415,8 @@ final class MobileHostService {
     private func removeConnection(id: UUID) {
         MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
-        clientIDsByConnectionID.removeValue(forKey: id)
+        let clientIDs = clientIDsByConnectionID.removeValue(forKey: id) ?? []
+        clearMobileViewportReportsForDisconnectedClients(clientIDs)
         MobileHostRequestActivity.endConnection()
     }
 
@@ -422,6 +424,14 @@ final class MobileHostService {
         var clientIDs = clientIDsByConnectionID[connectionID] ?? []
         clientIDs.insert(clientID)
         clientIDsByConnectionID[connectionID] = clientIDs
+    }
+
+    private func clearMobileViewportReportsForDisconnectedClients(_ clientIDs: Set<String>) {
+        guard !clientIDs.isEmpty else { return }
+        #if DEBUG
+        debugClearedViewportClientIDs.append(clientIDs)
+        #endif
+        TerminalController.shared.clearMobileViewportReports(clientIDs: clientIDs)
     }
 
     private nonisolated static func clientID(from params: [String: Any]) -> String? {
@@ -666,6 +676,7 @@ extension MobileHostService {
         listenerPort = nil
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
+        debugClearedViewportClientIDs.removeAll()
         MobileHostRequestActivity.resetForTesting()
     }
 
@@ -679,6 +690,10 @@ extension MobileHostService {
 
     func debugTrackedClientIDsForTesting(connectionID: UUID) -> Set<String>? {
         clientIDsByConnectionID[connectionID]
+    }
+
+    func debugClearedViewportClientIDsForTesting() -> [Set<String>] {
+        debugClearedViewportClientIDs
     }
 
     func debugSetListenerStateForTesting(
