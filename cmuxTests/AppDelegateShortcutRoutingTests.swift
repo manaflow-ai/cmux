@@ -6278,6 +6278,59 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(terminalPanel.isTextBoxActive)
     }
 
+    func testTextBoxSecondEscapeAfterFocusMovesToAnotherSplitClearsArmWithoutHiding() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = textBoxView
+        contentView.addSubview(textBoxScrollView)
+        defer { textBoxScrollView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        leftPanel.hostedView.setVisibleInUI(true)
+        leftPanel.hostedView.setActive(true)
+        leftPanel.hostedView.moveFocus()
+        leftPanel.registerTextBoxInputView(textBoxView)
+        XCTAssertTrue(leftPanel.toggleTextBoxInput())
+        waitFor(timeout: 1.0, until: { window.firstResponder === textBoxView })
+
+        leftPanel.handleTextBoxEscape()
+        XCTAssertTrue(leftPanel.isTextBoxActive)
+#if DEBUG
+        XCTAssertTrue(leftPanel.debugHasTextBoxHideEscapeArm)
+#endif
+        workspace.focusPanel(rightPanel.id)
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+#if DEBUG
+        XCTAssertFalse(leftPanel.debugHasTextBoxHideEscapeArm)
+#endif
+
+        XCTAssertFalse(manager.consumeFocusedTerminalTextBoxHideEscapeIfArmed(in: window))
+        XCTAssertTrue(
+            leftPanel.isTextBoxActive,
+            "Escape after moving to another split should not hide or refocus the stale split"
+        )
+    }
+
     func testTextBoxFilePanelFocusRestorerRefocusesAfterSheetEnds() {
         let hostWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),

@@ -2282,6 +2282,10 @@ class TabManager: ObservableObject {
         selectedWorkspace?.focusedTerminalPanel
     }
 
+    private var selectedWorkspaceTerminalPanels: [TerminalPanel] {
+        selectedWorkspace?.panels.values.compactMap { $0 as? TerminalPanel } ?? []
+    }
+
     var isFindVisible: Bool {
         selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
     }
@@ -2377,12 +2381,23 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func consumeFocusedTerminalTextBoxHideEscapeIfArmed(in window: NSWindow?) -> Bool {
-        guard let panel = selectedTerminalPanel else { return false }
-        return panel.consumeTextBoxHideEscapeIfArmed(in: window)
+        guard let focusedPanel = selectedTerminalPanel else {
+            clearFocusedTerminalTextBoxHideEscapeArm()
+            return false
+        }
+        let consumed = focusedPanel.consumeTextBoxHideEscapeIfArmed(in: window)
+        guard !consumed else { return true }
+        for panel in selectedWorkspaceTerminalPanels {
+            if panel === focusedPanel { continue }
+            panel.clearTextBoxHideEscapeArm()
+        }
+        return false
     }
 
     func clearFocusedTerminalTextBoxHideEscapeArm() {
-        selectedTerminalPanel?.clearTextBoxHideEscapeArm()
+        for panel in selectedWorkspaceTerminalPanels {
+            panel.clearTextBoxHideEscapeArm()
+        }
     }
 
     func hideFind() {

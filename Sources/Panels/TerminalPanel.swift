@@ -52,6 +52,10 @@ final class TerminalPanel: Panel, ObservableObject {
     var debugHasPendingTextBoxFocusRequest: Bool {
         shouldFocusTextBoxWhenAvailable || shouldOpenTextBoxFilePickerWhenAvailable
     }
+
+    var debugHasTextBoxHideEscapeArm: Bool {
+        shouldHideTextBoxOnNextEscape
+    }
 #endif
 
     /// Search state for find functionality
