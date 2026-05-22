@@ -8137,7 +8137,7 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
-        refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_TAB, reason: "workspace.init")
+        refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "workspace.init")
     }
 
     deinit {
@@ -10484,6 +10484,14 @@ final class Workspace: Identifiable, ObservableObject {
         panel.close()
     }
 
+    @MainActor private static func discardWarmTerminalPoolIfOwned(
+        by workspaceId: UUID,
+        reason: String
+    ) {
+        guard warmTerminalPoolOwnerWorkspaceId == workspaceId else { return }
+        discardWarmTerminalPool(reason: reason)
+    }
+
     private static func normalizedWarmTerminalDirectory(_ directory: String?) -> String? {
         let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
@@ -11801,6 +11809,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels() {
+        Self.discardWarmTerminalPoolIfOwned(by: id, reason: "workspace.teardown")
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
