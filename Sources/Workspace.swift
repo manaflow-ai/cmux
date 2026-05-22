@@ -11317,6 +11317,7 @@ final class Workspace: Identifiable, ObservableObject {
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
         hideAllBrowserPortalViews()
+        hideAllMarkdownPortalViews(reason: "workspaceTeardown")
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
             discardClosedPanelLifecycleState(
@@ -12446,6 +12447,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func hideAllMarkdownPortalViews(reason: String) {
+        for panel in panels.values {
+            guard let markdown = panel as? MarkdownPanel else { continue }
+            markdown.rendererSession.hidePortal(reason: reason)
+        }
+    }
+
     func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
         let changed = portalRenderingEnabled != enabled
         portalRenderingEnabled = enabled
@@ -12460,6 +12468,7 @@ final class Workspace: Identifiable, ObservableObject {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
             hideAllBrowserPortalViews()
+            hideAllMarkdownPortalViews(reason: reason)
         }
     }
 
@@ -12933,6 +12942,7 @@ final class Workspace: Identifiable, ObservableObject {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
             hideAllBrowserPortalViews()
+            hideAllMarkdownPortalViews(reason: "layoutFollowUp.portalRenderingDisabled")
             return
         }
         isAttemptingLayoutFollowUp = true
