@@ -26,6 +26,13 @@
     "cli.help.markNotificationRead": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)\n\nMark notifications read without opening them. Exactly one selector is required.\n\nFlags:\n  --id <uuid>           Mark one notification read\n  --workspace <id|ref>  Mark notifications for a workspace\n  --surface <id|ref>    Narrow --workspace to one surface\n  --all                 Mark every notification read\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)\n\n通知を開かずに既読にします。セレクタは1つだけ指定してください。\n\nFlags:\n  --id <uuid>           通知を1件既読にする\n  --workspace <id|ref>  ワークスペースの通知を既読にする\n  --surface <id|ref>    --workspace を1つのサーフェスに絞り込む\n  --all                 すべての通知を既読にする\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
     "cli.help.openNotification": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux open-notification --id <uuid>\n\nFocus the notification's workspace and surface, then mark the row read.\n\nFlags:\n  --id <uuid>           Notification id to open\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux open-notification --id <uuid>\n\n通知のワークスペースとサーフェスへフォーカスし、その行を既読にします。\n\nFlags:\n  --id <uuid>           開く通知 ID\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
     "cli.help.setStatus": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux set-status <key> <value> [flags]\n\nSet a sidebar status entry for a workspace. Status entries appear as\npills in the sidebar tab row. Use a unique key so different tools\n(e.g. \"claude_code\", \"build\") can manage their own entries.\n\nFlags:\n  --icon <name>          Icon name (e.g. \"sparkle\", \"hammer\")\n  --color <#hex>         Pill color (e.g. \"#ff9500\")\n  --priority <n>         Sort priority; higher appears first (default: 0)\n  --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux set-status <key> <value> [flags]\n\nワークスペースのサイドバーステータスエントリを設定します。ステータスエントリは\nサイドバーのタブ行にピルとして表示されます。異なるツール\n（例: \"claude_code\", \"build\"）がそれぞれのエントリを管理できるよう、一意のキーを使用してください。\n\nFlags:\n  --icon <name>          アイコン名（例: \"sparkle\", \"hammer\"）\n  --color <#hex>         ピルの色（例: \"#ff9500\"）\n  --priority <n>         並び順の優先度。大きい値ほど先に表示（デフォルト: 0）\n  --workspace <id|ref>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2" } } } },
+    "cli.reorderWorkspaces.error.emptyOrder": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"bs":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"da":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"de":{"stringUnit":{"state":"translated","value":"reorder-workspaces erfordert mindestens einen Workspace in --order"}},"en":{"stringUnit":{"state":"translated","value":"reorder-workspaces requires at least one workspace in --order"}},"es":{"stringUnit":{"state":"translated","value":"reorder-workspaces requiere al menos un espacio de trabajo en --order"}},"fr":{"stringUnit":{"state":"translated","value":"reorder-workspaces requiert au moins un espace de travail dans --order"}},"it":{"stringUnit":{"state":"translated","value":"reorder-workspaces richiede almeno un'area di lavoro in --order"}},"ja":{"stringUnit":{"state":"translated","value":"reorder-workspaces には --order に少なくとも 1 つのワークスペースが必要です"}},"km":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"ko":{"stringUnit":{"state":"translated","value":"reorder-workspaces에는 --order에 하나 이상의 워크스페이스가 필요합니다"}},"nb":{"stringUnit":{"state":"translated","value":"reorder-workspaces krever minst ett arbeidsområde i --order"}},"pl":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"pt-BR":{"stringUnit":{"state":"translated","value":"reorder-workspaces requer pelo menos um workspace em --order"}},"ru":{"stringUnit":{"state":"translated","value":"reorder-workspaces требует как минимум одно рабочее пространство в --order"}},"th":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"tr":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"uk":{"stringUnit":{"state":"translated","value":"reorder-workspaces потребує принаймні один робочий простір у --order"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"reorder-workspaces 的 --order 至少需要一个工作区"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"reorder-workspaces 的 --order 至少需要一個工作區"}}} },
+    "cli.reorderWorkspaces.error.emptyOrderItem": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"bs":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"da":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"de":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order darf keine leeren Workspace-Referenzen enthalten"}},"en":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"es":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order no puede contener referencias de espacios de trabajo vacías"}},"fr":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order ne peut pas contenir de références d'espace de travail vides"}},"it":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order non può contenere riferimenti ad aree di lavoro vuoti"}},"ja":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order に空のワークスペース参照は指定できません"}},"km":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"ko":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order에는 빈 워크스페이스 참조를 포함할 수 없습니다"}},"nb":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order kan ikke inneholde tomme arbeidsområdereferanser"}},"pl":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"pt-BR":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order não pode conter referências de workspace vazias"}},"ru":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order не может содержать пустые ссылки на рабочие пространства"}},"th":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"tr":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"uk":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order не може містити порожні посилання на робочі простори"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order 不能包含空的工作区引用"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order 不能包含空的工作區參照"}}} },
+    "cli.reorderWorkspaces.error.missingOrder": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"bs":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"da":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"de":{"stringUnit":{"state":"translated","value":"reorder-workspaces erfordert --order <id|ref|index>,<id|ref|index>,..."}},"en":{"stringUnit":{"state":"translated","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"es":{"stringUnit":{"state":"translated","value":"reorder-workspaces requiere --order <id|ref|index>,<id|ref|index>,..."}},"fr":{"stringUnit":{"state":"translated","value":"reorder-workspaces requiert --order <id|ref|index>,<id|ref|index>,..."}},"it":{"stringUnit":{"state":"translated","value":"reorder-workspaces richiede --order <id|ref|index>,<id|ref|index>,..."}},"ja":{"stringUnit":{"state":"translated","value":"reorder-workspaces には --order <id|ref|index>,<id|ref|index>,... が必要です"}},"km":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"ko":{"stringUnit":{"state":"translated","value":"reorder-workspaces에는 --order <id|ref|index>,<id|ref|index>,...가 필요합니다"}},"nb":{"stringUnit":{"state":"translated","value":"reorder-workspaces krever --order <id|ref|index>,<id|ref|index>,..."}},"pl":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"pt-BR":{"stringUnit":{"state":"translated","value":"reorder-workspaces requer --order <id|ref|index>,<id|ref|index>,..."}},"ru":{"stringUnit":{"state":"translated","value":"reorder-workspaces требует --order <id|ref|index>,<id|ref|index>,..."}},"th":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"tr":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"uk":{"stringUnit":{"state":"translated","value":"reorder-workspaces потребує --order <id|ref|index>,<id|ref|index>,..."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"reorder-workspaces 需要 --order <id|ref|index>,<id|ref|index>,..."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"reorder-workspaces 需要 --order <id|ref|index>,<id|ref|index>,..."}}} },
+    "cli.reorderWorkspaces.error.workspaceNotFound": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"bs":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"da":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"de":{"stringUnit":{"state":"translated","value":"Workspace nicht gefunden: %@"}},"en":{"stringUnit":{"state":"translated","value":"Workspace not found: %@"}},"es":{"stringUnit":{"state":"translated","value":"Espacio de trabajo no encontrado: %@"}},"fr":{"stringUnit":{"state":"translated","value":"Espace de travail introuvable : %@"}},"it":{"stringUnit":{"state":"translated","value":"Area di lavoro non trovata: %@"}},"ja":{"stringUnit":{"state":"translated","value":"ワークスペースが見つかりません: %@"}},"km":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"ko":{"stringUnit":{"state":"translated","value":"워크스페이스를 찾을 수 없음: %@"}},"nb":{"stringUnit":{"state":"translated","value":"Fant ikke arbeidsområde: %@"}},"pl":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Workspace não encontrado: %@"}},"ru":{"stringUnit":{"state":"translated","value":"Рабочее пространство не найдено: %@"}},"th":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"tr":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"uk":{"stringUnit":{"state":"translated","value":"Робочий простір не знайдено: %@"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未找到工作区：%@"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"找不到工作區：%@"}}} },
+    "cli.reorderWorkspaces.result.appliedLine": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"bs":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"da":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"de":{"stringUnit":{"state":"translated","value":"OK arbeitsbereich=%@ fenster=%@ index=%@"}},"en":{"stringUnit":{"state":"translated","value":"OK workspace=%@ window=%@ index=%@"}},"es":{"stringUnit":{"state":"translated","value":"OK espacio_de_trabajo=%@ ventana=%@ indice=%@"}},"fr":{"stringUnit":{"state":"translated","value":"OK espace_de_travail=%@ fenetre=%@ indice=%@"}},"it":{"stringUnit":{"state":"translated","value":"OK area_di_lavoro=%@ finestra=%@ indice=%@"}},"ja":{"stringUnit":{"state":"translated","value":"OK ワークスペース=%@ ウィンドウ=%@ インデックス=%@"}},"km":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"ko":{"stringUnit":{"state":"translated","value":"OK 워크스페이스=%@ 창=%@ 인덱스=%@"}},"nb":{"stringUnit":{"state":"translated","value":"OK arbeidsomrade=%@ vindu=%@ indeks=%@"}},"pl":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"pt-BR":{"stringUnit":{"state":"translated","value":"OK area_de_trabalho=%@ janela=%@ indice=%@"}},"ru":{"stringUnit":{"state":"translated","value":"OK рабочее_пространство=%@ окно=%@ индекс=%@"}},"th":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"tr":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"uk":{"stringUnit":{"state":"translated","value":"OK робочий_простір=%@ вікно=%@ індекс=%@"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"OK 工作区=%@ 窗口=%@ 索引=%@"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"OK 工作區=%@ 視窗=%@ 索引=%@"}}}},
+    "cli.reorderWorkspaces.result.planLine": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"bs":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"da":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"de":{"stringUnit":{"state":"translated","value":"OK plan arbeitsbereich=%@ fenster=%@ index=%@"}},"en":{"stringUnit":{"state":"translated","value":"OK plan workspace=%@ window=%@ index=%@"}},"es":{"stringUnit":{"state":"translated","value":"OK plan espacio_de_trabajo=%@ ventana=%@ indice=%@"}},"fr":{"stringUnit":{"state":"translated","value":"OK plan espace_de_travail=%@ fenetre=%@ indice=%@"}},"it":{"stringUnit":{"state":"translated","value":"OK piano area_di_lavoro=%@ finestra=%@ indice=%@"}},"ja":{"stringUnit":{"state":"translated","value":"OK 計画 ワークスペース=%@ ウィンドウ=%@ インデックス=%@"}},"km":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"ko":{"stringUnit":{"state":"translated","value":"OK 계획 워크스페이스=%@ 창=%@ 인덱스=%@"}},"nb":{"stringUnit":{"state":"translated","value":"OK plan arbeidsomrade=%@ vindu=%@ indeks=%@"}},"pl":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"pt-BR":{"stringUnit":{"state":"translated","value":"OK plano area_de_trabalho=%@ janela=%@ indice=%@"}},"ru":{"stringUnit":{"state":"translated","value":"OK план рабочее_пространство=%@ окно=%@ индекс=%@"}},"th":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"tr":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"uk":{"stringUnit":{"state":"translated","value":"OK план робочий_простір=%@ вікно=%@ індекс=%@"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"OK 计划 工作区=%@ 窗口=%@ 索引=%@"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"OK 計畫 工作區=%@ 視窗=%@ 索引=%@"}}}},
+    "cli.help.reorderWorkspaces": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"bs":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"da":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"de":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nOrdnet Workspaces in einem Fenster als atomaren Batch neu an. Die kommaseparierte\nReihenfolge ist die endgültige führende Reihenfolge innerhalb der angehefteten\nund nicht angehefteten Gruppen; nicht angegebene Workspaces behalten ihre\nrelative Reihenfolge nach den aufgeführten Workspaces in derselben Gruppe.\n\nFlags:\n  --order <refs>                Kommaseparierte Workspace-Referenzen, die zuerst platziert werden\n  --window <id|ref|index>       Fensterkontext\n  --dry-run                     Gibt die aufgelösten endgültigen Indizes aus, ohne anzuwenden\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"en":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"es":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReordena los espacios de trabajo de una ventana como un lote atómico. El orden\nseparado por comas es el orden inicial final dentro de los grupos fijados y no\nfijados; los espacios no mencionados conservan su orden relativo después de los\nespacios listados en el mismo grupo.\n\nFlags:\n  --order <refs>                Referencias de espacios de trabajo separadas por comas para colocar primero\n  --window <id|ref|index>       Contexto de ventana\n  --dry-run                     Imprime los índices finales resueltos sin aplicar cambios\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"fr":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nRéordonne les espaces de travail d'une fenêtre en un lot atomique. L'ordre\nséparé par des virgules est l'ordre de tête final dans les groupes épinglés et\nnon épinglés; les espaces non mentionnés conservent leur ordre relatif après les\nespaces listés dans le même groupe.\n\nFlags:\n  --order <refs>                Références d'espaces de travail séparées par des virgules à placer en premier\n  --window <id|ref|index>       Contexte de fenêtre\n  --dry-run                     Affiche les indices finaux résolus sans appliquer\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"it":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nRiordina le aree di lavoro in una finestra come un unico batch atomico. L'ordine\nseparato da virgole è l'ordine iniziale finale nei gruppi fissati e non fissati;\nle aree non menzionate mantengono il loro ordine relativo dopo quelle elencate\nnello stesso gruppo.\n\nFlags:\n  --order <refs>                Riferimenti alle aree di lavoro separati da virgole da posizionare per primi\n  --window <id|ref|index>       Contesto della finestra\n  --dry-run                     Stampa gli indici finali risolti senza applicare\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"ja":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nワークスペースを 1 つのウィンドウ内でアトミックに並べ替えます。カンマ区切りの\n順序は、ピン留め済みグループと未ピン留めグループ内で先頭に置く最終順序です。\n指定されていないワークスペースは、同じグループ内で指定されたワークスペースの後に\n元の相対順序で残ります。\n\nFlags:\n  --order <refs>                先頭に配置するワークスペース参照をカンマ区切りで指定\n  --window <id|ref|index>       ウィンドウコンテキスト\n  --dry-run                     適用せずに解決後の最終インデックスを出力\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"km":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"ko":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\n한 창 안의 워크스페이스를 하나의 원자적 배치로 다시 정렬합니다. 쉼표로 구분한\n순서는 고정 및 비고정 그룹 안에서 앞에 올 최종 순서입니다. 지정하지 않은\n워크스페이스는 같은 그룹에서 나열된 워크스페이스 뒤에 기존 상대 순서를 유지합니다.\n\nFlags:\n  --order <refs>                먼저 배치할 워크스페이스 참조를 쉼표로 구분해 지정\n  --window <id|ref|index>       창 컨텍스트\n  --dry-run                     적용하지 않고 해석된 최종 인덱스를 출력\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"nb":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nOmordner arbeidsområder i ett vindu som én atomisk batch. Den kommaseparerte\nrekkefølgen er den endelige ledende rekkefølgen i festede og ikke-festede\ngrupper; arbeidsområder som ikke er nevnt beholder sin relative rekkefølge etter\nde oppførte arbeidsområdene i samme gruppe.\n\nFlags:\n  --order <refs>                Kommaseparerte arbeidsområdereferanser som plasseres først\n  --window <id|ref|index>       Vinduskontekst\n  --dry-run                     Skriv ut de løste endelige indeksene uten å bruke endringen\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"pl":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReordena os workspaces em uma janela como um único lote atômico. A ordem separada\npor vírgulas é a ordem inicial final dentro dos grupos fixados e não fixados;\nworkspaces não mencionados mantêm sua ordem relativa depois dos listados no\nmesmo grupo.\n\nFlags:\n  --order <refs>                Referências de workspaces separadas por vírgulas para colocar primeiro\n  --window <id|ref|index>       Contexto da janela\n  --dry-run                     Imprime os índices finais resolvidos sem aplicar\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"ru":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nПереупорядочивает рабочие пространства в окне как один атомарный пакет. Порядок,\nразделенный запятыми, задает итоговый начальный порядок внутри закрепленных и\nнезакрепленных групп; неуказанные рабочие пространства сохраняют относительный\nпорядок после перечисленных элементов в той же группе.\n\nFlags:\n  --order <refs>                Ссылки рабочих пространств через запятую, которые нужно поставить первыми\n  --window <id|ref|index>       Контекст окна\n  --dry-run                     Выводит разрешенные итоговые индексы без применения\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"th":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"tr":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"uk":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nПереупорядковує робочі простори у вікні як один атомарний пакет. Порядок,\nрозділений комами, задає підсумковий початковий порядок у закріплених і\nнезакріплених групах; не зазначені робочі простори зберігають відносний порядок\nпісля перелічених у тій самій групі.\n\nFlags:\n  --order <refs>                Посилання робочих просторів через кому, які треба поставити першими\n  --window <id|ref|index>       Контекст вікна\n  --dry-run                     Виводить розв'язані підсумкові індекси без застосування\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\n在一个窗口内以原子批次重新排序工作区。逗号分隔的顺序是在已固定和未固定\n分组中置于前面的最终顺序；未提及的工作区会在同一分组中列出的工作区之后\n保留原有相对顺序。\n\nFlags:\n  --order <refs>                以逗号分隔、要优先放置的工作区引用\n  --window <id|ref|index>       窗口上下文\n  --dry-run                     不应用更改，仅输出解析后的最终索引\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\n在一個視窗內以原子批次重新排序工作區。逗號分隔的順序是在已釘選與未釘選\n分組中置於前面的最終順序；未提及的工作區會在同一分組中列出的工作區之後\n保留原有相對順序。\n\nFlags:\n  --order <refs>                以逗號分隔、要優先放置的工作區參照\n  --window <id|ref|index>       視窗上下文\n  --dry-run                     不套用變更，只輸出解析後的最終索引\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}}}},
     "socket.notification.dismissSelectorRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Select exactly one of id or all_read" } }, "ja": { "stringUnit": { "state": "translated", "value": "id または all_read のどちらか一つだけを選択してください" } } } },
     "socket.notification.idRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Missing or invalid notification id" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知 ID が指定されていないか無効です" } } } },
     "socket.notification.markReadSelectorRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Select exactly one of id, tab_id, or all" } }, "ja": { "stringUnit": { "state": "translated", "value": "id、tab_id、all のいずれか一つだけを選択してください" } } } },
@@ -33,6 +40,11 @@
     "socket.notification.surfaceIdInvalid": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Missing or invalid surface_id" } }, "ja": { "stringUnit": { "state": "translated", "value": "surface_id が指定されていないか無効です" } } } },
     "socket.notification.surfaceIdRequiresWorkspace": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "surface_id requires tab_id or workspace_id" } }, "ja": { "stringUnit": { "state": "translated", "value": "surface_id には tab_id または workspace_id が必要です" } } } },
     "socket.notification.targetNotFound": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Notification target not found" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知の移動先が見つかりません" } } } },
+    "socket.workspace.reorderMany.duplicateWorkspace": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"bs":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"da":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"de":{"stringUnit":{"state":"translated","value":"Doppelter Workspace in der Reihenfolge"}},"en":{"stringUnit":{"state":"translated","value":"Duplicate workspace in order"}},"es":{"stringUnit":{"state":"translated","value":"Espacio de trabajo duplicado en el orden"}},"fr":{"stringUnit":{"state":"translated","value":"Espace de travail en double dans l'ordre"}},"it":{"stringUnit":{"state":"translated","value":"Area di lavoro duplicata nell'ordine"}},"ja":{"stringUnit":{"state":"translated","value":"並び順に重複したワークスペースがあります"}},"km":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"ko":{"stringUnit":{"state":"translated","value":"순서에 중복된 워크스페이스가 있습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Duplisert arbeidsområde i rekkefølgen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Workspace duplicado na ordem"}},"ru":{"stringUnit":{"state":"translated","value":"Дубликат рабочего пространства в порядке"}},"th":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"tr":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"uk":{"stringUnit":{"state":"translated","value":"Дубльований робочий простір у порядку"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"排序中存在重复的工作区"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"排序中有重複的工作區"}}} },
+    "socket.workspace.reorderMany.invalidWorkspace": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"bs":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"da":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"de":{"stringUnit":{"state":"translated","value":"Ungültige Workspace-ID oder -Referenz"}},"en":{"stringUnit":{"state":"translated","value":"Invalid workspace id or ref"}},"es":{"stringUnit":{"state":"translated","value":"ID o referencia de espacio de trabajo no válida"}},"fr":{"stringUnit":{"state":"translated","value":"ID ou référence d'espace de travail non valide"}},"it":{"stringUnit":{"state":"translated","value":"ID o riferimento dell'area di lavoro non valido"}},"ja":{"stringUnit":{"state":"translated","value":"ワークスペース ID または参照が無効です"}},"km":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"ko":{"stringUnit":{"state":"translated","value":"워크스페이스 ID 또는 참조가 유효하지 않습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Ugyldig arbeidsområde-ID eller referanse"}},"pl":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"pt-BR":{"stringUnit":{"state":"translated","value":"ID ou referência de workspace inválida"}},"ru":{"stringUnit":{"state":"translated","value":"Недопустимый идентификатор или ссылка рабочего пространства"}},"th":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"tr":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"uk":{"stringUnit":{"state":"translated","value":"Недійсний ідентифікатор або посилання робочого простору"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无效的工作区 ID 或引用"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無效的工作區 ID 或參照"}}} },
+    "socket.workspace.reorderMany.tabManagerUnavailable": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"bs":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"da":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"de":{"stringUnit":{"state":"translated","value":"TabManager nicht verfügbar"}},"en":{"stringUnit":{"state":"translated","value":"TabManager not available"}},"es":{"stringUnit":{"state":"translated","value":"TabManager no disponible"}},"fr":{"stringUnit":{"state":"translated","value":"TabManager indisponible"}},"it":{"stringUnit":{"state":"translated","value":"TabManager non disponibile"}},"ja":{"stringUnit":{"state":"translated","value":"TabManager を利用できません"}},"km":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"ko":{"stringUnit":{"state":"translated","value":"TabManager를 사용할 수 없습니다"}},"nb":{"stringUnit":{"state":"translated","value":"TabManager er ikke tilgjengelig"}},"pl":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"pt-BR":{"stringUnit":{"state":"translated","value":"TabManager indisponível"}},"ru":{"stringUnit":{"state":"translated","value":"TabManager недоступен"}},"th":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"tr":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"uk":{"stringUnit":{"state":"translated","value":"TabManager недоступний"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"TabManager 不可用"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"TabManager 無法使用"}}} },
+    "socket.workspace.reorderMany.missingOrder": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"bs":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"da":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"de":{"stringUnit":{"state":"translated","value":"workspace_ids fehlt"}},"en":{"stringUnit":{"state":"translated","value":"Missing workspace_ids"}},"es":{"stringUnit":{"state":"translated","value":"Falta workspace_ids"}},"fr":{"stringUnit":{"state":"translated","value":"workspace_ids manquant"}},"it":{"stringUnit":{"state":"translated","value":"workspace_ids mancante"}},"ja":{"stringUnit":{"state":"translated","value":"workspace_ids が指定されていません"}},"km":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"ko":{"stringUnit":{"state":"translated","value":"workspace_ids가 누락되었습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Mangler workspace_ids"}},"pl":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"pt-BR":{"stringUnit":{"state":"translated","value":"workspace_ids ausente"}},"ru":{"stringUnit":{"state":"translated","value":"Отсутствует workspace_ids"}},"th":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"tr":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"uk":{"stringUnit":{"state":"translated","value":"Відсутній workspace_ids"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"缺少 workspace_ids"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"缺少 workspace_ids"}}} },
+    "socket.workspace.reorderMany.workspaceNotFound": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"bs":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"da":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"de":{"stringUnit":{"state":"translated","value":"Workspace nicht gefunden"}},"en":{"stringUnit":{"state":"translated","value":"Workspace not found"}},"es":{"stringUnit":{"state":"translated","value":"Espacio de trabajo no encontrado"}},"fr":{"stringUnit":{"state":"translated","value":"Espace de travail introuvable"}},"it":{"stringUnit":{"state":"translated","value":"Area di lavoro non trovata"}},"ja":{"stringUnit":{"state":"translated","value":"ワークスペースが見つかりません"}},"km":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"ko":{"stringUnit":{"state":"translated","value":"워크스페이스를 찾을 수 없습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Fant ikke arbeidsområde"}},"pl":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Workspace não encontrado"}},"ru":{"stringUnit":{"state":"translated","value":"Рабочее пространство не найдено"}},"th":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"tr":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"uk":{"stringUnit":{"state":"translated","value":"Робочий простір не знайдено"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未找到工作区"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"找不到工作區"}}} },
     "socket.terminal.inputQueueFull": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable." } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルは現在これ以上の入力を受け付けられません。しばらくしてから再試行するか、利用できない状態が続く場合はターミナルを開き直してください。" } } } },
     "socket.terminal.processExited": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The terminal session has ended; reopen it or create a new terminal session." } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションは終了しています。開き直すか、新しいターミナルセッションを作成してください。" } } } },
     "socket.terminal.surfaceUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The terminal surface is no longer available; reopen it or create a new terminal session." } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルサーフェスは利用できなくなっています。開き直すか、新しいターミナルセッションを作成してください。" } } } },
@@ -10886,6 +10898,906 @@
             "value": "Відкрити посилання в новій вкладці"
           }
         }
+      }
+    },
+    "browser.contextMenu.screenshotPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot Page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページのスクリーンショット"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截取页面截图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擷取頁面截圖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페이지 스크린샷"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតអេក្រង់ទំព័រ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seite als Screenshot aufnehmen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar página"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture d’écran de la page"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot pagina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tag skærmbillede af side"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrzut ekranu strony"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок страницы"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimi ekran stranice"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التقاط لقطة شاشة للصفحة"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta skjermbilde av side"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar página"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถ่ายภาพหน้าจอหน้าเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sayfanın ekran görüntüsünü al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок сторінки"
+          }
+        }
+      }
+    },
+    "browser.contextMenu.screenshotSection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot Section"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲のスクリーンショット"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截取区域截图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擷取區域截圖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "영역 스크린샷"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតអេក្រង់ផ្នែក"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich als Screenshot aufnehmen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar sección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture d’écran de la section"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot sezione"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tag skærmbillede af område"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrzut ekranu sekcji"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок области"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimi ekran odjeljka"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التقاط لقطة شاشة للقسم"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta skjermbilde av område"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar seção"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถ่ายภาพหน้าจอเฉพาะส่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölümün ekran görüntüsünü al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок області"
+          }
+        }
+      }
+    },
+    "browser.screenshotPage.copy.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ لقطة شاشة الصفحة إلى الحافظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimi stranicu u međuspremnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmbillede af side til udklipsholder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seiten-Screenshot in die Zwischenablage"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot Page to Clipboard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar página al portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture de la page vers le presse-papiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot pagina negli appunti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページのスクリーンショットをクリップボードへ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតអេក្រង់ទំព័រទៅក្តារតម្បៀតខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페이지 스크린샷을 클립보드로 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermbilde av side til utklippstavlen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrzut ekranu strony do schowka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar página para a área de transferência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок страницы в буфер обмена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถ่ายภาพหน้าจอหน้าเว็บไปยังคลิปบอร์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sayfanın ekran görüntüsünü panoya kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок сторінки до буфера обміну"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将页面截图复制到剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將頁面截圖複製到剪貼簿"
+          }
+        }
+      }
+    },
+    "browser.screenshotPage.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم النسخ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー済み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចម្លង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skopiowano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировано"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopyalandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопійовано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已複製"
+          }
+        }
+      }
+    },
+    "browser.screenshotPage.copied.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم نسخ لقطة الشاشة إلى الحافظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimak ekrana je kopiran u međuspremnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmbillede kopieret til udklipsholder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot in die Zwischenablage kopiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot copied to clipboard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captura de pantalla copiada al portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture d’écran copiée dans le presse-papiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot copiato negli appunti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリーンショットをクリップボードにコピーしました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចម្លងរូបថតអេក្រង់ទៅក្តារតម្បៀតខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크린샷이 클립보드에 복사됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermbilde kopiert til utklippstavlen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrzut ekranu skopiowany do schowka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captura de tela copiada para a área de transferência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок экрана скопирован в буфер обмена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกภาพหน้าจอไปยังคลิปบอร์ดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran görüntüsü panoya kopyalandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок екрана скопійовано до буфера обміну"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截图已复制到剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截圖已複製到剪貼簿"
+          }
+        }
+      }
+    },
+    "browser.screenshotSection.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقر واسحب للتحديد. Esc للإلغاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknite i povucite za odabir. Esc otkazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klik og træk for at vælge. Esc annullerer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Auswählen klicken und ziehen. Esc bricht ab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click and drag to select. Esc cancels."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz clic y arrastra para seleccionar. Esc cancela."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cliquez et faites glisser pour sélectionner. Échap annule."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fai clic e trascina per selezionare. Esc annulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグで選択。Escでキャンセル。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចុចហើយអូសដើម្បីជ្រើស។ Esc បោះបង់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택하려면 클릭하고 드래그하세요. Esc 취소."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klikk og dra for å velge. Esc avbryter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknij i przeciągnij, aby zaznaczyć. Esc anuluje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clique e arraste para selecionar. Esc cancela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите и перетащите, чтобы выбрать. Esc отменяет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คลิกแล้วลากเพื่อเลือก กด Esc เพื่อยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçmek için tıklayıp sürükleyin. Esc iptal eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Клацніть і перетягніть, щоб вибрати. Esc скасовує."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击并拖动以选择。按 Esc 取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按一下並拖移以選取。按 Esc 取消。"
+          }
+        }
+      }
+    },
+    "browser.screenshot.error.captureAreaTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Seite ist zu groß, um sie zu erfassen."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The page is too large to capture."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La página es demasiado grande para capturarla."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La page est trop grande pour être capturée."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La pagina è troppo grande per essere acquisita."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ページが大きすぎるためキャプチャできません。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "페이지가 너무 커서 캡처할 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Siden er for stor til å fanges."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A página é grande demais para capturar."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Страница слишком велика для снимка экрана."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "The page is too large to capture."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Сторінка завелика для знімка екрана."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "页面太大，无法捕获。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "頁面太大，無法擷取。"}}
+      }
+    },
+    "browser.screenshot.error.emptySnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Es wurde kein Screenshot zurückgegeben."}},
+        "en": {"stringUnit": {"state": "translated", "value": "No screenshot was returned."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se devolvió ninguna captura de pantalla."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aucune capture d’écran n’a été renvoyée."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Non è stato restituito alcuno screenshot."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スクリーンショットが返されませんでした。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "스크린샷이 반환되지 않았습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Det ble ikke returnert noe skjermbilde."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Nenhuma captura de tela foi retornada."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Снимок экрана не был возвращён."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "No screenshot was returned."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Знімок екрана не було повернуто."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "未返回屏幕截图。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "未傳回螢幕截圖。"}}
+      }
+    },
+    "browser.screenshot.error.invalidImageRepresentation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Das Screenshot-Bild konnte nicht codiert werden."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The screenshot image could not be encoded."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo codificar la imagen de la captura de pantalla."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’image de la capture d’écran n’a pas pu être encodée."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Non è stato possibile codificare l’immagine dello screenshot."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スクリーンショット画像をエンコードできませんでした。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "스크린샷 이미지를 인코딩할 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skjermbildet kunne ikke kodes."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível codificar a imagem da captura de tela."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось закодировать изображение снимка экрана."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "The screenshot image could not be encoded."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося закодувати зображення знімка екрана."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法编码屏幕截图图像。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法編碼螢幕截圖影像。"}}
+      }
+    },
+    "browser.screenshot.error.invalidSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Screenshot-Auswahl ist leer oder liegt außerhalb der Browseransicht."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The screenshot selection is empty or outside the browser view."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La selección de captura de pantalla está vacía o fuera de la vista del navegador."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La sélection de capture d’écran est vide ou en dehors de la vue du navigateur."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La selezione dello screenshot è vuota o fuori dalla vista del browser."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スクリーンショットの選択範囲が空か、ブラウザ表示の外側です。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "스크린샷 선택 영역이 비어 있거나 브라우저 보기 밖에 있습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skjermbildeutvalget er tomt eller utenfor nettleservisningen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A seleção da captura de tela está vazia ou fora da visualização do navegador."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Область снимка экрана пуста или находится за пределами области просмотра браузера."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "The screenshot selection is empty or outside the browser view."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Область знімка екрана порожня або поза межами подання браузера."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "屏幕截图选择区域为空或位于浏览器视图之外。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "螢幕截圖選取範圍為空或位於瀏覽器檢視之外。"}}
+      }
+    },
+    "browser.screenshot.error.pasteboardWriteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Screenshot konnte nicht in die Zwischenablage geschrieben werden."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The screenshot could not be written to the clipboard."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo escribir la captura de pantalla en el portapapeles."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La capture d’écran n’a pas pu être écrite dans le presse-papiers."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Non è stato possibile scrivere lo screenshot negli appunti."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スクリーンショットをクリップボードに書き込めませんでした。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "스크린샷을 클립보드에 쓸 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skjermbildet kunne ikke skrives til utklippstavlen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível gravar a captura de tela na área de transferência."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось записать снимок экрана в буфер обмена."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "The screenshot could not be written to the clipboard."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося записати знімок екрана до буфера обміну."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法将屏幕截图写入剪贴板。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法將螢幕截圖寫入剪貼簿。"}}
+      }
+    },
+    "browser.screenshot.error.webContentMetricsUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Seitenabmessungen konnten nicht gelesen werden."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The page dimensions could not be read."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudieron leer las dimensiones de la página."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les dimensions de la page n’ont pas pu être lues."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Non è stato possibile leggere le dimensioni della pagina."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ページの寸法を読み取れませんでした。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "페이지 크기를 읽을 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Sidedimensjonene kunne ikke leses."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível ler as dimensões da página."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось прочитать размеры страницы."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "The page dimensions could not be read."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося прочитати розміри сторінки."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法读取页面尺寸。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法讀取頁面尺寸。"}}
       }
     },
     "browser.dialog.pageSays": {
