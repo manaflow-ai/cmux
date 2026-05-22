@@ -34,6 +34,11 @@ REQUIRED_CAPTURE_AGENTS = {"claude", "codex", "opencode"}
 UTF8_MOJIBAKE_RE = re.compile(r"(?:[\u00C2\u00C3][\u0080-\u00BF]|\u00E2[\u0080-\u00BF]{2})")
 JSON_DROPPED_KEYS = {
     "additional_rate_limits",
+    "api_key",
+    "apikey",
+    "access_token",
+    "authorization",
+    "client_secret",
     "cache_creation",
     "cache_creation_input_tokens",
     "cache_read_input_tokens",
@@ -46,6 +51,7 @@ JSON_DROPPED_KEYS = {
     "ephemeral_1h_input_tokens",
     "ephemeral_5m_input_tokens",
     "encrypted_content",
+    "id_token",
     "include",
     "inference_geo",
     "input_tokens",
@@ -56,6 +62,7 @@ JSON_DROPPED_KEYS = {
     "obfuscation",
     "output_tokens",
     "output_tokens_details",
+    "password",
     "plan_type",
     "prompt_cache_key",
     "prompt_cache_retention",
@@ -63,8 +70,10 @@ JSON_DROPPED_KEYS = {
     "rate_limits",
     "reasoning",
     "reasoning_tokens",
+    "refresh_token",
     "safety_identifier",
     "service_tier",
+    "session_token",
     "signature",
     "thinking",
     "tool_usage",
@@ -349,6 +358,24 @@ def sanitize_headers(headers: list[dict[str, Any]]) -> list[dict[str, str]]:
     return sanitized
 
 
+def strip_decoded_response_encoding_headers(
+    headers: list[dict[str, str]],
+    body: dict[str, Any] | None,
+) -> list[dict[str, str]]:
+    text = body.get("text") if body else None
+    if not isinstance(text, str):
+        return headers
+    decoded_body_headers = {
+        "content-encoding",
+        "transfer-encoding",
+    }
+    return [
+        header
+        for header in headers
+        if header["name"].lower() not in decoded_body_headers
+    ]
+
+
 def synchronize_content_length(
     headers: list[dict[str, str]],
     body: dict[str, Any] | None,
@@ -517,7 +544,10 @@ def sanitize_entry(entry: dict[str, Any]) -> dict[str, Any]:
             "statusText": response.get("statusText", ""),
             "httpVersion": response.get("httpVersion", "HTTP/1.1"),
             "headers": synchronize_content_length(
-                sanitize_headers(response.get("headers", [])),
+                strip_decoded_response_encoding_headers(
+                    sanitize_headers(response.get("headers", [])),
+                    response_content,
+                ),
                 response_content,
             ),
             "content": response_content,

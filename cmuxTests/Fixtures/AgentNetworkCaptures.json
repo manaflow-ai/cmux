@@ -133,10 +133,6 @@
                     "value": "text/event-stream; charset=utf-8"
                   },
                   {
-                    "name": "Transfer-Encoding",
-                    "value": "chunked"
-                  },
-                  {
                     "name": "Connection",
                     "value": "keep-alive"
                   },
@@ -151,10 +147,6 @@
                   {
                     "name": "Server",
                     "value": "cloudflare"
-                  },
-                  {
-                    "name": "Content-Encoding",
-                    "value": "gzip"
                   },
                   {
                     "name": "vary",
@@ -486,10 +478,6 @@
                   {
                     "name": "Date",
                     "value": "Fri, 22 May 2026 09:57:13 GMT"
-                  },
-                  {
-                    "name": "Transfer-Encoding",
-                    "value": "chunked"
                   },
                   {
                     "name": "Connection",
