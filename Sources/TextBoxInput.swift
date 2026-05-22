@@ -1431,7 +1431,9 @@ private enum TextBoxAgentDetection: CaseIterable {
               commandStartIndex < arguments.endIndex else {
             return []
         }
-        return commandSegments(from: Array(arguments[commandStartIndex...]))
+        let commandTokens = shellLikeTokens(arguments[commandStartIndex])
+        guard !commandTokens.isEmpty else { return [] }
+        return commandSegments(from: commandTokens)
     }
 
     private static func environmentAssignment(_ token: String) -> (key: String, value: String)? {
@@ -4158,6 +4160,7 @@ final class TextBoxInputTextView: NSTextView {
             return false
         }
 
+        attachments.forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
         let selectedRangeBeforeReplacement = selectedRange()
         let inserted = inlineAttachmentAttributedString(for: attachments, replacing: placeholderRange)
         textStorage.replaceCharacters(in: placeholderRange, with: inserted)

@@ -6938,6 +6938,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertEqual(
             TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text("now")],
+                terminalAgentContext: "initialCommand:/bin/zsh -lc 'claude --resume'"
+            ),
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text("now")],
+                terminalAgentContext: "restoredAgent:claude"
+            )
+        )
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
                 for: [.text("what is "), .attachment(attachment), .text(" now")],
                 terminalAgentContext: "restoredAgent:claude"
             ),
@@ -9608,6 +9618,44 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             textView.submissionText(),
             "say hello /tmp/remote/moon.png world"
         )
+    }
+
+    func testTextBoxPendingAttachmentUploadQueuesDurableDraftCopyForOwnedTemporaryImage() throws {
+        let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
+        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        let remotePath = "/tmp/remote/moon.png"
+        let attachment = TextBoxAttachment(
+            localURL: temporaryURL,
+            submissionText: TextBoxAttachment.submissionText(forPath: remotePath),
+            submissionPath: remotePath,
+            cleanupLocalURLWhenDisposed: true
+        )
+        addTeardownBlock {
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+        }
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        let uploadID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: uploadID)
+
+        XCTAssertTrue(textView.replacePendingAttachmentUploadPlaceholder(id: uploadID, with: [attachment]))
+        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+
+        let draft = try XCTUnwrap(textView.sessionDraftSnapshot(isActive: true))
+        let snapshot = try XCTUnwrap(draft.parts.first?.attachment)
+        let durablePath = try XCTUnwrap(snapshot.localPath)
+        let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: durableURL)
+        }
+
+        XCTAssertNotEqual(durableURL.path, temporaryURL.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+        XCTAssertEqual(snapshot.submissionPath, remotePath)
+        XCTAssertEqual(snapshot.submissionText, TextBoxAttachment.submissionText(forPath: remotePath))
     }
 
     func testTextBoxPendingAttachmentUploadRemovalCleansPlaceholder() {
