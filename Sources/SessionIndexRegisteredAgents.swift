@@ -247,12 +247,12 @@ extension SessionIndexStore {
         var branch: String?
     }
 
-    private static let antigravityHistoryMinimumScanBytes = 2 * 1024 * 1024
-    private static let antigravityHistoryMaximumScanBytes = 24 * 1024 * 1024
-    private static let antigravityHistoryBytesPerRequestedEntry = 256 * 1024
-    private static let antigravityHistoryMinimumScanLines = 512
-    private static let antigravityHistoryMaximumScanLines = 12_000
-    private static let antigravityHistoryLinesPerRequestedEntry = 64
+    nonisolated private static let antigravityHistoryMinimumScanBytes = 2 * 1024 * 1024
+    nonisolated private static let antigravityHistoryMaximumScanBytes = 24 * 1024 * 1024
+    nonisolated private static let antigravityHistoryBytesPerRequestedEntry = 256 * 1024
+    nonisolated private static let antigravityHistoryMinimumScanLines = 512
+    nonisolated private static let antigravityHistoryMaximumScanLines = 12_000
+    nonisolated private static let antigravityHistoryLinesPerRequestedEntry = 64
 
     nonisolated static func loadGrokEntries(
         registration: CmuxVaultAgentRegistration,
