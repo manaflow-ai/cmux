@@ -755,14 +755,21 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 to: settingsFileURL
             )
 
-            _ = KeyboardShortcutSettingsFileStore(
+            let store = KeyboardShortcutSettingsFileStore(
                 primaryPath: settingsFileURL.path,
                 fallbackPath: nil,
                 additionalFallbackPaths: [],
                 startWatching: false
             )
 
-            XCTAssertEqual(defaults.string(forKey: confirmQuitKey), QuitConfirmationMode.always.rawValue)
+            XCTAssertNil(defaults.string(forKey: confirmQuitKey))
+            XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, true)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+
+            try writeSettingsFile("{}", to: settingsFileURL)
+            store.reload()
+
+            XCTAssertNil(defaults.string(forKey: confirmQuitKey))
             XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, true)
             XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
         }
