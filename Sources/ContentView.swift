@@ -10977,14 +10977,21 @@ private struct PromptTextEditorContainer: View {
 
 private final class PromptLauncherModel: ObservableObject {
     static let targets: [(id: String, label: String)] = [
+        ("auto",     "auto"),
         ("local",    "local"),
         ("devbox",   "devbox"),
         ("devbox-1", "devbox-1"),
         ("devbox-2", "devbox-2"),
     ]
 
+    static let models: [(id: String, label: String)] = [
+        ("claude", "claude"),
+        ("cursor", "cursor"),
+    ]
+
     @Published var promptText: String = ""
-    @Published var selectedTarget: String? = nil
+    @Published var selectedTarget: String = "auto"
+    @Published var selectedModel: String = "claude"
     @Published var isLoading: Bool = false
 
     private var lastLogLine: String = ""
@@ -10998,9 +11005,10 @@ private final class PromptLauncherModel: ObservableObject {
         lastLogLine = ""
         promptText = ""
         startDotAnimation()
-        let target: String? = selectedTarget
+        let target: String = selectedTarget
+        let model: String = selectedModel
         Task {
-            await runWS(target: target, prompt: prompt)
+            await runWS(target: target, model: model, prompt: prompt)
             stopDotAnimation()
             isLoading = false
             promptText = ""
@@ -11033,9 +11041,12 @@ private final class PromptLauncherModel: ObservableObject {
         refreshPromptText()
     }
 
-    private func runWS(target: String?, prompt: String) async {
+    private func runWS(target: String, model: String, prompt: String) async {
         guard let wsPath = Self.resolveWSBin() else { return }
-        let args: [String] = target.map { [$0, prompt] } ?? [prompt]
+        var args: [String] = []
+        if model == "cursor" { args.append("cursor") }
+        if target != "auto" { args.append(target) }
+        args.append(prompt)
         let escapedArgs = args.map { "'\($0.replacingOccurrences(of: "'", with: "'\\''"))'" }.joined(separator: " ")
         let shellCmd = "WS_VERBOSE=1 \(wsPath) \(escapedArgs)"
 
@@ -11053,6 +11064,17 @@ private final class PromptLauncherModel: ObservableObject {
         proc.standardInput = FileHandle.nullDevice
 
         await withCheckedContinuation { [weak self] (cont: CheckedContinuation<Void, Never>) in
+            // Thread-safe single-fire unlock: resume the continuation exactly once,
+            // either when the workspace appears in cmux or when the process exits.
+            let lock = NSLock()
+            var resumed = false
+            let resume: () -> Void = {
+                lock.lock(); defer { lock.unlock() }
+                guard !resumed else { return }
+                resumed = true
+                cont.resume()
+            }
+
             pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
                 let data = handle.availableData
                 guard !data.isEmpty,
@@ -11063,13 +11085,27 @@ private final class PromptLauncherModel: ObservableObject {
                     .filter { !$0.isEmpty }
                 guard let last = newLines.last else { return }
                 Task { @MainActor [weak self] in self?.setLastLogLine(last) }
+                // Unlock as soon as the workspace is created in cmux (before the agent
+                // finishes). The ws step "Waiting for X to start..." appears right after
+                // `cmux new-workspace` succeeds and the workspace is visible in the sidebar.
+                if newLines.contains(where: { Self.isWorkspaceCreatedLine($0) }) {
+                    pipe.fileHandleForReading.readabilityHandler = nil
+                    resume()
+                }
             }
             proc.terminationHandler = { _ in
                 pipe.fileHandleForReading.readabilityHandler = nil
-                cont.resume()
+                resume()
             }
             do { try proc.run() } catch { cont.resume() }
         }
+    }
+
+    // ws outputs this step right after `cmux new-workspace` succeeds and the workspace
+    // is visible in the sidebar. Matches "[3/3] Waiting for Claude..." / "[5/6] Waiting
+    // for Cursor..." and the final "✓ Workspace … is ready." confirmation.
+    nonisolated static func isWorkspaceCreatedLine(_ line: String) -> Bool {
+        line.contains("Waiting for") || line.contains("✓ Workspace")
     }
 
     nonisolated static func stripAnsi(_ s: String) -> String {
@@ -11145,17 +11181,21 @@ private struct SidebarPromptLauncher: View {
             .frame(height: 120)
 
             HStack(spacing: 6) {
-                ForEach(PromptLauncherModel.targets, id: \.id) { t in
-                    Toggle(isOn: Binding(
-                        get: { model.selectedTarget == t.id },
-                        set: { if $0 { model.selectedTarget = t.id } else if model.selectedTarget == t.id { model.selectedTarget = nil } }
-                    )) {
-                        Text(t.label)
-                            .font(.system(size: 10))
+                Picker(selection: $model.selectedTarget, label: EmptyView()) {
+                    ForEach(PromptLauncherModel.targets, id: \.id) { t in
+                        Text(t.label).font(.system(size: 10)).tag(t.id)
                     }
-                    .toggleStyle(.checkbox)
-                    .controlSize(.small)
                 }
+                .controlSize(.small)
+                .frame(maxWidth: 90)
+
+                Picker(selection: $model.selectedModel, label: EmptyView()) {
+                    ForEach(PromptLauncherModel.models, id: \.id) { m in
+                        Text(m.label).font(.system(size: 10)).tag(m.id)
+                    }
+                }
+                .controlSize(.small)
+                .frame(maxWidth: 80)
 
                 Spacer()
 
