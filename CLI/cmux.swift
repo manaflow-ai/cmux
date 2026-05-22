@@ -866,32 +866,6 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func sameSurfaceRestorablePeer(
-        workspaceId: String,
-        surfaceId: String,
-        excludingSessionId: String,
-        parentSessionId: String
-    ) throws -> ClaudeHookSessionRecord? {
-        guard let normalizedWorkspace = normalizeOptional(workspaceId),
-              let normalizedSurface = normalizeOptional(surfaceId),
-              let excluded = normalizeOptional(excludingSessionId),
-              let normalizedParent = normalizeOptional(parentSessionId) else {
-            return nil
-        }
-        return try withLockedState { state in
-            let peers = state.sessions.values.filter { record in
-                guard record.sessionId != excluded,
-                      normalizeOptional(record.workspaceId) == normalizedWorkspace,
-                      normalizeOptional(record.surfaceId) == normalizedSurface,
-                      record.isRestorable != false else {
-                    return false
-                }
-                return true
-            }
-            return peers.first(where: { $0.sessionId == normalizedParent })
-        }
-    }
-
     /// Returns true when an event belongs to the workspace's active Claude session.
     /// It fails open when the event cannot identify a session/workspace, when no
     /// active session is registered yet, or when either side lacks a turnId so
@@ -24108,18 +24082,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 onlyNewerThanExcludedSession: true
             )) == true
         }
-        func shouldSuppressSubagentRestoreTakeover(
-            workspaceId: String,
-            surfaceId: String
-        ) -> Bool {
+        func shouldSuppressSubagentRestoreTakeover() -> Bool {
             guard !sessionId.isEmpty,
-                  let parentSessionId = input.parentSessionId else { return false }
-            return (try? store.sameSurfaceRestorablePeer(
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                excludingSessionId: sessionId,
-                parentSessionId: parentSessionId
-            )) != nil
+                  let parentSessionId = normalizeOptional(input.parentSessionId),
+                  parentSessionId != sessionId else { return false }
+            return true
         }
         func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
             if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
@@ -24273,10 +24240,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
-            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
             let suppressRestorableRecord = nestedAgentSuppressVisibleMutations || suppressRestoreTakeover
             let suppressVisibleMutations = suppressRestorableRecord
             if !sessionId.isEmpty {
@@ -24333,10 +24297,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
-            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
             let nestedAgentSuppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
                 env: env
@@ -24539,10 +24500,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: cwd
             )
-            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
             let nestedAgentSuppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
@@ -24786,10 +24744,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
+                let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover()
                 suppressRestorableRecord = suppressRestoreTakeover
                     || shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
                 try? store.upsert(
