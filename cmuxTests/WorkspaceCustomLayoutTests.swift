@@ -210,6 +210,42 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testResolvedCustomLayoutRevalidatesMarkdownPathBeforeMutatingWorkspace() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-layout-markdown-stale-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let readmeURL = root.appendingPathComponent("README.md")
+        try "# Readme\n".write(to: readmeURL, atomically: true, encoding: .utf8)
+
+        let layoutJSON = """
+        {
+          "pane": {
+            "surfaces": [
+              { "type": "markdown", "path": "README.md" }
+            ]
+          }
+        }
+        """
+        let layoutData = try XCTUnwrap(layoutJSON.data(using: .utf8))
+        let layout = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
+        let resolvedLayout = try XCTUnwrap(layout.resolvingMarkdownPaths(relativeTo: root.path).layout)
+        try FileManager.default.removeItem(at: readmeURL)
+
+        let workspace = Workspace()
+        let initialPanelIds = Set(workspace.panels.keys)
+
+        let applyResult = workspace.applyResolvedCustomLayout(resolvedLayout, baseCwd: root.path)
+
+        XCTAssertFalse(applyResult.isSuccess)
+        XCTAssertEqual(applyResult.markdownPathFailure?.code, "not_found")
+        XCTAssertEqual(applyResult.markdownPathFailure?.path, readmeURL.path)
+        XCTAssertEqual(Set(workspace.panels.keys), initialPanelIds)
+        XCTAssertTrue(workspace.panels.values.allSatisfy { $0 is TerminalPanel })
+    }
+
+    @MainActor
     func testNewWorkspaceLayoutBaseCwdInheritsSelectedWorkspaceDirectoryWhenCwdOmitted() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-layout-markdown-inherited-\(UUID().uuidString)", isDirectory: true)

@@ -63,13 +63,6 @@ func customLayoutBaseCwdForNewWorkspace(
 extension Workspace {
 
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) -> WorkspaceCustomLayoutApplyResult {
-        let resolvedLayout = layout.resolvingMarkdownPaths(relativeTo: baseCwd)
-        if let failure = resolvedLayout.failure {
-            logCustomLayoutMarkdownPathFailure(failure, context: "layout application")
-            return .failure(markdownPath: failure)
-        }
-        guard let layout = resolvedLayout.layout else { return .failure(markdownPath: nil) }
-
         return applyResolvedCustomLayout(layout, baseCwd: baseCwd)
     }
 
@@ -77,6 +70,12 @@ extension Workspace {
         _ layout: CmuxLayoutNode,
         baseCwd: String
     ) -> WorkspaceCustomLayoutApplyResult {
+        let resolvedLayout = layout.resolvingMarkdownPaths(relativeTo: baseCwd)
+        if let failure = resolvedLayout.failure {
+            logCustomLayoutMarkdownPathFailure(failure, context: "layout application")
+            return .failure(markdownPath: failure)
+        }
+        guard let layout = resolvedLayout.layout else { return .failure(markdownPath: nil) }
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return .failure(markdownPath: nil) }
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
