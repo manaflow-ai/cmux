@@ -10801,7 +10801,11 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: workingDirectory,
             configTemplate: configTemplate
         )
+        let bufferedDirectory = Self.warmTerminalPoolBufferedMetadata.panelId == panel.id
+            ? Self.normalizedWarmTerminalDirectory(Self.warmTerminalPoolBufferedMetadata.directory)
+            : nil
         let currentDirectory = Self.normalizedWarmTerminalDirectory(panel.directory)
+            ?? bufferedDirectory
             ?? Self.normalizedWarmTerminalDirectory(panel.requestedWorkingDirectory)
         guard previousOwner == id else {
             Self.discardWarmTerminalPool(reason: "take.workspaceMismatch")
