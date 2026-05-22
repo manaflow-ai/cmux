@@ -306,8 +306,8 @@
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji."
         },
         "app": {
-          "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
-          "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
+          "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
+          "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit."
         }
       }
     },

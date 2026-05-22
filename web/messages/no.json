@@ -306,8 +306,8 @@
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri."
         },
         "app": {
-          "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
-          "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
+          "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
+          "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner."
         }
       }
     },

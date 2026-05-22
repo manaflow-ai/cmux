@@ -59996,6 +59996,23 @@
         }
       }
     },
+    "settings.app.confirmQuit.subtitleDevOverride": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV build: quit confirmations are disabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV ビルドでは終了確認は無効です。"
+          }
+        }
+      }
+    },
     "settings.app.warnBeforeQuit": {
       "extractionState": "manual",
       "localizations": {

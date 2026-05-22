@@ -306,8 +306,8 @@
           "suppressSubagentNotifications": "ซ่อนการแจ้งเตือนการทำงานเสร็จและการเปลี่ยนสถานะที่มองเห็นได้จากเอเจนต์ลูก Codex หรือ Claude แบบซ้อน โดยยังคงเก็บเหตุการณ์ไว้ในเทเลเมทรี Feed"
         },
         "app": {
-          "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
-          "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
+          "confirmQuit": "ควบคุมว่า cmux จะขอการยืนยันก่อนออกเมื่อใด บิลด์ DEV จะออกทันทีเสมอไม่ว่าค่านี้จะเป็นอย่างไร ค่า app.warnBeforeQuit แบบเดิมยังคงใช้เป็นตัวเลือกสำรองแบบบูลีนได้",
+          "warnBeforeQuit": "ตัวเลือกสำรองแบบบูลีนเดิมสำหรับการยืนยันก่อนออก ใช้ app.confirmQuit สำหรับการกำหนดค่าใหม่"
         }
       }
     },

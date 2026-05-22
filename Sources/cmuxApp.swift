@@ -5361,8 +5361,25 @@ struct SettingsView: View {
         )
     }
 
+    private var confirmQuitModeForSettingsDisplay: QuitConfirmationMode {
+        _ = confirmQuitModeRaw
+        _ = warnBeforeQuitShortcut
+        return QuitWarningSettings.confirmQuitMode()
+    }
+
+    private var confirmQuitDevOverrideActive: Bool {
+        BuildFlavor.current == .dev
+    }
+
     private var confirmQuitModeSubtitle: String {
-        switch QuitWarningSettings.confirmQuitMode() {
+        if confirmQuitDevOverrideActive {
+            return String(
+                localized: "settings.app.confirmQuit.subtitleDevOverride",
+                defaultValue: "DEV build: quit confirmations are disabled."
+            )
+        }
+
+        switch confirmQuitModeForSettingsDisplay {
         case .always:
             return String(
                 localized: "settings.app.warnBeforeQuit.subtitleOn",
@@ -6474,6 +6491,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .pickerStyle(.segmented)
                                 .controlSize(.small)
+                                .disabled(confirmQuitDevOverrideActive)
                         }
 
                         SettingsCardDivider()

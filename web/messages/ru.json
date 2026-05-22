@@ -306,8 +306,8 @@
           "suppressSubagentNotifications": "Подавляет видимые уведомления о завершении и изменения статуса от вложенных дочерних агентов Codex или Claude, сохраняя их события в телеметрии Feed."
         },
         "app": {
-          "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
-          "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
+          "confirmQuit": "Управляет тем, когда cmux запрашивает подтверждение перед выходом. DEV-сборки всегда завершаются сразу независимо от этой настройки. Устаревший app.warnBeforeQuit по-прежнему принимается как булевый запасной вариант.",
+          "warnBeforeQuit": "Устаревший булевый запасной вариант для подтверждения выхода. Для новых конфигураций используйте app.confirmQuit."
         }
       }
     },

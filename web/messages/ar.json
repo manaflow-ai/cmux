@@ -306,8 +306,8 @@
           "suppressSubagentNotifications": "قم بإخفاء إشعارات الإكمال المرئية وتغييرات الحالة من وكلاء Codex أو Claude الفرعيين المتداخلين مع إبقاء أحداثهم في قياسات Feed."
         },
         "app": {
-          "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
-          "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
+          "confirmQuit": "يتحكم في وقت طلب cmux التأكيد قبل الإنهاء. تنتهي إصدارات DEV فوراً دائماً بغض النظر عن هذا الإعداد. يظل app.warnBeforeQuit القديم مقبولاً كخيار احتياطي منطقي.",
+          "warnBeforeQuit": "خيار منطقي قديم احتياطي لتأكيد الإنهاء. استخدم app.confirmQuit للإعدادات الجديدة."
         }
       }
     },
