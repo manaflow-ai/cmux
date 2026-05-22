@@ -777,6 +777,62 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual((row["peak_rss_bytes"] as? NSNumber)?.int64Value, 900)
     }
 
+    func testMemoryTopUsesLatestWorkspaceMetadataForGroupedRows() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-top-latest-metadata")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "top-latest-metadata")
+        let workspaceId = "99999999-9999-9999-9999-999999999999"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-120),
+            workspaceId: workspaceId,
+            workspaceRef: "workspace:9",
+            workspaceTitle: "z-project",
+            rssBytes: 1_000
+        )
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-60),
+            workspaceId: workspaceId,
+            workspaceRef: "workspace:1",
+            workspaceTitle: "a-project",
+            rssBytes: 10
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "top", "--since", "1h", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        let rows = try XCTUnwrap(payload["rows"] as? [[String: Any]])
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(row["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(row["workspace_ref"] as? String, "workspace:1")
+        XCTAssertEqual(row["workspace_title"] as? String, "a-project")
+        XCTAssertEqual((row["peak_rss_bytes"] as? NSNumber)?.int64Value, 1_000)
+    }
+
     func testMemoryTopPrunesExpiredRowsOnRead() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("mem-top-prune")
@@ -7407,6 +7463,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         sampledAt: Date,
         workspaceId: String,
         workspaceRef: String = "workspace:7",
+        workspaceTitle: String = "Expired Memory Workspace",
         rssBytes: Int64 = 1024,
         memoryPercent: Double = 0.1,
         cpuPercent: Double = 1
@@ -7455,7 +7512,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         sqlite3_bind_double(stmt, 1, sampledAt.timeIntervalSince1970)
         sqlite3_bind_text(stmt, 2, workspaceId, -1, transient)
         sqlite3_bind_text(stmt, 3, workspaceRef, -1, transient)
-        sqlite3_bind_text(stmt, 4, "Expired Memory Workspace", -1, transient)
+        sqlite3_bind_text(stmt, 4, workspaceTitle, -1, transient)
         sqlite3_bind_text(stmt, 5, "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", -1, transient)
         sqlite3_bind_text(stmt, 6, "window:1", -1, transient)
         sqlite3_bind_int64(stmt, 7, rssBytes)
