@@ -158,8 +158,9 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
 
         try writeAntigravityTranscript(root: tempDir, sessionId: "first-thread-session", prompt: "2222+2222")
         let historyURL = tempDir.appendingPathComponent("history.jsonl", isDirectory: false)
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
         try """
-        {"display":"2222+2222","timestamp":1779426206992,"workspace":"/tmp/antigravity repo"}
+        {"display":"2222+2222","timestamp":\(timestamp),"workspace":"/tmp/antigravity repo"}
         """.write(to: historyURL, atomically: true, encoding: .utf8)
 
         var registration = CmuxVaultAgentRegistration.builtInAntigravity
