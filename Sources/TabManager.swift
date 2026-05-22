@@ -904,7 +904,7 @@ class TabManager: ObservableObject {
         let pullRequest: WorkspacePullRequestSnapshot
     }
 
-    private struct ResolvedGitRepository: Equatable, Sendable {
+    struct ResolvedGitRepository: Equatable, Sendable {
         let workTreeRoot: String
         let gitDirectory: String
         let commonDirectory: String
@@ -3005,17 +3005,41 @@ class TabManager: ObservableObject {
         )
     }
 
-    private nonisolated static func resolveGitRepository(containing directory: String) -> ResolvedGitRepository? {
-        let startURL = URL(fileURLWithPath: directory).standardizedFileURL
+    // Hard cap on ancestor-walk depth. Generous (PATH_MAX is 1024, real-world
+    // depth rarely exceeds a few dozen) so we never loop unbounded even if a
+    // future Foundation change reintroduces the macOS 14/15 "URL never
+    // converges at root" behavior. See https://github.com/manaflow-ai/cmux/issues/4529.
+    static let gitProbeMaxAncestorAscent = 4096
+
+    /// Pure step function: compute the parent directory URL to visit next
+    /// while walking up looking for a `.git` entry. Returns nil at the
+    /// filesystem root. Exposed for unit tests; the `parentResolver` injection
+    /// point lets a test emulate the macOS 14/15 `URL.deletingLastPathComponent`
+    /// behavior on a macOS-26 CI runner.
+    nonisolated static func gitProbeNextAncestor(
+        _ current: URL,
+        parentResolver: (URL) -> URL = { $0.deletingLastPathComponent() }
+    ) -> URL? {
+        let parent = parentResolver(current)
+        if parent.path == current.path {
+            return nil
+        }
+        return parent
+    }
+
+    nonisolated static func resolveGitRepository(containing directory: String) -> ResolvedGitRepository? {
         let fileManager = FileManager.default
-        var currentURL = startURL
+        var currentURL = URL(fileURLWithPath: directory).standardizedFileURL
         var isDirectory: ObjCBool = false
 
         if !fileManager.fileExists(atPath: currentURL.path, isDirectory: &isDirectory) || !isDirectory.boolValue {
-            currentURL.deleteLastPathComponent()
+            guard let parent = gitProbeNextAncestor(currentURL) else { return nil }
+            currentURL = parent
         }
 
-        while true {
+        var iterations = 0
+        while iterations < Self.gitProbeMaxAncestorAscent {
+            iterations += 1
             let dotGitURL = currentURL.appendingPathComponent(".git")
             if fileManager.fileExists(atPath: dotGitURL.path, isDirectory: &isDirectory) {
                 let gitDirectory: String?
@@ -3035,12 +3059,10 @@ class TabManager: ObservableObject {
                 }
             }
 
-            let parentURL = currentURL.deletingLastPathComponent()
-            if parentURL.path == currentURL.path {
-                return nil
-            }
-            currentURL = parentURL
+            guard let parent = gitProbeNextAncestor(currentURL) else { return nil }
+            currentURL = parent
         }
+        return nil
     }
 
     private nonisolated static func gitDirectoryFromDotGitFile(
