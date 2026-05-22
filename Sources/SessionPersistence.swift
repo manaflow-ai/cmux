@@ -1577,31 +1577,39 @@ enum SessionPersistenceStore {
     }
 }
 
-enum SessionScrollbackReplayStore {
-    static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
-    private static let directoryName = "cmux-session-scrollback"
-    private static let ansiEscape = "\u{001B}"
-    private static let ansiReset = "\u{001B}[0m"
+enum SessionTerminalScrollbackNormalizer {
+    private struct CachedRegularExpression: @unchecked Sendable {
+        let value: NSRegularExpression
 
-    static func replayEnvironment(
-        for scrollback: String?,
-        tempDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> [String: String] {
-        guard let replayText = normalizedScrollback(scrollback) else { return [:] }
-        guard let replayFileURL = writeReplayFile(
-            contents: replayText,
-            tempDirectory: tempDirectory
-        ) else {
-            return [:]
+        init(pattern: String) {
+            // NSRegularExpression is immutable after initialization here; callers
+            // only use read-only replacement APIs through this cached wrapper.
+            // swiftlint:disable:next force_try
+            value = try! NSRegularExpression(pattern: pattern)
         }
-        return [environmentKey: replayFileURL.path]
     }
 
-    private static func normalizedScrollback(_ scrollback: String?) -> String? {
-        guard let scrollback else { return nil }
-        guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
+    private static let ansiEscape = "\u{001B}"
+    private static let ansiReset = "\u{001B}[0m"
+    private static let ansiSGRRunBeforePercentPattern =
+        #"((?:\x1B\[[0-9;]*m)+)%(\x1B\[[0-9;]*m[ \t]*)"#
+    private static let ansiSGRRunBeforePercentRegex = CachedRegularExpression(
+        pattern: ansiSGRRunBeforePercentPattern
+    )
+    private static let ansiSGRParametersPattern = #"\x1B\[([0-9;]*)m"#
+    private static let ansiSGRParametersRegex = CachedRegularExpression(
+        pattern: ansiSGRParametersPattern
+    )
+
+    static func snapshotText(_ scrollback: String?) -> String? {
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
-        return ansiSafeReplayText(truncated)
+        return zshPromptSpSafeReplayText(truncated)
+    }
+
+    static func replayText(_ scrollback: String?) -> String? {
+        guard let normalized = snapshotText(scrollback) else { return nil }
+        guard normalized.contains(where: { !$0.isWhitespace }) else { return nil }
+        return ansiSafeReplayText(normalized)
     }
 
     /// Preserve ANSI color state safely across replay boundaries.
@@ -1615,6 +1623,98 @@ enum SessionScrollbackReplayStore {
             output += ansiReset
         }
         return output
+    }
+
+    /// zsh emits PROMPT_SP as an inverse-video "%" when the previous output did
+    /// not end with a newline. Replaying that marker makes the next shell record
+    /// it again, so normalize it back to the newline it visually represented.
+    private static func zshPromptSpSafeReplayText(_ text: String) -> String {
+        guard text.contains("%"), text.contains("\(ansiEscape)[") else {
+            return text
+        }
+        var output = String()
+        var cursor = text.startIndex
+        ansiSGRRunBeforePercentRegex.value.enumerateMatches(
+            in: text,
+            options: [],
+            range: NSRange(text.startIndex..<text.endIndex, in: text)
+        ) { match, _, _ in
+            guard let match else { return }
+            let sgrRunRange = match.range(at: 1)
+            guard
+                let markerRange = Range(match.range, in: text),
+                let sgrRunTextRange = Range(sgrRunRange, in: text),
+                zshPromptSpMarkerSGRRunLeavesInverseVideoEnabled(String(text[sgrRunTextRange]))
+            else {
+                return
+            }
+
+            output += String(text[cursor..<markerRange.lowerBound])
+            output += "\n"
+            cursor = markerRange.upperBound
+        }
+        output += String(text[cursor...])
+        return output
+    }
+
+    private static func zshPromptSpMarkerSGRRunLeavesInverseVideoEnabled(_ sgrRun: String) -> Bool {
+        var inverseEnabled = false
+        let nsSGRRun = sgrRun as NSString
+        ansiSGRParametersRegex.value.enumerateMatches(
+            in: sgrRun,
+            options: [],
+            range: NSRange(location: 0, length: nsSGRRun.length)
+        ) { match, _, _ in
+            guard
+                let match,
+                match.numberOfRanges > 1,
+                match.range(at: 1).location != NSNotFound
+            else {
+                return
+            }
+
+            let parameters = nsSGRRun.substring(with: match.range(at: 1))
+            let fields = parameters.isEmpty
+                ? ["0"]
+                : parameters
+                    .split(separator: ";", omittingEmptySubsequences: false)
+                    .map(String.init)
+            for field in fields {
+                guard let value = Int(field.isEmpty ? "0" : field) else {
+                    continue
+                }
+                switch value {
+                case 0, 27:
+                    inverseEnabled = false
+                case 7:
+                    inverseEnabled = true
+                default:
+                    break
+                }
+            }
+        }
+        return inverseEnabled
+    }
+}
+
+enum SessionScrollbackReplayStore {
+    static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
+    private static let directoryName = "cmux-session-scrollback"
+
+    static func replayEnvironment(
+        for scrollback: String?,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> [String: String] {
+        guard let replayText = SessionTerminalScrollbackNormalizer.replayText(scrollback) else {
+            return [:]
+        }
+        guard let replayFileURL = writeReplayFile(
+            contents: replayText,
+            tempDirectory: tempDirectory
+        ) else {
+            return [:]
+        }
+        return [environmentKey: replayFileURL.path]
     }
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {

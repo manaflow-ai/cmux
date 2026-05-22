@@ -582,7 +582,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes || inlineInput.containsNonASCII else {
             return inlineInput
         }
         guard allowLauncherScript else { return nil }
@@ -598,6 +598,12 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
         let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+    }
+}
+
+private extension String {
+    var containsNonASCII: Bool {
+        utf8.contains { $0 >= 0x80 }
     }
 }
 

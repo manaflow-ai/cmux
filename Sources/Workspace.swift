@@ -592,11 +592,11 @@ extension Workspace {
         fallbackScrollback: String?,
         allowFallbackScrollback: Bool = true
     ) -> String? {
-        if let captured = SessionPersistencePolicy.truncatedScrollback(capturedScrollback) {
+        if let captured = SessionTerminalScrollbackNormalizer.snapshotText(capturedScrollback) {
             return captured
         }
         guard allowFallbackScrollback else { return nil }
-        return SessionPersistencePolicy.truncatedScrollback(fallbackScrollback)
+        return SessionTerminalScrollbackNormalizer.snapshotText(fallbackScrollback)
     }
 
     nonisolated static func shouldReplaySessionScrollback(
@@ -989,7 +989,7 @@ extension Workspace {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
             let fallbackScrollback = shouldReplayScrollback
-                ? SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
+                ? SessionTerminalScrollbackNormalizer.snapshotText(snapshot.terminal?.scrollback)
                 : nil
             if let fallbackScrollback {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback

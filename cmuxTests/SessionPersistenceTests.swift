@@ -441,6 +441,66 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.hasSuffix(reset))
     }
 
+    func testScrollbackReplayEnvironmentStripsZshPromptSpMarkers() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reset = "\u{001B}[0m"
+        let zshPromptSpMarker = "\(reset)\u{001B}[1m\u{001B}[7m%\(reset)  "
+        let alternateZshPromptSpMarker = "\(reset)\u{001B}[0;7m%\(reset)\t"
+        let statefulZshPromptSpMarker = "\(reset)\u{001B}[7m\u{001B}[1m%\(reset) "
+        let source =
+            "print-no-newline\(zshPromptSpMarker)" +
+            "austin@host 編輯 % \(alternateZshPromptSpMarker)" +
+            "bold-still-inverse\(statefulZshPromptSpMarker)next"
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        let path = try XCTUnwrap(environment[SessionScrollbackReplayStore.environmentKey])
+        let contents = try String(contentsOfFile: path, encoding: .utf8)
+        XCTAssertFalse(contents.contains("\u{001B}[7m%\(reset)"))
+        XCTAssertFalse(contents.contains("\u{001B}[0;7m%\(reset)"))
+        XCTAssertTrue(contents.contains("print-no-newline"))
+        XCTAssertTrue(contents.contains("austin@host 編輯 % "))
+        XCTAssertTrue(contents.contains("\nbold-still-inverse"))
+        XCTAssertTrue(contents.contains("\nnext"))
+    }
+
+    func testScrollbackReplayEnvironmentPreservesNonPromptSpColoredPercentOutput() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reset = "\u{001B}[0m"
+        let whitePercent = "\u{001B}[37m%\(reset)"
+        let positiveImagePercent = "\u{001B}[27m%\(reset)"
+        let disabledInversePercent = "\u{001B}[7m\u{001B}[27m%\(reset)"
+        let source =
+            "colors \(whitePercent) remain \(positiveImagePercent) and " +
+            "\(disabledInversePercent) literal"
+
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        let path = try XCTUnwrap(environment[SessionScrollbackReplayStore.environmentKey])
+        let contents = try String(contentsOfFile: path, encoding: .utf8)
+        XCTAssertTrue(contents.contains(whitePercent))
+        XCTAssertTrue(contents.contains(positiveImagePercent))
+        XCTAssertTrue(contents.contains(disabledInversePercent))
+        XCTAssertTrue(
+            contents.contains(
+                "colors \(whitePercent) remain \(positiveImagePercent) and \(disabledInversePercent) literal"
+            )
+        )
+    }
+
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
         XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(
@@ -1090,6 +1150,23 @@ final class SessionPersistenceTests: XCTestCase {
         )
 
         XCTAssertNil(resolved)
+    }
+
+    func testResolvedSnapshotTerminalScrollbackNormalizesPromptSpMarkers() {
+        let reset = "\u{001B}[0m"
+        let zshPromptSpMarker = "\(reset)\u{001B}[0;7m%\(reset)  "
+
+        let captured = Workspace.resolvedSnapshotTerminalScrollback(
+            capturedScrollback: "captured\(zshPromptSpMarker)prompt",
+            fallbackScrollback: "fallback"
+        )
+        XCTAssertEqual(captured, "captured\nprompt")
+
+        let fallback = Workspace.resolvedSnapshotTerminalScrollback(
+            capturedScrollback: nil,
+            fallbackScrollback: "fallback\(zshPromptSpMarker)prompt"
+        )
+        XCTAssertEqual(fallback, "fallback\nprompt")
     }
 
     func testRestorableAgentRestoreSuppressesSavedScrollbackReplay() {
@@ -2009,6 +2086,44 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.resumeStartupInput(), snapshot.resumeCommand.map { $0 + "\n" })
     }
 
+    func testRestorableAgentStartupInputUsesLauncherScriptForNonASCIIResumeCommand() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cjkWorkingDirectory = "/Users/example/test/工程師"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: cjkWorkingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet"
+                ],
+                workingDirectory: cjkWorkingDirectory,
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let input = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
+        XCTAssertFalse(input.contains("工程師"))
+        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "/bin/zsh '"
+        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        XCTAssertTrue(scriptContents.contains("cd '/Users/example/test/工程師'"))
+        XCTAssertTrue(scriptContents.contains("'--resume' 'claude-session-123'"))
+    }
+
     func testRestorableAgentStartupInputUsesLauncherScriptWhenCommandExceedsTerminalInputBudget() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)
@@ -2635,6 +2750,39 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             isRemoteContext: true
         )
         XCTAssertFalse(supportsFork)
+    }
+
+    func testAgentForkSupportAllowsRemoteForksWithShortNonASCIICommand() async throws {
+        let cjkWorkingDirectory = "/Users/cmux/工程師"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: cjkWorkingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: cjkWorkingDirectory,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let inlineInput = try XCTUnwrap(snapshot.forkCommand.map { $0 + "\n" })
+        XCTAssertLessThanOrEqual(inlineInput.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+        XCTAssertTrue(inlineInput.contains("工程師"))
+        XCTAssertEqual(snapshot.forkStartupInput(allowLauncherScript: false), inlineInput)
+
+        let supportsFork = await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            isRemoteContext: true
+        )
+        XCTAssertTrue(supportsFork)
     }
 
     func testOpenCodeForkSupportRemoteContextBypassesLocalProbe() async {
