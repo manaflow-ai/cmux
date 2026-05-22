@@ -12324,9 +12324,47 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
 }
 
 enum SidebarWorkspaceDoubleClickRenamePolicy {
+    enum MouseDownAction: Equatable {
+        case select(dismissNotificationOnDirectInteraction: Bool)
+        case rename
+    }
+
     static let excludedRegionHitSlop: CGFloat = 2
 
+    static func mouseDownAction(
+        clickCount: Int,
+        at point: CGPoint,
+        rowBounds: CGRect,
+        excludedRegions: [CGRect],
+        inlineRenameActive: Bool
+    ) -> MouseDownAction? {
+        guard shouldHandlePrimaryClick(
+            at: point,
+            rowBounds: rowBounds,
+            excludedRegions: excludedRegions,
+            inlineRenameActive: inlineRenameActive
+        ) else { return nil }
+        if clickCount >= 2 {
+            return .rename
+        }
+        return .select(dismissNotificationOnDirectInteraction: false)
+    }
+
     static func shouldBeginRename(
+        at point: CGPoint,
+        rowBounds: CGRect,
+        excludedRegions: [CGRect],
+        inlineRenameActive: Bool
+    ) -> Bool {
+        shouldHandlePrimaryClick(
+            at: point,
+            rowBounds: rowBounds,
+            excludedRegions: excludedRegions,
+            inlineRenameActive: inlineRenameActive
+        )
+    }
+
+    private static func shouldHandlePrimaryClick(
         at point: CGPoint,
         rowBounds: CGRect,
         excludedRegions: [CGRect],
@@ -12375,6 +12413,7 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
     let fontWeight: NSFont.Weight
     let textColor: NSColor
     let height: CGFloat
+    let showsNativeText: Bool
     let onTextChange: (String) -> Void
     let onCommit: (String) -> Void
     let onCancel: () -> Void
@@ -12497,13 +12536,24 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
 
         func configureFieldEditor(for field: NSTextField) {
             guard let fieldEditor = field.currentEditor() as? NSTextView else { return }
+            let textColor = parent.showsNativeText ? parent.textColor : .clear
             fieldEditor.textContainerInset = .zero
             fieldEditor.textContainer?.lineFragmentPadding = 0
             fieldEditor.font = field.font
-            fieldEditor.textColor = .clear
+            fieldEditor.textColor = textColor
             fieldEditor.insertionPointColor = parent.textColor
             fieldEditor.selectedTextAttributes = [
-                .foregroundColor: NSColor.clear,
+                .foregroundColor: textColor,
+                .backgroundColor: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.42),
+            ]
+        }
+
+        func showNativeTextImmediately(for field: NSTextField) {
+            guard let fieldEditor = field.currentEditor() as? NSTextView else { return }
+            field.textColor = parent.textColor
+            fieldEditor.textColor = parent.textColor
+            fieldEditor.selectedTextAttributes = [
+                .foregroundColor: parent.textColor,
                 .backgroundColor: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.42),
             ]
         }
@@ -12530,7 +12580,7 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
             parent.onTextChange(field.stringValue)
-            configureFieldEditor(for: field)
+            showNativeTextImmediately(for: field)
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -12588,7 +12638,7 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = .systemFont(ofSize: fontSize, weight: fontWeight)
-        field.textColor = .clear
+        field.textColor = showsNativeText ? textColor : .clear
         field.lineBreakMode = .byTruncatingTail
         field.cell?.usesSingleLineMode = true
         field.cell?.wraps = false
@@ -12612,7 +12662,7 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
         context.coordinator.parent = self
         let field = host.field
         field.font = .systemFont(ofSize: fontSize, weight: fontWeight)
-        field.textColor = .clear
+        field.textColor = showsNativeText ? textColor : .clear
         host.contentHeight = height
         context.coordinator.configureFieldEditor(for: field)
         if field.currentEditor() == nil, field.stringValue != initialTitle {
@@ -12688,6 +12738,7 @@ private struct TabItemView: View, Equatable {
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
     @State private var inlineRenameInitialTitle: String?
     @State private var inlineRenameDraftTitle: String?
+    @State private var inlineRenameShowsNativeText = false
     @State private var doubleClickExcludedRegions: [CGRect] = []
 
     var isMultiSelected: Bool {
@@ -13027,6 +13078,7 @@ private struct TabItemView: View, Equatable {
                 .foregroundColor(activePrimaryTextColor)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .opacity(inlineRenameInitialTitle != nil && inlineRenameShowsNativeText ? 0 : 1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if let inlineRenameInitialTitle {
@@ -13038,7 +13090,11 @@ private struct TabItemView: View, Equatable {
                             fontWeight: .semibold,
                             textColor: activePrimaryTextNSColor,
                             height: sidebarTitleLineHeight,
-                            onTextChange: { inlineRenameDraftTitle = $0 },
+                            showsNativeText: inlineRenameShowsNativeText,
+                            onTextChange: {
+                                inlineRenameDraftTitle = $0
+                                inlineRenameShowsNativeText = true
+                            },
                             onCommit: commitInlineRename,
                             onCancel: cancelInlineRename
                         )
@@ -13390,6 +13446,7 @@ private struct TabItemView: View, Equatable {
                 SidebarWorkspaceDoubleClickCapture(
                     excludedRegions: doubleClickExcludedRegions,
                     inlineRenameActive: inlineRenameInitialTitle != nil,
+                    onSingleClick: selectFromMouseDown,
                     onDoubleClick: beginRenameFromDoubleClick
                 )
             }
@@ -13536,6 +13593,10 @@ private struct TabItemView: View, Equatable {
         draggedTabId = tab.id
         dropIndicator = nil
         return SidebarTabDragPayload.provider(for: tab.id)
+    }
+
+    private func selectFromMouseDown(dismissNotificationOnDirectInteraction: Bool) {
+        updateSelection(dismissNotificationOnDirectInteraction: dismissNotificationOnDirectInteraction)
     }
 
     private func handleImmediateSidebarObservation(_ value: Void) {
@@ -14055,12 +14116,14 @@ private struct TabItemView: View, Equatable {
         let title = tab.customTitle ?? tab.title
         inlineRenameInitialTitle = title
         inlineRenameDraftTitle = title
+        inlineRenameShowsNativeText = false
     }
 
     private func commitInlineRename(_ title: String) {
         let initialTitle = inlineRenameInitialTitle
         inlineRenameInitialTitle = nil
         inlineRenameDraftTitle = nil
+        inlineRenameShowsNativeText = false
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedInitialTitle = initialTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let trimmedInitialTitle, trimmedTitle == trimmedInitialTitle {
@@ -14073,6 +14136,7 @@ private struct TabItemView: View, Equatable {
     private func cancelInlineRename() {
         inlineRenameInitialTitle = nil
         inlineRenameDraftTitle = nil
+        inlineRenameShowsNativeText = false
     }
 
     private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
@@ -15444,12 +15508,14 @@ private struct MiddleClickCapture: NSViewRepresentable {
 private struct SidebarWorkspaceDoubleClickCapture: NSViewRepresentable {
     let excludedRegions: [CGRect]
     let inlineRenameActive: Bool
+    let onSingleClick: (_ dismissNotificationOnDirectInteraction: Bool) -> Void
     let onDoubleClick: () -> Void
 
     func makeNSView(context: Context) -> SidebarWorkspaceDoubleClickCaptureView {
         let view = SidebarWorkspaceDoubleClickCaptureView()
         view.excludedRegions = excludedRegions
         view.inlineRenameActive = inlineRenameActive
+        view.onSingleClick = onSingleClick
         view.onDoubleClick = onDoubleClick
         return view
     }
@@ -15457,6 +15523,7 @@ private struct SidebarWorkspaceDoubleClickCapture: NSViewRepresentable {
     func updateNSView(_ nsView: SidebarWorkspaceDoubleClickCaptureView, context: Context) {
         nsView.excludedRegions = excludedRegions
         nsView.inlineRenameActive = inlineRenameActive
+        nsView.onSingleClick = onSingleClick
         nsView.onDoubleClick = onDoubleClick
     }
 }
@@ -15464,6 +15531,7 @@ private struct SidebarWorkspaceDoubleClickCapture: NSViewRepresentable {
 private final class SidebarWorkspaceDoubleClickCaptureView: NSView {
     var excludedRegions: [CGRect] = []
     var inlineRenameActive = false
+    var onSingleClick: ((_ dismissNotificationOnDirectInteraction: Bool) -> Void)?
     var onDoubleClick: (() -> Void)?
 
     override var isFlipped: Bool { true }
@@ -15472,24 +15540,40 @@ private final class SidebarWorkspaceDoubleClickCaptureView: NSView {
         guard let event = NSApp.currentEvent,
               event.type == .leftMouseDown,
               event.buttonNumber == 0,
-              event.clickCount >= 2 else {
+              event.clickCount >= 1 else {
             return nil
         }
-        let shouldBeginRename = SidebarWorkspaceDoubleClickRenamePolicy.shouldBeginRename(
+        let action = SidebarWorkspaceDoubleClickRenamePolicy.mouseDownAction(
+            clickCount: event.clickCount,
             at: point,
             rowBounds: bounds,
             excludedRegions: excludedRegions,
             inlineRenameActive: inlineRenameActive
         )
-        return shouldBeginRename ? self : nil
+        return action == nil ? nil : self
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard event.buttonNumber == 0, event.clickCount >= 2 else {
+        guard event.buttonNumber == 0 else {
             super.mouseDown(with: event)
             return
         }
-        onDoubleClick?()
+        guard let action = SidebarWorkspaceDoubleClickRenamePolicy.mouseDownAction(
+            clickCount: event.clickCount,
+            at: convert(event.locationInWindow, from: nil),
+            rowBounds: bounds,
+            excludedRegions: excludedRegions,
+            inlineRenameActive: inlineRenameActive
+        ) else {
+            super.mouseDown(with: event)
+            return
+        }
+        switch action {
+        case .select(let dismissNotificationOnDirectInteraction):
+            onSingleClick?(dismissNotificationOnDirectInteraction)
+        case .rename:
+            onDoubleClick?()
+        }
     }
 }
 
