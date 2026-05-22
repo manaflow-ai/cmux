@@ -1891,93 +1891,87 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .closing)
     }
 
-    func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() throws {
-        try XCTSkipIf(
-            Self.hiddenDiscardEnvironmentOverrideDisablesPolicy,
-            "Environment override disables Browser Memory Saver."
+    func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() {
+        let discardedAt = Date(timeIntervalSince1970: 200)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
         )
+        defer { panel.close() }
 
-        try withHiddenWebViewDiscardDefaults(enabled: true) {
-            let discardedAt = Date(timeIntervalSince1970: 200)
-            let panel = BrowserPanel(
-                workspaceId: UUID(),
-                initialURL: URL(string: "about:blank")!,
-                isRemoteWorkspace: false
-            )
-            defer { panel.close() }
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
-            waitForBrowserPanelWebViewToFinishLoading(panel)
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        let originalWebView = panel.webView
 
-            panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-            let originalWebView = panel.webView
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
-            XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
-            XCTAssertFalse(panel.webView === originalWebView)
-            XCTAssertFalse(panel.shouldRenderWebView)
-            XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+        let discardedPayload = panel.webViewLifecycleTopPayload(now: discardedAt)
+        XCTAssertEqual(discardedPayload["state"] as? String, "discarded")
+        XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "test.discard")
+        XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
 
-            let discardedPayload = panel.webViewLifecycleTopPayload(now: discardedAt)
-            XCTAssertEqual(discardedPayload["state"] as? String, "discarded")
-            XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "test.discard")
-            XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
-
-            var observedStates: [BrowserWebViewLifecycleState] = []
-            var cancellable: AnyCancellable?
-            cancellable = panel.$webViewLifecycleState.sink { state in
-                observedStates.append(state)
-            }
-            defer { cancellable?.cancel() }
-
-            XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
-            XCTAssertTrue(panel.shouldRenderWebView)
-            XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
-            XCTAssertFalse(observedStates.contains(.newTab), "Restore emitted unexpected states: \(observedStates)")
-
-            panel.noteWebViewVisibility(true, reason: "test.visible")
-            XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+        var observedStates: [BrowserWebViewLifecycleState] = []
+        var cancellable: AnyCancellable?
+        cancellable = panel.$webViewLifecycleState.sink { state in
+            observedStates.append(state)
         }
+        defer { cancellable?.cancel() }
+
+        XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+        XCTAssertTrue(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        XCTAssertFalse(observedStates.contains(.newTab), "Restore emitted unexpected states: \(observedStates)")
+
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
     }
 
-    func testRestoredHistoryBackDoesNotEmitNewTabLifecycleState() throws {
-        try XCTSkipIf(
-            Self.hiddenDiscardEnvironmentOverrideDisablesPolicy,
-            "Environment override disables Browser Memory Saver."
+    func testRestoredHistoryBackDoesNotEmitNewTabLifecycleState() {
+        let discardedAt = Date(timeIntervalSince1970: 300)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
         )
+        defer { panel.close() }
 
-        try withHiddenWebViewDiscardDefaults(enabled: true) {
-            let discardedAt = Date(timeIntervalSince1970: 300)
-            let panel = BrowserPanel(
-                workspaceId: UUID(),
-                initialURL: URL(string: "about:blank")!,
-                isRemoteWorkspace: false
-            )
-            defer { panel.close() }
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
-            waitForBrowserPanelWebViewToFinishLoading(panel)
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: ["https://example.test/back"],
+            forwardHistoryURLStrings: [],
+            currentURLString: "https://example.test/current"
+        )
+        XCTAssertTrue(panel.canGoBack)
 
-            panel.restoreSessionNavigationHistory(
-                backHistoryURLStrings: ["https://example.test/back"],
-                forwardHistoryURLStrings: [],
-                currentURLString: "https://example.test/current"
-            )
-            XCTAssertTrue(panel.canGoBack)
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
-            panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-            XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
-            XCTAssertEqual(panel.webViewLifecycleState, .discarded)
-
-            var observedStates: [BrowserWebViewLifecycleState] = []
-            var cancellable: AnyCancellable?
-            cancellable = panel.$webViewLifecycleState.sink { state in
-                observedStates.append(state)
-            }
-            defer { cancellable?.cancel() }
-
-            panel.goBack()
-
-            XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
-            XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        var observedStates: [BrowserWebViewLifecycleState] = []
+        var cancellable: AnyCancellable?
+        cancellable = panel.$webViewLifecycleState.sink { state in
+            observedStates.append(state)
         }
+        defer { cancellable?.cancel() }
+
+        panel.goBack()
+
+        XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
     }
 }
 

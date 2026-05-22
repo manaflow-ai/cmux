@@ -315,6 +315,74 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
+        },
+        "resumeCommands": {
+          "type": "array",
+          "default": [],
+          "description": "Signed command-prefix approvals for restoring non-agent terminal surfaces. cmux writes this list when you approve a surface resume command.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version", "id", "commandPrefix", "environmentKeys", "policy", "createdAt", "updatedAt", "signature"],
+            "properties": {
+              "version": {
+                "type": "integer",
+                "const": 1
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "commandPrefix": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Shell argv prefix that must match the saved resume command."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Optional working directory that must match the saved resume command."
+              },
+              "environment": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Optional non-sensitive environment values that must match the saved resume command."
+              },
+              "environmentKeys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "source": {
+                "type": "string"
+              },
+              "policy": {
+                "type": "string",
+                "enum": ["manual", "prompt", "auto"]
+              },
+              "createdAt": {
+                "type": "number"
+              },
+              "updatedAt": {
+                "type": "number"
+              },
+              "lastUsedAt": {
+                "type": "number"
+              },
+              "signature": {
+                "type": "string",
+                "description": "HMAC signature for the record. Changing signed fields invalidates the approval."
+              }
+            }
+          }
         }
       }
     },
