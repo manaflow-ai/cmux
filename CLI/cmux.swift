@@ -7766,6 +7766,7 @@ struct CMUXCLI {
         private var stopped = false
         private var task: URLSessionWebSocketTask?
         private var keepaliveTimer: DispatchSourceTimer?
+        private var keepaliveTimeoutWorkItem: DispatchWorkItem?
         private var keepaliveInFlight = false
 
         init(config: VMPtyWebSocketConfig, debugEvent: ((String) -> Void)? = nil) {
@@ -7939,8 +7940,12 @@ struct CMUXCLI {
 
         private func stopKeepalive() {
             sendQueue.sync {
+                // `run()` exits synchronously through deferred teardown; this flush keeps
+                // timer and ping-timeout state from firing after the PTY frame unwinds.
                 keepaliveTimer?.cancel()
                 keepaliveTimer = nil
+                keepaliveTimeoutWorkItem?.cancel()
+                keepaliveTimeoutWorkItem = nil
                 keepaliveInFlight = false
             }
         }
@@ -7949,20 +7954,28 @@ struct CMUXCLI {
             guard !isStopped, let task else {
                 keepaliveTimer?.cancel()
                 keepaliveTimer = nil
+                keepaliveTimeoutWorkItem?.cancel()
+                keepaliveTimeoutWorkItem = nil
                 keepaliveInFlight = false
                 return
             }
-            if keepaliveInFlight {
-                debugEvent?("websocket.keepalive.timeout")
-                markStopped()
-                task.cancel(with: .goingAway, reason: nil)
-                return
-            }
 
+            keepaliveTimeoutWorkItem?.cancel()
             keepaliveInFlight = true
+            let timeoutWorkItem = DispatchWorkItem { [weak self] in
+                guard let self, !self.isStopped, self.keepaliveInFlight else { return }
+                self.debugEvent?("websocket.keepalive.timeout")
+                self.markStopped()
+                self.task?.cancel(with: .goingAway, reason: nil)
+            }
+            keepaliveTimeoutWorkItem = timeoutWorkItem
+            sendQueue.asyncAfter(deadline: .now() + Self.keepaliveInterval, execute: timeoutWorkItem)
+
             task.sendPing { [weak self] error in
                 self?.sendQueue.async {
                     guard let self, !self.isStopped else { return }
+                    self.keepaliveTimeoutWorkItem?.cancel()
+                    self.keepaliveTimeoutWorkItem = nil
                     self.keepaliveInFlight = false
                     if let error {
                         self.debugEvent?("websocket.keepalive.failed")

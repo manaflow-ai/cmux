@@ -567,6 +567,98 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testWebSocketRemoteTerminalEndWithoutStartupCommandStillDisconnects() throws {
+        let workspace = Workspace()
+        let initialConfig = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:issue-4509-no-startup",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "cmux vm-pty-attach --id issue-4509-no-startup",
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://vm.example.invalid/daemon",
+                headers: [:],
+                token: "token",
+                sessionId: "session",
+                expiresAtUnix: 4_102_444_800
+            ),
+            skipDaemonBootstrap: true
+        )
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:issue-4509-no-startup",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: nil,
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://vm.example.invalid/daemon",
+                headers: [:],
+                token: "token",
+                sessionId: "session",
+                expiresAtUnix: 4_102_444_800
+            ),
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(initialConfig, autoConnect: false)
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to vm:issue-4509-no-startup",
+            target: "vm:issue-4509-no-startup"
+        )
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(panelID))
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
+
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+    }
+
+    @MainActor
+    func testRemoteTerminalSessionEndIgnoresDuplicateRelayCallbackAfterSurfaceProcessed() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64034,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
+        let replacement = workspace.createReplacementTerminalPanel()
+        let firstReplacementCommand = replacement.surface.initialCommand
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64034)
+        let secondReplacement = workspace.createReplacementTerminalPanel()
+
+        XCTAssertNotNil(firstReplacementCommand)
+        XCTAssertNil(secondReplacement.surface.initialCommand)
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
