@@ -89,6 +89,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         applyPendingSearchNeedleIfPossible()
     }
 
+    func updateWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
+    }
+
     func unfocus() {
         // No-op for read-only panel.
     }

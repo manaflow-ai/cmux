@@ -183,6 +183,49 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(panel.isDirty)
     }
 
+    func testMarkdownPanelWorkspaceIdUpdatesWhenAttachedToAnotherWorkspace() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-workspace-move-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appendingPathComponent("moved.md")
+        try "# Moved\n\nBody.\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let source = Workspace(title: "Source")
+        let destination = Workspace(title: "Destination")
+        defer {
+            for panel in source.panels.values {
+                panel.close()
+            }
+            for panel in destination.panels.values {
+                panel.close()
+            }
+        }
+
+        let sourcePane = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
+        let destinationPane = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(source.newMarkdownSurface(
+            inPane: sourcePane,
+            filePath: fileURL.path,
+            focus: false
+        ))
+
+        XCTAssertEqual(panel.workspaceId, source.id)
+
+        let detached = try XCTUnwrap(source.detachSurface(panelId: panel.id))
+        let attachedPanelId = try XCTUnwrap(destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        ))
+
+        XCTAssertEqual(attachedPanelId, panel.id)
+        XCTAssertEqual(panel.workspaceId, destination.id)
+        XCTAssertTrue(destination.markdownPanel(for: panel.id) === panel)
+    }
+
     func testMarkdownRendererSessionReusesCoordinatorAcrossViewRecreation() {
         let session = MarkdownRendererSession()
         let panelId = UUID()
