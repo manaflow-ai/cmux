@@ -8021,14 +8021,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// The currently focused pane's panel ID
     var focusedPanelId: UUID? {
         let controller = openFocusedBonsplitController()
-        if let paneId = controller.focusedPaneId,
-           let tab = controller.selectedTab(inPane: paneId),
-           let panelId = panelIdFromSurfaceId(tab.id) {
-            return panelId
-        }
-        guard controller !== bonsplitController,
-              let paneId = bonsplitController.focusedPaneId,
-              let tab = bonsplitController.selectedTab(inPane: paneId) else {
+        guard let paneId = controller.focusedPaneId,
+              let tab = controller.selectedTab(inPane: paneId) else {
             return nil
         }
         return panelIdFromSurfaceId(tab.id)
@@ -13334,7 +13328,21 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func clearSplitZoom() -> Bool {
-        currentFocusNavigationController().clearPaneZoom()
+        clearSplitZoom(in: currentFocusNavigationController())
+    }
+
+    @discardableResult
+    func clearSplitZoom(containingPanelId panelId: UUID) -> Bool {
+        guard let tabId = surfaceIdFromPanelId(panelId),
+              let controller = bonsplitController(containingTab: tabId) else {
+            return false
+        }
+        return clearSplitZoom(in: controller)
+    }
+
+    @discardableResult
+    private func clearSplitZoom(in controller: BonsplitController) -> Bool {
+        controller.clearPaneZoom()
     }
 
     @discardableResult
@@ -14922,12 +14930,14 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        let zoomedPaneId = bonsplitController.zoomedPaneId
+        let controller = bonsplitController(containingPane: paneId) ?? bonsplitController
+        let zoomedPaneId = controller.zoomedPaneId
         if zoomedPaneId != nil {
-            clearSplitZoom()
+            clearSplitZoom(in: controller)
         }
         let forkedPanel = splitPaneWithNewTerminal(
             targetPane: paneId,
+            controller: controller,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
             workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
@@ -14940,7 +14950,7 @@ final class Workspace: Identifiable, ObservableObject {
             updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
         }
         if forkedPanel == nil, let zoomedPaneId {
-            _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+            _ = controller.togglePaneZoom(inPane: zoomedPaneId)
         }
         return forkedPanel
     }

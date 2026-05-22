@@ -3980,6 +3980,20 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, createdPanel.id)
     }
 
+    func testFocusedEmptyDockDoesNotReportMainPanelFocus() throws {
+        let workspace = Workspace()
+        XCTAssertNotNil(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+
+        XCTAssertNil(workspace.focusedPanelId)
+        let commandPane = try XCTUnwrap(workspace.focusedBonsplitPaneForCommands())
+        XCTAssertTrue(commandPane.controller === dock.controller)
+        XCTAssertEqual(commandPane.paneId, dockPaneId)
+    }
+
     func testClosedDockTerminalPortalIsHidden() throws {
 #if DEBUG
         let workspace = Workspace()

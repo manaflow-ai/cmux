@@ -6337,7 +6337,7 @@ class TabManager: ObservableObject {
         }
 
         if workspace.focusedPanelId != browserPanel.id {
-            workspace.clearSplitZoom()
+            workspace.clearSplitZoom(containingPanelId: browserPanel.id)
             workspace.focusPanel(browserPanel.id)
         }
 
@@ -6838,7 +6838,11 @@ class TabManager: ObservableObject {
 #endif
         // Jump-to-unread should reveal the destination pane instead of keeping an old split-zoom
         // state active around it.
-        tab.clearSplitZoom()
+        if let desiredPanelId {
+            tab.clearSplitZoom(containingPanelId: desiredPanelId)
+        } else {
+            tab.clearSplitZoom()
+        }
         suppressFocusFlash = true
         focusTab(tabId, surfaceId: desiredPanelId, suppressFlash: true)
         suppressFocusFlash = false
@@ -7077,7 +7081,7 @@ class TabManager: ObservableObject {
     func createSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }),
               tab.panels[surfaceId] != nil else { return nil }
-        tab.clearSplitZoom()
+        tab.clearSplitZoom(containingPanelId: surfaceId)
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
         return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
     }
@@ -7088,7 +7092,7 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return nil }
-        tab.clearSplitZoom()
+        tab.clearSplitZoom(containingPanelId: focusedPanelId)
         return newBrowserSplit(
             tabId: selectedTabId,
             fromPanelId: focusedPanelId,

@@ -1758,6 +1758,46 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected notification target panel to be focused")
     }
 
+    func testFocusTabFromNotificationClearsDockSplitZoomBeforeFocusingTargetPanel() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let zoomedPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        let targetPanel = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: dockPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil,
+                focus: false
+            )
+        )
+
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: zoomedPanel.id), "Expected dock split zoom to enable")
+        workspace.focusPanel(mainPanelId)
+        XCTAssertTrue(dock.controller.isSplitZoomed, "Expected dock to remain zoomed while focus is in main")
+
+        XCTAssertTrue(manager.focusTabFromNotification(workspace.id, surfaceId: targetPanel.id))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertFalse(
+            dock.controller.isSplitZoomed,
+            "Expected notification focus to exit dock split zoom so the target pane becomes visible"
+        )
+        XCTAssertEqual(workspace.focusedPanelId, targetPanel.id, "Expected dock notification target to be focused")
+    }
+
     func testFocusTabFromNotificationReturnsFalseForMissingPanel() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
