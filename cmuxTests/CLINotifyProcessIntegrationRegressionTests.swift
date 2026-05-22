@@ -2383,6 +2383,92 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
     }
 
+    func testSSHSessionCleanupAllWorkspacesSessionIDCountsDuplicateIDsPerWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshcleandup")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let sessionId = "shared-session-id"
+        let workspaceA = "22222222-2222-2222-2222-222222222222"
+        let workspaceB = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.remote.pty_sessions":
+                XCTAssertEqual(params["all_workspaces"] as? Bool, true)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "sessions": [
+                            [
+                                "workspace_id": workspaceA,
+                                "session_id": sessionId,
+                            ],
+                            [
+                                "workspace_id": workspaceB,
+                                "session_id": sessionId,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.remote.pty_close":
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertTrue([workspaceA, workspaceB].contains(params["workspace_id"] as? String))
+                return self.v2Response(id: id, ok: true, result: ["closed": true])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-session-cleanup",
+                "--all-workspaces",
+                "--session-id", sessionId,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("Closed 2 persisted SSH PTY sessions"), result.stdout)
+
+        let closedWorkspaces = state.snapshot().compactMap { line -> String? in
+            guard let payload = self.jsonObject(line),
+                  payload["method"] as? String == "workspace.remote.pty_close",
+                  let params = payload["params"] as? [String: Any],
+                  params["session_id"] as? String == sessionId else {
+                return nil
+            }
+            return params["workspace_id"] as? String
+        }
+        XCTAssertEqual(closedWorkspaces.count, 2)
+        XCTAssertEqual(Set(closedWorkspaces), Set([workspaceA, workspaceB]))
+    }
+
     func testRightSidebarCLIResolvesWindowAndWorkspaceHandlesBeforeForwarding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rs-target")

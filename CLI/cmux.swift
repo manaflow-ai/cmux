@@ -8284,8 +8284,10 @@ struct CMUXCLI {
 
         var closed: [String] = []
         var closedSet = Set<String>()
-        let recordClosedSession: (String) -> Void = { sessionID in
-            if closedSet.insert(sessionID).inserted {
+        let recordClosedSession: (String, String?) -> Void = { sessionID, workspaceID in
+            let workspaceKey = workspaceID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let dedupeKey = "\(workspaceKey.count):\(workspaceKey)\u{0}\(sessionID)"
+            if closedSet.insert(dedupeKey).inserted {
                 closed.append(sessionID)
             }
         }
@@ -8310,7 +8312,7 @@ struct CMUXCLI {
                 ]
                 do {
                     _ = try client.sendV2(method: "workspace.remote.pty_close", params: params)
-                    recordClosedSession(sessionID)
+                    recordClosedSession(sessionID, workspaceID)
                 } catch {
                     errors.append([
                         "session_id": sessionID,
@@ -8347,7 +8349,7 @@ struct CMUXCLI {
                             "workspace_id": workspaceID,
                             "session_id": sessionID,
                         ])
-                        recordClosedSession(sessionID)
+                        recordClosedSession(sessionID, workspaceID)
                     } catch {
                         errors.append([
                             "session_id": sessionID,
@@ -8360,7 +8362,7 @@ struct CMUXCLI {
                 var params = baseParams
                 params["session_id"] = sessionID
                 _ = try client.sendV2(method: "workspace.remote.pty_close", params: params)
-                recordClosedSession(sessionID)
+                recordClosedSession(sessionID, trimmedDebugString(params["workspace_id"]))
             }
         } else {
             throw CLIError(message: "ssh-session-cleanup: --session-id requires a value")
