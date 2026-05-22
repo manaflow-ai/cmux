@@ -70,6 +70,7 @@ extension CmuxSettingsFileStore {
         "app.commandPaletteSearchesAllSurfaces",
         "terminal.showScrollBar",
         "terminal.autoResumeAgentSessions",
+        "terminal.resumeCommands",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
