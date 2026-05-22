@@ -13299,8 +13299,9 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panel in panels.values {
             guard let markdownPanel = panel as? MarkdownPanel else { continue }
+            let shouldBeVisible = markdownPortalShouldBeVisible(markdownPanel, visiblePanelIds: visiblePanelIds)
             let snapshot = markdownPanel.rendererSession.portalSnapshot()
-            if visiblePanelIds.contains(markdownPanel.id) {
+            if shouldBeVisible {
                 let portalNeedsShow =
                     snapshot?.visibleInUI == false ||
                     snapshot?.containerHidden == true
@@ -13331,13 +13332,23 @@ final class Workspace: Identifiable, ObservableObject {
         return didChange
     }
 
+    private func markdownPortalShouldBeVisible(
+        _ panel: MarkdownPanel,
+        visiblePanelIds: Set<UUID>
+    ) -> Bool {
+        visiblePanelIds.contains(panel.id) &&
+            panel.displayMode == .preview &&
+            !panel.isFileUnavailable
+    }
+
     private func markdownPortalVisibilityNeedsFollowUp() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
 
         for panel in panels.values {
             guard let markdownPanel = panel as? MarkdownPanel else { continue }
+            let shouldBeVisible = markdownPortalShouldBeVisible(markdownPanel, visiblePanelIds: visiblePanelIds)
             let snapshot = markdownPanel.rendererSession.portalSnapshot()
-            if visiblePanelIds.contains(markdownPanel.id) {
+            if shouldBeVisible {
                 if snapshot?.visibleInUI == false || snapshot?.containerHidden == true {
                     return true
                 }
