@@ -40,7 +40,9 @@ JSON_DROPPED_KEYS = {
     "cached_tokens",
     "code_review_rate_limits",
     "client_metadata",
+    "context_management",
     "credits",
+    "diagnostics",
     "ephemeral_1h_input_tokens",
     "ephemeral_5m_input_tokens",
     "encrypted_content",
@@ -170,7 +172,6 @@ def sensitive_header(name: str) -> bool:
         "vary",
         "x-app",
         "x-content-type-options",
-        "anthropic-beta",
         "anthropic-dangerous-direct-browser-access",
         "anthropic-version",
     }

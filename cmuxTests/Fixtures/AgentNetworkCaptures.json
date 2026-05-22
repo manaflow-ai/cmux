@@ -81,10 +81,6 @@
                     "value": "600"
                   },
                   {
-                    "name": "anthropic-beta",
-                    "value": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,claude-code-20250219,advisor-tool-2026-03-01,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07"
-                  },
-                  {
                     "name": "anthropic-dangerous-direct-browser-access",
                     "value": "true"
                   },
@@ -110,22 +106,22 @@
                   },
                   {
                     "name": "Content-Length",
-                    "value": "496"
+                    "value": "372"
                   }
                 ],
                 "httpVersion": "HTTP/1.1",
                 "method": "POST",
                 "postData": {
                   "mimeType": "application/json",
-                  "text": "{\"context_management\":{\"edits\":[{\"keep\":\"all\",\"type\":\"clear_thinking_20251015\"}]},\"diagnostics\":{\"previous_message_id\":null},\"max_tokens\":32000,\"messages\":[{\"content\":[{\"text\":\"<redacted-budget>\\n\",\"type\":\"text\"},{\"text\":\"<redacted-local-instructions>\\n\\n\",\"type\":\"text\"},{\"cache_control\":{\"ttl\":\"1h\",\"type\":\"ephemeral\"},\"text\":\"Reply with exactly: cmux-network-capture-ok\",\"type\":\"text\"}],\"role\":\"user\"}],\"model\":\"claude-haiku-4-5-20251001\",\"stream\":true,\"system\":\"<redacted-provider-metadata>\"}"
+                  "text": "{\"max_tokens\":32000,\"messages\":[{\"content\":[{\"text\":\"<redacted-budget>\\n\",\"type\":\"text\"},{\"text\":\"<redacted-local-instructions>\\n\\n\",\"type\":\"text\"},{\"cache_control\":{\"ttl\":\"1h\",\"type\":\"ephemeral\"},\"text\":\"Reply with exactly: cmux-network-capture-ok\",\"type\":\"text\"}],\"role\":\"user\"}],\"model\":\"claude-haiku-4-5-20251001\",\"stream\":true,\"system\":\"<redacted-provider-metadata>\"}"
                 },
                 "url": "https://api.anthropic.com/v1/messages?beta=true"
               },
               "response": {
                 "content": {
                   "mimeType": "text/event-stream; charset=utf-8",
-                  "size": 908,
-                  "text": "event: message_start\ndata: {\"message\":{\"content\":[],\"diagnostics\":null,\"id\":\"<redacted-id>\",\"model\":\"claude-haiku-4-5-20251001\",\"role\":\"assistant\",\"stop_details\":null,\"stop_reason\":null,\"stop_sequence\":null,\"type\":\"message\"},\"type\":\"message_start\"}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\nevent: content_block_stop\ndata: {\"index\":0,\"type\":\"content_block_stop\"}\n\nevent: content_block_start\ndata: {\"content_block\":{\"text\":\"\",\"type\":\"text\"},\"index\":1,\"type\":\"content_block_start\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"text\":\"cmux-network-capture-ok\",\"type\":\"text_delta\"},\"index\":1,\"type\":\"content_block_delta\"}\n\nevent: content_block_stop\ndata: {\"index\":1,\"type\":\"content_block_stop\"}\n\nevent: message_delta\ndata: {\"context_management\":{\"applied_edits\":[]},\"delta\":{\"stop_details\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"type\":\"message_delta\"}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+                  "size": 847,
+                  "text": "event: message_start\ndata: {\"message\":{\"content\":[],\"id\":\"<redacted-id>\",\"model\":\"claude-haiku-4-5-20251001\",\"role\":\"assistant\",\"stop_details\":null,\"stop_reason\":null,\"stop_sequence\":null,\"type\":\"message\"},\"type\":\"message_start\"}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\nevent: content_block_stop\ndata: {\"index\":0,\"type\":\"content_block_stop\"}\n\nevent: content_block_start\ndata: {\"content_block\":{\"text\":\"\",\"type\":\"text\"},\"index\":1,\"type\":\"content_block_start\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"text\":\"cmux-network-capture-ok\",\"type\":\"text_delta\"},\"index\":1,\"type\":\"content_block_delta\"}\n\nevent: content_block_stop\ndata: {\"index\":1,\"type\":\"content_block_stop\"}\n\nevent: message_delta\ndata: {\"delta\":{\"stop_details\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"type\":\"message_delta\"}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
                 },
                 "headers": [
                   {
