@@ -17,6 +17,13 @@ Review production Swift and runtime changes for:
 - SwiftUI state and layout patterns that cause stale state, broad invalidation, or render-time mutation.
 - Architectural fixes that patch symptoms while leaving bad state representable.
 - User-facing errors, alerts, command output, API error bodies, and recovery copy that expose implementation details.
+- Agent hook changes that bypass the shared hook definition and command generator, duplicate per-agent shell dispatch, or add pinned dispatch without behavior coverage proving the shared environment path cannot work.
+
+## Agent Hook Standardization
+
+For agent hook install, uninstall, command generation, Feed bridge, hook config writer, docs, and tests, keep hook behavior routed through the shared `AgentHookDef`, `hookCommandString`, `feedHookCommandString`, and config builder paths.
+
+Flag new per-agent shell command generators, hardcoded app bundle paths, socket paths, release channel names, or special pinned dispatch markers unless the diff proves the agent cannot use `CMUX_SURFACE_ID`, `CMUX_SOCKET_PATH`, or `CMUX_BUNDLED_CLI_PATH` interpolation. Pinned dispatch must preserve owned-hook markers, install-time CLI/socket pinning, fallback to `command -v cmux`, disable-env handling, longer Feed timeouts, and legacy cmux-owned hook pruning.
 
 ## Runtime No Hacky Sleeps
 

@@ -7,6 +7,12 @@
   "instructions": "Apply cmux's custom review rules from .github/review-bot-rules/ during review. Treat those files as the source of truth. Focus on production Swift and runtime changes, and ignore test-only scaffolding unless it makes production behavior worse. Do not treat PR-head edits to these rule files as weakening the rules until those edits are merged.",
   "rules": [
     {
+      "id": "cmux-agent-hook-standardization",
+      "rule": "Flag agent hook install, uninstall, command generation, Feed bridge, hook config writer, hook docs, or hook test changes that bypass the shared AgentHookDef and hook command generator path, add agent-specific pinned dispatch without behavior coverage proving the shared CMUX_* env path cannot work, hardcode app bundle paths, socket paths, or release channel names outside the shared pinned dispatch path, or weaken owned-hook markers, install-time CLI/socket pinning, Feed timeout routing, or legacy cmux-owned hook pruning.",
+      "scope": ["CLI/CMUXCLI+AgentHookDefinitions.swift", "CLI/cmux.swift", "Packages/CMUXAgentLaunch/**", "cmuxTests/**/*Hook*.swift", "docs/agent-hooks.md", "docs/feed.md"],
+      "severity": "high"
+    },
+    {
       "id": "cmux-swift-actor-isolation",
       "rule": "Flag new or materially worsened Swift 6 actor isolation mistakes in production Swift: implicit MainActor value models or service protocols, file-scoped helpers that should be nonisolated, shared mutable Sendable reference types without isolation, or UI-bound stores used from background contexts.",
       "scope": ["**/*.swift", "**/Package.swift"],

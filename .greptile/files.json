@@ -1,6 +1,11 @@
 {
   "files": [
     {
+      "path": ".github/review-bot-rules/agent-hook-standardization.md",
+      "description": "Source-of-truth cmux review rule for standardized agent hook command generation and pinned dispatch exceptions.",
+      "scope": ["CLI/CMUXCLI+AgentHookDefinitions.swift", "CLI/cmux.swift", "Packages/CMUXAgentLaunch/**", "cmuxTests/**/*Hook*.swift", "docs/agent-hooks.md", "docs/feed.md"]
+    },
+    {
       "path": ".github/review-bot-rules/swift-actor-isolation.md",
       "description": "Source-of-truth cmux lint rule for Swift actor isolation review.",
       "scope": ["**/*.swift", "**/Package.swift"]
