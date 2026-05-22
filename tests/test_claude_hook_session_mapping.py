@@ -172,9 +172,9 @@ def main() -> int:
             items = wait_for_notification_count(client, minimum=1)
             if not items:
                 return fail("Expected at least one notification after claude-hook notification")
-            permission_notification = latest_notification_with_subtitle(items, "Permission")
+            permission_notification = latest_notification_with_subtitle(items, "Permission request")
             if permission_notification is None:
-                return fail("Expected a Permission subtitle notification")
+                return fail("Expected a Permission request subtitle notification")
             if permission_notification.get("surface_id") != surface_id:
                 return fail("Expected notification to route to mapped surface")
             if last_message not in permission_notification.get("body", ""):

@@ -180,6 +180,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func workspaceListResponse(id: String, workspaceId: String, title: String = "Claude Workspace") -> String {
+        v2Response(
+            id: id,
+            ok: true,
+            result: [
+                "workspaces": [[
+                    "id": workspaceId,
+                    "ref": "workspace:1",
+                    "title": title,
+                    "index": 0,
+                    "selected": true,
+                ]]
+            ]
+        )
+    }
+
     func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
