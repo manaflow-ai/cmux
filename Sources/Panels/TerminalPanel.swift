@@ -216,8 +216,11 @@ final class TerminalPanel: Panel, ObservableObject {
         if isTextBoxActive,
            textBoxInputFocusIntent == .textBox {
             shouldHideTextBoxOnNextEscape = false
-            focusTerminalSurface(respectForeignFirstResponder: false)
-            return true
+            let didFocusTerminal = focusTerminalSurface(respectForeignFirstResponder: false)
+            if !didFocusTerminal {
+                textBoxInputFocusIntent = .textBox
+            }
+            return didFocusTerminal
         }
 
         return focusTextBoxInput()
@@ -230,8 +233,9 @@ final class TerminalPanel: Panel, ObservableObject {
         shouldFocusTextBoxWhenAvailable = true
         shouldOpenTextBoxFilePickerWhenAvailable = true
         shouldHideTextBoxOnNextEscape = false
-        focusTextBoxIfNeeded()
-        return true
+        let hasMountedTextBox = textBoxInputView?.window != nil
+        let didFocusTextBox = focusTextBoxIfNeeded()
+        return didFocusTextBox || !hasMountedTextBox
     }
 
     func textBoxDidBecomeFocused() {
@@ -382,12 +386,13 @@ final class TerminalPanel: Panel, ObservableObject {
         shouldHideTextBoxOnNextEscape = false
     }
 
-    private func focusTextBoxIfNeeded() {
+    @discardableResult
+    private func focusTextBoxIfNeeded() -> Bool {
         guard shouldFocusTextBoxWhenAvailable,
               isTextBoxActive,
               let textBoxInputView,
-              let window = textBoxInputView.window else { return }
-        guard window.makeFirstResponder(textBoxInputView) else { return }
+              let window = textBoxInputView.window else { return false }
+        guard window.makeFirstResponder(textBoxInputView) else { return false }
         shouldFocusTextBoxWhenAvailable = false
         textBoxInputFocusIntent = .textBox
         surface.setFocus(false)
@@ -396,6 +401,7 @@ final class TerminalPanel: Panel, ObservableObject {
             shouldOpenTextBoxFilePickerWhenAvailable = false
             textBoxInputView.openFilePicker()
         }
+        return true
     }
 
     @discardableResult
@@ -404,8 +410,9 @@ final class TerminalPanel: Panel, ObservableObject {
         isTextBoxActive = true
         shouldFocusTextBoxWhenAvailable = true
         shouldHideTextBoxOnNextEscape = false
-        focusTextBoxIfNeeded()
-        return true
+        let hasMountedTextBox = textBoxInputView?.window != nil
+        let didFocusTextBox = focusTextBoxIfNeeded()
+        return didFocusTextBox || !hasMountedTextBox
     }
 
 #if DEBUG

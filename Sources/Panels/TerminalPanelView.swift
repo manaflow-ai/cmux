@@ -10,6 +10,7 @@ struct TerminalPanelView: View {
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+    @State private var terminalFontSize = GhosttyConfig.load().fontSize
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -56,7 +57,7 @@ struct TerminalPanelView: View {
                     terminalBackgroundColor: appearance.backgroundColor,
                     terminalForegroundColor: appearance.foregroundColor,
                     terminalFont: NSFont.monospacedSystemFont(
-                        ofSize: CGFloat(GhosttyConfig.load().fontSize),
+                        ofSize: terminalFontSize,
                         weight: .regular
                     ),
                     maxLines: TerminalTextBoxInputSettings.resolvedMaxLines(textBoxMaxLines),
@@ -82,6 +83,9 @@ struct TerminalPanelView: View {
                     }
                 )
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            terminalFontSize = GhosttyConfig.load().fontSize
         }
     }
 }

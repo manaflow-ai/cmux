@@ -3908,11 +3908,8 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func notifyMovedToWindowIfAttached() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.window != nil else { return }
-            self.onMoveToWindow(self)
-        }
+        guard window != nil else { return }
+        onMoveToWindow(self)
     }
 
     override func becomeFirstResponder() -> Bool {

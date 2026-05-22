@@ -6669,6 +6669,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testTextBoxFocusShortcutReportsUnhandledWhenTerminalCannotReceiveFocus() {
+        let terminalPanel = TerminalPanel(workspaceId: UUID())
+        defer { terminalPanel.surface.teardownSurface() }
+
+        XCTAssertTrue(terminalPanel.focusTextBoxInputOrTerminal())
+        XCTAssertFalse(
+            terminalPanel.focusTextBoxInputOrTerminal(),
+            "Returning from TextBox focus to the terminal should only consume the shortcut when terminal focus succeeds"
+        )
+    }
+
     func testTextBoxSessionRestoreShowsDraftWithoutStealingFocus() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
