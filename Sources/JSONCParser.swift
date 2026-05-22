@@ -252,7 +252,7 @@ enum JSONCObjectEditor {
         let parentIndent = propertyIndent(for: root, in: source)
         let childIndent = parentIndent + "  "
         let childProperty = propertyText(key: childKey, valueJSON: childValueJSON, indent: childIndent)
-        let parentProperty = "\(parentIndent)\"\(parentKey)\": {\n\(childProperty)\n\(parentIndent)}"
+        let parentProperty = "\(parentIndent)\(quotedJSONString(parentKey)): {\n\(childProperty)\n\(parentIndent)}"
         return inserting(parentProperty, into: root, in: source)
     }
 
@@ -495,7 +495,18 @@ enum JSONCObjectEditor {
     }
 
     private static func propertyText(key: String, valueJSON: String, indent: String) -> String {
-        "\(indent)\"\(key)\": \(valueJSONForProperty(valueJSON, propertyIndent: indent))"
+        "\(indent)\(quotedJSONString(key)): \(valueJSONForProperty(valueJSON, propertyIndent: indent))"
+    }
+
+    private static func quotedJSONString(_ value: String) -> String {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(value),
+           let encoded = String(data: data, encoding: .utf8) {
+            return encoded
+        }
+        return "\"" + value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     private static func valueJSONForProperty(_ valueJSON: String, propertyIndent: String) -> String {
