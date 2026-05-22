@@ -959,6 +959,10 @@ extension Workspace {
         if restorableAgentIndexWasScanned,
            binding.isAgentHookBinding,
            !agentHookBinding(binding, matches: restorableAgent) {
+            if shouldPreserveRestoredAgentWhileResumeStarts(panelId: panelId),
+               agentHookBinding(binding, matches: restoredAgentSnapshotsByPanelId[panelId]) {
+                return binding
+            }
             return nil
         }
         return binding
