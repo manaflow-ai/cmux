@@ -285,6 +285,9 @@ private final class BrowserHiddenWebViewDiscardRegistry {
             )
         }
         pruneDeadEntries()
+        if liveEligibleEntries().count > maxLiveHiddenCount {
+            scheduleLimitEnforcement()
+        }
     }
 
     private func pruneDeadEntries() {
