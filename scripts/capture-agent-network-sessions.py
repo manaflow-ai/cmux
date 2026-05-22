@@ -31,6 +31,22 @@ MAX_BODY_BYTES = 12_000
 DEFAULT_OUTPUT = pathlib.Path("cmuxTests/Fixtures/AgentNetworkCaptures.json")
 CAPTURE_ROOT_REPLACEMENTS: set[str] = set()
 UTF8_MOJIBAKE_RE = re.compile(r"(?:[\u00C2\u00C3][\u0080-\u00BF]|\u00E2[\u0080-\u00BF]{2})")
+JSON_DROPPED_KEYS = {
+    "client_metadata",
+    "encrypted_content",
+    "include",
+    "metadata",
+    "obfuscation",
+    "prompt_cache_key",
+    "prompt_cache_retention",
+    "reasoning",
+    "safety_identifier",
+    "tools",
+}
+JSON_REDACTED_KEYS = {
+    "instructions",
+    "system",
+}
 
 
 @dataclass
@@ -154,6 +170,32 @@ def sanitize_text(value: str) -> str:
         if old:
             result = result.replace(old, new)
     result = repair_utf8_mojibake(result)
+    result = re.sub(
+        r"<system-reminder>\s*USD budget:.*?</system-reminder>",
+        "<redacted-budget>",
+        result,
+        flags=re.DOTALL,
+    )
+    result = re.sub(
+        r"<system-reminder>\s*As you answer.*?</system-reminder>",
+        "<redacted-local-instructions>",
+        result,
+        flags=re.DOTALL,
+    )
+    for tag in [
+        "apps_instructions",
+        "collaboration_mode",
+        "environment_context",
+        "permissions instructions",
+        "plugins_instructions",
+        "skills_instructions",
+    ]:
+        result = re.sub(
+            rf"<{re.escape(tag)}>.*?</{re.escape(tag)}>",
+            "<redacted-runtime-instructions>",
+            result,
+            flags=re.DOTALL,
+        )
 
     patterns = [
         (r"/var/folders/[^\"'\s]+/cmux-agent-network-captures\.[^/\"'\s]+", "${CAPTURE_ROOT}"),
@@ -172,6 +214,59 @@ def sanitize_text(value: str) -> str:
     for pattern, replacement in patterns:
         result = re.sub(pattern, replacement, result)
     return result
+
+
+def redact_json_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            lowered = key.lower()
+            if lowered in JSON_DROPPED_KEYS:
+                continue
+            if lowered in JSON_REDACTED_KEYS:
+                redacted[key] = "<redacted-provider-metadata>"
+            else:
+                redacted[key] = redact_json_value(item)
+        return redacted
+    if isinstance(value, list):
+        return [redact_json_value(item) for item in value]
+    if isinstance(value, str):
+        return sanitize_text(value)
+    return value
+
+
+def sanitize_json_text(value: str) -> str | None:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return json.dumps(redact_json_value(parsed), separators=(",", ":"), sort_keys=True)
+
+
+def sanitize_sse_json_lines(value: str) -> str:
+    sanitized_lines: list[str] = []
+    for line in value.splitlines():
+        if not line.startswith("data:"):
+            sanitized_lines.append(line)
+            continue
+        prefix, payload = line.split(":", 1)
+        stripped = payload.lstrip()
+        sanitized_payload = sanitize_json_text(stripped)
+        if sanitized_payload is None:
+            sanitized_lines.append(line)
+        else:
+            padding = payload[: len(payload) - len(stripped)]
+            sanitized_lines.append(f"{prefix}:{padding}{sanitized_payload}")
+    suffix = "\n" if value.endswith("\n") else ""
+    return "\n".join(sanitized_lines) + suffix
+
+
+def sanitize_body_text(value: str) -> str:
+    sanitized = sanitize_text(value)
+    json_text = sanitize_json_text(sanitized)
+    if json_text is not None:
+        return json_text
+    return sanitize_sse_json_lines(sanitized)
 
 
 def trim_text(value: str) -> tuple[str, bool]:
@@ -219,7 +314,7 @@ def sanitize_post_data(post_data: dict[str, Any] | None) -> dict[str, Any] | Non
     text = post_data.get("text")
     if not isinstance(text, str) or not text:
         return None
-    text, truncated = trim_text(sanitize_text(text))
+    text, truncated = trim_text(sanitize_body_text(text))
     result: dict[str, Any] = {
         "mimeType": post_data.get("mimeType", "application/octet-stream"),
         "text": text,
@@ -237,7 +332,7 @@ def sanitize_content(content: dict[str, Any]) -> dict[str, Any]:
         "size": content.get("size", 0),
     }
     if isinstance(text, str) and text:
-        text, truncated = trim_text(sanitize_text(text))
+        text, truncated = trim_text(sanitize_body_text(text))
         result["text"] = text
         if truncated or source_truncated or "<cmux-truncated>" in text:
             result["_cmuxBodyTruncated"] = True
@@ -271,25 +366,25 @@ def websocket_message_text(entry: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def response_payload_text(entry: dict[str, Any]) -> str:
+    response_text = (
+        entry.get("response", {})
+        .get("content", {})
+        .get("text", "")
+    )
+    return f"{response_text}\n{websocket_message_text(entry)}"
+
+
 def has_replayable_payload(entry: dict[str, Any]) -> bool:
     return has_request_response_body(entry) or bool(websocket_message_text(entry))
 
 
 def score_entry(agent: str, entry: dict[str, Any]) -> int:
     request = entry.get("request", {})
-    response = entry.get("response", {})
     url = str(request.get("url", ""))
-    body = json.dumps(
-        {
-            "request": request.get("postData", {}),
-            "response": response.get("content", {}),
-            "webSocketMessages": websocket_message_text(entry),
-        },
-        sort_keys=True,
-    )
     score = 0
-    if MARKER in body:
-        score += 100
+    if MARKER in response_payload_text(entry):
+        score += 120
     if agent == "claude" and "/v1/messages" in url:
         score += 50
     if agent == "opencode" and "chatgpt.com" in url:
@@ -316,7 +411,7 @@ def sanitize_websocket_messages(entry: dict[str, Any]) -> list[dict[str, Any]]:
         data = message.get("data", "")
         if not isinstance(data, str):
             continue
-        text, truncated = trim_text(sanitize_text(data))
+        text, truncated = trim_text(sanitize_body_text(data))
         sanitized_message: dict[str, Any] = {
             "type": message.get("type", ""),
             "time": message.get("time", 0),
@@ -372,19 +467,13 @@ def selected_entries(agent: str, har_path: pathlib.Path) -> list[dict[str, Any]]
     data = json.loads(har_path.read_text(errors="replace"))
     entries = data.get("log", {}).get("entries", [])
     candidates = [entry for entry in entries if has_replayable_payload(entry)]
-    marker_entries = [
+    response_marker_entries = [
         entry for entry in candidates
-        if MARKER in json.dumps(
-            {
-                "request": entry.get("request", {}).get("postData", {}),
-                "response": entry.get("response", {}).get("content", {}),
-                "webSocketMessages": websocket_message_text(entry),
-            },
-            sort_keys=True,
-        )
+        if MARKER in response_payload_text(entry)
     ]
-    if marker_entries:
-        candidates = marker_entries
+    if not response_marker_entries:
+        return []
+    candidates = response_marker_entries
     preferred = [
         entry for entry in candidates
         if (

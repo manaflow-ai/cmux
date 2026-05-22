@@ -2421,23 +2421,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(fixture.captureSource, "real-cli-mitm-har")
 
         let capturesByAgent = Dictionary(uniqueKeysWithValues: fixture.captures.map { ($0.agent, $0) })
-        XCTAssertEqual(Set(capturesByAgent.keys), ["claude", "codex", "opencode"])
+        XCTAssertTrue(Set(capturesByAgent.keys).isSuperset(of: ["claude", "codex", "opencode"]))
 
         let unavailableByAgent = Dictionary(uniqueKeysWithValues: fixture.unavailable.map { ($0.agent, $0.reason) })
-        let geminiUnavailableReason = try XCTUnwrap(unavailableByAgent["gemini"])
-        XCTAssertTrue(
-            [
-                "Gemini CLI opened an auth flow and produced no HAR entries with the current local configuration.",
-                "No gemini executable was available on PATH.",
-            ].contains(geminiUnavailableReason),
-            geminiUnavailableReason
-        )
-        XCTAssertEqual(unavailableByAgent["antigravity"], "No agy or antigravity executable was available on PATH.")
+        XCTAssertTrue(Set(capturesByAgent.keys).isDisjoint(with: Set(unavailableByAgent.keys)))
+        XCTAssertTrue(capturesByAgent["gemini"] != nil || unavailableByAgent["gemini"] != nil)
+        XCTAssertTrue(capturesByAgent["antigravity"] != nil || unavailableByAgent["antigravity"] != nil)
+        if let geminiUnavailableReason = unavailableByAgent["gemini"] {
+            XCTAssertTrue(
+                [
+                    "Gemini CLI opened an auth flow and produced no HAR entries with the current local configuration.",
+                    "No gemini executable was available on PATH.",
+                ].contains(geminiUnavailableReason),
+                geminiUnavailableReason
+            )
+        }
+        if let antigravityUnavailableReason = unavailableByAgent["antigravity"] {
+            XCTAssertEqual(antigravityUnavailableReason, "No agy or antigravity executable was available on PATH.")
+        }
 
         let fixtureText = try String(contentsOf: agentNetworkCaptureFixtureURL(), encoding: .utf8)
         for forbidden in [
             "Bearer ",
-            "sk-",
             "session_token",
             "/Users/lawrence",
             "/var/folders",
@@ -2445,8 +2450,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "authorization",
             "cookie",
             "set-cookie",
-            "prompt_cache_key\":\"ses_",
-            "safety_identifier\":\"user-",
+            "prompt_cache_key",
+            "safety_identifier",
+            "encrypted_content",
+            "obfuscation",
+            "system-reminder",
+            "cmuxterm-hq/CLAUDE.md",
+            "<skills_instructions>",
+            "<plugins_instructions>",
+            "<permissions instructions>",
             "req_",
             "msg_",
             "resp_",
@@ -2470,6 +2482,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "Sanitized network fixture must not contain \(forbidden)"
             )
         }
+        assertFixtureText(fixtureText, excludesPattern: #"sk-[A-Za-z0-9_-]{12,}"#)
 
         for capture in fixture.captures {
             XCTAssertEqual(capture.status, "captured", capture.name)
@@ -2482,7 +2495,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let entries = capture.har.log.entries
             XCTAssertFalse(entries.isEmpty, capture.name)
 
-            var capturePayloadText = ""
+            var responsePayloadText = ""
             for entry in entries {
                 let requestBody = entry.request.postData?.text ?? ""
                 let responseBody = entry.response.content.text ?? ""
@@ -2521,13 +2534,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     )
                 }
 
-                capturePayloadText += requestBody
-                capturePayloadText += responseBody
-                capturePayloadText += webSocketText
+                responsePayloadText += responseBody
+                responsePayloadText += webSocketText
             }
             XCTAssertTrue(
-                capturePayloadText.contains(fixture.prompt) || capturePayloadText.contains("cmux-network-capture-ok"),
-                "\(capture.name) must include the captured prompt or response marker in HAR payloads"
+                responsePayloadText.contains("cmux-network-capture-ok"),
+                "\(capture.name) must include the real CLI response marker in HAR response payloads or WebSocket frames"
             )
         }
     }
@@ -2972,5 +2984,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         if let contentLength = normalized["content-length"] {
             XCTAssertEqual(Int(contentLength), byteCount, "\(context) content-length", file: file, line: line)
         }
+    }
+
+    private func assertFixtureText(
+        _ text: String,
+        excludesPattern pattern: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertNil(
+            text.range(of: pattern, options: [.regularExpression, .caseInsensitive]),
+            "Sanitized network fixture must not match \(pattern)",
+            file: file,
+            line: line
+        )
     }
 }
