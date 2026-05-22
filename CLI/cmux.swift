@@ -18303,7 +18303,7 @@ struct CMUXCLI {
             }
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
-               summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
+               isGenericClaudeNotificationBody(summary.body) {
                 summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
             }
 
@@ -18777,6 +18777,101 @@ struct CMUXCLI {
         default:
             return toolName
         }
+    }
+
+    private func summarizeClaudePermissionNotification(
+        toolName rawToolName: String?,
+        toolInput rawToolInput: Any?
+    ) -> (subtitle: String, body: String)? {
+        guard let toolName = nonEmptyClaudeHookIdentifier(rawToolName) else {
+            return nil
+        }
+        let input = Self.jsonDictionary(from: rawToolInput) ?? [:]
+        let lowerTool = toolName.lowercased()
+
+        func firstInputString(_ keys: [String]) -> String? {
+            for key in keys {
+                guard let value = input[key] else { continue }
+                if let string = value as? String {
+                    let trimmed = normalizedSingleLine(string)
+                    if !trimmed.isEmpty {
+                        return trimmed
+                    }
+                }
+            }
+            return nil
+        }
+
+        let detail: String?
+        switch lowerTool {
+        case "bash", "shell", "terminal", "run_command":
+            detail = firstInputString(["description", "command", "cmd"])
+        case "write", "edit", "multiedit", "notebookedit", "replace_file_content", "multi_replace_file_content", "write_to_file":
+            detail = firstInputString(["file_path", "path", "target_file", "notebook_path"]).map(shortenPath)
+        case "webfetch":
+            detail = firstInputString(["url"])
+        case "websearch":
+            detail = firstInputString(["query"])
+        case "ask_permission":
+            detail = firstInputString(["prompt", "question", "message", "description"])
+        default:
+            detail = firstInputString(["description", "file_path", "path", "command", "query", "prompt", "message"])
+                ?? compactPermissionToolInput(rawToolInput)
+        }
+
+        guard let detail, !detail.isEmpty else {
+            return nil
+        }
+        let body = truncate("\(toolName): \(detail)", maxLength: 180)
+        return (
+            subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
+            body: body
+        )
+    }
+
+    private func summarizeClaudePermissionNotification(object: [String: Any]?) -> (subtitle: String, body: String)? {
+        guard let object else { return nil }
+        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        let toolName = firstString(in: object, keys: ["tool_name", "toolName"])
+            ?? firstString(in: nested, keys: ["tool_name", "toolName"])
+        let toolInput = object["tool_input"]
+            ?? object["toolInput"]
+            ?? nested["tool_input"]
+            ?? nested["toolInput"]
+        return summarizeClaudePermissionNotification(toolName: toolName, toolInput: toolInput)
+    }
+
+    private func compactPermissionToolInput(_ rawToolInput: Any?) -> String? {
+        if let string = rawToolInput as? String {
+            let trimmed = normalizedSingleLine(string)
+            return trimmed.isEmpty || trimmed == "{}" ? nil : truncate(trimmed, maxLength: 120)
+        }
+        guard let rawToolInput,
+              JSONSerialization.isValidJSONObject(rawToolInput),
+              let data = try? JSONSerialization.data(withJSONObject: rawToolInput, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = normalizedSingleLine(string)
+        return trimmed == "{}" ? nil : truncate(trimmed, maxLength: 120)
+    }
+
+    private func isGenericClaudeNotificationBody(_ body: String) -> Bool {
+        let normalized = normalizedSingleLine(body).lowercased()
+        let genericBodies: Set<String> = [
+            "approval needed",
+            "claude is waiting for your input",
+            "claude needs permission",
+            "claude needs your attention",
+            "claude needs your input",
+            "claude needs your permission",
+            "claude code needs your attention",
+            "claude code needs your input",
+            "claude code needs your permission",
+            "permission needed",
+            "waiting for input",
+        ]
+        return genericBodies.contains(normalized)
     }
 
     private func shortenPath(_ path: String) -> String {
@@ -20528,6 +20623,10 @@ struct CMUXCLI {
         ]
         let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
         let normalizedMessage = normalizedSingleLine(message)
+        if isGenericClaudeNotificationBody(normalizedMessage),
+           let permissionSummary = summarizeClaudePermissionNotification(object: object) {
+            return permissionSummary
+        }
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
 
@@ -26753,6 +26852,30 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
+
+        if source == "claude",
+           hookEventName == "PermissionRequest",
+           let workspaceId = nonEmptyClaudeHookIdentifier(eventDict["workspace_id"] as? String),
+           let surfaceId = nonEmptyClaudeHookIdentifier(env["CMUX_SURFACE_ID"]),
+           let summary = summarizeClaudePermissionNotification(
+                toolName: toolName.isEmpty ? nil : toolName,
+                toolInput: eventDict["tool_input"]
+           ) {
+            try? ClaudeHookSessionStore().upsert(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: eventDict["cwd"] as? String,
+                transcriptPath: firstString(in: stdinObj, keys: ["transcript_path", "transcriptPath"]),
+                pid: agentPid,
+                lastSubtitle: summary.subtitle,
+                lastBody: summary.body,
+                lastNotificationStatus: .needsInput,
+                updateLastNotificationStatus: true,
+                runtimeStatus: .needsInput,
+                updateRuntimeStatus: true
+            )
+        }
 
         // Sync. For actionable events we block up to 120s waiting
         // for the user's Feed click; the hook's stdout is then a
