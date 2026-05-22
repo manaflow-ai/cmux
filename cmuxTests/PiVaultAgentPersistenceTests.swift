@@ -1162,7 +1162,14 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         ]
         let jsonl = try rows.map { row -> String in
             let data = try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
-            return String(decoding: data, as: UTF8.self)
+            guard let text = String(bytes: data, encoding: .utf8) else {
+                throw NSError(
+                    domain: "PiVaultAgentPersistenceTests",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Failed to encode Antigravity transcript row"]
+                )
+            }
+            return text
         }.joined(separator: "\n")
         try (jsonl + "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
     }

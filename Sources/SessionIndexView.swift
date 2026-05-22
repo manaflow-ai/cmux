@@ -1052,7 +1052,6 @@ private enum SessionTranscriptLoader {
     private static let streamChunkSize = 256 * 1024
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
     private static let maxPreviewTurns = 500
-    private static let maxAntigravityPreviewBytes = 16 * 1024 * 1024
     private static let maxTurnTextCharacters = 40_000
     private static let newlineByte: UInt8 = 10
 
@@ -1155,7 +1154,11 @@ private enum SessionTranscriptLoader {
         let sessionId = entry.sessionId
         if agent.id == "antigravity" {
             return try await Task.detached(priority: .userInitiated) {
-                try loadAntigravityTranscriptSynchronously(from: url, sessionId: sessionId)
+                try AntigravityTranscriptPreview.load(
+                    from: url,
+                    sessionId: sessionId,
+                    limit: maxPreviewTurns
+                )
             }.value
         }
         let usesGrokTranscriptLayout = entry.usesGrokTranscriptLayout
@@ -1280,104 +1283,6 @@ private enum SessionTranscriptLoader {
         }
 
         return coalesce(turns)
-    }
-
-    private static func loadAntigravityTranscriptSynchronously(
-        from url: URL,
-        sessionId: String
-    ) throws -> [SessionTranscriptTurn] {
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            throw SessionTranscriptLoadError.missingFile
-        }
-
-        var turns: [SessionTranscriptTurn] = []
-        var lineIndex = 0
-        var didHitTurnLimit = false
-        let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
-
-        SessionIndexStore.forEachJSONLine(url: url, maxBytes: maxAntigravityPreviewBytes) { object in
-            defer { lineIndex += 1 }
-            if Task.isCancelled { return true }
-            guard turns.count < maxPreviewTurns else {
-                didHitTurnLimit = true
-                return true
-            }
-            if url.lastPathComponent == "history.jsonl",
-               antigravityHistorySessionID(in: object) != sessionId {
-                return false
-            }
-            guard let turn = antigravityTranscriptTurn(in: object, id: lineIndex, agent: agent) else {
-                return false
-            }
-            turns.append(turn)
-            return false
-        }
-        if didHitTurnLimit {
-            appendTurnLimitMarker(to: &turns, id: lineIndex)
-        }
-        return coalesce(turns)
-    }
-
-    private static func antigravityTranscriptTurn(
-        in object: [String: Any],
-        id: Int,
-        agent: SessionAgent
-    ) -> SessionTranscriptTurn? {
-        if let historyContent = object["display"] ?? object["prompt"] ?? object["text"] ?? object["message"],
-           antigravityHistorySessionID(in: object) != nil {
-            guard let text = normalizedText(from: historyContent, role: .user, agent: agent) else {
-                return nil
-            }
-            return SessionTranscriptTurn(id: id, role: .user, text: text)
-        }
-
-        let source = object["source"] as? String
-        let type = object["type"] as? String
-        switch (source, type) {
-        case ("USER_EXPLICIT", "USER_INPUT"):
-            guard let content = object["content"] as? String,
-                  let text = normalizedText(
-                      from: antigravityUserRequestText(from: content) ?? content,
-                      role: .user,
-                      agent: agent
-                  ) else {
-                return nil
-            }
-            return SessionTranscriptTurn(id: id, role: .user, text: text)
-        case ("MODEL", "PLANNER_RESPONSE"):
-            guard let text = normalizedText(from: object["content"], role: .assistant, agent: agent) else {
-                return nil
-            }
-            return SessionTranscriptTurn(id: id, role: .assistant, text: text)
-        case ("MODEL", "ERROR_MESSAGE"):
-            guard let text = normalizedText(from: object["content"], role: .event, agent: agent) else {
-                return nil
-            }
-            return SessionTranscriptTurn(id: id, role: .event, text: text)
-        default:
-            return nil
-        }
-    }
-
-    private static func antigravityHistorySessionID(in object: [String: Any]) -> String? {
-        for key in ["conversationId", "conversation_id", "sessionId", "session_id", "id"] {
-            guard let value = object[key] as? String else { continue }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
-        return nil
-    }
-
-    private static func antigravityUserRequestText(from content: String) -> String? {
-        let startTag = "<USER_REQUEST>"
-        let endTag = "</USER_REQUEST>"
-        guard let startRange = content.range(of: startTag),
-              let endRange = content.range(of: endTag, range: startRange.upperBound..<content.endIndex) else {
-            return nil
-        }
-        let text = String(content[startRange.upperBound..<endRange.lowerBound])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
     }
 
     private static func loadOpenCodeSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
