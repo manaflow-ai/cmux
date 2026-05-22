@@ -367,6 +367,23 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "terminalWarmPtyPool",
+                settingsKey: "terminal.warmPtyPool",
+                title: {
+                    String(localized: "settings.terminal.warmPtyPool", defaultValue: "Prewarm New Terminal Shell")
+                },
+                sectionTitle: terminal,
+                keywords: ["terminal.warmPtyPool", "terminal", "pty", "prewarm", "warm", "shell", "instant", "new tab"],
+                isOn: { defaults in TerminalWarmPtyPoolSettings.isEnabled(defaults: defaults) },
+                setOn: { newValue, defaults, notificationCenter in
+                    TerminalWarmPtyPoolSettings.setEnabled(
+                        newValue,
+                        defaults: defaults,
+                        notificationCenter: notificationCenter
+                    )
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "autoResumeAgentSessions",
                 settingsKey: "terminal.autoResumeAgentSessions",
                 title: {

@@ -109277,6 +109277,81 @@
         }
       }
     },
+    "settings.terminal.warmPtyPool": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Prewarm New Terminal Shell"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新規ターミナルシェルを事前起動"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Prewarm New Terminal Shell"}}
+      }
+    },
+    "settings.terminal.warmPtyPool.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "タブや分割を作成してから各ターミナルシェルを起動します。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Starts each terminal shell only after you create the tab or split."}}
+      }
+    },
+    "settings.terminal.warmPtyPool.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "非表示のローカルシェルを 1 つ待機させ、新しいターミナルタブや分割をすぐに表示します。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately."}}
+      }
+    },
     "settings.terminal.agentAutoResume": {
       "extractionState": "manual",
       "localizations": {
@@ -109853,6 +109928,31 @@
             "value": "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"
           }
         }
+      }
+    },
+    "settings.search.alias.setting.terminal.warm-pty-pool": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "en": {"stringUnit": {"state": "translated", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "terminal.warmPtyPool pty warm prewarm shell instant new tab cmd-t split"}}
       }
     },
     "settings.app.preferredEditor.subtitle": {

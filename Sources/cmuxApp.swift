@@ -5214,6 +5214,8 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(TerminalWarmPtyPoolSettings.enabledKey)
+    private var terminalWarmPtyPoolEnabled = TerminalWarmPtyPoolSettings.defaultEnabled
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -5404,6 +5406,17 @@ struct SettingsView: View {
                 guard showTerminalScrollBar != newValue else { return }
                 showTerminalScrollBar = newValue
                 TerminalScrollBarSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var terminalWarmPtyPoolBinding: Binding<Bool> {
+        Binding(
+            get: { terminalWarmPtyPoolEnabled },
+            set: { newValue in
+                guard terminalWarmPtyPoolEnabled != newValue else { return }
+                terminalWarmPtyPoolEnabled = newValue
+                TerminalWarmPtyPoolSettings.notifyDidChange()
             }
         )
     }
@@ -6557,6 +6570,24 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.warmPtyPool"),
+                            String(localized: "settings.terminal.warmPtyPool", defaultValue: "Prewarm New Terminal Shell"),
+                            subtitle: terminalWarmPtyPoolEnabled
+                                ? String(localized: "settings.terminal.warmPtyPool.subtitleOn", defaultValue: "Keeps one hidden local shell ready so new terminal tabs and splits appear immediately.")
+                                : String(localized: "settings.terminal.warmPtyPool.subtitleOff", defaultValue: "Starts each terminal shell only after you create the tab or split.")
+                        ) {
+                            Toggle("", isOn: terminalWarmPtyPoolBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalWarmPtyPoolToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.warmPtyPool", defaultValue: "Prewarm New Terminal Shell")
                                 )
                         }
 
@@ -7793,6 +7824,11 @@ struct SettingsView: View {
         showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
+        }
+        let previousTerminalWarmPtyPoolEnabled = terminalWarmPtyPoolEnabled
+        terminalWarmPtyPoolEnabled = TerminalWarmPtyPoolSettings.defaultEnabled
+        if previousTerminalWarmPtyPoolEnabled != terminalWarmPtyPoolEnabled {
+            TerminalWarmPtyPoolSettings.notifyDidChange()
         }
         fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
         let previousAutoResumeAgentSessions = autoResumeAgentSessions

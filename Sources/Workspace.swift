@@ -8951,6 +8951,26 @@ final class Workspace: Identifiable, ObservableObject {
     /// a panel is explicitly re-zoomed by the user.
     var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
 
+    private struct WarmTerminalPoolBufferedMetadata {
+        var panelId: UUID?
+        var title: String?
+        var directory: String?
+        var didReportGitBranch = false
+        var gitBranch: SidebarGitBranchState?
+        var shellActivityRawValue: String?
+        var ttyName: String?
+    }
+
+    @MainActor private static var warmTerminalPoolPanel: TerminalPanel?
+    @MainActor private static var warmTerminalPoolOwnerWorkspaceId: UUID?
+    @MainActor private static var warmTerminalPoolStartupSignature: TerminalWarmPtyPoolStartupSignature?
+    @MainActor private static var warmTerminalPoolContext: ghostty_surface_context_e?
+    @MainActor private static var warmTerminalPoolActivatingPanelId: UUID?
+    @MainActor private static var warmTerminalPoolActivatingWorkspaceId: UUID?
+    @MainActor private static var warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
+    @MainActor private static var warmTerminalPoolSettingsObserver: NSObjectProtocol?
+    @MainActor private static var warmTerminalPoolGhosttyConfigObserver: NSObjectProtocol?
+
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
     weak var owningTabManager: TabManager?
@@ -9508,7 +9528,8 @@ final class Workspace: Identifiable, ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:], initialDetachedSurface: DetachedSurfaceTransfer? = nil
+        initialTerminalEnvironment: [String: String] = [:],
+        initialDetachedSurface: DetachedSurfaceTransfer? = nil
     ) {
         self.id = UUID()
         self.portOrdinal = portOrdinal
@@ -9575,15 +9596,16 @@ final class Workspace: Identifiable, ObservableObject {
             }
         } else {
             // Create initial terminal panel
-            let terminalPanel = TerminalPanel(
-                workspaceId: id,
+            let terminalPanel = terminalPanelForNewTerminal(
                 context: GHOSTTY_SURFACE_CONTEXT_TAB,
                 configTemplate: resolvedConfigTemplate,
                 workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
-                portOrdinal: portOrdinal,
                 initialCommand: initialTerminalCommand,
+                tmuxStartCommand: nil,
                 initialInput: initialTerminalInput,
-                initialEnvironmentOverrides: initialTerminalEnvironment
+                initialEnvironmentOverrides: initialTerminalEnvironment,
+                startupEnvironment: [:],
+                reason: "workspace.init"
             )
             configureTerminalPanel(terminalPanel)
             panels[terminalPanel.id] = terminalPanel
@@ -9600,6 +9622,7 @@ final class Workspace: Identifiable, ObservableObject {
             ) {
                 surfaceIdToPanelId[tabId] = terminalPanel.id
                 initialTabId = tabId
+                applyBufferedWarmTerminalMetadataIfNeeded(to: terminalPanel)
             }
         }
 
@@ -10815,6 +10838,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
+        guard panels[panelId] != nil else { return false }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         var didMutate = false
@@ -11318,6 +11342,7 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionIDsByPanelId.removeAll()
         }
         remoteConfiguration = configuration
+        Self.discardWarmTerminalPoolIfOwned(by: id, reason: "remote.configure")
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
@@ -12109,6 +12134,511 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    private static var warmTerminalPoolCanStartRuntimeInCurrentProcess: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil &&
+            GhosttyApp.shared.app != nil
+    }
+
+    @MainActor private static func installWarmTerminalPoolSettingsObserverIfNeeded() {
+        if warmTerminalPoolSettingsObserver == nil {
+            warmTerminalPoolSettingsObserver = NotificationCenter.default.addObserver(
+                forName: TerminalWarmPtyPoolSettings.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in
+                    if TerminalWarmPtyPoolSettings.isEnabled() {
+                        AppDelegate.shared?.tabManager?.selectedWorkspace?
+                            .refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "settings.enabled")
+                    } else {
+                        Self.discardWarmTerminalPool(reason: "settings.disabled")
+                    }
+                }
+            }
+        }
+
+        if warmTerminalPoolGhosttyConfigObserver == nil {
+            warmTerminalPoolGhosttyConfigObserver = NotificationCenter.default.addObserver(
+                forName: .ghosttyConfigDidReload,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in
+                    Self.discardWarmTerminalPool(reason: "ghosttyConfig.reload")
+                }
+            }
+        }
+    }
+
+    @MainActor private static func discardWarmTerminalPool(reason: String) {
+        let panel = warmTerminalPoolPanel
+        warmTerminalPoolPanel = nil
+        warmTerminalPoolOwnerWorkspaceId = nil
+        warmTerminalPoolStartupSignature = nil
+        warmTerminalPoolContext = nil
+        warmTerminalPoolActivatingPanelId = nil
+        warmTerminalPoolActivatingWorkspaceId = nil
+        warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
+        guard let panel else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "terminal.warmPool.discard panel=\(panel.id.uuidString.prefix(5)) reason=\(reason)"
+        )
+#endif
+        panel.close()
+    }
+
+    @MainActor private static func discardWarmTerminalPoolIfOwned(
+        by workspaceId: UUID,
+        reason: String
+    ) {
+        guard warmTerminalPoolOwnerWorkspaceId == workspaceId else { return }
+        discardWarmTerminalPool(reason: reason)
+    }
+
+    private static func normalizedWarmTerminalDirectory(_ directory: String?) -> String? {
+        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func warmTerminalTargetDirectory(
+        workingDirectory: String?,
+        configTemplate: CmuxSurfaceConfigTemplate?
+    ) -> String? {
+        if let directory = normalizedWarmTerminalDirectory(workingDirectory) {
+            return directory
+        }
+        return normalizedWarmTerminalDirectory(configTemplate?.workingDirectory)
+    }
+
+    private static func warmTerminalContextsMatch(
+        _ lhs: ghostty_surface_context_e?,
+        _ rhs: ghostty_surface_context_e
+    ) -> Bool {
+        guard let lhs else { return false }
+        return cmuxSurfaceContextName(lhs) == cmuxSurfaceContextName(rhs)
+    }
+
+    @MainActor func isWarmTerminalPoolPanel(_ panelId: UUID) -> Bool {
+        if Self.warmTerminalPoolOwnerWorkspaceId == id,
+           Self.warmTerminalPoolPanel?.id == panelId {
+            return true
+        }
+        return Self.warmTerminalPoolActivatingWorkspaceId == id &&
+            Self.warmTerminalPoolActivatingPanelId == panelId
+    }
+
+    @MainActor private func updateWarmTerminalBufferedMetadata(
+        panelId: UUID,
+        _ update: (inout WarmTerminalPoolBufferedMetadata) -> Void
+    ) -> Bool {
+        guard isWarmTerminalPoolPanel(panelId) else { return false }
+        if Self.warmTerminalPoolBufferedMetadata.panelId != panelId {
+            Self.warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata(panelId: panelId)
+        }
+        update(&Self.warmTerminalPoolBufferedMetadata)
+        return true
+    }
+
+    @MainActor func bufferWarmTerminalDirectoryIfNeeded(panelId: UUID, directory: String) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.directory = directory
+        }
+    }
+
+    @MainActor func bufferWarmTerminalTitleIfNeeded(panelId: UUID, title: String) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.title = title
+        }
+    }
+
+    @MainActor func bufferWarmTerminalGitBranchIfNeeded(
+        panelId: UUID,
+        branch: String,
+        isDirty: Bool
+    ) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.didReportGitBranch = true
+            metadata.gitBranch = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+        }
+    }
+
+    @MainActor func bufferWarmTerminalGitClearIfNeeded(panelId: UUID) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.didReportGitBranch = true
+            metadata.gitBranch = nil
+        }
+    }
+
+    @MainActor func bufferWarmTerminalShellActivityIfNeeded(
+        panelId: UUID,
+        state: PanelShellActivityState
+    ) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.shellActivityRawValue = state.rawValue
+        }
+    }
+
+    @MainActor func bufferWarmTerminalTTYIfNeeded(panelId: UUID, ttyName: String) -> Bool {
+        updateWarmTerminalBufferedMetadata(panelId: panelId) { metadata in
+            metadata.ttyName = ttyName
+        }
+    }
+
+    @MainActor private static func clearWarmTerminalBufferedMetadata(panelId: UUID) {
+        if warmTerminalPoolActivatingPanelId == panelId {
+            warmTerminalPoolActivatingPanelId = nil
+            warmTerminalPoolActivatingWorkspaceId = nil
+        }
+        guard warmTerminalPoolBufferedMetadata.panelId == panelId else { return }
+        warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
+    }
+
+    @MainActor private func applyBufferedWarmTerminalMetadataIfNeeded(to panel: TerminalPanel) {
+        if Self.warmTerminalPoolActivatingPanelId == panel.id {
+            Self.warmTerminalPoolActivatingPanelId = nil
+            Self.warmTerminalPoolActivatingWorkspaceId = nil
+        }
+        let metadata = Self.warmTerminalPoolBufferedMetadata
+        guard metadata.panelId == panel.id else { return }
+        Self.warmTerminalPoolBufferedMetadata = WarmTerminalPoolBufferedMetadata()
+
+        if let title = metadata.title {
+            _ = updatePanelTitle(panelId: panel.id, title: title)
+            if focusedPanelId == panel.id {
+                owningTabManager?.focusedSurfaceTitleDidChange(tabId: id)
+            }
+        }
+
+        if let directory = metadata.directory {
+            if let owningTabManager {
+                owningTabManager.updateSurfaceDirectory(tabId: id, surfaceId: panel.id, directory: directory)
+            } else {
+                updatePanelDirectory(panelId: panel.id, directory: directory)
+            }
+            panel.updateDirectory(directory)
+        }
+
+        if metadata.didReportGitBranch {
+            if let gitBranch = metadata.gitBranch {
+                if let owningTabManager {
+                    owningTabManager.updateSurfaceGitBranch(
+                        tabId: id,
+                        surfaceId: panel.id,
+                        branch: gitBranch.branch,
+                        isDirty: gitBranch.isDirty
+                    )
+                } else {
+                    updatePanelGitBranch(panelId: panel.id, branch: gitBranch.branch, isDirty: gitBranch.isDirty)
+                }
+            } else if let owningTabManager {
+                owningTabManager.clearSurfaceGitBranch(tabId: id, surfaceId: panel.id)
+            } else {
+                clearPanelGitBranch(panelId: panel.id)
+            }
+        }
+
+        if let rawState = metadata.shellActivityRawValue,
+           let state = PanelShellActivityState(rawValue: rawState) {
+            updatePanelShellActivityState(panelId: panel.id, state: state)
+        }
+
+        if let ttyName = metadata.ttyName {
+            surfaceTTYNames[panel.id] = ttyName
+            if isRemoteWorkspace {
+                syncRemotePortScanTTYs()
+                _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panel.id)
+            } else {
+                PortScanner.shared.registerTTY(workspaceId: id, panelId: panel.id, ttyName: ttyName)
+                PortScanner.shared.kick(workspaceId: id, panelId: panel.id)
+            }
+        }
+    }
+
+#if DEBUG
+    static func debugWarmTerminalTargetDirectoryForTesting(
+        workingDirectory: String?,
+        configTemplateWorkingDirectory: String?
+    ) -> String? {
+        var configTemplate = CmuxSurfaceConfigTemplate()
+        configTemplate.workingDirectory = configTemplateWorkingDirectory
+        return warmTerminalTargetDirectory(
+            workingDirectory: workingDirectory,
+            configTemplate: configTemplate
+        )
+    }
+#endif
+
+    private static func warmTerminalConfigTemplate(from configTemplate: CmuxSurfaceConfigTemplate?) -> CmuxSurfaceConfigTemplate? {
+        guard let configTemplate else { return nil }
+        guard configTemplate.fontSize > 0 else { return nil }
+        var template = CmuxSurfaceConfigTemplate()
+        template.fontSize = configTemplate.fontSize
+        return template
+    }
+
+    private func resolvedWorkingDirectoryForNewTerminal(
+        explicitWorkingDirectory: String?,
+        preferredPanelId: UUID?,
+        inPane paneId: PaneID
+    ) -> String? {
+        if let explicitDirectory = Self.normalizedWarmTerminalDirectory(explicitWorkingDirectory) {
+            return explicitDirectory
+        }
+
+        var panelIds: [UUID] = []
+        var seenPanelIds = Set<UUID>()
+        func appendPanelId(_ panelId: UUID?) {
+            guard let panelId, seenPanelIds.insert(panelId).inserted else { return }
+            panelIds.append(panelId)
+        }
+
+        appendPanelId(preferredPanelId)
+        appendPanelId(selectedTerminalPanel(inPane: paneId)?.id)
+        appendPanelId(focusedTerminalPanel?.id)
+
+        for panelId in panelIds {
+            for candidate in [
+                panelDirectories[panelId],
+                terminalPanel(for: panelId)?.requestedWorkingDirectory
+            ] {
+                if let directory = Self.normalizedWarmTerminalDirectory(candidate) {
+                    return directory
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func resolvedWorkingDirectoryForTerminalSplit(
+        explicitWorkingDirectory: String?,
+        sourcePanelId: UUID
+    ) -> String? {
+        if let explicitDirectory = Self.normalizedWarmTerminalDirectory(explicitWorkingDirectory) {
+            return explicitDirectory
+        }
+
+        for candidate in [
+            panelDirectories[sourcePanelId],
+            terminalPanel(for: sourcePanelId)?.requestedWorkingDirectory
+        ] {
+            if let directory = Self.normalizedWarmTerminalDirectory(candidate) {
+                return directory
+            }
+        }
+
+        return nil
+    }
+
+    private func canUseWarmTerminalPool(
+        initialCommand: String?,
+        tmuxStartCommand: String?,
+        initialInput: String?,
+        initialEnvironmentOverrides: [String: String],
+        startupEnvironment: [String: String],
+        configTemplate: CmuxSurfaceConfigTemplate?
+    ) -> Bool {
+        guard TerminalWarmPtyPoolSettings.isEnabled() else { return false }
+        guard remoteTerminalStartupCommand() == nil else { return false }
+        guard initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else { return false }
+        guard tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else { return false }
+        guard initialInput?.isEmpty != false else { return false }
+        guard initialEnvironmentOverrides.isEmpty else { return false }
+        guard startupEnvironment.isEmpty else { return false }
+        guard configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+            return false
+        }
+        guard configTemplate?.initialInput?.isEmpty != false else { return false }
+        guard configTemplate?.environmentVariables.isEmpty != false else { return false }
+        guard configTemplate?.waitAfterCommand != true else { return false }
+        return true
+    }
+
+    @MainActor private func takeWarmTerminalPanelIfAvailable(
+        context: ghostty_surface_context_e,
+        configTemplate: CmuxSurfaceConfigTemplate?,
+        workingDirectory: String?,
+        reason: String
+    ) -> TerminalPanel? {
+        Self.installWarmTerminalPoolSettingsObserverIfNeeded()
+        guard TerminalWarmPtyPoolSettings.isEnabled() else {
+            Self.discardWarmTerminalPool(reason: "take.disabled")
+            return nil
+        }
+        guard let panel = Self.warmTerminalPoolPanel else { return nil }
+        let previousOwner = Self.warmTerminalPoolOwnerWorkspaceId
+        guard previousOwner == id else {
+#if DEBUG
+            let previousOwnerLabel = previousOwner.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            cmuxDebugLog(
+                "terminal.warmPool.skipOwnerMismatch panel=\(panel.id.uuidString.prefix(5)) " +
+                "workspace=\(id.uuidString.prefix(5)) previousOwner=\(previousOwnerLabel) " +
+                "reason=\(reason)"
+            )
+#endif
+            return nil
+        }
+        guard Self.warmTerminalContextsMatch(Self.warmTerminalPoolContext, context) else {
+            Self.discardWarmTerminalPool(reason: "take.contextMismatch")
+            return nil
+        }
+        let startupSignature = Self.warmTerminalPoolStartupSignature
+        guard startupSignature == TerminalWarmPtyPoolStartupSignature.current() else {
+            Self.discardWarmTerminalPool(reason: "take.startupSignatureChanged")
+            return nil
+        }
+        guard let liveSurface = panel.surface.liveSurfaceForGhosttyAccess(reason: "warmPool.take") else {
+            Self.discardWarmTerminalPool(reason: "take.surfaceUnavailable")
+            return nil
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else {
+            Self.discardWarmTerminalPool(reason: "take.processExited")
+            return nil
+        }
+
+        let targetDirectory = Self.warmTerminalTargetDirectory(
+            workingDirectory: workingDirectory,
+            configTemplate: configTemplate
+        )
+        let bufferedDirectory = Self.warmTerminalPoolBufferedMetadata.panelId == panel.id
+            ? Self.normalizedWarmTerminalDirectory(Self.warmTerminalPoolBufferedMetadata.directory)
+            : nil
+        let currentDirectory = Self.normalizedWarmTerminalDirectory(panel.directory)
+            ?? bufferedDirectory
+            ?? Self.normalizedWarmTerminalDirectory(panel.requestedWorkingDirectory)
+        guard currentDirectory == targetDirectory else {
+            Self.discardWarmTerminalPool(reason: "take.directoryMismatch")
+            return nil
+        }
+
+        Self.warmTerminalPoolPanel = nil
+        Self.warmTerminalPoolOwnerWorkspaceId = nil
+        Self.warmTerminalPoolStartupSignature = nil
+        Self.warmTerminalPoolContext = nil
+        Self.warmTerminalPoolActivatingPanelId = panel.id
+        Self.warmTerminalPoolActivatingWorkspaceId = id
+        panel.updateWorkspaceId(id)
+        configureTerminalPanel(panel)
+        prepareWarmTerminalPanelForUse(panel, configTemplate: configTemplate)
+#if DEBUG
+        let previousOwnerLabel = previousOwner.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        cmuxDebugLog(
+            "terminal.warmPool.take panel=\(panel.id.uuidString.prefix(5)) " +
+            "workspace=\(id.uuidString.prefix(5)) previousOwner=\(previousOwnerLabel) " +
+            "reason=\(reason)"
+        )
+#endif
+        return panel
+    }
+
+    private func prepareWarmTerminalPanelForUse(
+        _ panel: TerminalPanel,
+        configTemplate: CmuxSurfaceConfigTemplate?
+    ) {
+        if let inheritedFontPoints = configTemplate?.fontSize, inheritedFontPoints > 0 {
+            let action = String(format: "set_font_size:%.3f", inheritedFontPoints)
+            _ = panel.performBindingAction(action)
+        }
+    }
+
+    private func terminalPanelForNewTerminal(
+        context: ghostty_surface_context_e,
+        configTemplate: CmuxSurfaceConfigTemplate?,
+        workingDirectory: String?,
+        initialCommand: String?,
+        tmuxStartCommand: String?,
+        initialInput: String?,
+        initialEnvironmentOverrides: [String: String] = [:],
+        startupEnvironment: [String: String],
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        reason: String
+    ) -> TerminalPanel {
+        if canUseWarmTerminalPool(
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            startupEnvironment: startupEnvironment,
+            configTemplate: configTemplate
+        ), let warmPanel = takeWarmTerminalPanelIfAvailable(
+            context: context,
+            configTemplate: configTemplate,
+            workingDirectory: workingDirectory,
+            reason: reason
+        ) {
+            return warmPanel
+        }
+
+        return TerminalPanel(
+            workspaceId: id,
+            context: context,
+            configTemplate: configTemplate,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            additionalEnvironment: startupEnvironment,
+            focusPlacement: focusPlacement
+        )
+    }
+
+    @MainActor private func refillWarmTerminalPoolIfNeeded(
+        context: ghostty_surface_context_e,
+        reason: String
+    ) {
+        Self.installWarmTerminalPoolSettingsObserverIfNeeded()
+        guard TerminalWarmPtyPoolSettings.isEnabled() else {
+            Self.discardWarmTerminalPool(reason: "refill.disabled")
+            return
+        }
+        if Self.warmTerminalPoolPanel != nil,
+           (Self.warmTerminalPoolOwnerWorkspaceId != id ||
+            !Self.warmTerminalContextsMatch(Self.warmTerminalPoolContext, context)) {
+            Self.discardWarmTerminalPool(reason: "refill.ownerOrContextChanged")
+        }
+        guard Self.warmTerminalPoolPanel == nil else { return }
+        guard Self.warmTerminalPoolCanStartRuntimeInCurrentProcess else { return }
+        guard remoteTerminalStartupCommand() == nil else { return }
+
+        let targetPaneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
+        let inheritedConfig = targetPaneId.flatMap { inheritedTerminalConfig(inPane: $0) }
+        let workingDirectory = targetPaneId.flatMap {
+            resolvedWorkingDirectoryForNewTerminal(
+                explicitWorkingDirectory: nil,
+                preferredPanelId: focusedPanelId,
+                inPane: $0
+            )
+        }
+        let startupSignature = TerminalWarmPtyPoolStartupSignature.current()
+        let panel = TerminalPanel(
+            workspaceId: id,
+            context: context,
+            configTemplate: Self.warmTerminalConfigTemplate(from: inheritedConfig),
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal
+        )
+        configureTerminalPanel(panel)
+        Self.warmTerminalPoolPanel = panel
+        Self.warmTerminalPoolOwnerWorkspaceId = id
+        Self.warmTerminalPoolStartupSignature = startupSignature
+        Self.warmTerminalPoolContext = context
+        panel.surface.requestBackgroundSurfaceStartIfNeeded()
+#if DEBUG
+        cmuxDebugLog(
+            "terminal.warmPool.refill panel=\(panel.id.uuidString.prefix(5)) " +
+            "workspace=\(id.uuidString.prefix(5)) context=\(cmuxSurfaceContextName(context)) " +
+            "cwd=\(workingDirectory ?? "nil") reason=\(reason)"
+        )
+#endif
+    }
+
+    @MainActor func refillWarmTerminalPoolAfterWorkspaceSelection(reason: String) {
+        refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: reason)
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -12169,24 +12699,12 @@ final class Workspace: Identifiable, ObservableObject {
         // Inherit working directory: prefer the source panel's reported cwd,
         // then its requested startup cwd if shell integration has not reported
         // back yet, and finally fall back to the workspace's current directory.
-        let splitWorkingDirectory: String? = {
-            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !workingDirectory.isEmpty {
-                return workingDirectory
-            }
-            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !panelDirectory.isEmpty {
-                return panelDirectory
-            }
-            if let requestedWorkingDirectory = terminalPanel(for: panelId)?
-                .requestedWorkingDirectory?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !requestedWorkingDirectory.isEmpty {
-                return requestedWorkingDirectory
-            }
-            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
-        }()
+        let splitWorkingDirectory = remoteTerminalStartupCommand == nil
+            ? resolvedWorkingDirectoryForTerminalSplit(
+                explicitWorkingDirectory: workingDirectory,
+                sourcePanelId: panelId
+            )
+            : nil
 #if DEBUG
         cmuxDebugLog(
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
@@ -12194,15 +12712,15 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
         // Create the new terminal panel.
-        let newPanel = TerminalPanel(
-            workspaceId: id,
+        let newPanel = terminalPanelForNewTerminal(
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: splitWorkingDirectory,
-            portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
-            additionalEnvironment: startupEnvironment
+            initialInput: nil,
+            startupEnvironment: startupEnvironment,
+            reason: "newTerminalSplit"
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -12248,10 +12766,13 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            newPanel.close()
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            Self.clearWarmTerminalBufferedMetadata(panelId: newPanel.id)
+            refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "newTerminalSplit.layoutFailed")
             return nil
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
@@ -12290,11 +12811,13 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
+        applyBufferedWarmTerminalMetadataIfNeeded(to: newPanel)
         owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: id,
             panelId: newPanel.id,
             reason: "splitCreate"
         )
+        refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "newTerminalSplit.created")
 
         return newPanel
     }
@@ -12331,18 +12854,24 @@ final class Workspace: Identifiable, ObservableObject {
             template.waitAfterCommand = true
             inheritedConfig = template
         }
+        let resolvedWorkingDirectory = remoteTerminalStartupCommand == nil
+            ? resolvedWorkingDirectoryForNewTerminal(
+                explicitWorkingDirectory: workingDirectory,
+                preferredPanelId: selectedTerminalPanel(inPane: paneId)?.id,
+                inPane: paneId
+            )
+            : nil
 
         // Create new terminal panel
-        let newPanel = TerminalPanel(
-            workspaceId: id,
+        let newPanel = terminalPanelForNewTerminal(
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
-            portOrdinal: portOrdinal,
+            workingDirectory: resolvedWorkingDirectory,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
-            additionalEnvironment: startupEnvironment
+            startupEnvironment: startupEnvironment,
+            reason: "newTerminalSurface"
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -12368,11 +12897,14 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            newPanel.close()
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            Self.clearWarmTerminalBufferedMetadata(panelId: newPanel.id)
+            refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "newTerminalSurface.layoutFailed")
             return nil
         }
 
@@ -12395,11 +12927,13 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
+        applyBufferedWarmTerminalMetadataIfNeeded(to: newPanel)
         owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: id,
             panelId: newPanel.id,
             reason: "surfaceCreate"
         )
+        refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "newTerminalSurface.created")
         return newPanel
     }
 
@@ -13016,6 +13550,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels() {
+        Self.discardWarmTerminalPoolIfOwned(by: id, reason: "workspace.teardown")
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
@@ -16497,12 +17032,23 @@ extension Workspace: BonsplitDelegate {
             preferredPanelId: sourcePanelId,
             inPane: originalPane
         )
+        let splitWorkingDirectory = remoteTerminalStartupCommand() == nil
+            ? resolvedWorkingDirectoryForNewTerminal(
+                explicitWorkingDirectory: nil,
+                preferredPanelId: sourcePanelId,
+                inPane: originalPane
+            )
+            : nil
 
-        let newPanel = TerminalPanel(
-            workspaceId: id,
+        let newPanel = terminalPanelForNewTerminal(
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            portOrdinal: portOrdinal
+            workingDirectory: splitWorkingDirectory,
+            initialCommand: nil,
+            tmuxStartCommand: nil,
+            initialInput: nil,
+            startupEnvironment: [:],
+            reason: "uiSplitAutoCreate"
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -16520,18 +17066,23 @@ extension Workspace: BonsplitDelegate {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            newPanel.close()
+            Self.clearWarmTerminalBufferedMetadata(panelId: newPanel.id)
+            refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "uiSplitAutoCreate.layoutFailed")
             return
         }
 
         surfaceIdToPanelId[newTabId] = newPanel.id
         normalizePinnedTabs(in: newPane)
         publishCmuxSplitCreated(newPane, sourcePaneId: originalPane, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "ui_split", focused: true)
+        applyBufferedWarmTerminalMetadataIfNeeded(to: newPanel)
 #if DEBUG
         cmuxDebugLog(
             "split.didSplit.autoCreate.done pane=\(newPane.id.uuidString.prefix(5)) " +
             "panel=\(newPanel.id.uuidString.prefix(5))"
         )
 #endif
+        refillWarmTerminalPoolIfNeeded(context: GHOSTTY_SURFACE_CONTEXT_SPLIT, reason: "uiSplitAutoCreate.created")
 
         // `createTab` selects the new tab but does not emit didSelectTab; schedule an explicit
         // selection so our focus/unfocus logic runs after this delegate callback returns.

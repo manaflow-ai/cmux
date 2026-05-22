@@ -4093,6 +4093,14 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_RING_BELL:
             performOnMain {
+                let tabId = callbackTabId ?? surfaceView.tabId
+                let surfaceId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                if let tabId,
+                   let surfaceId,
+                   let workspace = AppDelegate.shared?.tabManagerFor(tabId: tabId)?.tabs.first(where: { $0.id == tabId }),
+                   workspace.isWarmTerminalPoolPanel(surfaceId) {
+                    return
+                }
                 self.ringBell()
             }
             return true
@@ -4224,16 +4232,19 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            guard let tabId = surfaceView.tabId else { return true }
-            let surfaceId = surfaceView.terminalSurface?.id
+            guard let tabId = surfaceView.tabId,
+                  let surfaceId = surfaceView.terminalSurface?.id else { return true }
             let actionTitle = action.action.desktop_notification.title
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
                 .flatMap { String(cString: $0) } ?? ""
             performOnMain {
                 let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
-                if let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
-                   workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
+                let workspace = owningManager?.tabs.first(where: { $0.id == tabId })
+                if workspace?.isWarmTerminalPoolPanel(surfaceId) == true {
+                    return
+                }
+                if workspace?.suppressesRawTerminalNotification(panelId: surfaceId) == true {
                     return
                 }
                 let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
@@ -4716,6 +4727,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    struct CmuxPortEnvironmentValues: Equatable {
+        let port: String
+        let portEnd: String
+        let portRange: String
+    }
+
     private struct PendingKeyEvent {
         let keycode: UInt32
         let mods: ghostty_input_mods_e
@@ -4819,6 +4836,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let val = UserDefaults.standard.integer(forKey: AutomationSettings.portRangeKey)
         return val > 0 ? val : AutomationSettings.defaultPortRange
     }()
+
+    static func cmuxPortEnvironmentValues(portOrdinal: Int) -> CmuxPortEnvironmentValues {
+        let startPort = sessionPortBase + portOrdinal * sessionPortRangeSize
+        return CmuxPortEnvironmentValues(
+            port: String(startPort),
+            portEnd: String(startPort + sessionPortRangeSize - 1),
+            portRange: String(sessionPortRangeSize)
+        )
+    }
+
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: CmuxSurfaceConfigTemplate?
     private let workingDirectory: String?
@@ -5697,10 +5724,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         // Port range for this workspace (base/range snapshotted once per app session)
         do {
-            let startPort = Self.sessionPortBase + portOrdinal * Self.sessionPortRangeSize
-            setManagedEnvironmentValue("CMUX_PORT", String(startPort))
-            setManagedEnvironmentValue("CMUX_PORT_END", String(startPort + Self.sessionPortRangeSize - 1))
-            setManagedEnvironmentValue("CMUX_PORT_RANGE", String(Self.sessionPortRangeSize))
+            let values = Self.cmuxPortEnvironmentValues(portOrdinal: portOrdinal)
+            setManagedEnvironmentValue("CMUX_PORT", values.port)
+            setManagedEnvironmentValue("CMUX_PORT_END", values.portEnd)
+            setManagedEnvironmentValue("CMUX_PORT_RANGE", values.portRange)
         }
 
         let claudeHooksEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()

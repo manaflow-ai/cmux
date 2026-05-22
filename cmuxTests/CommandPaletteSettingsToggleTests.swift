@@ -65,6 +65,33 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testTerminalWarmPtyPoolTogglePostsChangeNotification() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.terminalWarmPtyPool"
+                )
+            )
+            let notificationCenter = NotificationCenter()
+            var didNotify = false
+            let token = notificationCenter.addObserver(
+                forName: TerminalWarmPtyPoolSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                didNotify = true
+            }
+            defer { notificationCenter.removeObserver(token) }
+
+            XCTAssertFalse(descriptor.isOn(defaults))
+            descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+
+            XCTAssertEqual(defaults.object(forKey: TerminalWarmPtyPoolSettings.enabledKey) as? Bool, true)
+            XCTAssertTrue(descriptor.isOn(defaults))
+            XCTAssertTrue(didNotify)
+        }
+    }
+
     func testShowMenuBarCommandIsUnavailableWhenMenuBarOnlyIsEnabled() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(

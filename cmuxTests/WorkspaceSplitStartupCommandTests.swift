@@ -98,6 +98,286 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(surface.surface.debugTmuxStartCommand(), tmuxStartCommand)
     }
 
+    func testNewTerminalSurfaceInheritsFocusedPaneWorkingDirectory() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let focusedDirectory = "/tmp/cmux-warm-pty-cwd-\(UUID().uuidString)"
+        workspace.updatePanelDirectory(panelId: sourcePanelId, directory: focusedDirectory)
+
+        let surface = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+
+        XCTAssertEqual(surface.requestedWorkingDirectory, focusedDirectory)
+    }
+
+    func testRemoteTerminalSurfaceDoesNotUseRemoteCwdAsLocalWorkingDirectory() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        workspace.currentDirectory = "/home/cmux/project"
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+
+        let surface = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+
+        XCTAssertNil(surface.requestedWorkingDirectory)
+        XCTAssertEqual(surface.surface.debugInitialCommand(), "ssh cmux-macmini")
+    }
+
+    func testSplitDoesNotUseSiblingOrWorkspaceDirectoryWhenSourceHasNoDirectory() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let workspaceDirectory = "/tmp/cmux-split-workspace-\(UUID().uuidString)"
+        let siblingDirectory = "/tmp/cmux-split-sibling-\(UUID().uuidString)"
+        workspace.currentDirectory = workspaceDirectory
+        let siblingPanel = try XCTUnwrap(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: siblingDirectory
+        ))
+        workspace.updatePanelDirectory(panelId: siblingPanel.id, directory: siblingDirectory)
+
+        let split = try XCTUnwrap(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .vertical,
+            insertFirst: false,
+            focus: false
+        ))
+
+        XCTAssertNil(split.requestedWorkingDirectory)
+    }
+
+    func testRemoteTerminalSplitDoesNotUseRemoteCwdAsLocalWorkingDirectory() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.currentDirectory = "/home/cmux/project"
+        workspace.updatePanelDirectory(panelId: sourcePanelId, directory: "/home/cmux/project")
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+
+        let split = try XCTUnwrap(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .vertical,
+            insertFirst: false,
+            focus: false
+        ))
+
+        XCTAssertNil(split.requestedWorkingDirectory)
+        XCTAssertEqual(split.surface.debugInitialCommand(), "ssh cmux-macmini")
+    }
+
+    func testWarmTerminalTargetUsesExplicitOrInheritedConfigDirectoryOnly() throws {
+        let configuredDirectory = "/tmp/cmux-default-cwd-\(UUID().uuidString)"
+
+        XCTAssertEqual(
+            Workspace.debugWarmTerminalTargetDirectoryForTesting(
+                workingDirectory: nil,
+                configTemplateWorkingDirectory: configuredDirectory
+            ),
+            configuredDirectory
+        )
+        XCTAssertEqual(
+            Workspace.debugWarmTerminalTargetDirectoryForTesting(
+                workingDirectory: "/tmp/cmux-explicit-cwd",
+                configTemplateWorkingDirectory: configuredDirectory
+            ),
+            "/tmp/cmux-explicit-cwd"
+        )
+        XCTAssertNil(
+            Workspace.debugWarmTerminalTargetDirectoryForTesting(
+                workingDirectory: nil,
+                configTemplateWorkingDirectory: nil
+            )
+        )
+    }
+
+    func testWarmTerminalStartupSignatureTracksZshStartupFileChanges() throws {
+        let fileManager = FileManager.default
+        let root = try makeTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let zdotdir = root.appendingPathComponent("zdotdir", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: zdotdir, withIntermediateDirectories: true)
+        let zshrc = zdotdir.appendingPathComponent(".zshrc")
+        try "export CMUX_TEST=1\n".write(to: zshrc, atomically: true, encoding: .utf8)
+
+        let environment = [
+            "HOME": home.path,
+            "SHELL": "/bin/zsh",
+            "ZDOTDIR": zdotdir.path
+        ]
+        let first = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+
+        try "export CMUX_TEST=123456\n".write(to: zshrc, atomically: true, encoding: .utf8)
+
+        let second = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+        XCTAssertNotEqual(first, second)
+    }
+
+    func testWarmTerminalStartupSignatureTracksFishConfDAdditions() throws {
+        let fileManager = FileManager.default
+        let root = try makeTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let configHome = root.appendingPathComponent("xdg", isDirectory: true)
+        let confD = configHome.appendingPathComponent("fish/conf.d", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: confD, withIntermediateDirectories: true)
+
+        let environment = [
+            "HOME": home.path,
+            "SHELL": "/opt/homebrew/bin/fish",
+            "XDG_CONFIG_HOME": configHome.path
+        ]
+        let first = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+
+        let prompt = confD.appendingPathComponent("prompt.fish")
+        try "set -gx CMUX_TEST 1\n".write(to: prompt, atomically: true, encoding: .utf8)
+
+        let second = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+        XCTAssertNotEqual(first, second)
+    }
+
+    func testWarmTerminalStartupSignatureTracksManagedEnvironmentSettings() throws {
+        let fileManager = FileManager.default
+        let root = try makeTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        let defaultsName = "cmuxTests.warmPtyPool.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer {
+            defaults.removePersistentDomain(forName: defaultsName)
+        }
+
+        let environment = [
+            "HOME": home.path,
+            "SHELL": "/bin/zsh"
+        ]
+        let first = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager,
+            defaults: defaults
+        )
+
+        defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+        defaults.set("/opt/cmux/claude", forKey: ClaudeCodeIntegrationSettings.customClaudePathKey)
+        defaults.set(false, forKey: CursorIntegrationSettings.hooksEnabledKey)
+        defaults.set(false, forKey: GeminiIntegrationSettings.hooksEnabledKey)
+        defaults.set(false, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(false, forKey: "sidebarShellIntegration")
+
+        let second = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager,
+            defaults: defaults
+        )
+
+        XCTAssertNotEqual(first, second)
+    }
+
+    func testWarmTerminalStartupSignatureTracksUnknownShellGenericRc() throws {
+        let fileManager = FileManager.default
+        let root = try makeTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+
+        let environment = [
+            "HOME": home.path,
+            "SHELL": "/opt/custom/bin/myshell"
+        ]
+        let first = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+
+        try "set prompt ready\n".write(
+            to: home.appendingPathComponent(".myshellrc"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let second = TerminalWarmPtyPoolStartupSignature.current(
+            environment: environment,
+            fileManager: fileManager
+        )
+        XCTAssertNotEqual(first, second)
+    }
+
+    func testUnregisteredWarmTerminalMetadataDoesNotMutateVisibleWorkspace() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let hiddenPanelId = UUID()
+        let originalTitle = workspace.title
+        let originalCurrentDirectory = workspace.currentDirectory
+
+        XCTAssertFalse(workspace.updatePanelTitle(panelId: hiddenPanelId, title: "hidden warm shell"))
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: hiddenPanelId,
+            directory: "/tmp/cmux-hidden-warm-shell"
+        )
+        manager.updateSurfaceGitBranch(
+            tabId: workspace.id,
+            surfaceId: hiddenPanelId,
+            branch: "hidden-warm-shell",
+            isDirty: false
+        )
+        manager.updateSurfaceShellActivity(
+            tabId: workspace.id,
+            surfaceId: hiddenPanelId,
+            state: .promptIdle
+        )
+
+        XCTAssertEqual(workspace.title, originalTitle)
+        XCTAssertEqual(workspace.currentDirectory, originalCurrentDirectory)
+        XCTAssertNil(workspace.panelTitles[hiddenPanelId])
+        XCTAssertNil(workspace.panelDirectories[hiddenPanelId])
+        XCTAssertNil(workspace.panelGitBranches[hiddenPanelId])
+        XCTAssertNil(workspace.panelShellActivityStates[hiddenPanelId])
+    }
+
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -152,5 +432,12 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panel.id })
         XCTAssertNil(panelSnapshot.terminal?.tmuxStartCommand)
         XCTAssertNil(Workspace.restorableTmuxStartCommand(genericCommand))
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-warm-pty-signature-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 }
