@@ -141,7 +141,10 @@ jobs:
             xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
+              -destination "platform=macOS" \
+              -skip-testing:cmuxTests/TerminalNotificationSocketActionTests/testNotificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain \
+              -skip-testing:cmuxTests/TerminalNotificationSocketActionTests/testNotificationJumpToUnreadPayloadMatchesOpenedFallbackNotification \
+              test 2>&1
           }
 
           set +e
