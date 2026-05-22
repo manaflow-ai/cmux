@@ -87,6 +87,8 @@ def sensitive_header(name: str) -> bool:
         "secret",
         "api-key",
         "x-api-key",
+        "account",
+        "request-id",
         "session",
         "csrf",
         "sentry",
@@ -111,6 +113,9 @@ def sanitize_text(value: str) -> str:
         (r"Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer <redacted>"),
         (r"sk-[A-Za-z0-9_-]{12,}", "sk-<redacted>"),
         (r"sess-[A-Za-z0-9_-]{12,}", "sess-<redacted>"),
+        (r"\b(user|org|acct|proj|ses)-[A-Za-z0-9_-]{12,}\b", "<redacted-id>"),
+        (r"\b(user|org|acct|proj|ses)_[A-Za-z0-9_-]{12,}\b", "<redacted-id>"),
+        (r"\b(req|msg|resp|evt|call)_[A-Za-z0-9_-]{12,}\b", "<redacted-id>"),
         (r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9._-]{20,}", "<redacted-jwt>"),
         (r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<redacted-email>"),
         (r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "<redacted-uuid>"),
@@ -144,6 +149,7 @@ def sanitize_headers(headers: list[dict[str, Any]]) -> list[dict[str, str]]:
 def sanitize_post_data(post_data: dict[str, Any] | None) -> dict[str, Any] | None:
     if not post_data:
         return None
+    source_truncated = bool(post_data.get("_cmuxBodyTruncated"))
     text = post_data.get("text")
     if not isinstance(text, str) or not text:
         return None
@@ -152,13 +158,14 @@ def sanitize_post_data(post_data: dict[str, Any] | None) -> dict[str, Any] | Non
         "mimeType": post_data.get("mimeType", "application/octet-stream"),
         "text": text,
     }
-    if truncated:
+    if truncated or source_truncated or "<cmux-truncated>" in text:
         result["_cmuxBodyTruncated"] = True
     return result
 
 
 def sanitize_content(content: dict[str, Any]) -> dict[str, Any]:
     text = content.get("text")
+    source_truncated = bool(content.get("_cmuxBodyTruncated"))
     result: dict[str, Any] = {
         "mimeType": content.get("mimeType", "application/octet-stream"),
         "size": content.get("size", 0),
@@ -166,7 +173,7 @@ def sanitize_content(content: dict[str, Any]) -> dict[str, Any]:
     if isinstance(text, str) and text:
         text, truncated = trim_text(sanitize_text(text))
         result["text"] = text
-        if truncated:
+        if truncated or source_truncated or "<cmux-truncated>" in text:
             result["_cmuxBodyTruncated"] = True
     else:
         result["text"] = ""

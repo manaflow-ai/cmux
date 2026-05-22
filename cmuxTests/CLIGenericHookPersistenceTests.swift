@@ -2434,6 +2434,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "authorization",
             "cookie",
             "set-cookie",
+            "prompt_cache_key\":\"ses_",
+            "safety_identifier\":\"user-",
+            "req_",
+            "msg_",
+            "resp_",
         ] {
             XCTAssertFalse(
                 fixtureText.localizedCaseInsensitiveContains(forbidden),
