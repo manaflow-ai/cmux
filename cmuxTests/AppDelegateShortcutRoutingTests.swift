@@ -1798,6 +1798,49 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(dock.controller.allPaneIds.contains(secondSplitPaneId))
     }
 
+    func testSplitShortcutIgnoresStaleTerminalWhenEmptyDockPaneFocused() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let window = try XCTUnwrap(window(withId: windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let mainPanel = try XCTUnwrap(workspace.terminalPanel(for: mainPanelId))
+        let mainSurfaceView = try XCTUnwrap(surfaceView(in: mainPanel.hostedView))
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+
+        window.makeKeyAndOrderFront(nil)
+        drainMainQueue()
+        XCTAssertTrue(window.makeFirstResponder(mainSurfaceView))
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        XCTAssertNil(workspace.focusedPanelId)
+        XCTAssertTrue(window.firstResponder === mainSurfaceView)
+
+        let mainPaneCountBefore = workspace.bonsplitController.allPaneIds.count
+        let dockPaneCountBefore = dock.controller.allPaneIds.count
+        let panelIdsBefore = Set(workspace.panels.keys)
+
+        XCTAssertFalse(
+            appDelegate.performSplitShortcut(direction: .right, preferredWindow: window),
+            "Split shortcuts should not mutate a stale main terminal when an empty dock pane has focus"
+        )
+        drainMainQueue()
+
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, mainPaneCountBefore)
+        XCTAssertEqual(dock.controller.allPaneIds.count, dockPaneCountBefore)
+        XCTAssertEqual(Set(workspace.panels.keys), panelIdsBefore)
+        let commandPane = try XCTUnwrap(workspace.focusedBonsplitPaneForCommands())
+        XCTAssertTrue(commandPane.controller === dock.controller)
+        XCTAssertEqual(commandPane.paneId, dockPaneId)
+    }
+
     func testDockFocusedSurfaceSelectionShortcutsStayInDockPane() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

@@ -5784,14 +5784,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let workspace = context.tabManager.tabs.first(where: { $0.id == context.workspaceId }) else {
             return true
         }
-        guard let focusedPanelId = workspace.focusedPanelId,
-              focusedPanelId != context.panelId else {
+        guard let responderTabId = workspace.surfaceIdFromPanelId(context.panelId),
+              let responderController = workspace.bonsplitController(containingTab: responderTabId) else {
+            return true
+        }
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            guard let focusedTarget = workspace.focusedBonsplitPaneForCommands(),
+                  let responderPaneId = workspace.paneId(forPanelId: context.panelId) else {
+                return false
+            }
+            return focusedTarget.controller === responderController &&
+                focusedTarget.paneId == responderPaneId
+        }
+        guard focusedPanelId != context.panelId else {
             return true
         }
         guard let focusedPaneId = workspace.paneId(forPanelId: focusedPanelId),
-              let focusedController = workspace.bonsplitController(containingPane: focusedPaneId),
-              let responderTabId = workspace.surfaceIdFromPanelId(context.panelId),
-              let responderController = workspace.bonsplitController(containingTab: responderTabId) else {
+              let focusedController = workspace.bonsplitController(containingPane: focusedPaneId) else {
             return true
         }
         return focusedController === responderController
