@@ -1059,7 +1059,11 @@ private final class ClaudeHookSessionStore {
                 updateRuntimeStatus: false,
                 now: now
             )
-            let clearedFingerprint = normalizedFingerprint ?? record.pendingNotificationFingerprint
+            let emittedMatches = normalizedFingerprint != nil &&
+                record.lastEmittedNotificationFingerprint == normalizedFingerprint
+            let clearedFingerprint = emittedMatches
+                ? nil
+                : (normalizedFingerprint ?? record.pendingNotificationFingerprint)
             record.pendingNotificationFingerprint = nil
             record.pendingNotificationStartedAt = nil
             record.pendingNotificationClearedFingerprint = clearedFingerprint

@@ -686,8 +686,32 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionAfterFeed = try readClaudeHookSession(sessionId, context: context)
         XCTAssertNil(sessionAfterFeed["pendingNotificationFingerprint"])
+        XCTAssertNil(sessionAfterFeed["pendingNotificationClearedFingerprint"])
         XCTAssertNil(sessionAfterFeed["lastSubtitle"])
         XCTAssertNil(sessionAfterFeed["lastBody"])
+
+        let repeatedPermissionStart = context.state.commands.count
+        let repeatedPermission = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: permissionPayload
+        )
+        XCTAssertFalse(repeatedPermission.timedOut, repeatedPermission.stderr)
+        XCTAssertEqual(repeatedPermission.status, 0, repeatedPermission.stderr)
+
+        let repeatedPermissionCommands = Array(context.state.commands.dropFirst(repeatedPermissionStart))
+        let repeatedNotifyCommands = repeatedPermissionCommands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let repeatedNotifyCommand = try XCTUnwrap(
+            repeatedNotifyCommands.last,
+            "Expected repeated permission prompt after Feed resolution to notify"
+        )
+        XCTAssertTrue(repeatedNotifyCommand.contains("Claude Workspace - Claude waiting|Permission request|"), repeatedNotifyCommand)
+        XCTAssertTrue(repeatedNotifyCommand.contains("Allow Bash to inspect grep error.log?"), repeatedNotifyCommand)
+        XCTAssertTrue(
+            repeatedPermissionCommands.contains { $0.contains("set_status claude_code Needs input") },
+            "Expected repeated permission prompt after Feed resolution to mark Claude waiting, saw \(repeatedPermissionCommands)"
+        )
     }
 
     func testClaudePermissionRequestSkipsNotificationWhenSamePromptResolvedBeforeAsyncHookStarts() throws {
