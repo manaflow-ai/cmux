@@ -5436,13 +5436,14 @@ class TabManager: ObservableObject {
 
     func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        let previousDirectory = gitProbeDirectory(for: tab, panelId: surfaceId)
         let normalized = normalizeDirectory(directory)
         if tab.isRemoteWorkspace {
             tab.updateRemotePanelDirectory(panelId: surfaceId, directory: normalized)
-        } else {
-            tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
+            return
         }
+
+        let previousDirectory = gitProbeDirectory(for: tab, panelId: surfaceId)
+        tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
         let nextDirectory = normalizedWorkingDirectory(normalized)
         if previousDirectory != nextDirectory {
             guard sidebarGitMetadataWatchEnabled else {
