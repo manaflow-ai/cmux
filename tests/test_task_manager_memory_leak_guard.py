@@ -93,13 +93,21 @@ class SocketClient:
 
 
 def resolve_app_path(explicit: str | None) -> Path:
-    candidates: list[Path] = []
     if explicit:
-        candidates.append(Path(explicit).expanduser())
+        path = Path(explicit).expanduser()
+        if not path.exists():
+            raise RuntimeError(f"--app points to a missing path: {path}")
+        return path
+
     for key in ("CMUX_MEMORY_GUARD_APP", "CMUX_APP_PATH"):
         value = os.environ.get(key)
         if value:
-            candidates.append(Path(value).expanduser())
+            path = Path(value).expanduser()
+            if not path.exists():
+                raise RuntimeError(f"{key} points to a missing path: {path}")
+            return path
+
+    candidates: list[Path] = []
     candidates.extend(Path.cwd().glob("build-memory-leak/Build/Products/Debug/cmux DEV.app"))
     candidates.extend(Path.cwd().glob("build*/Build/Products/Debug/cmux DEV.app"))
     candidates.extend(Path.home().glob("Library/Developer/Xcode/DerivedData/cmux-*/Build/Products/Debug/cmux DEV*.app"))
@@ -137,6 +145,7 @@ def launch_app(app_path: Path, socket_path: str, cmuxd_socket: str, log_path: st
         "CMUX_SOCKET_PATH",
         "CMUX_SOCKET_PASSWORD",
         "CMUX_SOCKET_MODE",
+        "CMUX_ALLOW_SOCKET_OVERRIDE",
         "CMUX_TAB_ID",
         "CMUX_PANEL_ID",
         "CMUX_SURFACE_ID",
@@ -150,6 +159,7 @@ def launch_app(app_path: Path, socket_path: str, cmuxd_socket: str, log_path: st
         {
             "CMUX_UI_TEST_MODE": "1",
             "CMUX_SOCKET_MODE": "allowAll",
+            "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
             "CMUX_SOCKET_PATH": socket_path,
             "CMUXD_UNIX_PATH": cmuxd_socket,
             "CMUX_DISABLE_SESSION_RESTORE": "1",
@@ -409,6 +419,8 @@ def run_guard(args: argparse.Namespace) -> int:
         wait_for_socket(client, proc, timeout=20.0)
         workspace_ids = seed_workspaces(client, args.workspace_count)
         show_result = client.v2("debug.task_manager.show")
+        if show_result.get("visible") is not True:
+            raise RuntimeError(f"Task Manager did not become visible: {show_result}")
         print(
             "Task Manager memory guard setup: "
             f"pid={proc.pid} app={app_path} workspaces={len(workspace_ids)} visible={show_result.get('visible')}"
