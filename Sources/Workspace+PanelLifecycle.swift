@@ -321,6 +321,11 @@ extension Workspace {
             panel?.close()
         }
 
+        if origin == "tab_close",
+           panel is TerminalPanel {
+            markRemoteTerminalSessionClosingIfLast(surfaceId: panelId)
+        }
+
         panels.removeValue(forKey: panelId)
         untrackRemoteTerminalSurface(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
