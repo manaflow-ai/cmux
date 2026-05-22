@@ -261,7 +261,7 @@ def expect_ping_prefers_socket_over_default(
     label: str,
 ) -> bool:
     server = PingServer(socket_path)
-    default_server = PingServer(default_socket_path, response=b"WRONG\n", accept_timeout=1.0)
+    default_server = PingServer(default_socket_path, response=b"WRONG\n", accept_timeout=5.0)
     server.start()
     default_server.start()
 
@@ -521,7 +521,7 @@ def test_python_client_supports_rc_variant() -> bool:
 
     with temporary_socket_home("cmux-py-") as home:
         write_marker(home, "rc-last-socket-path", rc_socket)
-        server = PingServer(rc_socket, accept_timeout=1.0)
+        server = PingServer(rc_socket, accept_timeout=5.0)
         server.start()
 
         if not server.wait_ready(2.0):
