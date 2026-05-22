@@ -1569,10 +1569,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let buildFlavor = BuildFlavor.current
+        let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
+        let confirmQuitMode = QuitWarningSettings.confirmQuitMode()
+
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
             fields: [
-                "taggedDev": SocketControlSettings.isTaggedDevBuild() ? "1" : "0",
+                "buildFlavor": buildFlavor.rawValue,
+                "confirmQuitMode": confirmQuitMode.rawValue,
+                "hasDirtyWorkspaces": hasDirtyWorkspaces ? "1" : "0",
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
                 "quitWarningEnabled": QuitWarningSettings.isEnabled() ? "1" : "0"
             ]
@@ -1581,10 +1587,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
-        // or disabled the setting, skip the check to avoid a second alert.
-        if !QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: isQuitWarningConfirmed) {
+        // or policy skips the warning, avoid a second alert.
+        if !QuitWarningSettings.shouldShowConfirmation(
+            isQuitWarningConfirmed: isQuitWarningConfirmed,
+            hasDirtyWorkspaces: hasDirtyWorkspaces,
+            buildFlavor: buildFlavor
+        ) {
             closeAllWebInspectorsBeforeAppTeardown()
-            let reason = isQuitWarningConfirmed ? "confirmed" : "warningDisabled"
+            let reason: String
+            if isQuitWarningConfirmed {
+                reason = "confirmed"
+            } else if buildFlavor == .dev {
+                reason = "devBuild"
+            } else {
+                reason = "policy"
+            }
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
             return .terminateNow
         }
@@ -1620,6 +1637,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
+    }
+
+    private func hasQuitConfirmationDirtyWorkspaces() -> Bool {
+        var visitedManagers = Set<ObjectIdentifier>()
+        for context in mainWindowContexts.values {
+            let managerId = ObjectIdentifier(context.tabManager)
+            guard visitedManagers.insert(managerId).inserted else { continue }
+            if context.tabManager.tabs.contains(where: { $0.needsConfirmClose() }) {
+                return true
+            }
+        }
+
+        if let tabManager {
+            let managerId = ObjectIdentifier(tabManager)
+            if !visitedManagers.contains(managerId),
+               tabManager.tabs.contains(where: { $0.needsConfirmClose() }) {
+                return true
+            }
+        }
+        return false
     }
 
     @discardableResult
@@ -11381,7 +11418,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleQuitShortcutWarning() -> Bool {
-        if !QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false) {
+        if !QuitWarningSettings.shouldShowConfirmation(
+            isQuitWarningConfirmed: false,
+            hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
+            buildFlavor: .current
+        ) {
             NSApp.terminate(nil)
             return true
         }

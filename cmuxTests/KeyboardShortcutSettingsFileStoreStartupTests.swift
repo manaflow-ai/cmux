@@ -641,6 +641,42 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testConfirmQuitImportsEnumFromCmuxJSON() throws {
+        let defaults = UserDefaults.standard
+        let key = QuitWarningSettings.confirmQuitKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "confirmQuit": "dirty-only"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), QuitConfirmationMode.dirtyOnly.rawValue)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .dirtyOnly)
+        }
+    }
+
     @MainActor
     func testInitialSettingsFileLoadImportsDefaultsWithoutLiveDefaultNotifications() throws {
         let defaults = UserDefaults.standard
