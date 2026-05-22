@@ -310,6 +310,69 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testMarkdownPortalBlocksUnderlyingBrowserTextDropTarget() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 360, height: 240))
+        root.autoresizingMask = [.width, .height]
+        window.contentView = root
+
+        let browserAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 260, height: 160))
+        let markdownAnchor = NSView(frame: browserAnchor.frame)
+        root.addSubview(browserAnchor)
+        root.addSubview(markdownAnchor)
+
+        let browserWebView = WKWebView(frame: browserAnchor.bounds, configuration: WKWebViewConfiguration())
+        BrowserWindowPortalRegistry.bind(webView: browserWebView, to: browserAnchor, visibleInUI: true, zPriority: 0)
+        BrowserWindowPortalRegistry.updatePaneDropContext(
+            for: browserWebView,
+            context: BrowserPaneDropContext(
+                workspaceId: UUID(),
+                panelId: UUID(),
+                paneId: PaneID(id: UUID()),
+                allowsHostedWebViewTextDrop: true
+            )
+        )
+
+        let markdownWebView = WKWebView(frame: markdownAnchor.bounds, configuration: WKWebViewConfiguration())
+        BrowserWindowPortalRegistry.bind(webView: markdownWebView, to: markdownAnchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.updatePaneDropContext(
+            for: markdownWebView,
+            context: BrowserPaneDropContext(
+                workspaceId: UUID(),
+                panelId: UUID(),
+                paneId: PaneID(id: UUID()),
+                allowsHostedWebViewTextDrop: false
+            )
+        )
+        BrowserWindowPortalRegistry.synchronizeForAnchor(browserAnchor)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(markdownAnchor)
+        root.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let dropPoint = markdownAnchor.convert(
+            NSPoint(x: markdownAnchor.bounds.midX, y: markdownAnchor.bounds.midY),
+            to: nil
+        )
+        XCTAssertTrue(
+            BrowserWindowPortalRegistry.webViewAtWindowPoint(dropPoint, in: window) === markdownWebView,
+            "The markdown portal must be the top visible portal at the drop point."
+        )
+        XCTAssertNil(
+            BrowserWindowPortalRegistry.textDropWebViewAtWindowPoint(dropPoint, in: window),
+            "A markdown portal that disallows hosted text drops must block underlying browser portals from becoming the text-drop target."
+        )
+    }
+
     func testMarkdownPortalWebViewDoesNotFallbackToTextDropUnderGlass() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),

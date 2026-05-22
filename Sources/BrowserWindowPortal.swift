@@ -1614,6 +1614,12 @@ final class WindowBrowserSlotView: NSView {
         return hostedWebViewForFileDrop(at: localPoint)
     }
 
+    func blocksHostedTextDropForFileDrop(at localPoint: NSPoint) -> Bool {
+        guard bounds.contains(localPoint) else { return false }
+        guard paneDropTargetView.dropContext?.allowsHostedWebViewTextDrop == false else { return false }
+        return true
+    }
+
     func setPaneTopChromeHeight(_ height: CGFloat) {
         let resolvedHeight = max(0, height)
         guard abs(paneTopChromeHeight - resolvedHeight) > 0.5 else { return }
@@ -3967,6 +3973,9 @@ final class WindowBrowserPortal: NSObject {
             guard !container.isHidden else { continue }
             guard container.frame.contains(point) else { continue }
             let pointInContainer = container.convert(point, from: hostView)
+            if container.blocksHostedTextDropForFileDrop(at: pointInContainer) {
+                return nil
+            }
             if let webView = container.hostedTextDropWebViewForFileDrop(at: pointInContainer) {
                 return webView
             }
