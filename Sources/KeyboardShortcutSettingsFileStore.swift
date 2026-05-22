@@ -16,7 +16,9 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
     }
 }
 
-final class CmuxSettingsFileStore {
+// Sendable safety: mutable settings state is protected by `stateLock`;
+// watcher/cancellable lifetimes are owned by init/deinit on the creating thread.
+final class CmuxSettingsFileStore: @unchecked Sendable {
     static let shared = CmuxSettingsFileStore()
 
     static let currentSchemaVersion = 1
@@ -25,7 +27,7 @@ final class CmuxSettingsFileStore {
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private static let importedManagedDefaultsDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
-    fileprivate static let socketPasswordBackupIdentifier = "automation.socketPassword"
+    static let socketPasswordBackupIdentifier = "automation.socketPassword"
 
     static var defaultPrimaryPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -53,7 +55,13 @@ final class CmuxSettingsFileStore {
     private let primaryPath: String
     private let fallbackPaths: [String]
     private let fileManager: FileManager
+    private let userDefaults: UserDefaults
     private let notificationCenter: NotificationCenter
+    private let loadSocketPassword: () throws -> String?
+    private let saveSocketPassword: (String) throws -> Void
+    private let clearSocketPassword: () throws -> Void
+    private let managedUserDefaultsDidMutateForTesting: (() -> Void)?
+    private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
     private let stateLock = NSLock()
 
     private var primaryWatcher: ShortcutSettingsFileWatcher?
@@ -65,6 +73,9 @@ final class CmuxSettingsFileStore {
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeManagedCustomSettings = ManagedCustomSettings()
+    private var lastPersistedSettingsValues: [String: ManagedSettingsValue] = [:]
+    private var pendingSettingsJSONValues: [String: PendingSettingsJSONValue] = [:]
+    private var settingsPersistenceTask: Task<Void, Never>?
     private var isApplyingManagedSettings = false
     private var deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
     private(set) var activeSourcePath: String?
@@ -74,21 +85,36 @@ final class CmuxSettingsFileStore {
         fallbackPath: String? = CmuxSettingsFileStore.defaultFallbackPath,
         additionalFallbackPaths: [String] = [CmuxSettingsFileStore.defaultApplicationSupportFallbackPath].compactMap { $0 },
         fileManager: FileManager = .default,
+        userDefaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default,
+        loadSocketPassword: @escaping () throws -> String? = { try SocketControlPasswordStore.loadPassword() },
+        saveSocketPassword: @escaping (String) throws -> Void = { try SocketControlPasswordStore.savePassword($0) },
+        clearSocketPassword: @escaping () throws -> Void = { try SocketControlPasswordStore.clearPassword() },
+        managedUserDefaultsDidMutateForTesting: (() -> Void)? = nil,
+        appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment = .live,
         startWatching: Bool = true
     ) {
         self.primaryPath = primaryPath
         self.fallbackPaths = ([fallbackPath].compactMap { $0 } + additionalFallbackPaths)
             .filter { $0 != primaryPath }
         self.fileManager = fileManager
+        self.userDefaults = userDefaults
         self.notificationCenter = notificationCenter
-        importedManagedDefaults = Self.loadImportedManagedDefaults()
+        self.loadSocketPassword = loadSocketPassword
+        self.saveSocketPassword = saveSocketPassword
+        self.clearSocketPassword = clearSocketPassword
+        self.managedUserDefaultsDidMutateForTesting = managedUserDefaultsDidMutateForTesting
+        self.appearanceEnvironment = appearanceEnvironment
+        importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)
 
         bootstrapPrimaryTemplateIfNeeded()
         // The app init path loads cmux.json before applying language/appearance
         // itself. Running live default side effects here can initialize UI/runtime
         // singletons while this store singleton is still in its dispatch_once.
-        reload(applyLiveDefaultSideEffects: false)
+        reload(
+            applyLiveDefaultSideEffects: false,
+            synchronizeManagedAppearanceTerminalTheme: false
+        )
         guard startWatching else { return }
 
         primaryWatcher = ShortcutSettingsFileWatcher(path: primaryPath, fileManager: fileManager) { [weak self] in
@@ -104,9 +130,28 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.reapplyManagedSettingsIfNeeded() }
-        socketPasswordObserver = notificationCenter.addObserver(forName: SocketControlPasswordStore.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.reapplyManagedSettingsIfNeeded()
+        defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification)
+            .filter { [weak self] notification in
+                guard let self else { return false }
+                guard let changedDefaults = notification.object as? UserDefaults else { return false }
+                return changedDefaults === self.userDefaults
+            }
+            // Stage before the main-queue debounce so a watcher reload cannot
+            // make a just-posted UI change look already persisted.
+            .handleEvents(receiveOutput: { [weak self] _ in
+                self?.stageUserDefaultsSettingsJSONPersistenceIfNeeded()
+            })
+            .receive(on: DispatchQueue.main)
+            .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.persistUserDefaultsSettingsChangeIfNeeded()
+            }
+        socketPasswordObserver = notificationCenter.addObserver(
+            forName: SocketControlPasswordStore.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.persistSocketPasswordSettingsChangeIfNeeded()
         }
     }
 
@@ -120,14 +165,20 @@ final class CmuxSettingsFileStore {
     }
 
     func reload() {
-        reload(applyLiveDefaultSideEffects: true)
+        reload(
+            applyLiveDefaultSideEffects: true,
+            synchronizeManagedAppearanceTerminalTheme: true
+        )
     }
 
     func applyDeferredManagedDefaultSideEffects() {
         applyManagedDefaultBatchSideEffects(drainDeferredManagedDefaultSideEffects())
     }
 
-    private func reload(applyLiveDefaultSideEffects: Bool) {
+    private func reload(
+        applyLiveDefaultSideEffects: Bool,
+        synchronizeManagedAppearanceTerminalTheme: Bool
+    ) {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -143,14 +194,27 @@ final class CmuxSettingsFileStore {
                 previous: previousState.importedManagedDefaults,
                 next: resolved.managedUserDefaults
             ),
-            applyLiveDefaultSideEffects: applyLiveDefaultSideEffects
+            applyLiveDefaultSideEffects: applyLiveDefaultSideEffects,
+            synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
+        )
+        let currentSettingsValues = currentSettingsJSONValues(
+            managedCustomSettings: resolved.managedCustomSettings
         )
         synchronized {
+            let previousPersistedSettingsValues = lastPersistedSettingsValues
             shortcutsByAction = resolved.shortcuts
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
             activeManagedCustomSettings = resolved.managedCustomSettings
             activeSourcePath = resolved.path
+            lastPersistedSettingsValues = currentSettingsValues
+            for path in pendingSettingsJSONValues.keys {
+                if let previousValue = previousPersistedSettingsValues[path] {
+                    lastPersistedSettingsValues[path] = previousValue
+                } else {
+                    lastPersistedSettingsValues.removeValue(forKey: path)
+                }
+            }
         }
         saveImportedManagedDefaults(resolved.managedUserDefaults)
 
@@ -176,6 +240,20 @@ final class CmuxSettingsFileStore {
         (primaryPath as NSString).abbreviatingWithTildeInPath
     }
 
+#if DEBUG
+    func stagePendingSettingsJSONValueForTesting(_ value: ManagedSettingsValue, for path: String) {
+        synchronized {
+            pendingSettingsJSONValues[path] = PendingSettingsJSONValue(value: value, source: .userDefaults)
+        }
+    }
+
+    func hasPendingSettingsJSONValueForTesting(path: String) -> Bool {
+        synchronized {
+            pendingSettingsJSONValues[path] != nil
+        }
+    }
+#endif
+
     private func bootstrapPrimaryTemplateIfNeeded() {
         guard !fileManager.fileExists(atPath: primaryPath) else { return }
 
@@ -189,8 +267,7 @@ final class CmuxSettingsFileStore {
                 attributes: [.posixPermissions: 0o755]
             )
             let contents = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
-            try contents.write(to: fileURL, options: [.atomic])
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            try CmuxSettingsJSONPersistence.writePrivateSettingsData(contents, to: fileURL, fileManager: fileManager)
         } catch {
             NSLog("[CmuxSettingsFileStore] failed to bootstrap %@: %@", primaryPath, String(describing: error))
         }
@@ -235,14 +312,9 @@ final class CmuxSettingsFileStore {
             importedManagedDefaults: managedState.importedManagedDefaults,
             changedManagedDefaultKeys: [],
             updateBackups: false,
-            applyLiveDefaultSideEffects: true
+            applyLiveDefaultSideEffects: true,
+            synchronizeManagedAppearanceTerminalTheme: true
         )
-    }
-
-    private func synchronized<T>(_ body: () -> T) -> T {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return body()
     }
 
     // Only keys present in the next snapshot can force-apply; removed keys restore backups instead.
@@ -253,6 +325,90 @@ final class CmuxSettingsFileStore {
         Set(next.compactMap { key, value in
             previous[key] == value ? nil : key
         })
+    }
+
+    private func persistUserDefaultsSettingsChangeIfNeeded() {
+        stageUserDefaultsSettingsJSONPersistenceIfNeeded()
+        let changedValues: [String: ManagedSettingsValue] = synchronized {
+            let currentValues = CmuxSettingsJSONPersistence.currentSettingsJSONValuesFromUserDefaults(
+                defaults: userDefaults
+            )
+            var stalePaths: [String] = []
+            var changedValues: [String: ManagedSettingsValue] = [:]
+            for (path, pendingValue) in pendingSettingsJSONValues {
+                guard pendingValue.source == .userDefaults else { continue }
+                guard let currentValue = currentValues[path] else {
+                    stalePaths.append(path)
+                    continue
+                }
+                if currentValue == pendingValue.value {
+                    changedValues[path] = pendingValue.value
+                } else {
+                    stalePaths.append(path)
+                }
+            }
+            for path in stalePaths {
+                guard pendingSettingsJSONValues[path]?.source == .userDefaults else { continue }
+                pendingSettingsJSONValues.removeValue(forKey: path)
+            }
+            return changedValues
+        }
+        guard !changedValues.isEmpty else {
+            reapplyManagedSettingsIfNeeded()
+            return
+        }
+
+        let rollback = markSettingsJSONPersistencePending(changedValues, source: .userDefaults)
+        enqueueSettingsJSONPersistence(
+            changedValues,
+            rollback: rollback,
+            failureLogMessage: "[CmuxSettingsFileStore] failed to persist Settings UI change: %@"
+        )
+    }
+
+    private func stageUserDefaultsSettingsJSONPersistenceIfNeeded() {
+        synchronized {
+            guard !isApplyingManagedSettings else { return }
+            let currentValues = CmuxSettingsJSONPersistence.currentSettingsJSONValuesFromUserDefaults(
+                defaults: userDefaults
+            )
+            for (path, value) in currentValues {
+                if lastPersistedSettingsValues[path] != value {
+                    pendingSettingsJSONValues[path] = PendingSettingsJSONValue(value: value, source: .userDefaults)
+                } else if pendingSettingsJSONValues[path]?.source == .userDefaults {
+                    pendingSettingsJSONValues.removeValue(forKey: path)
+                }
+            }
+        }
+    }
+
+    private func persistSocketPasswordSettingsChangeIfNeeded() {
+        let isManaged = synchronized {
+            !isApplyingManagedSettings && activeManagedCustomSettings.socketPassword != nil
+        }
+        guard isManaged else { return }
+
+        guard let currentValue = try? currentSocketPasswordSettingsJSONValue() else { return }
+        let changedValues: [String: ManagedSettingsValue] = synchronized {
+            guard lastPersistedSettingsValues["automation.socketPassword"] != currentValue else {
+                return [:]
+            }
+            return ["automation.socketPassword": currentValue]
+        }
+        guard !changedValues.isEmpty else { return }
+
+        let rollback = markSettingsJSONPersistencePending(changedValues, source: .custom)
+        enqueueSettingsJSONPersistence(
+            changedValues,
+            rollback: rollback,
+            failureLogMessage: "[CmuxSettingsFileStore] failed to persist socket password Settings UI change: %@"
+        )
+    }
+
+    private func synchronized<T>(_ body: () -> T) -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return body()
     }
 
     private func resolveSettings() -> ResolvedSettingsSnapshot {
@@ -883,7 +1039,8 @@ final class CmuxSettingsFileStore {
         importedManagedDefaults: [String: ManagedSettingsValue],
         changedManagedDefaultKeys: Set<String>,
         updateBackups: Bool = true,
-        applyLiveDefaultSideEffects: Bool
+        applyLiveDefaultSideEffects: Bool,
+        synchronizeManagedAppearanceTerminalTheme: Bool
     ) {
         var backups = loadBackups()
         var sideEffects = ManagedDefaultBatchSideEffects()
@@ -914,7 +1071,8 @@ final class CmuxSettingsFileStore {
             sideEffects.merge(
                 restoreBackup(
                     backup,
-                    for: identifier
+                    for: identifier,
+                    synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
                 )
             )
             backups.removeValue(forKey: identifier)
@@ -926,7 +1084,8 @@ final class CmuxSettingsFileStore {
                     value,
                     for: defaultsKey,
                     importedDefault: importedManagedDefaults[defaultsKey],
-                    forceApply: changedManagedDefaultKeys.contains(defaultsKey)
+                    forceApply: changedManagedDefaultKeys.contains(defaultsKey),
+                    synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
                 )
             )
         }
@@ -962,14 +1121,14 @@ final class CmuxSettingsFileStore {
         if let socketPassword = settings.socketPassword {
             switch socketPassword {
             case .set(let value):
-                let current = (try? SocketControlPasswordStore.loadPassword()) ?? nil
+                let current = (try? loadSocketPassword()) ?? nil
                 if current != value {
-                    try? SocketControlPasswordStore.savePassword(value)
+                    try? saveSocketPassword(value)
                 }
             case .clear:
-                let current = (try? SocketControlPasswordStore.loadPassword()) ?? nil
+                let current = (try? loadSocketPassword()) ?? nil
                 if current != nil {
-                    try? SocketControlPasswordStore.clearPassword()
+                    try? clearSocketPassword()
                 }
             }
         }
@@ -977,15 +1136,16 @@ final class CmuxSettingsFileStore {
 
     private func restoreBackup(
         _ backup: BackupValue,
-        for identifier: String
+        for identifier: String,
+        synchronizeManagedAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
         switch identifier {
         case Self.socketPasswordBackupIdentifier:
             switch backup {
             case .string(let value):
-                try? SocketControlPasswordStore.savePassword(value)
+                try? saveSocketPassword(value)
             case .absent:
-                try? SocketControlPasswordStore.clearPassword()
+                try? clearSocketPassword()
             default:
                 break
             }
@@ -993,13 +1153,14 @@ final class CmuxSettingsFileStore {
         default:
             return restoreUserDefaultsBackup(
                 backup,
-                for: identifier
+                for: identifier,
+                synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
             )
         }
     }
 
     private func backupValueForUserDefaultsKey(_ defaultsKey: String, managedValue: ManagedSettingsValue) -> BackupValue {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         switch managedValue {
         case .bool:
             guard defaults.object(forKey: defaultsKey) != nil else { return .absent }
@@ -1031,81 +1192,20 @@ final class CmuxSettingsFileStore {
     }
 
     private func currentSocketPasswordBackupValue() -> BackupValue {
-        guard let current = try? SocketControlPasswordStore.loadPassword() else {
+        guard let current = try? loadSocketPassword() else {
             return .absent
         }
         return .string(current)
-    }
-
-    private func restoreUserDefaultsBackup(
-        _ backup: BackupValue,
-        for defaultsKey: String
-    ) -> ManagedDefaultBatchSideEffects {
-        let defaults = UserDefaults.standard
-        if defaultsKey == WorkspaceTabColorSettings.paletteKey {
-            switch backup {
-            case .absent:
-                WorkspaceTabColorSettings.reset(defaults: defaults)
-            case .stringDictionary(let value):
-                WorkspaceTabColorSettings.persistPaletteMap(value, defaults: defaults)
-            default:
-                break
-            }
-            return ManagedDefaultBatchSideEffects()
-        }
-
-        var didMutateStoredValue = false
-        switch backup {
-        case .absent:
-            if defaults.object(forKey: defaultsKey) != nil {
-                defaults.removeObject(forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .bool(let value):
-            if defaults.object(forKey: defaultsKey) as? Bool != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .int(let value):
-            if defaults.object(forKey: defaultsKey) as? Int != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .double(let value):
-            if defaults.object(forKey: defaultsKey) as? Double != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .string(let value):
-            if defaults.string(forKey: defaultsKey) != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .stringArray(let value):
-            if defaults.array(forKey: defaultsKey) as? [String] != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .stringDictionary(let value):
-            if defaults.dictionary(forKey: defaultsKey) as? [String: String] != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        }
-
-        if didMutateStoredValue {
-            return managedDefaultSideEffects(for: defaultsKey)
-        }
-        return ManagedDefaultBatchSideEffects()
     }
 
     private func applyManagedUserDefaultsValue(
         _ value: ManagedSettingsValue,
         for defaultsKey: String,
         importedDefault: ManagedSettingsValue?,
-        forceApply: Bool
+        forceApply: Bool,
+        synchronizeManagedAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         guard shouldApplyManagedUserDefaultsValue(
             value,
             for: defaultsKey,
@@ -1176,7 +1276,12 @@ final class CmuxSettingsFileStore {
         }
 
         if didMutateStoredValue {
-            return managedDefaultSideEffects(for: defaultsKey)
+            managedUserDefaultsDidMutateForTesting?()
+            return managedDefaultSideEffects(
+                for: defaultsKey,
+                source: "cmuxConfig.applyManagedDefault",
+                synchronizeAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
+            )
         }
         return ManagedDefaultBatchSideEffects()
     }
@@ -1253,22 +1358,92 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func managedDefaultSideEffects(for defaultsKey: String) -> ManagedDefaultBatchSideEffects {
-        guard defaultsKey != AppearanceSettings.appearanceModeKey else {
-            // The app lifecycle-owned UserDefaults observer applies live
-            // appearance changes after launch. The settings file store only
-            // imports the default so it cannot reenter Ghostty while this
-            // singleton initializes.
+    private func restoreUserDefaultsBackup(
+        _ backup: BackupValue,
+        for defaultsKey: String,
+        synchronizeManagedAppearanceTerminalTheme: Bool
+    ) -> ManagedDefaultBatchSideEffects {
+        let defaults = userDefaults
+        if defaultsKey == WorkspaceTabColorSettings.paletteKey {
+            switch backup {
+            case .absent:
+                WorkspaceTabColorSettings.reset(defaults: defaults)
+            case .stringDictionary(let value):
+                WorkspaceTabColorSettings.persistPaletteMap(value, defaults: defaults)
+            default:
+                break
+            }
             return ManagedDefaultBatchSideEffects()
         }
+
+        var didMutateStoredValue = false
+        switch backup {
+        case .absent:
+            if defaults.object(forKey: defaultsKey) != nil {
+                defaults.removeObject(forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        case .bool(let value):
+            if defaults.object(forKey: defaultsKey) as? Bool != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        case .int(let value):
+            if defaults.object(forKey: defaultsKey) as? Int != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        case .double(let value):
+            if defaults.object(forKey: defaultsKey) as? Double != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        case .string(let value):
+            if defaults.string(forKey: defaultsKey) != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        case .stringArray(let value):
+            if defaults.array(forKey: defaultsKey) as? [String] != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        case .stringDictionary(let value):
+            if defaults.dictionary(forKey: defaultsKey) as? [String: String] != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        }
+
+        if didMutateStoredValue {
+            managedUserDefaultsDidMutateForTesting?()
+            return managedDefaultSideEffects(
+                for: defaultsKey,
+                source: "cmuxConfig.restoreUserDefault",
+                synchronizeAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
+            )
+        }
+        return ManagedDefaultBatchSideEffects()
+    }
+
+    private func managedDefaultSideEffects(
+        for defaultsKey: String,
+        source: String,
+        synchronizeAppearanceTerminalTheme: Bool
+    ) -> ManagedDefaultBatchSideEffects {
         var sideEffects = ManagedDefaultBatchSideEffects()
-        sideEffects.append(defaultsKey: defaultsKey)
+        sideEffects.append(
+            defaultsKey: defaultsKey,
+            source: source,
+            synchronizeAppearanceTerminalTheme: synchronizeAppearanceTerminalTheme
+        )
         return sideEffects
     }
 
     private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
         guard !sideEffects.isEmpty else { return }
         let notificationCenter = notificationCenter
+        let defaults = userDefaults
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
@@ -1282,10 +1457,19 @@ final class CmuxSettingsFileStore {
                 }
 
                 if change.defaultsKey == LanguageSettings.languageKey {
-                    let rawValue = UserDefaults.standard.string(forKey: change.defaultsKey) ?? ""
+                    let rawValue = defaults.string(forKey: change.defaultsKey) ?? ""
                     LanguageSettings.apply(AppLanguage(rawValue: rawValue) ?? .system)
+                } else if change.defaultsKey == AppearanceSettings.appearanceModeKey {
+                    AppearanceSettings.applyStoredMode(
+                        rawValue: defaults.string(forKey: change.defaultsKey),
+                        defaults: defaults,
+                        source: change.source,
+                        duringLaunch: !change.synchronizeAppearanceTerminalTheme,
+                        synchronizeTerminalTheme: change.synchronizeAppearanceTerminalTheme,
+                        environment: self.appearanceEnvironment
+                    )
                 } else if change.defaultsKey == AppIconSettings.modeKey {
-                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode(defaults: defaults))
                 }
             }
 
@@ -1300,8 +1484,7 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private static func loadImportedManagedDefaults() -> [String: ManagedSettingsValue] {
-        let defaults = UserDefaults.standard
+    private static func loadImportedManagedDefaults(defaults: UserDefaults) -> [String: ManagedSettingsValue] {
         var imported: [String: ManagedSettingsValue]
         if let data = defaults.data(forKey: importedManagedDefaultsDefaultsKey),
            let decoded = try? JSONDecoder().decode([String: ManagedSettingsValue].self, from: data) {
@@ -1320,7 +1503,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func saveImportedManagedDefaults(_ imported: [String: ManagedSettingsValue]) {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         defaults.removeObject(forKey: SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey)
         guard !imported.isEmpty else {
             defaults.removeObject(forKey: Self.importedManagedDefaultsDefaultsKey)
@@ -1331,7 +1514,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func loadBackups() -> [String: BackupValue] {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         guard let data = defaults.data(forKey: Self.backupsDefaultsKey),
               let backups = try? JSONDecoder().decode([String: BackupValue].self, from: data) else {
             return [:]
@@ -1340,7 +1523,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func saveBackups(_ backups: [String: BackupValue]) {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         if backups.isEmpty {
             defaults.removeObject(forKey: Self.backupsDefaultsKey)
             return
@@ -1351,6 +1534,117 @@ final class CmuxSettingsFileStore {
 
     private func logInvalid(_ path: String, sourcePath: String) {
         NSLog("[CmuxSettingsFileStore] ignoring invalid setting '%@' in %@", path, sourcePath)
+    }
+
+    private func persistSettingsJSONValues(_ values: [String: ManagedSettingsValue]) throws {
+        try CmuxSettingsJSONPersistence.persistSettingsJSONValues(
+            values,
+            primaryPath: primaryPath,
+            fileManager: fileManager,
+            bootstrapPrimaryTemplate: bootstrapPrimaryTemplateIfNeeded
+        )
+    }
+
+    private func enqueueSettingsJSONPersistence(
+        _ values: [String: ManagedSettingsValue],
+        rollback: SettingsJSONPersistenceRollback,
+        failureLogMessage: String
+    ) {
+        let previousTask = synchronized { settingsPersistenceTask }
+        let task = Task.detached(priority: .utility) { [weak self, previousTask] in
+            if let previousTask {
+                await previousTask.value
+            }
+            guard let self else { return }
+            do {
+                try persistSettingsJSONValues(values)
+                completeSettingsJSONPersistenceIfCurrent(values)
+            } catch {
+                await MainActor.run { [weak self] in
+                    NSLog(failureLogMessage, String(describing: error))
+                    self?.rollbackSettingsJSONPersistenceIfCurrent(values, to: rollback)
+                    self?.reapplyManagedSettingsIfNeeded()
+                }
+            }
+        }
+        synchronized {
+            settingsPersistenceTask = task
+        }
+    }
+
+    private func markSettingsJSONPersistencePending(
+        _ values: [String: ManagedSettingsValue],
+        source: SettingsJSONPersistenceSource
+    ) -> SettingsJSONPersistenceRollback {
+        synchronized {
+            var previousValues: [String: ManagedSettingsValue] = [:]
+            var missingPreviousPaths = Set<String>()
+            for (path, value) in values {
+                if let previousValue = lastPersistedSettingsValues[path] {
+                    previousValues[path] = previousValue
+                } else {
+                    missingPreviousPaths.insert(path)
+                }
+                lastPersistedSettingsValues[path] = value
+                pendingSettingsJSONValues[path] = PendingSettingsJSONValue(value: value, source: source)
+            }
+            return SettingsJSONPersistenceRollback(
+                previousValues: previousValues,
+                missingPreviousPaths: missingPreviousPaths
+            )
+        }
+    }
+
+    private func completeSettingsJSONPersistenceIfCurrent(_ values: [String: ManagedSettingsValue]) {
+        synchronized {
+            for (path, persistedValue) in values {
+                guard let pendingValue = pendingSettingsJSONValues[path],
+                      pendingValue.value == persistedValue else { continue }
+                pendingSettingsJSONValues.removeValue(forKey: path)
+                lastPersistedSettingsValues[path] = persistedValue
+            }
+        }
+    }
+
+    private func rollbackSettingsJSONPersistenceIfCurrent(
+        _ values: [String: ManagedSettingsValue],
+        to rollback: SettingsJSONPersistenceRollback
+    ) {
+        synchronized {
+            for (path, attemptedValue) in values {
+                if let pendingValue = pendingSettingsJSONValues[path],
+                   pendingValue.value == attemptedValue {
+                    pendingSettingsJSONValues.removeValue(forKey: path)
+                }
+                guard lastPersistedSettingsValues[path] == attemptedValue else {
+                    continue
+                }
+                if let previousValue = rollback.previousValues[path] {
+                    lastPersistedSettingsValues[path] = previousValue
+                } else if rollback.missingPreviousPaths.contains(path) {
+                    lastPersistedSettingsValues.removeValue(forKey: path)
+                }
+            }
+        }
+    }
+
+    private func currentSettingsJSONValues(
+        managedCustomSettings: ManagedCustomSettings? = nil,
+        includingManagedCustomSettings: Bool = true
+    ) -> [String: ManagedSettingsValue] {
+        var values = CmuxSettingsJSONPersistence.currentSettingsJSONValuesFromUserDefaults(defaults: userDefaults)
+        guard includingManagedCustomSettings else { return values }
+        let customSettings = managedCustomSettings ?? synchronized { activeManagedCustomSettings }
+        if customSettings.socketPassword != nil {
+            if let value = try? currentSocketPasswordSettingsJSONValue() {
+                values["automation.socketPassword"] = value
+            }
+        }
+        return values
+    }
+
+    private func currentSocketPasswordSettingsJSONValue() throws -> ManagedSettingsValue {
+        .nullableString(try loadSocketPassword())
     }
 
     private func jsonString(_ rawValue: Any?) -> String? {
@@ -1391,250 +1685,3 @@ final class CmuxSettingsFileStore {
 }
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
-
-private struct ResolvedSettingsSnapshot {
-    var path: String?
-    var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
-    var managedUserDefaults: [String: ManagedSettingsValue] = [:]
-    var managedCustomSettings = ManagedCustomSettings()
-
-    mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
-        if path == nil && (!fallback.shortcuts.isEmpty ||
-            !fallback.managedUserDefaults.isEmpty ||
-            !fallback.managedCustomSettings.isEmpty) {
-            path = fallback.path
-        }
-        for (action, shortcut) in fallback.shortcuts where shortcuts[action] == nil {
-            shortcuts[action] = shortcut
-        }
-        for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
-            managedUserDefaults[key] = value
-        }
-        managedCustomSettings.fillMissingSettings(from: fallback.managedCustomSettings)
-    }
-}
-
-private struct ManagedDefaultSideEffect {
-    let defaultsKey: String
-}
-
-private struct ManagedDefaultBatchSideEffects {
-    var changes: [ManagedDefaultSideEffect] = []
-
-    var isEmpty: Bool {
-        changes.isEmpty
-    }
-
-    mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
-        for change in other.changes {
-            append(defaultsKey: change.defaultsKey)
-        }
-    }
-
-    mutating func append(defaultsKey: String) {
-        changes.removeAll { $0.defaultsKey == defaultsKey }
-        changes.append(ManagedDefaultSideEffect(defaultsKey: defaultsKey))
-    }
-}
-
-private enum ManagedStringOverride: Equatable {
-    case set(String)
-    case clear
-}
-
-private struct ManagedCustomSettings: Equatable {
-    var socketPassword: ManagedStringOverride?
-
-    var isEmpty: Bool {
-        socketPassword == nil
-    }
-
-    var managedIdentifiers: Set<String> {
-        var identifiers: Set<String> = []
-        if socketPassword != nil {
-            identifiers.insert(CmuxSettingsFileStore.socketPasswordBackupIdentifier)
-        }
-        return identifiers
-    }
-
-    mutating func fillMissingSettings(from fallback: ManagedCustomSettings) {
-        if socketPassword == nil {
-            socketPassword = fallback.socketPassword
-        }
-    }
-}
-
-private enum ManagedSettingsValue: Codable, Equatable {
-    case bool(Bool)
-    case int(Int)
-    case double(Double)
-    case string(String)
-    case nullableString(String?)
-    case stringArray([String])
-    case stringDictionary([String: String])
-}
-
-private enum BackupValue: Codable, Equatable {
-    case absent
-    case bool(Bool)
-    case int(Int)
-    case double(Double)
-    case string(String)
-    case stringArray([String])
-    case stringDictionary([String: String])
-
-    private enum Kind: String, Codable {
-        case absent
-        case bool
-        case int
-        case double
-        case string
-        case stringArray
-        case stringDictionary
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case kind
-        case boolValue
-        case intValue
-        case doubleValue
-        case stringValue
-        case stringArrayValue
-        case stringDictionaryValue
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(Kind.self, forKey: .kind) {
-        case .absent:
-            self = .absent
-        case .bool:
-            self = .bool(try container.decode(Bool.self, forKey: .boolValue))
-        case .int:
-            self = .int(try container.decode(Int.self, forKey: .intValue))
-        case .double:
-            self = .double(try container.decode(Double.self, forKey: .doubleValue))
-        case .string:
-            self = .string(try container.decode(String.self, forKey: .stringValue))
-        case .stringArray:
-            self = .stringArray(try container.decode([String].self, forKey: .stringArrayValue))
-        case .stringDictionary:
-            self = .stringDictionary(try container.decode([String: String].self, forKey: .stringDictionaryValue))
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .absent:
-            try container.encode(Kind.absent, forKey: .kind)
-        case .bool(let value):
-            try container.encode(Kind.bool, forKey: .kind)
-            try container.encode(value, forKey: .boolValue)
-        case .int(let value):
-            try container.encode(Kind.int, forKey: .kind)
-            try container.encode(value, forKey: .intValue)
-        case .double(let value):
-            try container.encode(Kind.double, forKey: .kind)
-            try container.encode(value, forKey: .doubleValue)
-        case .string(let value):
-            try container.encode(Kind.string, forKey: .kind)
-            try container.encode(value, forKey: .stringValue)
-        case .stringArray(let value):
-            try container.encode(Kind.stringArray, forKey: .kind)
-            try container.encode(value, forKey: .stringArrayValue)
-        case .stringDictionary(let value):
-            try container.encode(Kind.stringDictionary, forKey: .kind)
-            try container.encode(value, forKey: .stringDictionaryValue)
-        }
-    }
-}
-
-private final class ShortcutSettingsFileWatcher {
-    private let path: String
-    private let fileManager: FileManager
-    private let onChange: () -> Void
-    private let watchQueue = DispatchQueue(label: "com.cmux.shortcut-settings-file-watch")
-
-    private var source: DispatchSourceFileSystemObject?
-
-    init(path: String, fileManager: FileManager = .default, onChange: @escaping () -> Void) {
-        self.path = path
-        self.fileManager = fileManager
-        self.onChange = onChange
-        start()
-    }
-
-    func stop() {
-        source?.cancel()
-        source = nil
-    }
-
-    private func start() {
-        stop()
-
-        if fileManager.fileExists(atPath: path) {
-            startFileWatcher()
-        } else {
-            startDirectoryWatcher()
-        }
-    }
-
-    private func startFileWatcher() {
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else {
-            startDirectoryWatcher()
-            return
-        }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            if flags.contains(.delete) || flags.contains(.rename) {
-                self.start()
-            }
-            self.onChange()
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        self.source = source
-        source.resume()
-    }
-
-    private func startDirectoryWatcher() {
-        let directoryPath = (path as NSString).deletingLastPathComponent
-        let fd = open(directoryPath, O_EVTONLY)
-        guard fd >= 0 else { return }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .rename, .delete],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            if self.fileManager.fileExists(atPath: self.path) {
-                self.start()
-            } else {
-                self.onChange()
-            }
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        self.source = source
-        source.resume()
-    }
-}

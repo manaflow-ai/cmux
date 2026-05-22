@@ -14,6 +14,10 @@ private final class ShortcutSettingsLookupRecorder: @unchecked Sendable {
     var actions: [String] = []
 }
 
+private enum SocketPasswordLoadError: Error {
+    case failed
+}
+
 final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
     func testBootstrapMigratesLegacySettingsIntoCanonicalConfig() throws {
         let directoryURL = try makeTemporaryDirectory()
@@ -227,6 +231,497 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         )
     }
 
+    func testSettingsUIAppStorageChangePersistsManagedSidebarAppearanceToConfig() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              // User comments in cmux.json must survive Settings UI writes.
+              "schemaVersion": 1,
+              "sidebarAppearance": {
+                "matchTerminalBackground": true // Inline comments after literal values must survive.
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsKey = "sidebarMatchTerminalBackground"
+        let defaultsSuiteName = "cmux.settings-file-store.ui-persist.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+        XCTAssertTrue(defaults.bool(forKey: defaultsKey))
+
+        defaults.set(false, forKey: defaultsKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        try waitForSidebarAppearanceMatchTerminalBackground(false, in: primaryURL)
+        let updatedContents = try String(contentsOf: primaryURL, encoding: .utf8)
+        XCTAssertTrue(updatedContents.contains("User comments in cmux.json must survive Settings UI writes."))
+        XCTAssertTrue(updatedContents.contains("Inline comments after literal values must survive."))
+
+        withExtendedLifetime(store) {}
+    }
+
+    func testSettingsUISocketPasswordChangePersistsManagedAutomationPasswordToConfig() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "socketPassword": "old-secret"
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        var storedPassword: String?
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            notificationCenter: notificationCenter,
+            loadSocketPassword: { storedPassword },
+            saveSocketPassword: { storedPassword = $0 },
+            clearSocketPassword: { storedPassword = nil },
+            startWatching: true
+        )
+        XCTAssertEqual(storedPassword, "old-secret")
+
+        storedPassword = "new-secret"
+        notificationCenter.post(name: SocketControlPasswordStore.didChangeNotification, object: nil)
+        try waitForAutomationSocketPassword("new-secret", in: primaryURL)
+
+        storedPassword = nil
+        notificationCenter.post(name: SocketControlPasswordStore.didChangeNotification, object: nil)
+        try waitForAutomationSocketPassword(nil, in: primaryURL)
+
+        withExtendedLifetime(store) {}
+    }
+
+    func testSocketPasswordReadErrorDoesNotClearManagedAutomationPassword() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "socketPassword": "old-secret"
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        var storedPassword: String?
+        var shouldFailPasswordLoad = false
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            notificationCenter: notificationCenter,
+            loadSocketPassword: {
+                if shouldFailPasswordLoad {
+                    throw SocketPasswordLoadError.failed
+                }
+                return storedPassword
+            },
+            saveSocketPassword: { storedPassword = $0 },
+            clearSocketPassword: { storedPassword = nil },
+            startWatching: true
+        )
+        XCTAssertEqual(storedPassword, "old-secret")
+
+        storedPassword = "new-secret"
+        shouldFailPasswordLoad = true
+        notificationCenter.post(name: SocketControlPasswordStore.didChangeNotification, object: nil)
+        try assertAutomationSocketPassword("old-secret", remainsIn: primaryURL)
+
+        withExtendedLifetime(store) {}
+    }
+
+    func testSettingsUIChangeInsertsIntoSectionWithTrailingComma() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {
+                "tintColor": "#000000",
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsKey = "sidebarMatchTerminalBackground"
+        let defaultsSuiteName = "cmux.settings-file-store.trailing-comma.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+
+        defaults.set(true, forKey: defaultsKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        try waitForSidebarAppearanceMatchTerminalBackground(true, in: primaryURL)
+
+        withExtendedLifetime(store) {}
+    }
+
+    func testSettingsUIChangeAppendsCommaToExistingPropertyLine() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {
+                "matchTerminalBackground": false // keep this comment with the original value
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsKey = "sidebarTintHex"
+        let defaultsSuiteName = "cmux.settings-file-store.append-comma.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+
+        defaults.set("#111111", forKey: defaultsKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        try waitForSidebarAppearanceString("#111111", key: "tintColor", in: primaryURL)
+
+        let updatedContents = try String(contentsOf: primaryURL, encoding: .utf8)
+        XCTAssertFalse(updatedContents.contains("\n  ,"))
+        XCTAssertTrue(updatedContents.contains("false, // keep this comment with the original value"))
+
+        withExtendedLifetime(store) {}
+    }
+
+    func testSettingsUIChangeSurvivesConfigReloadDuringDebounce() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {
+                "tintColor": "#000000"
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsKey = "sidebarTintHex"
+        let defaultsSuiteName = "cmux.settings-file-store.reload-debounce.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+        XCTAssertEqual(defaults.string(forKey: defaultsKey), "#000000")
+
+        defaults.set("#111111", forKey: defaultsKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        store.reload()
+        try waitForSidebarAppearanceString("#111111", key: "tintColor", in: primaryURL)
+
+        withExtendedLifetime(store) {}
+    }
+
+    func testManagedSettingRemovalDoesNotPersistRestoredDefaultBackToConfig() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {
+                "matchTerminalBackground": true
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsKey = "sidebarMatchTerminalBackground"
+        let defaultsSuiteName = "cmux.settings-file-store.remove-managed.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        var mirrorManagedMutationNotification = false
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            managedUserDefaultsDidMutateForTesting: {
+                if mirrorManagedMutationNotification {
+                    notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+                }
+            },
+            startWatching: true
+        )
+        XCTAssertTrue(defaults.bool(forKey: defaultsKey))
+
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {}
+            }
+            """,
+            to: primaryURL
+        )
+
+        mirrorManagedMutationNotification = true
+        store.reload()
+        XCTAssertFalse(defaults.bool(forKey: defaultsKey))
+        try assertSidebarAppearanceKeyAbsent("matchTerminalBackground", in: primaryURL)
+
+        withExtendedLifetime(store) {}
+    }
+
+    func testJSONCSettingsPatcherUpdatesEscapedEffectiveKey() throws {
+        let source = """
+        {
+          "sidebarAppearance": {
+            "tint\\u0043olor": "#escaped"
+          }
+        }
+        """
+
+        let patched = try JSONCSettingsPatcher.setting(
+            "sidebarAppearance.tintColor",
+            to: "#new",
+            in: source
+        )
+
+        XCTAssertEqual(try sidebarAppearanceString("tintColor", in: patched), "#new")
+    }
+
+    func testJSONCSettingsPatcherInsertsIntoInlineEmptySectionWithOwnerIndent() throws {
+        let source = """
+        {
+          "sidebarAppearance": {}
+        }
+        """
+
+        let patched = try JSONCSettingsPatcher.setting(
+            "sidebarAppearance.matchTerminalBackground",
+            to: true,
+            in: source
+        )
+
+        XCTAssertEqual(
+            patched,
+            """
+            {
+              "sidebarAppearance": {
+                "matchTerminalBackground": true
+              }
+            }
+            """
+        )
+        XCTAssertEqual(try sidebarAppearanceBool("matchTerminalBackground", in: patched), true)
+    }
+
+    func testJSONCSettingsPatcherDoesNotRenderNSNumberScalarsAsBooleans() throws {
+        let source = """
+        {
+          "automation": {
+            "portRange": 10
+          },
+          "sidebarAppearance": {
+            "tintOpacity": 0.5
+          }
+        }
+        """
+
+        let patchedPortRange = try JSONCSettingsPatcher.setting(
+            "automation.portRange",
+            to: NSNumber(value: 1),
+            in: source
+        )
+        let patchedOpacity = try JSONCSettingsPatcher.setting(
+            "sidebarAppearance.tintOpacity",
+            to: NSNumber(value: 1.0),
+            in: patchedPortRange
+        )
+
+        let root = try parsedRootObject(in: patchedOpacity)
+        let automation = try XCTUnwrap(root["automation"] as? [String: Any])
+        let portRange = try XCTUnwrap(automation["portRange"] as? NSNumber)
+        XCTAssertNotEqual(CFGetTypeID(portRange), CFBooleanGetTypeID())
+        XCTAssertEqual(portRange.intValue, 1)
+
+        let sidebarAppearance = try XCTUnwrap(root["sidebarAppearance"] as? [String: Any])
+        let tintOpacity = try XCTUnwrap(sidebarAppearance["tintOpacity"] as? NSNumber)
+        XCTAssertNotEqual(CFGetTypeID(tintOpacity), CFBooleanGetTypeID())
+        XCTAssertEqual(tintOpacity.doubleValue, 1.0)
+    }
+
+    func testUnsupportedManagedCollectionReappliesInsteadOfDrifting() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "browser": {
+                "hostsToOpenInEmbeddedBrowser": [
+                  "managed.example"
+                ]
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsKey = BrowserLinkOpenSettings.browserHostWhitelistKey
+        let defaultsSuiteName = "cmux.settings-file-store.unsupported-reapply.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+        XCTAssertEqual(defaults.string(forKey: defaultsKey), "managed.example")
+
+        defaults.set("local.example", forKey: defaultsKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        try waitForDefaultString("managed.example", key: defaultsKey, defaults: defaults)
+
+        withExtendedLifetime(store) {}
+    }
+
+    func testSettingsUIWriteBackFiltersLossySettingsPaths() {
+        let values = CmuxSettingsJSONPersistence.settingsUIWriteBackValues([
+            "app.minimalMode": .bool(true),
+            "app.keepWorkspaceOpenWhenClosingLastSurface": .bool(true),
+            "sidebarAppearance.matchTerminalBackground": .bool(true),
+            "workspaceColors.colors": .stringDictionary(["Review": "#112233"]),
+            "browser.hostsToOpenInEmbeddedBrowser": .stringArray(["example.com"]),
+            "browser.urlsToAlwaysOpenExternally": .stringArray(["re:^https://example.com"]),
+            "browser.insecureHttpHostsAllowedInEmbeddedBrowser": .stringArray(["localhost"]),
+            "shortcuts.bindings": .stringDictionary(["newTab": "cmd+t"]),
+            "app.language": .stringArray(["en"]),
+            "future.collection": .stringArray(["value"]),
+        ])
+
+        XCTAssertEqual(values, ["sidebarAppearance.matchTerminalBackground": .bool(true)])
+    }
+
+    func testStalePendingSettingsPathIsDiscardedWhenNoUserDefaultsProjectionExists() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {}
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsSuiteName = "cmux.settings-file-store.stale-pending.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+
+        let stalePath = "legacy.removedSetting"
+        store.stagePendingSettingsJSONValueForTesting(.bool(true), for: stalePath)
+        XCTAssertTrue(store.hasPendingSettingsJSONValueForTesting(path: stalePath))
+
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        try waitForPendingSettingsPath(stalePath, toBePending: false, in: store)
+
+        withExtendedLifetime(store) {}
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-migration-\(UUID().uuidString)",
@@ -242,5 +737,130 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             withIntermediateDirectories: true
         )
         try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func waitForSidebarAppearanceMatchTerminalBackground(_ expectedValue: Bool, in url: URL) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: url))
+            if let root = try JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+               let sidebarAppearance = root["sidebarAppearance"] as? [String: Any],
+               sidebarAppearance["matchTerminalBackground"] as? Bool == expectedValue {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTFail("Timed out waiting for sidebarAppearance.matchTerminalBackground to persist")
+    }
+
+    private func waitForSidebarAppearanceString(_ expectedValue: String, key: String, in url: URL) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: url))
+            if let root = try JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+               let sidebarAppearance = root["sidebarAppearance"] as? [String: Any],
+               sidebarAppearance[key] as? String == expectedValue {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTFail("Timed out waiting for sidebarAppearance.\(key) to persist")
+    }
+
+    private func assertSidebarAppearanceKeyAbsent(_ key: String, in url: URL, duration: TimeInterval = 1.0) throws {
+        let deadline = Date().addingTimeInterval(duration)
+        while Date() < deadline {
+            let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: url))
+            let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
+            let sidebarAppearance = try XCTUnwrap(root["sidebarAppearance"] as? [String: Any])
+            guard sidebarAppearance[key] == nil else {
+                XCTFail("Expected sidebarAppearance.\(key) to stay absent, got \(String(describing: sidebarAppearance[key]))")
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    private func waitForAutomationSocketPassword(_ expectedValue: String?, in url: URL) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            let actual = try automationSocketPassword(in: url)
+            if let expectedValue, actual as? String == expectedValue {
+                return
+            }
+            if expectedValue == nil, actual is NSNull {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTFail("Timed out waiting for automation.socketPassword to persist")
+    }
+
+    private func assertAutomationSocketPassword(
+        _ expectedValue: String,
+        remainsIn url: URL,
+        duration: TimeInterval = 1.0
+    ) throws {
+        let deadline = Date().addingTimeInterval(duration)
+        while Date() < deadline {
+            let actual = try automationSocketPassword(in: url)
+            guard actual as? String == expectedValue else {
+                XCTFail("Expected automation.socketPassword to remain \(expectedValue), got \(String(describing: actual))")
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    private func automationSocketPassword(in url: URL) throws -> Any? {
+        let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: url))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
+        let automation = try XCTUnwrap(root["automation"] as? [String: Any])
+        return automation["socketPassword"]
+    }
+
+    private func parsedRootObject(in source: String) throws -> [String: Any] {
+        let sanitized = try JSONCParser.preprocess(data: Data(source.utf8))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
+    }
+
+    private func sidebarAppearanceString(_ key: String, in source: String) throws -> String? {
+        let sanitized = try JSONCParser.preprocess(data: Data(source.utf8))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
+        let sidebarAppearance = try XCTUnwrap(root["sidebarAppearance"] as? [String: Any])
+        return sidebarAppearance[key] as? String
+    }
+
+    private func sidebarAppearanceBool(_ key: String, in source: String) throws -> Bool? {
+        let sanitized = try JSONCParser.preprocess(data: Data(source.utf8))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
+        let sidebarAppearance = try XCTUnwrap(root["sidebarAppearance"] as? [String: Any])
+        return sidebarAppearance[key] as? Bool
+    }
+
+    private func waitForDefaultString(_ expectedValue: String, key: String, defaults: UserDefaults) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if defaults.string(forKey: key) == expectedValue {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTFail("Timed out waiting for \(key) to reapply")
+    }
+
+    private func waitForPendingSettingsPath(
+        _ path: String,
+        toBePending expectedValue: Bool,
+        in store: KeyboardShortcutSettingsFileStore
+    ) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if store.hasPendingSettingsJSONValueForTesting(path: path) == expectedValue {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTFail("Timed out waiting for \(path) pending state to become \(expectedValue)")
     }
 }

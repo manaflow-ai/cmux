@@ -28,11 +28,19 @@ extension CmuxSettingsFileStore {
     }
 
     private static func commentedTemplateLines(for section: [String: Any]) -> [String] {
-        let json = prettyJSONString(section)
+        let json: String
+        do {
+            json = try prettyJSONString(section)
+        } catch {
+            preconditionFailure("Failed to render default cmux.json template section: \(error)")
+        }
+
         let sectionLines = json
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
-        guard sectionLines.count >= 2 else { return [] }
+        guard sectionLines.count >= 2 else {
+            preconditionFailure("Rendered default cmux.json template section is not an object")
+        }
 
         return sectionLines
             .dropFirst()
@@ -176,19 +184,21 @@ extension CmuxSettingsFileStore {
         _ shortcut: StoredShortcut,
         usesNumberedDigits: Bool
     ) -> Any {
+        let defaultShortcut = usesNumberedDigits ? (shortcut.secondStroke ?? shortcut.firstStroke) : nil
+        let rendered = shortcut.firstStroke.configString(preserveDigit: !usesNumberedDigits)
         if let secondStroke = shortcut.secondStroke {
-            return [
-                shortcut.firstStroke.configString(preserveDigit: !usesNumberedDigits),
-                secondStroke.configString(preserveDigit: true),
-            ]
+            return [rendered, secondStroke.configString(preserveDigit: true)]
         }
-        return shortcut.firstStroke.configString(preserveDigit: true)
+        if let defaultShortcut {
+            return defaultShortcut.configString(preserveDigit: true)
+        }
+        return rendered
     }
 
-    private static func prettyJSONString(_ value: Any) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]),
-              let string = String(data: data, encoding: .utf8) else {
-            return "{}"
+    private static func prettyJSONString(_ value: Any) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
+        guard let string = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileWriteInapplicableStringEncoding)
         }
         return string
     }
