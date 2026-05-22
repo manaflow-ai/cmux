@@ -4283,6 +4283,73 @@ extension SessionPersistenceTests {
         XCTAssertEqual(validRecords.first?.policy, .auto)
     }
 
+    func testSurfaceResumeApprovalMigratesLegacyRecordsIntoCmuxJSON() throws {
+        let settingsURL = try makeSurfaceResumeApprovalCmuxSettingsURL()
+        let legacyURL = settingsURL.deletingLastPathComponent()
+            .appendingPathComponent("resume-commands.json", isDirectory: false)
+        let secret = Data("approval-secret".utf8)
+        try """
+        {
+          "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+          "schemaVersion": 1,
+          "terminal": {
+            "showScrollBar": false
+          },
+          "rightSidebar": {
+            "width": 320
+          }
+        }
+        """.write(to: settingsURL, atomically: true, encoding: .utf8)
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: legacyURL,
+            signingSecret: secret
+        ))
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
+        XCTAssertTrue(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
+            fileURL: settingsURL,
+            legacyFileURL: legacyURL
+        ))
+
+        let root = try jsonObject(at: settingsURL)
+        let terminal = try XCTUnwrap(root["terminal"] as? [String: Any])
+        XCTAssertEqual(terminal["showScrollBar"] as? Bool, false)
+        let rightSidebar = try XCTUnwrap(root["rightSidebar"] as? [String: Any])
+        XCTAssertEqual((rightSidebar["width"] as? NSNumber)?.intValue, 320)
+        let storedRecords = try XCTUnwrap(terminal["resumeCommands"] as? [[String: Any]])
+        XCTAssertEqual(storedRecords.count, 1)
+        XCTAssertEqual(storedRecords.first?["id"] as? String, record.id)
+
+        let validRecords = SurfaceResumeApprovalStore.validRecords(
+            fileURL: settingsURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(validRecords.map(\.id), [record.id])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
+
+        XCTAssertFalse(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
+            fileURL: settingsURL,
+            legacyFileURL: legacyURL
+        ))
+        let rootAfterSecondMigration = try jsonObject(at: settingsURL)
+        let terminalAfterSecondMigration = try XCTUnwrap(rootAfterSecondMigration["terminal"] as? [String: Any])
+        let storedRecordsAfterSecondMigration = try XCTUnwrap(terminalAfterSecondMigration["resumeCommands"] as? [[String: Any]])
+        XCTAssertEqual(storedRecordsAfterSecondMigration.count, 1)
+    }
+
     func testSurfaceResumeApprovalPromptsForUnknownManualProposal() throws {
         let binding = SurfaceResumeBindingSnapshot(
             command: "tmux attach -t work",

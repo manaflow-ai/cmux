@@ -633,9 +633,40 @@ enum SurfaceResumeApprovalStore {
             guard fileURL.standardizedFileURL.path == defaultURL().standardizedFileURL.path else {
                 return loaded.records
             }
-            return loadStandaloneRecords(fileURL: legacyDefaultURL(), fileManager: fileManager)
+            let legacyURL = legacyURL(forCmuxSettingsURL: fileURL)
+            let legacyRecords = loadStandaloneRecords(fileURL: legacyURL, fileManager: fileManager)
+            guard !legacyRecords.isEmpty else {
+                return loaded.records
+            }
+            _ = migrateLegacyRecordsIfNeeded(
+                fileURL: fileURL,
+                fileManager: fileManager,
+                legacyFileURL: legacyURL
+            )
+            return legacyRecords
         }
         return loadStandaloneRecords(fileURL: fileURL, fileManager: fileManager)
+    }
+
+    @discardableResult
+    static func migrateLegacyRecordsIfNeeded(
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        legacyFileURL: URL? = nil
+    ) -> Bool {
+        guard storesRecordsInCmuxSettings(fileURL) else {
+            return false
+        }
+        let loaded = loadRecordsFromCmuxSettings(fileURL: fileURL)
+        guard !loaded.hasResumeCommandsKey else {
+            return false
+        }
+        let legacyURL = legacyFileURL ?? legacyURL(forCmuxSettingsURL: fileURL)
+        let legacyRecords = loadStandaloneRecords(fileURL: legacyURL, fileManager: fileManager)
+        guard !legacyRecords.isEmpty else {
+            return false
+        }
+        return writeRecordsToCmuxSettings(records: legacyRecords, fileURL: fileURL, fileManager: fileManager)
     }
 
     private static func loadStandaloneRecords(
@@ -944,9 +975,8 @@ enum SurfaceResumeApprovalStore {
         fileURL.lastPathComponent == "cmux.json"
     }
 
-    private static func legacyDefaultURL() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/cmux", isDirectory: true)
+    private static func legacyURL(forCmuxSettingsURL fileURL: URL) -> URL {
+        fileURL.deletingLastPathComponent()
             .appendingPathComponent(legacyFileName, isDirectory: false)
     }
 
