@@ -1451,7 +1451,7 @@ enum SessionTerminalScrollbackNormalizer {
             guard
                 let markerRange = Range(match.range, in: text),
                 let sgrRunTextRange = Range(sgrRunRange, in: text),
-                zshPromptSpMarkerSGRRunContainsInverseMarker(String(text[sgrRunTextRange]))
+                zshPromptSpMarkerSGRRunLeavesInverseVideoEnabled(String(text[sgrRunTextRange]))
             else {
                 return
             }
@@ -1464,12 +1464,13 @@ enum SessionTerminalScrollbackNormalizer {
         return output
     }
 
-    private static func zshPromptSpMarkerSGRRunContainsInverseMarker(_ sgrRun: String) -> Bool {
-        var finalParameters: String?
+    private static func zshPromptSpMarkerSGRRunLeavesInverseVideoEnabled(_ sgrRun: String) -> Bool {
+        var inverseEnabled = false
+        let nsSGRRun = sgrRun as NSString
         ansiSGRParametersRegex.value.enumerateMatches(
             in: sgrRun,
             options: [],
-            range: NSRange(location: 0, length: (sgrRun as NSString).length)
+            range: NSRange(location: 0, length: nsSGRRun.length)
         ) { match, _, _ in
             guard
                 let match,
@@ -1478,18 +1479,28 @@ enum SessionTerminalScrollbackNormalizer {
             else {
                 return
             }
-            finalParameters = (sgrRun as NSString).substring(with: match.range(at: 1))
-        }
 
-        guard let finalParameters else { return false }
-        return finalParameters
-            .split(separator: ";", omittingEmptySubsequences: false)
-            .contains { parameter in
-                guard let value = Int(parameter.isEmpty ? "0" : String(parameter)) else {
-                    return false
+            let parameters = nsSGRRun.substring(with: match.range(at: 1))
+            let fields = parameters.isEmpty
+                ? ["0"]
+                : parameters
+                    .split(separator: ";", omittingEmptySubsequences: false)
+                    .map(String.init)
+            for field in fields {
+                guard let value = Int(field.isEmpty ? "0" : field) else {
+                    continue
                 }
-                return value == 7
+                switch value {
+                case 0, 27:
+                    inverseEnabled = false
+                case 7:
+                    inverseEnabled = true
+                default:
+                    break
+                }
             }
+        }
+        return inverseEnabled
     }
 }
 

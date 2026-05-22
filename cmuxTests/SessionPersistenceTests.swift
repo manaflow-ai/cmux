@@ -450,9 +450,11 @@ final class SessionPersistenceTests: XCTestCase {
         let reset = "\u{001B}[0m"
         let zshPromptSpMarker = "\(reset)\u{001B}[1m\u{001B}[7m%\(reset)  "
         let alternateZshPromptSpMarker = "\(reset)\u{001B}[0;7m%\(reset)\t"
+        let statefulZshPromptSpMarker = "\(reset)\u{001B}[7m\u{001B}[1m%\(reset) "
         let source =
             "print-no-newline\(zshPromptSpMarker)" +
-            "austin@host 編輯 % \(alternateZshPromptSpMarker)next"
+            "austin@host 編輯 % \(alternateZshPromptSpMarker)" +
+            "bold-still-inverse\(statefulZshPromptSpMarker)next"
         let environment = SessionScrollbackReplayStore.replayEnvironment(
             for: source,
             tempDirectory: tempDir
@@ -464,6 +466,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(contents.contains("\u{001B}[0;7m%\(reset)"))
         XCTAssertTrue(contents.contains("print-no-newline"))
         XCTAssertTrue(contents.contains("austin@host 編輯 % "))
+        XCTAssertTrue(contents.contains("\nbold-still-inverse"))
         XCTAssertTrue(contents.contains("\nnext"))
     }
 
@@ -476,7 +479,10 @@ final class SessionPersistenceTests: XCTestCase {
         let reset = "\u{001B}[0m"
         let whitePercent = "\u{001B}[37m%\(reset)"
         let positiveImagePercent = "\u{001B}[27m%\(reset)"
-        let source = "colors \(whitePercent) remain \(positiveImagePercent) literal"
+        let disabledInversePercent = "\u{001B}[7m\u{001B}[27m%\(reset)"
+        let source =
+            "colors \(whitePercent) remain \(positiveImagePercent) and " +
+            "\(disabledInversePercent) literal"
 
         let environment = SessionScrollbackReplayStore.replayEnvironment(
             for: source,
@@ -487,7 +493,12 @@ final class SessionPersistenceTests: XCTestCase {
         let contents = try String(contentsOfFile: path, encoding: .utf8)
         XCTAssertTrue(contents.contains(whitePercent))
         XCTAssertTrue(contents.contains(positiveImagePercent))
-        XCTAssertTrue(contents.contains("colors \(whitePercent) remain \(positiveImagePercent) literal"))
+        XCTAssertTrue(contents.contains(disabledInversePercent))
+        XCTAssertTrue(
+            contents.contains(
+                "colors \(whitePercent) remain \(positiveImagePercent) and \(disabledInversePercent) literal"
+            )
+        )
     }
 
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
