@@ -368,6 +368,53 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingAgentHookResumeBindingClearsWhenStartupReturnsToPrompt() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            XCTAssertTrue(
+                source.setSurfaceResumeBinding(
+                    SurfaceResumeBindingSnapshot(
+                        name: "Codex",
+                        kind: "codex",
+                        command: "codex resume failed-startup-session",
+                        cwd: "/tmp/repo",
+                        checkpointId: "failed-startup-session",
+                        source: "agent-hook",
+                        autoResume: true,
+                        updatedAt: 1_777_777_777
+                    ),
+                    panelId: sourcePanelId
+                )
+            )
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "failed-startup-session",
+                    workingDirectory: "/tmp/repo"
+                ),
+                panelId: sourcePanelId
+            )
+            source.setRestoredAgentAutoResumePendingForTesting(true, panelId: sourcePanelId)
+
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .promptIdle)
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty
+            )
+
+            XCTAssertNil(snapshot.panels.first?.terminal?.agent)
+            XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
+            XCTAssertNil(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId))
+            XCTAssertNil(source.surfaceResumeBinding(panelId: sourcePanelId))
+            XCTAssertFalse(source.restoredAgentAutoResumePendingForTesting(panelId: sourcePanelId))
+        }
+    }
+
+    @MainActor
     func testDisabledAutoResumeDoesNotRunAgentHookResumeBinding() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey

@@ -9133,7 +9133,9 @@ final class Workspace: Identifiable, ObservableObject {
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
                 invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), nil:
+            case .some(.awaitingAutoResumeCommand):
+                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
+            case .some(.manualResumeAvailable), nil:
                 break
             }
         case .unknown:
