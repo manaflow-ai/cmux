@@ -5093,7 +5093,7 @@ final class WorkspaceRemotePTYBridgeServer {
             if lowered.contains("timed out") || lowered.contains("timeout") {
                 return "remote daemon did not respond in time"
             }
-            return message.isEmpty ? "remote PTY attach failed" : message
+            return "remote PTY attach failed"
         }
     }
 
