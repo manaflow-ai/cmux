@@ -47,7 +47,7 @@ fi
 - `selectSurfaceByNumber` and `selectWorkspaceByNumber` must use a digit from 1 to 9. `cmd+1` means the full `cmd+1` through `cmd+9` family.
 - `showHideAllWindows` and `globalSearch` are system-wide shortcuts. They cannot be chords, require modifiers, and may be rejected by macOS if reserved.
 - `showHideAllWindows` also requires Settings > Global Hotkey > Enable System-Wide Hotkey. The binding can validate in `cmux.json` while the feature is disabled, so warn the user to enable that setting before reporting the shortcut as usable.
-- `unset` deletes a `cmux.json` override. It does not clear shortcut changes saved through the Settings UI/UserDefaults. If the user asks for true built-in defaults, tell them to use Settings > Keyboard Shortcuts > Reset Default Shortcuts after clearing file-managed overrides, then verify in the app.
+- `unset` deletes a `cmux.json` override. It does not clear shortcut changes saved through the Settings UI/UserDefaults. If the user asks for true built-in defaults, tell them to use Settings > Keyboard Shortcuts > Reset Default Shortcuts after clearing file-managed overrides, then verify in the app. For `showHideAllWindows`, use Settings > Global Hotkey to restore the shortcut to `ctrl+opt+cmd+.` because Keyboard Shortcuts > Reset Default Shortcuts intentionally skips the global hotkey.
 - Saving `cmux.json` live reloads. Do not tell the user to restart cmux.
 
 ## Workflow
@@ -55,7 +55,7 @@ fi
 1. Classify the request:
    - One-off rebind or unbind: map the phrase to an action ID, apply it, validate, and report the previous and new binding.
    - Audit-only request: inspect current bindings, validate, and summarize overrides/unbound shortcuts without writing.
-   - Reset request: clarify whether the user means file-managed overrides or true built-in defaults. For file-managed resets, use `unset` for named actions. For true built-in defaults, remove file overrides and direct the user to Settings > Keyboard Shortcuts > Reset Default Shortcuts; do not report built-in defaults restored from `cmux-settings` alone.
+   - Reset request: clarify whether the user means file-managed overrides or true built-in defaults. For file-managed resets, use `unset` for named actions. For true built-in defaults, remove file overrides and direct the user to Settings > Keyboard Shortcuts > Reset Default Shortcuts; do not report built-in defaults restored from `cmux-settings` alone. If `showHideAllWindows` is included, also direct them to Settings > Global Hotkey to restore `ctrl+opt+cmd+.` and the enable toggle.
    - Broad customization request: propose 3 to 5 templates from "Preset Templates" and ask the user to choose.
    - Named style such as tmux, Vim, iTerm, browser, or agent triage: select the closest template, show the changed actions and likely collisions, and ask before a bulk apply unless the user explicitly said to apply it.
 2. Inspect existing config:
