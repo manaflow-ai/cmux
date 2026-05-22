@@ -77,7 +77,8 @@ final class CmuxMainWindow: NSWindow {
                     super.sendEvent(event)
                     return
                 }
-                if let appDelegate = AppDelegate.shared,
+                let appDelegate = MainActor.assumeIsolated { AppDelegate.shared }
+                if let appDelegate,
                    let context = appDelegate.contextForMainTerminalWindow(self, reindex: false) {
 #if DEBUG
                     let action = event.buttonNumber == 3 ? "navigateBack" : "navigateForward"
