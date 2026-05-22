@@ -32,6 +32,24 @@ extension TerminalController: ExtensionBridgeHost {}
 struct ExtensionBridgeRPCDispatcher {
     private typealias V2CallResult = TerminalController.V2CallResult
 
+    private enum BridgeMethod: String {
+        case systemCapabilities = "system.capabilities"
+        case systemTree = "system.tree"
+        case workspaceList = "workspace.list"
+        case workspaceCurrent = "workspace.current"
+        case paneList = "pane.list"
+        case paneSurfaces = "pane.surfaces"
+        case paneCreate = "pane.create"
+        case surfaceList = "surface.list"
+        case surfaceCurrent = "surface.current"
+        case surfaceFocus = "surface.focus"
+        case surfaceCreate = "surface.create"
+        case surfaceSplit = "surface.split"
+        case surfaceClose = "surface.close"
+        case surfaceSendText = "surface.send_text"
+        case surfaceSendKey = "surface.send_key"
+    }
+
     private let host: ExtensionBridgeHost
 
     init(host: ExtensionBridgeHost) {
@@ -45,33 +63,12 @@ struct ExtensionBridgeRPCDispatcher {
         surfaceId: UUID,
         paneId: UUID?
     ) -> [String: Any] {
-        let allowedMethods: Set<String> = [
-            "system.capabilities",
-            "system.tree",
-            "workspace.list",
-            "workspace.current",
-            "pane.list",
-            "pane.surfaces",
-            "pane.create",
-            "surface.list",
-            "surface.current",
-            "surface.focus",
-            "surface.create",
-            "surface.split",
-            "surface.close",
-            "surface.send_text",
-            "surface.send_key"
-        ]
-        guard allowedMethods.contains(method) else {
-            return envelope(.err(
-                code: "method_not_allowed",
-                message: "Extension bridge method is not allowed: \(method)",
-                data: nil
-            ))
+        guard let bridgeMethod = BridgeMethod(rawValue: method) else {
+            return envelope(Self.methodNotAllowed(method))
         }
 
         let scopedResult = scopedParams(
-            method: method,
+            method: bridgeMethod,
             params: params,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
@@ -88,7 +85,7 @@ struct ExtensionBridgeRPCDispatcher {
             ))
         }
 
-        let preparedResult = paramsByResolvingBundleIfNeeded(method: method, params: scopedParams)
+        let preparedResult = paramsByResolvingBundleIfNeeded(method: bridgeMethod, params: scopedParams)
         guard case .ok(let preparedPayload) = preparedResult else {
             return envelope(preparedResult)
         }
@@ -103,45 +100,43 @@ struct ExtensionBridgeRPCDispatcher {
 
         return host.v2MainSync {
             host.v2RefreshKnownRefs()
-            return host.withSocketCommandPolicy(commandKey: method, isV2: true, params: scopedParams) {
+            return host.withSocketCommandPolicy(
+                commandKey: bridgeMethod.rawValue,
+                isV2: true,
+                params: scopedParams
+            ) {
                 let result: V2CallResult
-                switch method {
-                case "system.capabilities":
+                switch bridgeMethod {
+                case .systemCapabilities:
                     result = .ok(host.v2Capabilities())
-                case "system.tree":
+                case .systemTree:
                     result = host.v2SystemTree(params: scopedParams)
-                case "workspace.list":
+                case .workspaceList:
                     result = host.v2WorkspaceList(params: scopedParams)
-                case "workspace.current":
+                case .workspaceCurrent:
                     result = host.v2WorkspaceCurrent(params: scopedParams)
-                case "pane.list":
+                case .paneList:
                     result = host.v2PaneList(params: scopedParams)
-                case "pane.surfaces":
+                case .paneSurfaces:
                     result = host.v2PaneSurfaces(params: scopedParams)
-                case "pane.create":
+                case .paneCreate:
                     result = host.v2PaneCreate(params: scopedParams)
-                case "surface.list":
+                case .surfaceList:
                     result = host.v2SurfaceList(params: scopedParams)
-                case "surface.current":
+                case .surfaceCurrent:
                     result = host.v2SurfaceCurrent(params: scopedParams)
-                case "surface.focus":
+                case .surfaceFocus:
                     result = host.v2SurfaceFocus(params: scopedParams)
-                case "surface.create":
+                case .surfaceCreate:
                     result = host.v2SurfaceCreate(params: scopedParams)
-                case "surface.split":
+                case .surfaceSplit:
                     result = host.v2SurfaceSplit(params: scopedParams)
-                case "surface.close":
+                case .surfaceClose:
                     result = host.v2SurfaceClose(params: scopedParams)
-                case "surface.send_text":
+                case .surfaceSendText:
                     result = host.v2SurfaceSendText(params: scopedParams)
-                case "surface.send_key":
+                case .surfaceSendKey:
                     result = host.v2SurfaceSendKey(params: scopedParams)
-                default:
-                    result = .err(
-                        code: "method_not_allowed",
-                        message: "Extension bridge method is not allowed: \(method)",
-                        data: nil
-                    )
                 }
                 return envelope(result)
             }
@@ -149,13 +144,13 @@ struct ExtensionBridgeRPCDispatcher {
     }
 
     private func paramsByResolvingBundleIfNeeded(
-        method: String,
+        method: BridgeMethod,
         params: [String: Any]
     ) -> V2CallResult {
-        let extensionCreationMethods: Set<String> = [
-            "pane.create",
-            "surface.create",
-            "surface.split"
+        let extensionCreationMethods: Set<BridgeMethod> = [
+            .paneCreate,
+            .surfaceCreate,
+            .surfaceSplit
         ]
         guard extensionCreationMethods.contains(method) else {
             return .ok(params)
@@ -221,7 +216,7 @@ struct ExtensionBridgeRPCDispatcher {
     }
 
     private func scopedParams(
-        method: String,
+        method: BridgeMethod,
         params: [String: Any],
         workspaceId: UUID,
         surfaceId: UUID,
@@ -267,7 +262,7 @@ struct ExtensionBridgeRPCDispatcher {
             if let existing = stringValue(workingParams[key]), !scopeValueMatches(existing, expected: expected) {
                 return .err(
                     code: "forbidden_scope",
-                    message: "Extension bridge method \(method) cannot target a different \(key)",
+                    message: "Extension bridge method \(method.rawValue) cannot target a different \(key)",
                     data: ["expected": expected, "received": existing]
                 )
             }
@@ -275,17 +270,15 @@ struct ExtensionBridgeRPCDispatcher {
             return nil
         }
 
-        let hostSurfaceMethods: Set<String> = [
-            "pane.create",
-            "surface.focus",
-            "surface.split",
-            "surface.close",
-            "surface.send_text",
-            "surface.send_key"
+        let hostSurfaceMethods: Set<BridgeMethod> = [
+            .paneCreate,
+            .surfaceFocus,
+            .surfaceSplit,
+            .surfaceClose,
+            .surfaceSendText,
+            .surfaceSendKey
         ]
-        let hostPaneMethods: Set<String> = [
-            "surface.create"
-        ]
+        let hostPaneMethods: Set<BridgeMethod> = [.surfaceCreate]
         if hostSurfaceMethods.contains(method)
             || hostPaneMethods.contains(method) {
             if let error = enforceScope("workspace_id", expected: workspaceString) {
@@ -300,7 +293,7 @@ struct ExtensionBridgeRPCDispatcher {
             guard let paneString else {
                 return .err(
                     code: "missing_scope",
-                    message: "Extension bridge method \(method) requires a host pane",
+                    message: "Extension bridge method \(method.rawValue) requires a host pane",
                     data: nil
                 )
             }
@@ -310,7 +303,7 @@ struct ExtensionBridgeRPCDispatcher {
         }
 
         switch method {
-        case "pane.surfaces":
+        case .paneSurfaces:
             if workingParams["pane_id"] == nil, let paneId {
                 workingParams["pane_id"] = paneId.uuidString
             }
@@ -319,6 +312,14 @@ struct ExtensionBridgeRPCDispatcher {
         }
 
         return .ok(workingParams)
+    }
+
+    private static func methodNotAllowed(_ method: String) -> V2CallResult {
+        .err(
+            code: "method_not_allowed",
+            message: "Extension bridge method is not allowed: \(method)",
+            data: nil
+        )
     }
 
     private func envelope(_ result: V2CallResult) -> [String: Any] {
