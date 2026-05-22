@@ -434,6 +434,8 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastNotificationStatus: AgentHookNotificationStatus?
     var lastEmittedNotificationFingerprint: String?
     var lastEmittedNotificationAt: TimeInterval?
+    var pendingNotificationFingerprint: String?
+    var pendingNotificationStartedAt: TimeInterval?
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
     var startedAt: TimeInterval
@@ -638,7 +640,7 @@ private final class ClaudeHookSessionStore {
         lastBody: String? = nil,
         lastNotificationStatus: AgentHookNotificationStatus? = nil,
         updateLastNotificationStatus: Bool = false,
-        emittedNotificationFingerprint: String? = nil,
+        pendingNotificationFingerprint: String? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         markActive: Bool = false,
@@ -663,6 +665,8 @@ private final class ClaudeHookSessionStore {
                 lastNotificationStatus: nil,
                 lastEmittedNotificationFingerprint: nil,
                 lastEmittedNotificationAt: nil,
+                pendingNotificationFingerprint: nil,
+                pendingNotificationStartedAt: nil,
                 runtimeStatus: nil,
                 activePromptDepth: nil,
                 startedAt: now,
@@ -685,9 +689,9 @@ private final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
-            if let fingerprint = normalizeOptional(emittedNotificationFingerprint) {
-                record.lastEmittedNotificationFingerprint = fingerprint
-                record.lastEmittedNotificationAt = now
+            if let fingerprint = normalizeOptional(pendingNotificationFingerprint) {
+                record.pendingNotificationFingerprint = fingerprint
+                record.pendingNotificationStartedAt = now
             }
             state.sessions[normalized] = record
             if markActive, let normalizedWorkspace = normalizeOptional(workspaceId) {
@@ -722,6 +726,8 @@ private final class ClaudeHookSessionStore {
             lastNotificationStatus: nil,
             lastEmittedNotificationFingerprint: nil,
             lastEmittedNotificationAt: nil,
+            pendingNotificationFingerprint: nil,
+            pendingNotificationStartedAt: nil,
             runtimeStatus: nil,
             activePromptDepth: nil,
             startedAt: now,
@@ -790,6 +796,8 @@ private final class ClaudeHookSessionStore {
             let now = Date().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = nil
             record.lastEmittedNotificationAt = nil
+            record.pendingNotificationFingerprint = nil
+            record.pendingNotificationStartedAt = nil
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -805,12 +813,19 @@ private final class ClaudeHookSessionStore {
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedFingerprint.isEmpty else { return false }
         return try withLockedState { state in
-            guard let record = state.sessions[normalized],
-                  record.lastEmittedNotificationFingerprint == normalizedFingerprint,
-                  let emittedAt = record.lastEmittedNotificationAt else {
-                return false
+            guard let record = state.sessions[normalized] else { return false }
+            let now = Date().timeIntervalSince1970
+            if record.lastEmittedNotificationFingerprint == normalizedFingerprint,
+               let emittedAt = record.lastEmittedNotificationAt,
+               now - emittedAt <= interval {
+                return true
             }
-            return Date().timeIntervalSince1970 - emittedAt <= interval
+            if record.pendingNotificationFingerprint == normalizedFingerprint,
+               let startedAt = record.pendingNotificationStartedAt,
+               now - startedAt <= interval {
+                return true
+            }
+            return false
         }
     }
 
@@ -824,6 +839,28 @@ private final class ClaudeHookSessionStore {
             let now = Date().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = normalizedFingerprint
             record.lastEmittedNotificationAt = now
+            if record.pendingNotificationFingerprint == normalizedFingerprint {
+                record.pendingNotificationFingerprint = nil
+                record.pendingNotificationStartedAt = nil
+            }
+            record.updatedAt = now
+            state.sessions[normalized] = record
+        }
+    }
+
+    func clearPendingNotification(sessionId: String, fingerprint: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFingerprint.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.pendingNotificationFingerprint == normalizedFingerprint else {
+                return
+            }
+            let now = Date().timeIntervalSince1970
+            record.pendingNotificationFingerprint = nil
+            record.pendingNotificationStartedAt = nil
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -18597,8 +18634,6 @@ struct CMUXCLI {
                 )
             } else if isGenericClaudeWaitingBody(summary.body) {
                 telemetry.breadcrumb("claude-hook.notification.generic-suppressed")
-                print("OK")
-                return
             }
 
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
@@ -18693,7 +18728,7 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body,
-                    emittedNotificationFingerprint: notificationFingerprint
+                    pendingNotificationFingerprint: notificationFingerprint
                 )
             }
             _ = try? setClaudeStatus(
@@ -18704,12 +18739,24 @@ struct CMUXCLI {
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
-            let response = try sendClaudeWaitingNotification(
-                summary: summary,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                client: client
-            )
+            let response: String
+            do {
+                response = try sendClaudeWaitingNotification(
+                    summary: summary,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    client: client
+                )
+                markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
+            } catch {
+                if let sessionId = parsedInput.sessionId {
+                    try? sessionStore.clearPendingNotification(
+                        sessionId: sessionId,
+                        fingerprint: notificationFingerprint
+                    )
+                }
+                throw error
+            }
             print(response)
 
         case "session-end":

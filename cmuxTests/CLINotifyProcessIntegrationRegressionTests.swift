@@ -406,10 +406,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let raceNotifyCommands = Array(context.state.commands.dropFirst(raceNotificationStart))
             .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
-        XCTAssertTrue(
-            raceNotifyCommands.isEmpty,
-            "Expected context-free generic Claude Notification to wait for a specific PermissionRequest prompt, saw \(raceNotifyCommands)"
-        )
+        let raceCommand = try XCTUnwrap(raceNotifyCommands.last)
+        XCTAssertTrue(raceCommand.contains("Claude Workspace - Claude waiting|Idle prompt|"), raceCommand)
+        XCTAssertTrue(raceCommand.contains("Claude Code needs your input."), raceCommand)
 
         let commandStart = context.state.commands.count
         let result = runClaudeHook(
@@ -425,6 +424,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let command = try XCTUnwrap(notifyCommands.last)
         XCTAssertTrue(command.contains("Claude Workspace - Claude waiting|Permission request|"), command)
         XCTAssertTrue(command.contains("Allow Bash to inspect grep error.log?"), command)
+        let sessionAfterPermission = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNotNil(sessionAfterPermission["lastEmittedNotificationFingerprint"])
+        XCTAssertNil(sessionAfterPermission["pendingNotificationFingerprint"])
 
         let permissionPromptCommandStart = context.state.commands.count
         let permissionPromptResult = runClaudeHook(
