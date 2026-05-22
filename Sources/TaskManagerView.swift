@@ -187,10 +187,10 @@ struct CmuxTaskManagerView: View {
 /// `Sources/SessionIndexView.swift`. See repo/CLAUDE.md
 /// "Snapshot boundary for list subtrees" rule and issues #2586 / #4529.
 struct CmuxTaskManagerRowActions {
-    let viewWorkspace: (CmuxTaskManagerRow) -> Void
-    let viewTerminal: (CmuxTaskManagerRow) -> Void
-    let killProcess: (CmuxTaskManagerRow) -> Void
-    let activate: (CmuxTaskManagerRow) -> Void
+    let viewWorkspace: @MainActor (CmuxTaskManagerRow) -> Void
+    let viewTerminal: @MainActor (CmuxTaskManagerRow) -> Void
+    let killProcess: @MainActor (CmuxTaskManagerRow) -> Void
+    let activate: @MainActor (CmuxTaskManagerRow) -> Void
 
     @MainActor
     static func bound(to model: CmuxTaskManagerModel) -> CmuxTaskManagerRowActions {
@@ -303,7 +303,7 @@ struct CmuxTaskManagerListView: View {
     }
 }
 
-struct CmuxTaskManagerSectionHeaderView: View, Equatable {
+private struct CmuxTaskManagerSectionHeaderView: View, Equatable {
     let title: String
 
     static func == (lhs: CmuxTaskManagerSectionHeaderView, rhs: CmuxTaskManagerSectionHeaderView) -> Bool {
@@ -365,10 +365,10 @@ private struct CmuxTaskManagerMessageView: View {
 /// and re-introduce the 0.64.8 memory leak (issue #4529).
 struct CmuxTaskManagerRowView: View, Equatable {
     let row: CmuxTaskManagerRow
-    let onViewWorkspace: () -> Void
-    let onViewTerminal: () -> Void
-    let onKillProcess: () -> Void
-    let onActivate: () -> Void
+    let onViewWorkspace: @MainActor () -> Void
+    let onViewTerminal: @MainActor () -> Void
+    let onKillProcess: @MainActor () -> Void
+    let onActivate: @MainActor () -> Void
 
     static func == (lhs: CmuxTaskManagerRowView, rhs: CmuxTaskManagerRowView) -> Bool {
         // Closures excluded on purpose: the parent rebuilds the action
