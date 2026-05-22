@@ -613,52 +613,6 @@
           ]
         },
         {
-          "name": "update-plan-telemetry",
-          "arguments": [
-            "hooks",
-            "feed",
-            "--source",
-            "codex",
-            "--event",
-            "PreToolUse"
-          ],
-          "stdin": {
-            "event": "PreToolUse",
-            "session_id": "codex-replay-session",
-            "cwd": "${workspace}",
-            "request_id": "codex-update-plan-1",
-            "tool_name": "update_plan",
-            "tool_input": {
-              "plan": [
-                {
-                  "step": "Inspect replay coverage",
-                  "status": "completed"
-                },
-                {
-                  "step": "Patch fixture",
-                  "status": "completed"
-                },
-                {
-                  "step": "Run validation",
-                  "status": "in_progress"
-                },
-                {
-                  "step": "Prepare final handoff",
-                  "status": "pending"
-                }
-              ]
-            }
-          },
-          "expectedStdout": "{}\n",
-          "expectedFeedEvents": [
-            {
-              "_source": "codex",
-              "hook_event_name": "PreToolUse",
-              "tool_name": "update_plan"
-            }
-          ]
-        },
-        {
           "name": "ask-user-question",
           "arguments": [
             "hooks",
@@ -701,6 +655,52 @@
               "_source": "codex",
               "hook_event_name": "PermissionRequest",
               "tool_name": "AskUserQuestion"
+            }
+          ]
+        },
+        {
+          "name": "update-plan-telemetry",
+          "arguments": [
+            "hooks",
+            "feed",
+            "--source",
+            "codex",
+            "--event",
+            "PreToolUse"
+          ],
+          "stdin": {
+            "event": "PreToolUse",
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "codex-update-plan-1",
+            "tool_name": "update_plan",
+            "tool_input": {
+              "plan": [
+                {
+                  "step": "Inspect replay coverage",
+                  "status": "completed"
+                },
+                {
+                  "step": "Patch fixture",
+                  "status": "completed"
+                },
+                {
+                  "step": "Run validation",
+                  "status": "in_progress"
+                },
+                {
+                  "step": "Prepare final handoff",
+                  "status": "pending"
+                }
+              ]
+            }
+          },
+          "expectedStdout": "{}\n",
+          "expectedFeedEvents": [
+            {
+              "_source": "codex",
+              "hook_event_name": "PreToolUse",
+              "tool_name": "update_plan"
             }
           ]
         },

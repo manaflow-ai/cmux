@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -87,6 +88,26 @@ JSON_REDACTED_KEYS = {
 }
 JSON_DROPPED_WEBSOCKET_TYPES = {
     "codex.rate_limits",
+}
+SENSITIVE_QUERY_KEYS = {
+    "access_token",
+    "api_key",
+    "apikey",
+    "auth",
+    "authorization",
+    "bearer",
+    "client_secret",
+    "code",
+    "cookie",
+    "id_token",
+    "key",
+    "password",
+    "refresh_token",
+    "session",
+    "session_token",
+    "signature",
+    "sig",
+    "token",
 }
 
 
@@ -249,6 +270,46 @@ def sanitize_text(value: str) -> str:
     return result
 
 
+def sanitize_url(value: str) -> str:
+    sanitized = sanitize_text(value)
+    try:
+        parts = urllib.parse.urlsplit(sanitized)
+    except ValueError:
+        return sanitized
+    if not parts.scheme or not parts.netloc:
+        return sanitized
+
+    query_items = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    kept_query_items = [
+        (key, val)
+        for key, val in query_items
+        if key.lower() not in SENSITIVE_QUERY_KEYS
+    ]
+    query = urllib.parse.urlencode(kept_query_items, doseq=True)
+    return urllib.parse.urlunsplit((
+        parts.scheme,
+        parts.netloc,
+        parts.path,
+        query,
+        "",
+    ))
+
+
+def is_reasoning_json_value(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    event_type = value.get("type")
+    if event_type == "reasoning":
+        return True
+    if isinstance(event_type, str) and "reasoning" in event_type:
+        return True
+    for key in ("item", "delta", "output_item"):
+        item = value.get(key)
+        if isinstance(item, dict) and item.get("type") == "reasoning":
+            return True
+    return False
+
+
 def redact_json_value(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: dict[str, Any] = {}
@@ -270,7 +331,11 @@ def redact_json_value(value: Any) -> Any:
                 redacted[key] = redact_json_value(item)
         return redacted
     if isinstance(value, list):
-        return [redact_json_value(item) for item in value]
+        return [
+            redact_json_value(item)
+            for item in value
+            if not is_reasoning_json_value(item)
+        ]
     if isinstance(value, str):
         stripped = value.lstrip()
         if stripped.startswith("# AGENTS.md instructions for ") or stripped.startswith("# CLAUDE.md instructions for "):
@@ -302,6 +367,8 @@ def should_drop_sse_json_payload(value: str) -> bool:
         delta = parsed.get("delta")
         if isinstance(delta, dict) and delta.get("type") in {"thinking_delta", "signature_delta"}:
             return True
+    if is_reasoning_json_value(parsed):
+        return True
     return False
 
 
@@ -492,7 +559,12 @@ def should_drop_websocket_message(data: str) -> bool:
         parsed = json.loads(data)
     except json.JSONDecodeError:
         return False
-    return isinstance(parsed, dict) and parsed.get("type") in JSON_DROPPED_WEBSOCKET_TYPES
+    if not isinstance(parsed, dict):
+        return False
+    event_type = parsed.get("type")
+    if event_type in JSON_DROPPED_WEBSOCKET_TYPES:
+        return True
+    return is_reasoning_json_value(parsed)
 
 
 def sanitize_websocket_messages(entry: dict[str, Any]) -> list[dict[str, Any]]:
@@ -531,7 +603,7 @@ def sanitize_entry(entry: dict[str, Any]) -> dict[str, Any]:
         "time": entry.get("time", 0),
         "request": {
             "method": request.get("method", "GET"),
-            "url": sanitize_text(str(request.get("url", ""))),
+            "url": sanitize_url(str(request.get("url", ""))),
             "httpVersion": request.get("httpVersion", "HTTP/1.1"),
             "headers": synchronize_content_length(
                 sanitize_headers(request.get("headers", [])),

@@ -2472,6 +2472,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "signature_delta",
             "encrypted_content",
             "obfuscation",
+            "reasoning",
             "system-reminder",
             "cmuxterm-hq/CLAUDE.md",
             "AGENTS.md",
