@@ -148,6 +148,8 @@ jobs:
           OUTPUT=$(run_unit_tests)
           EXIT_CODE=$?
           set -e
+          printf '%s\n' "$OUTPUT" > /tmp/test-output.txt
+          ./scripts/ci-unit-test-output-guard.sh "$EXIT_CODE" /tmp/test-output.txt
 
           # SwiftPM binary artifact resolution can occasionally fail with
           # "Could not resolve package dependencies". Retry once after clearing
@@ -160,6 +162,8 @@ jobs:
             OUTPUT=$(run_unit_tests)
             EXIT_CODE=$?
             set -e
+            printf '%s\n' "$OUTPUT" > /tmp/test-output.txt
+            ./scripts/ci-unit-test-output-guard.sh "$EXIT_CODE" /tmp/test-output.txt
           fi
 
           echo "$OUTPUT"

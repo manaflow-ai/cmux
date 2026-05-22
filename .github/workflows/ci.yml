@@ -300,6 +300,7 @@ jobs:
           EXIT_CODE=${PIPESTATUS[0]}
           OUTPUT=$(cat /tmp/test-output.txt)
           set -e
+          ./scripts/ci-unit-test-output-guard.sh "$EXIT_CODE" /tmp/test-output.txt
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
@@ -314,6 +315,7 @@ jobs:
             EXIT_CODE=${PIPESTATUS[0]}
             OUTPUT=$(cat /tmp/test-output.txt)
             set -e
+            ./scripts/ci-unit-test-output-guard.sh "$EXIT_CODE" /tmp/test-output.txt
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
