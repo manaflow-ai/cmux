@@ -237,6 +237,20 @@ extension SessionIndexStore {
         let cwd: String?
         let modified: Date
         let fileURL: URL
+
+        var hasStableListMetadata: Bool {
+            !title.isEmpty && cwd != nil
+        }
+
+        func mergingMissingFields(from older: AntigravityHistoryMetadata) -> AntigravityHistoryMetadata {
+            AntigravityHistoryMetadata(
+                sessionId: sessionId,
+                title: title.isEmpty ? older.title : title,
+                cwd: cwd ?? older.cwd,
+                modified: modified,
+                fileURL: fileURL
+            )
+        }
     }
 
     private struct GrokSessionMetadata {
@@ -530,12 +544,18 @@ extension SessionIndexStore {
                     modified: modified,
                     fileURL: historyURL
                 )
-                guard latestBySessionID[sessionId] == nil else {
+                if let existing = latestBySessionID[sessionId] {
+                    latestBySessionID[sessionId] = existing.mergingMissingFields(from: metadata)
                     return false
                 }
                 latestBySessionID[sessionId] = metadata
                 sessionIDsInReverseHistoryOrder.append(sessionId)
-                if sessionIDsInReverseHistoryOrder.count >= target {
+                if sessionIDsInReverseHistoryOrder.count >= target,
+                   antigravityTargetMetadataIsStable(
+                       sessionIDs: sessionIDsInReverseHistoryOrder,
+                       target: target,
+                       latestBySessionID: latestBySessionID
+                   ) {
                     return true
                 }
                 return false
@@ -559,6 +579,16 @@ extension SessionIndexStore {
                 )
             }
         return Array(entries.dropFirst(offset).prefix(limit))
+    }
+
+    nonisolated private static func antigravityTargetMetadataIsStable(
+        sessionIDs: [String],
+        target: Int,
+        latestBySessionID: [String: AntigravityHistoryMetadata]
+    ) -> Bool {
+        sessionIDs.prefix(target).allSatisfy { sessionId in
+            latestBySessionID[sessionId]?.hasStableListMetadata == true
+        }
     }
 
     nonisolated private static func antigravityHistoryScanLimits(offset: Int, limit: Int) -> (maxBytes: Int, maxLines: Int) {
