@@ -64,9 +64,12 @@ reviews:
     - path: "Packages/CMUXAgentLaunch/**"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook config writers and agent launch environment policy.
-    - path: "cmuxTests/**/*.swift"
+    - path: "cmuxTests/**/*Hook*.swift"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook-related tests. Tests for special hook dispatch should prove the agent cannot use the shared env-interpolating path.
+    - path: "cmuxTests/**/*Feed*.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed bridge tests. Preserve source/event routing through `cmux hooks feed --source <agent> --event <event>` and the longer Feed timeout behavior.
     - path: "tests/test_*hook*.py"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Python hook tests should preserve shared dispatch, socket routing, disable-env behavior, and Feed bridge timeout/source-event expectations.
