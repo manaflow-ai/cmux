@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import glob
 import json
 import os
 import shutil
@@ -22,14 +21,6 @@ def resolve_cmux_cli() -> str:
         if os.path.exists(explicit) and os.access(explicit, os.X_OK):
             return explicit
         raise RuntimeError(f"Configured cmux CLI is not executable: {explicit}")
-
-    candidates: list[str] = []
-    candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux")))
-    candidates = [path for path in candidates if os.path.exists(path) and os.access(path, os.X_OK)]
-    if len(candidates) == 1:
-        return candidates[0]
-    if len(candidates) > 1:
-        raise RuntimeError("Multiple cmux binaries found. Set CMUX_CLI_BIN to the intended build.")
 
     in_path = shutil.which("cmux")
     if in_path:
