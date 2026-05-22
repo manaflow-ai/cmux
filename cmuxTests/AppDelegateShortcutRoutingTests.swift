@@ -6737,6 +6737,50 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@Sources/TextBoxInput.swift](") == true)
     }
 
+    func testTextBoxMentionFileSuggestionsRefreshCachedMisses() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-mentions-refresh-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try "old".write(
+            to: root.appendingPathComponent("old-file.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let oldSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 8),
+                query: "old-file",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+        XCTAssertEqual(oldSuggestions.first?.title, "@old-file.txt")
+
+        try "new".write(
+            to: root.appendingPathComponent("new-file.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let newSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 8),
+                query: "new-file",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+        XCTAssertEqual(newSuggestions.first?.title, "@new-file.txt")
+    }
+
     func testTextBoxMentionSkillSuggestionsUseTypedDollarTrigger() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
@@ -6918,6 +6962,28 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 .namedKey("ctrl+enter")
             ]
         )
+    }
+
+    func testTextBoxSubmitBoundsVisibleWaitForLongClaudePromptSegments() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+        let longPrompt = "\(String(repeating: "alpha ", count: 60))\nshort visible tail"
+
+        let events = TextBoxSubmit.dispatchEvents(
+            for: [.text(longPrompt), .attachment(attachment)],
+            terminalAgentContext: "Claude Code"
+        )
+        let visibleWaitTexts = events.compactMap { event -> String? in
+            if case .waitForVisibleText(let text) = event { return text }
+            return nil
+        }
+
+        XCTAssertTrue(events.contains(.pasteText(longPrompt)))
+        XCTAssertFalse(events.contains(.waitForVisibleText(longPrompt)))
+        XCTAssertEqual(visibleWaitTexts.first, "short visible tail")
     }
 
     func testTextBoxSubmitUsesLocalPreviewPathForClaudeRemoteImage() throws {

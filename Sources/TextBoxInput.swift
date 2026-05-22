@@ -1256,6 +1256,12 @@ private struct TextBoxMentionCandidateIndex: Sendable {
 actor TextBoxMentionIndexStore {
     static let shared = TextBoxMentionIndexStore()
 
+    private struct CachedIndex {
+        let index: TextBoxMentionCandidateIndex
+        let createdAt: Date
+    }
+
+    private static let fileIndexTTL: TimeInterval = 2
     private static let maxIndexedFiles = 6000
     private static let maxIndexedSkills = 800
     private static let suggestionLimit = 8
@@ -1272,34 +1278,57 @@ actor TextBoxMentionIndexStore {
         "vendor"
     ]
 
-    private var fileIndexesByRoot: [String: TextBoxMentionCandidateIndex] = [:]
+    private var fileIndexesByRoot: [String: CachedIndex] = [:]
     private var skillIndexesByRootKey: [String: TextBoxMentionCandidateIndex] = [:]
 
     func suggestions(
         for query: TextBoxMentionQuery,
         rootDirectory: String?
     ) async -> [TextBoxMentionSuggestion] {
-        let index: TextBoxMentionCandidateIndex
         switch query.kind {
         case .file:
             guard let rootDirectory = Self.normalizedDirectory(rootDirectory) else { return [] }
-            index = fileIndex(rootDirectory: rootDirectory)
+            return fileSuggestions(for: query, rootDirectory: rootDirectory)
         case .skill:
-            index = skillIndex(rootDirectory: Self.normalizedDirectory(rootDirectory))
+            let index = skillIndex(rootDirectory: Self.normalizedDirectory(rootDirectory))
+            return index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
+                .map { $0.suggestion(trigger: query.trigger) }
         }
+    }
 
-        return index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
+    private func fileSuggestions(
+        for query: TextBoxMentionQuery,
+        rootDirectory: String
+    ) -> [TextBoxMentionSuggestion] {
+        let now = Date()
+        let index = fileIndex(rootDirectory: rootDirectory, now: now)
+        var matches = index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
+        if matches.isEmpty, !query.query.isEmpty {
+            let refreshed = refreshFileIndex(rootDirectory: rootDirectory, now: now)
+            matches = refreshed.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
+        }
+        return matches
             .map { $0.suggestion(trigger: query.trigger) }
     }
 
-    private func fileIndex(rootDirectory: String) -> TextBoxMentionCandidateIndex {
-        if let cached = fileIndexesByRoot[rootDirectory] {
-            return cached
+    private func fileIndex(
+        rootDirectory: String,
+        now: Date
+    ) -> TextBoxMentionCandidateIndex {
+        if let cached = fileIndexesByRoot[rootDirectory],
+           now.timeIntervalSince(cached.createdAt) < Self.fileIndexTTL {
+            return cached.index
         }
+        return refreshFileIndex(rootDirectory: rootDirectory, now: now)
+    }
 
+    private func refreshFileIndex(
+        rootDirectory: String,
+        now: Date
+    ) -> TextBoxMentionCandidateIndex {
         let rootURL = URL(fileURLWithPath: rootDirectory, isDirectory: true)
         let index = TextBoxMentionCandidateIndex(candidates: Self.scanFiles(rootURL: rootURL))
-        fileIndexesByRoot[rootDirectory] = index
+        fileIndexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: now)
         return index
     }
 
@@ -1750,6 +1779,8 @@ enum TextBoxSubmit {
     }
 #endif
 
+    private static let visibleTextWaitMaxCharacters = 160
+
     enum DispatchEvent: Equatable {
         case keyText(String)
         case pasteText(String)
@@ -1893,7 +1924,9 @@ enum TextBoxSubmit {
             }
             events.append(.captureVisibleTextBaseline)
             events.append(.pasteText(text))
-            events.append(.waitForVisibleText(text))
+            if let waitNeedle = visibleTextWaitNeedle(for: text) {
+                events.append(.waitForVisibleText(waitNeedle))
+            }
         }
 
         func appendText(_ text: String) {
@@ -1936,6 +1969,27 @@ enum TextBoxSubmit {
         }
         events.append(.namedKey(submitKey))
         return events
+    }
+
+    private static func visibleTextWaitNeedle(for text: String) -> String? {
+        let nonNewlineTrimmed = text.trimmingCharacters(in: .newlines)
+        guard !nonNewlineTrimmed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        guard nonNewlineTrimmed.count > visibleTextWaitMaxCharacters else {
+            return text
+        }
+
+        let lastLine = nonNewlineTrimmed
+            .split(omittingEmptySubsequences: false) { character in
+                character == "\n" || character == "\r"
+            }
+            .last
+            .map(String.init) ?? nonNewlineTrimmed
+        let visibleLine = lastLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nonNewlineTrimmed
+            : lastLine
+        return String(visibleLine.suffix(visibleTextWaitMaxCharacters))
     }
 
     private static func claudeImagePlan(from parts: [TextBoxSubmissionPart]) -> ClaudeImagePlan? {
