@@ -672,6 +672,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let feedCommands = Array(context.state.commands.dropFirst(feedStart))
         XCTAssertTrue(
             feedCommands.contains {
+                $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)"
+            },
+            "Expected resolved denied prompt to clear its waiting notification, saw \(feedCommands)"
+        )
+        XCTAssertTrue(
+            feedCommands.contains {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
@@ -682,6 +688,41 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(sessionAfterFeed["pendingNotificationFingerprint"])
         XCTAssertNil(sessionAfterFeed["lastSubtitle"])
         XCTAssertNil(sessionAfterFeed["lastBody"])
+    }
+
+    func testClaudePermissionRequestSkipsNeedsInputWhenPendingClearsAfterNotificationSend() throws {
+        let context = try makeClaudeHookContext(name: "claude-permission-cleared-after-send")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-permission-cleared-after-send-session"
+        let commandStart = context.state.commands.count
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"grep error.log","allowed_prompts":[{"prompt":"Allow Bash to inspect grep error.log?"}]}}"#,
+            responseOverride: { line in
+                guard line.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") else {
+                    return nil
+                }
+                try? self.markClaudeHookPendingNotificationCleared(sessionId, context: context)
+                return "OK"
+            }
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let commands = Array(context.state.commands.dropFirst(commandStart))
+        let notifyCommands = commands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertEqual(notifyCommands.count, 1, "Expected the notification send to race with Feed cleanup, saw \(notifyCommands)")
+        XCTAssertFalse(commands.contains { $0.contains("set_status claude_code Needs input") }, commands.joined(separator: "\n"))
+
+        let sessionAfterPermission = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(sessionAfterPermission["pendingNotificationFingerprint"])
+        XCTAssertNil(sessionAfterPermission["lastEmittedNotificationFingerprint"])
+        XCTAssertNil(sessionAfterPermission["lastSubtitle"])
+        XCTAssertNil(sessionAfterPermission["lastBody"])
     }
 
     func testClaudePermissionRequestSkipsNotificationWhenPendingPromptWasCleared() throws {

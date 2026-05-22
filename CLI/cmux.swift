@@ -18969,6 +18969,13 @@ struct CMUXCLI {
                 defaultReason: .permissionRequest
             )
             let notificationFingerprint = claudeWaitingNotificationFingerprint(summary)
+            func pendingPermissionRequestStillCurrent() -> Bool {
+                guard let sessionId = parsedInput.sessionId else { return true }
+                return (try? sessionStore.hasPendingNotification(
+                    sessionId: sessionId,
+                    fingerprint: notificationFingerprint
+                )) == true
+            }
             if let sessionId = parsedInput.sessionId {
                 let didBeginPendingNotification = (try? sessionStore.beginPendingNotification(
                     sessionId: sessionId,
@@ -18994,13 +19001,7 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     client: client,
-                    isCurrent: {
-                        guard let sessionId = parsedInput.sessionId else { return true }
-                        return (try? sessionStore.hasPendingNotification(
-                            sessionId: sessionId,
-                            fingerprint: notificationFingerprint
-                        )) == true
-                    }
+                    isCurrent: pendingPermissionRequestStillCurrent
                 ) else {
                     telemetry.breadcrumb("claude-hook.permission-request.pending-cleared")
                     if let sessionId = parsedInput.sessionId {
@@ -19014,6 +19015,11 @@ struct CMUXCLI {
                     return
                 }
                 response = sentResponse
+                guard pendingPermissionRequestStillCurrent() else {
+                    telemetry.breadcrumb("claude-hook.permission-request.pending-cleared-after-send")
+                    print("OK")
+                    return
+                }
                 _ = try? setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
@@ -19022,6 +19028,21 @@ struct CMUXCLI {
                     icon: "bell.fill",
                     color: "#4C8DFF"
                 )
+                guard pendingPermissionRequestStillCurrent() else {
+                    telemetry.breadcrumb("claude-hook.permission-request.pending-cleared-after-status")
+                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+                    _ = try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: claudeRunningStatusValue(),
+                        icon: "bolt.fill",
+                        color: "#4C8DFF",
+                        pid: claudePid
+                    )
+                    print("OK")
+                    return
+                }
                 markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
             } catch {
                 if let sessionId = parsedInput.sessionId {
@@ -27800,6 +27821,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 surfaceId: surfaceId ?? "",
                 cwd: firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"]),
                 transcriptPath: firstString(in: stdinObj, keys: ["transcript_path", "transcriptPath"])
+            )
+            _ = try? client.send(
+                command: "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                responseTimeout: 0.5
             )
             let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
             var command = "set_status claude_code \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
