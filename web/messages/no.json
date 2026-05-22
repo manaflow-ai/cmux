@@ -300,7 +300,12 @@
       "browserHostsEmbed": "Verter å åpne i innebygd nettleser: gjelder lenker klikket fra terminalutdata. Verter på denne listen åpnes i cmux; andre verter åpnes i standardnettleseren din. Støtter én vert eller jokertegn per linje (for eksempel: example.com, *.internal.example).",
       "browserHostsHttp": "HTTP-verter tillatt i innebygd nettleser: gjelder kun HTTP (ikke-HTTPS) URL-er. Verter på denne listen kan åpnes i cmux uten advarsel. Standardverdier inkluderer localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me.",
       "exampleConfig": "Eksempelkonfigurasjon",
-      "metaTitle": "Konfigurasjon"
+      "metaTitle": "Konfigurasjon",
+      "schemaDescriptions": {
+        "automation": {
+          "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri."
+        }
+      }
     },
     "customCommands": {
       "title": "Egendefinerte kommandoer",

@@ -80,7 +80,9 @@ class PingServer:
                 server.settimeout(min(0.2, remaining))
                 try:
                     conn, _ = server.accept()
-                except TimeoutError:
+                # GitHub's macOS Python can report socket polling timeouts as
+                # socket.timeout rather than built-in TimeoutError.
+                except (socket.timeout, TimeoutError):
                     continue
                 connection_thread = threading.Thread(
                     target=self._handle_connection,
@@ -108,7 +110,7 @@ class PingServer:
                     if not chunk:
                         break
                     data += chunk
-            except (ConnectionResetError, TimeoutError):
+            except (ConnectionResetError, socket.timeout, TimeoutError):
                 return
 
             if b"ping" in data:

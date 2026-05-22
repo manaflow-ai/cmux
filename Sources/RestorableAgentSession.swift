@@ -193,6 +193,15 @@ enum AgentResumeCommandBuilder {
 
         if case .custom = kind {
             guard let customRegistration else { return nil }
+            if customRegistration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
+                return resumeWithOption(
+                    kind: "antigravity",
+                    launchCommand: launchCommand,
+                    fallbackExecutable: customRegistration.defaultExecutable,
+                    option: "--conversation",
+                    sessionId: sessionId
+                )
+            }
             let arguments = customResumeArguments(
                 registration: customRegistration,
                 sessionId: sessionId,
@@ -215,6 +224,14 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
             return [original.executable, "resume", sessionId] + preserved
+        case .grok:
+            return resumeWithOption(
+                kind: "grok",
+                launchCommand: launchCommand,
+                fallbackExecutable: "grok",
+                option: "-r",
+                sessionId: sessionId
+            )
         case .pi:
             return resumeWithOption(
                 kind: "pi",
@@ -241,6 +258,14 @@ enum AgentResumeCommandBuilder {
                 launchCommand: launchCommand,
                 fallbackExecutable: "gemini",
                 option: "--resume",
+                sessionId: sessionId
+            )
+        case .antigravity:
+            return resumeWithOption(
+                kind: "antigravity",
+                launchCommand: launchCommand,
+                fallbackExecutable: "agy",
+                option: "--conversation",
                 sessionId: sessionId
             )
         case .opencode:
