@@ -19,11 +19,13 @@ reasons=()
 add_reason() {
   local reason="$1"
   local existing
-  for existing in "${reasons[@]:-}"; do
-    if [ "$existing" = "$reason" ]; then
-      return
-    fi
-  done
+  if [ "${#reasons[@]}" -gt 0 ]; then
+    for existing in "${reasons[@]}"; do
+      if [ "$existing" = "$reason" ]; then
+        return
+      fi
+    done
+  fi
   reasons+=("$reason")
 }
 
