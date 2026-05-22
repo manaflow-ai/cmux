@@ -247,6 +247,13 @@ extension SessionIndexStore {
         var branch: String?
     }
 
+    private static let antigravityHistoryMinimumScanBytes = 2 * 1024 * 1024
+    private static let antigravityHistoryMaximumScanBytes = 24 * 1024 * 1024
+    private static let antigravityHistoryBytesPerRequestedEntry = 256 * 1024
+    private static let antigravityHistoryMinimumScanLines = 512
+    private static let antigravityHistoryMaximumScanLines = 12_000
+    private static let antigravityHistoryLinesPerRequestedEntry = 64
+
     nonisolated static func loadGrokEntries(
         registration: CmuxVaultAgentRegistration,
         needle: String,
@@ -475,6 +482,7 @@ extension SessionIndexStore {
 
         let fm = FileManager.default
         var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
+        let scanLimits = antigravityHistoryScanLimits(offset: offset, limit: limit)
 
         for root in roots {
             if Task.isCancelled { break }
@@ -488,7 +496,12 @@ extension SessionIndexStore {
             let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
                 ?? Date.distantPast
 
-            forEachJSONLine(url: historyURL, maxBytes: Int.max) { object in
+            forEachJSONLine(
+                url: historyURL,
+                maxBytes: scanLimits.maxBytes,
+                maxLines: scanLimits.maxLines,
+                direction: .reverse
+            ) { object in
                 if Task.isCancelled { return true }
                 guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
                     return false
@@ -547,6 +560,29 @@ extension SessionIndexStore {
                 )
             }
         return Array(entries.dropFirst(offset).prefix(limit))
+    }
+
+    nonisolated private static func antigravityHistoryScanLimits(offset: Int, limit: Int) -> (maxBytes: Int, maxLines: Int) {
+        let requested = offset > Int.max - limit ? Int.max : offset + limit
+        let target = max(1, requested)
+        let byteBudget = scaledBound(
+            target: target,
+            unit: antigravityHistoryBytesPerRequestedEntry,
+            minimum: antigravityHistoryMinimumScanBytes,
+            maximum: antigravityHistoryMaximumScanBytes
+        )
+        let lineBudget = scaledBound(
+            target: target,
+            unit: antigravityHistoryLinesPerRequestedEntry,
+            minimum: antigravityHistoryMinimumScanLines,
+            maximum: antigravityHistoryMaximumScanLines
+        )
+        return (byteBudget, lineBudget)
+    }
+
+    nonisolated private static func scaledBound(target: Int, unit: Int, minimum: Int, maximum: Int) -> Int {
+        guard target < maximum / unit else { return maximum }
+        return min(max(target * unit, minimum), maximum)
     }
 
     nonisolated private static func registeredSessionRoots(
