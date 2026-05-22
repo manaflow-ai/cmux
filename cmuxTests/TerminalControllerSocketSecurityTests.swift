@@ -1295,6 +1295,71 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(frame.payload, payload)
     }
 
+    func testVNCPanelConnectionPublishesFramesInReadOrder() async {
+        let session = MacfleetVNCSession(
+            name: "mac3-1",
+            hostName: "mac3",
+            address: "mac3-1.local",
+            port: 5901,
+            username: "cmuxvnc",
+            tag: "tag:mac-mini-cluster",
+            index: 1
+        )
+        let credential = VNCResolvedCredential(
+            username: "cmuxvnc",
+            password: "password",
+            source: .defaultPassword
+        )
+        let deliveredFrames = expectation(description: "VNC frames delivered")
+        deliveredFrames.expectedFulfillmentCount = 2
+        var deliveredSequences: [UInt64] = []
+        var deliveredPayloads: [Data] = []
+        let connection = VNCPanelConnection(
+            session: session,
+            credential: credential,
+            onControl: { _ in },
+            onFrame: { header, payload in
+                deliveredSequences.append(header.sequence)
+                deliveredPayloads.append(payload)
+                deliveredFrames.fulfill()
+            },
+            onExit: { _ in }
+        )
+        defer { connection.close() }
+
+        let fullHeader = VNCFrameHeader(
+            sequence: 1,
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 1,
+            stride: 8,
+            pixelFormat: .bgra8
+        )
+        let partialHeader = VNCFrameHeader(
+            sequence: 2,
+            x: 1,
+            y: 0,
+            width: 1,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 1,
+            stride: 4,
+            pixelFormat: .bgra8
+        )
+        let fullPayload = Data([1, 2, 3, 4, 5, 6, 7, 8])
+        let partialPayload = Data([9, 10, 11, 12])
+
+        connection.publishForTesting(.frame(fullHeader, fullPayload))
+        connection.publishForTesting(.frame(partialHeader, partialPayload))
+
+        await fulfillment(of: [deliveredFrames], timeout: 1.0)
+        XCTAssertEqual(deliveredSequences, [1, 2])
+        XCTAssertEqual(deliveredPayloads, [fullPayload, partialPayload])
+    }
+
     func testVNCNamedKeyParserPreservesSocketModifiers() throws {
         XCTAssertEqual(
             VNCPanel.namedKeyStroke(for: "ctrl-c"),

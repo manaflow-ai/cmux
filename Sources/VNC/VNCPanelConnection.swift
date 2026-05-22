@@ -25,6 +25,7 @@ final class VNCPanelConnection {
     typealias ControlHandler = @MainActor (VNCControlMessage) -> Void
     typealias FrameHandler = @MainActor (VNCFrameHeader, Data) -> Void
     typealias ExitHandler = @MainActor (VNCPanelConnectionExit) -> Void
+    private typealias PendingFrame = (header: VNCFrameHeader, payload: Data)
 
     private let session: MacfleetVNCSession
     private let credential: VNCResolvedCredential
@@ -39,6 +40,8 @@ final class VNCPanelConnection {
     private var process: Process?
     private var clientFileDescriptor: Int32 = -1
     private var pendingControlMessages = VNCControlMessageQueue(maxMessages: maxPendingControlMessages)
+    private var pendingFrames: [PendingFrame] = []
+    private var frameDrainScheduled = false
     private var helperReportedFailureReason: String?
     private var isClosed = false
 
@@ -139,6 +142,8 @@ final class VNCPanelConnection {
             )
             clientFileDescriptor = -1
             pendingControlMessages.removeAll(keepingCapacity: false)
+            pendingFrames.removeAll(keepingCapacity: false)
+            frameDrainScheduled = false
             self.process = nil
             return state
         }
@@ -270,18 +275,60 @@ final class VNCPanelConnection {
             }
         case .frame(let header, let payload):
             guard let frame = Self.validatedFrameForPublish(header: header, payload: payload) else { return }
-            Task { @MainActor in
-                guard !isCurrentlyClosed() else { return }
-                onFrame(frame.header, frame.payload)
-            }
+            enqueueFrameForPublish(frame)
         }
     }
+
+    #if DEBUG
+    func publishForTesting(_ message: VNCIPCMessage) {
+        publish(message)
+    }
+    #endif
 
     static func validatedFrameForPublish(header: VNCFrameHeader, payload: Data) -> (header: VNCFrameHeader, payload: Data)? {
         guard VNCFrameValidator.validate(header: header, payloadByteCount: payload.count) == nil else {
             return nil
         }
         return (header, payload)
+    }
+
+    private func enqueueFrameForPublish(_ frame: PendingFrame) {
+        let shouldScheduleDrain = stateLock.withLock { () -> Bool in
+            guard !isClosed else { return false }
+            pendingFrames.append(frame)
+            guard !frameDrainScheduled else { return false }
+            frameDrainScheduled = true
+            return true
+        }
+        guard shouldScheduleDrain else { return }
+        Task { @MainActor [weak self] in
+            self?.drainPendingFramesOnMainActor()
+        }
+    }
+
+    @MainActor
+    private func drainPendingFramesOnMainActor() {
+        while true {
+            let frames = stateLock.withLock { () -> [PendingFrame] in
+                guard !isClosed else {
+                    pendingFrames.removeAll(keepingCapacity: false)
+                    frameDrainScheduled = false
+                    return []
+                }
+                guard !pendingFrames.isEmpty else {
+                    frameDrainScheduled = false
+                    return []
+                }
+                let frames = pendingFrames
+                pendingFrames.removeAll(keepingCapacity: true)
+                return frames
+            }
+            guard !frames.isEmpty else { return }
+            for frame in frames {
+                guard !isCurrentlyClosed() else { return }
+                onFrame(frame.header, frame.payload)
+            }
+        }
     }
 
     private func recordHelperReportedFailure(reason: String) {
