@@ -188,6 +188,37 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudePromptSubmitWithNewTurnDoesNotInheritInterruptedPromptDepth() throws {
+        let context = try makeClaudeHookContext(name: "claude-new-turn-after-interrupted")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-interrupted-same-session"
+        let firstPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
+        )
+        XCTAssertFalse(firstPrompt.timedOut, firstPrompt.stderr)
+        XCTAssertEqual(firstPrompt.status, 0, firstPrompt.stderr)
+
+        let secondPromptStart = context.state.commands.count
+        let secondPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
+        )
+        XCTAssertFalse(secondPrompt.timedOut, secondPrompt.stderr)
+        XCTAssertEqual(secondPrompt.status, 0, secondPrompt.stderr)
+
+        let secondPromptCommands = Array(context.state.commands.dropFirst(secondPromptStart))
+        XCTAssertTrue(
+            secondPromptCommands.contains {
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+            },
+            "Claude must keep treating a new turn as top-level after an interrupted prior prompt, saw \(secondPromptCommands)"
+        )
+    }
+
     func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {
         let context = try makeClaudeHookContext(name: "claude-resume-env-redaction")
         defer { context.cleanup() }
