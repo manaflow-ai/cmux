@@ -10,6 +10,8 @@ Options:
   --shell-log <path>  Set GHOSTTY_ZSH_INTEGRATION_LOG for shells in the tagged app.
   --wait-socket <s>   Wait for the tagged socket to appear. Default: 10
   --env KEY=VALUE     Extra environment variable to inject at launch. Repeatable.
+  --allow-visible-target
+                      Allow launching a non-disposable dogfood tag.
   -h, --help          Show this help.
 EOF
 }
@@ -34,6 +36,11 @@ sanitize_path() {
   echo "$cleaned"
 }
 
+is_disposable_tag() {
+  local slug="$1"
+  [[ "$slug" == probe-* || "$slug" == verify-* || "$slug" == e2e-* || "$slug" == test-* || "$slug" == ci-* || "$slug" == *-probe* || "$slug" == *-verify* ]]
+}
+
 if [[ $# -lt 1 ]]; then
   usage
   exit 1
@@ -44,6 +51,7 @@ MODE="automation"
 SHELL_LOG=""
 WAIT_SOCKET="10"
 EXTRA_ENV=()
+ALLOW_VISIBLE_TARGET="0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -62,6 +70,10 @@ while [[ $# -gt 0 ]]; do
       fi
       EXTRA_ENV+=("${2}")
       shift 2
+      ;;
+    --allow-visible-target)
+      ALLOW_VISIBLE_TARGET="1"
+      shift
       ;;
     --shell-log)
       SHELL_LOG="${2:-}"
@@ -110,13 +122,24 @@ SOCK="/tmp/cmux-debug-${TAG_SLUG}.sock"
 DSOCK="$HOME/Library/Application Support/cmux/cmuxd-dev-${TAG_SLUG}.sock"
 LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
 
+if [[ "$ALLOW_VISIBLE_TARGET" != "1" ]] && ! is_disposable_tag "$TAG_SLUG"; then
+  cat >&2 <<EOF
+error: refusing to launch automation against non-disposable tag '$TAG'.
+
+Use a dedicated probe tag, for example:
+  ./scripts/reload.sh --tag probe-canvas
+  ./scripts/launch-tagged-automation.sh probe-canvas
+
+Pass --allow-visible-target only for intentional local debugging.
+EOF
+  exit 2
+fi
+
 if [[ ! -d "$APP" ]]; then
   echo "error: tagged app not found at $APP" >&2
   exit 1
 fi
 
-/usr/bin/osascript -e "tell application id \"${BID}\" to quit" >/dev/null 2>&1 || true
-sleep 0.5
 pkill -f "cmux DEV ${TAG}.app/Contents/MacOS/cmux DEV" || true
 rm -f "$SOCK" "$DSOCK"
 sleep 0.5

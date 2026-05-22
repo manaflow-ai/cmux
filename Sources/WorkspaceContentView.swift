@@ -1820,6 +1820,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     private let canvasPadding: CGFloat = 24
     private let canvasResizeEdgeHitSize: CGFloat = 8
     private let canvasResizeCornerHitSize: CGFloat = 44
+    private let canvasHeaderActionHitWidth: CGFloat = 56
     private let minimumFreeformCardWidth: CGFloat = 240
     private let minimumFreeformCardHeight: CGFloat = 170
 
@@ -1864,51 +1865,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             CanvasMetalBackdrop(backgroundColor: appearance.backgroundColor, preferredFramesPerSecond: 120)
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                HStack(spacing: 6) {
-                    Text(String(localized: "canvas.mode.canvas", defaultValue: "Canvas"))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(canvasForegroundColor.opacity(0.68))
-                        .accessibilityIdentifier("WorkspaceCanvasMode.canvas")
-
-                    Text("\(Int(document.viewport.scale * 100))%")
-                        .font(.system(size: 11, weight: .regular, design: .monospaced))
-                        .foregroundStyle(canvasForegroundColor.opacity(0.45))
-
-                    HStack(spacing: 4) {
-                        canvasZoomButton(
-                            systemName: "minus.magnifyingglass",
-                            label: String(localized: "canvas.zoomOut.help", defaultValue: "Zoom out")
-                        ) {
-                            _ = workspace.zoomCanvasOverviewOut()
-                        }
-                        .keyboardShortcut("-", modifiers: [.command])
-
-                        canvasZoomButton(
-                            systemName: "arrow.counterclockwise",
-                            label: String(localized: "canvas.zoomReset.help", defaultValue: "Reset zoom")
-                        ) {
-                            _ = workspace.resetCanvasOverviewZoom()
-                        }
-                        .keyboardShortcut("0", modifiers: [.command])
-
-                        canvasZoomButton(
-                            systemName: "plus.magnifyingglass",
-                            label: String(localized: "canvas.zoomIn.help", defaultValue: "Zoom in")
-                        ) {
-                            _ = workspace.zoomCanvasOverviewIn()
-                        }
-                        .keyboardShortcut("=", modifiers: [.command])
-                    }
-
-                    Spacer()
-                }
-                .padding(.horizontal, canvasPadding)
-                .padding(.top, 10)
-                .padding(.bottom, 8)
-
-                canvasViewport(items, activeItemID: scene.activeItemID)
-            }
+            canvasViewport(items, activeItemID: scene.activeItemID)
         }
         .accessibilityIdentifier("WorkspaceCanvasOverview")
         .focusable()
@@ -1964,19 +1921,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             return false
         }
         return true
-    }
-
-    private func canvasZoomButton(systemName: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 11, weight: .medium))
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(canvasForegroundColor.opacity(0.45))
-        .help(label)
-        .accessibilityLabel(label)
     }
 
     private func canvasViewport(_ items: [CanvasItem], activeItemID: LayoutItemID?) -> some View {
@@ -2136,6 +2080,15 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             }
             .coordinateSpace(name: workspaceCanvasFreeformCoordinateSpace)
             .clipped()
+            .background {
+                PortalVisibleContentClipReporter(
+                    leadingInset: 0,
+                    trailingInset: 0,
+                    topInset: 0,
+                    bottomInset: 0
+                )
+                .allowsHitTesting(false)
+            }
         }
     }
 
@@ -2273,7 +2226,10 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                     .fill(Color.black.opacity(0.001))
                     .contentShape(Rectangle())
                     .frame(
-                        width: max(1, proxy.size.width - (canvasResizeCornerHitSize * 2)),
+                        width: max(
+                            1,
+                            proxy.size.width - (canvasResizeCornerHitSize * 2) - canvasHeaderActionHitWidth
+                        ),
                         height: max(1, 20 - canvasResizeEdgeHitSize)
                     )
                     .offset(x: min(canvasResizeCornerHitSize, max(0, proxy.size.width / 2)), y: canvasResizeEdgeHitSize)
@@ -2336,6 +2292,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             }
 
             Spacer(minLength: 0)
+
+            canvasPaneSplitButtons(item: item, paneID: paneID)
         }
         .frame(height: 20)
         .padding(.leading, 6)
@@ -2345,6 +2303,54 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         .onTapGesture {
             focusCanvasHeader(item: item, paneID: paneID)
         }
+    }
+
+    private func canvasPaneSplitButtons(item: CanvasItem, paneID: PaneID?) -> some View {
+        HStack(spacing: 2) {
+            canvasPaneSplitButton(
+                systemName: "rectangle.split.2x1",
+                label: String(localized: "workspace.tooltip.splitRight", defaultValue: "Split Right"),
+                item: item,
+                paneID: paneID,
+                orientation: .horizontal,
+                accessibilityID: "WorkspaceCanvasSplitRight"
+            )
+            canvasPaneSplitButton(
+                systemName: "rectangle.split.1x2",
+                label: String(localized: "workspace.tooltip.splitDown", defaultValue: "Split Down"),
+                item: item,
+                paneID: paneID,
+                orientation: .vertical,
+                accessibilityID: "WorkspaceCanvasSplitDown"
+            )
+        }
+    }
+
+    private func canvasPaneSplitButton(
+        systemName: String,
+        label: String,
+        item: CanvasItem,
+        paneID: PaneID?,
+        orientation: LayoutOrientation,
+        accessibilityID: String
+    ) -> some View {
+        Button {
+            focusCanvasHeader(item: item, paneID: paneID)
+            guard let paneID else { return }
+            controller.splitPane(paneID, orientation: orientation)
+            WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 10, weight: .medium))
+                .frame(width: 20, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(canvasForegroundColor.opacity(paneID == nil || !controller.configuration.allowSplits ? 0.22 : 0.50))
+        .disabled(paneID == nil || !controller.configuration.allowSplits)
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("\(accessibilityID).\(paneID?.id.uuidString ?? item.id.description)")
     }
 
     private func focusCanvasHeader(item: CanvasItem, paneID: PaneID?) {

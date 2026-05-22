@@ -28,10 +28,15 @@ private func windowContentOverlayInstallationTarget(for window: NSWindow) -> (co
 
 @MainActor
 enum WindowPortalClipRegistry {
-    private static var visibleContentFramesByWindowID: [ObjectIdentifier: CGRect] = [:]
+    private struct ClipSourceKey: Hashable {
+        var windowID: ObjectIdentifier
+        var sourceID: ObjectIdentifier
+    }
 
-    static func setVisibleContentFrame(_ frameInWindow: CGRect?, for window: NSWindow) {
-        let windowID = ObjectIdentifier(window)
+    private static var visibleContentFramesBySource: [ClipSourceKey: CGRect] = [:]
+
+    static func setVisibleContentFrame(_ frameInWindow: CGRect?, for window: NSWindow, source: AnyObject) {
+        let key = ClipSourceKey(windowID: ObjectIdentifier(window), sourceID: ObjectIdentifier(source))
         guard let frameInWindow,
               frameInWindow.origin.x.isFinite,
               frameInWindow.origin.y.isFinite,
@@ -39,29 +44,48 @@ enum WindowPortalClipRegistry {
               frameInWindow.size.height.isFinite,
               frameInWindow.width > 1,
               frameInWindow.height > 1 else {
-            visibleContentFramesByWindowID.removeValue(forKey: windowID)
+            visibleContentFramesBySource.removeValue(forKey: key)
             return
         }
-        visibleContentFramesByWindowID[windowID] = frameInWindow
+        visibleContentFramesBySource[key] = frameInWindow
     }
 
-    static func clear(for window: NSWindow?) {
+    static func clear(for window: NSWindow?, source: AnyObject) {
         guard let window else { return }
-        visibleContentFramesByWindowID.removeValue(forKey: ObjectIdentifier(window))
+        visibleContentFramesBySource.removeValue(
+            forKey: ClipSourceKey(windowID: ObjectIdentifier(window), sourceID: ObjectIdentifier(source))
+        )
     }
 
     static func clippedCanvasPresentation(
         _ presentation: CanvasSurfacePresentation,
         in window: NSWindow
     ) -> CanvasSurfacePresentation? {
-        guard let visibleContentFrame = visibleContentFramesByWindowID[ObjectIdentifier(window)] else {
+        guard let visibleContentFrame = visibleContentFrame(for: window) else {
             return presentation
         }
         return presentation.clipped(to: visibleContentFrame)
     }
+
+    private static func visibleContentFrame(for window: NSWindow) -> CGRect? {
+        let windowID = ObjectIdentifier(window)
+        let frames = visibleContentFramesBySource.compactMap { key, frame -> CGRect? in
+            key.windowID == windowID ? frame : nil
+        }
+        guard var visibleFrame = frames.first else { return nil }
+        for frame in frames.dropFirst() {
+            visibleFrame = visibleFrame.intersection(frame)
+            guard !visibleFrame.isNull,
+                  visibleFrame.width > 1,
+                  visibleFrame.height > 1 else {
+                return nil
+            }
+        }
+        return visibleFrame
+    }
 }
 
-private struct PortalVisibleContentClipReporter: NSViewRepresentable {
+struct PortalVisibleContentClipReporter: NSViewRepresentable {
     var leadingInset: CGFloat
     var trailingInset: CGFloat
     var topInset: CGFloat
@@ -92,7 +116,7 @@ private struct PortalVisibleContentClipReporter: NSViewRepresentable {
     }
 }
 
-private final class PortalVisibleContentClipReportingView: NSView {
+final class PortalVisibleContentClipReportingView: NSView {
     private var leadingInset: CGFloat = 0
     private var trailingInset: CGFloat = 0
     private var topInset: CGFloat = 0
@@ -140,7 +164,7 @@ private final class PortalVisibleContentClipReportingView: NSView {
     }
 
     func clearPublishedWindow() {
-        WindowPortalClipRegistry.clear(for: publishedWindow)
+        WindowPortalClipRegistry.clear(for: publishedWindow, source: self)
         publishedWindow = nil
     }
 
@@ -177,11 +201,11 @@ private final class PortalVisibleContentClipReportingView: NSView {
 
         guard visibleBounds.width > 1,
               visibleBounds.height > 1 else {
-            WindowPortalClipRegistry.setVisibleContentFrame(nil, for: window)
+            WindowPortalClipRegistry.setVisibleContentFrame(nil, for: window, source: self)
             return
         }
 
-        WindowPortalClipRegistry.setVisibleContentFrame(convert(visibleBounds, to: nil), for: window)
+        WindowPortalClipRegistry.setVisibleContentFrame(convert(visibleBounds, to: nil), for: window, source: self)
     }
 }
 

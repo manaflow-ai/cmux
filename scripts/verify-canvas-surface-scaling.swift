@@ -1,6 +1,7 @@
 #!/usr/bin/env swift
 
 import AppKit
+import Darwin
 import Foundation
 
 struct CommandError: Error, CustomStringConvertible {
@@ -57,11 +58,15 @@ struct VerificationResult: Codable {
 let arguments = Array(CommandLine.arguments.dropFirst())
 guard let tagIndex = arguments.firstIndex(of: "--tag"),
       tagIndex + 1 < arguments.count else {
-    fputs("Usage: verify-canvas-surface-scaling.swift --tag <tag> [--out-dir <path>]\n", stderr)
+    fputs("Usage: verify-canvas-surface-scaling.swift --tag <probe-tag> [--out-dir <path>] [--allow-visible-target]\n", stderr)
     exit(2)
 }
 
 let tag = arguments[tagIndex + 1]
+let tagSlug = sanitizePath(tag)
+let socketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+let allowVisibleTarget = arguments.contains("--allow-visible-target")
+    || ProcessInfo.processInfo.environment["CMUX_ALLOW_VISIBLE_PROBE_TARGET"] == "1"
 let outDirectory: URL = {
     if let outIndex = arguments.firstIndex(of: "--out-dir"), outIndex + 1 < arguments.count {
         return URL(fileURLWithPath: arguments[outIndex + 1], isDirectory: true)
@@ -74,6 +79,8 @@ let outDirectory: URL = {
 let rootURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
 let cliURL = rootURL.appendingPathComponent("scripts/cmux-debug-cli.sh")
 let fileManager = FileManager.default
+var createdWorkspaceRefs: [String] = []
+var createdWindowRef: String?
 
 func run(_ executable: String, _ args: [String], environment: [String: String] = [:]) throws -> String {
     let process = Process()
@@ -105,7 +112,7 @@ func run(_ executable: String, _ args: [String], environment: [String: String] =
 }
 
 func cli(_ args: [String]) throws -> String {
-    try run(cliURL.path, args, environment: ["CMUX_TAG": tag])
+    try run(cliURL.path, ["--socket", socketPath] + args, environment: ["CMUX_TAG": tagSlug])
 }
 
 func cliJSON(_ args: [String]) throws -> [String: Any] {
@@ -115,6 +122,61 @@ func cliJSON(_ args: [String]) throws -> [String: Any] {
         throw ProbeError(message: "Expected JSON from \(args.joined(separator: " ")), got: \(output)")
     }
     return object
+}
+
+func sanitizePath(_ value: String) -> String {
+    let lower = value.lowercased()
+    var output = ""
+    var lastWasDash = false
+    for scalar in lower.unicodeScalars {
+        if CharacterSet.alphanumerics.contains(scalar) {
+            output.unicodeScalars.append(scalar)
+            lastWasDash = false
+        } else if !lastWasDash {
+            output.append("-")
+            lastWasDash = true
+        }
+    }
+    let trimmed = output.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    return trimmed.isEmpty ? "agent" : trimmed
+}
+
+func isDisposableAutomationTag(_ value: String) -> Bool {
+    let slug = sanitizePath(value)
+    return slug.hasPrefix("probe-")
+        || slug.hasPrefix("verify-")
+        || slug.hasPrefix("e2e-")
+        || slug.hasPrefix("test-")
+        || slug.hasPrefix("ci-")
+        || slug.contains("-probe")
+        || slug.contains("-verify")
+}
+
+func isUnixSocket(_ path: String) -> Bool {
+    var info = stat()
+    guard lstat(path, &info) == 0 else { return false }
+    return (info.st_mode & S_IFMT) == S_IFSOCK
+}
+
+func requireDisposableAutomationTarget() throws {
+    guard allowVisibleTarget || isDisposableAutomationTag(tagSlug) else {
+        throw ProbeError(
+            message: """
+            Refusing to run canvas verifier against non-disposable tag '\(tag)'.
+            Use a dedicated probe tag, for example:
+              ./scripts/reload.sh --tag probe-canvas --launch
+              scripts/verify-canvas-surface-scaling.swift --tag probe-canvas
+            Override only for intentional local debugging with --allow-visible-target.
+            """
+        )
+    }
+    guard isUnixSocket(socketPath) else {
+        throw ProbeError(message: "Tagged probe socket is not available at \(socketPath). Launch the probe tag first.")
+    }
+}
+
+func verifyScreenshotRPCAvailable() throws {
+    _ = try screenshot(label: "preflight")
 }
 
 func okObject(_ object: [String: Any], key: String) throws -> [String: Any] {
@@ -224,14 +286,56 @@ func detectBounds(
 }
 
 func workspaceRefFromCreateOutput(_ output: String) throws -> String {
+    try refFromCreateOutput(output, prefix: "workspace:")
+}
+
+func windowRefFromCreateOutput(_ output: String) throws -> String {
+    try refFromCreateOutput(output, prefix: "window:")
+}
+
+func refFromCreateOutput(_ output: String, prefix: String) throws -> String {
     guard let match = output.split(whereSeparator: { $0.isWhitespace }).last else {
-        throw ProbeError(message: "Could not parse workspace ref from: \(output)")
+        throw ProbeError(message: "Could not parse \(prefix) ref from: \(output)")
     }
     let ref = String(match)
-    guard ref.hasPrefix("workspace:") else {
-        throw ProbeError(message: "Expected workspace ref, got: \(output)")
+    guard ref.hasPrefix(prefix) else {
+        throw ProbeError(message: "Expected \(prefix) ref, got: \(output)")
     }
     return ref
+}
+
+func ensureProbeWindow() throws -> String {
+    if let createdWindowRef {
+        return createdWindowRef
+    }
+    let window = try windowRefFromCreateOutput(try cli(["new-window"]))
+    createdWindowRef = window
+    return window
+}
+
+func createProbeWorkspace(name: String) throws -> String {
+    let window = try ensureProbeWindow()
+    let workspace = try workspaceRefFromCreateOutput(try cli([
+        "new-workspace",
+        "--window", window,
+        "--name", name,
+        "--focus", "true"
+    ]))
+    createdWorkspaceRefs.append(workspace)
+    try focusWorkspace(workspace)
+    return workspace
+}
+
+func cleanupCreatedProbeState() {
+    for workspace in createdWorkspaceRefs.reversed() {
+        _ = try? cli(["close-workspace", "--workspace", workspace])
+    }
+    createdWorkspaceRefs.removeAll()
+
+    if let window = createdWindowRef {
+        _ = try? cli(["close-window", "--window", window])
+        createdWindowRef = nil
+    }
 }
 
 func focusWorkspace(_ workspace: String) throws {
@@ -309,12 +413,7 @@ func assertScale(surface: String, before: PixelBounds, after: PixelBounds, viewp
 }
 
 func terminalProbe() throws -> SurfaceResult {
-    let workspace = try workspaceRefFromCreateOutput(try cli([
-        "new-workspace",
-        "--name", "canvas-terminal-scale-probe",
-        "--focus", "true"
-    ]))
-    try focusWorkspace(workspace)
+    let workspace = try createProbeWorkspace(name: "canvas-terminal-scale-probe")
     Thread.sleep(forTimeInterval: 0.5)
 
     let terminalCommand = """
@@ -379,11 +478,7 @@ func terminalRedThreshold(red: CGFloat, green: CGFloat, blue: CGFloat, alpha _: 
 }
 
 func browserProbe() throws -> SurfaceResult {
-    let workspace = try workspaceRefFromCreateOutput(try cli([
-        "new-workspace",
-        "--name", "canvas-browser-scale-probe",
-        "--focus", "true"
-    ]))
+    let workspace = try createProbeWorkspace(name: "canvas-browser-scale-probe")
     let html = """
     <html><body style='margin:0;background:#151515;overflow:hidden'><div id='probe' style='position:absolute;left:64px;top:72px;width:360px;height:180px;background:#00ff00'></div></body></html>
     """
@@ -452,7 +547,10 @@ func browserProbe() throws -> SurfaceResult {
 }
 
 do {
+    try requireDisposableAutomationTarget()
     try fileManager.createDirectory(at: outDirectory, withIntermediateDirectories: true)
+    try verifyScreenshotRPCAvailable()
+    defer { cleanupCreatedProbeState() }
     let terminal = try terminalProbe()
     let browser = try browserProbe()
     let result = VerificationResult(
