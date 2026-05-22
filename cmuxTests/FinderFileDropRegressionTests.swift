@@ -310,6 +310,67 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testMarkdownPortalWebViewDoesNotFallbackToTextDropUnderGlass() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 360, height: 240))
+        root.autoresizingMask = [.width, .height]
+        window.contentView = root
+
+        let markdownAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 260, height: 160))
+        root.addSubview(markdownAnchor)
+
+        _ = WindowGlassEffect.apply(to: window)
+        guard WindowGlassEffect.portalInstallationTarget(for: window) != nil else {
+            throw XCTSkip("Native glass portal installation is unavailable on this OS")
+        }
+
+        guard let glassRoot = window.contentView else {
+            XCTFail("Expected glass root content view")
+            return
+        }
+        let overlay = FileDropOverlayView(frame: glassRoot.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        glassRoot.addSubview(overlay)
+
+        let webView = WKWebView(frame: markdownAnchor.bounds, configuration: WKWebViewConfiguration())
+        BrowserWindowPortalRegistry.bind(webView: webView, to: markdownAnchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.updatePaneDropContext(
+            for: webView,
+            context: BrowserPaneDropContext(
+                workspaceId: UUID(),
+                panelId: UUID(),
+                paneId: PaneID(id: UUID()),
+                allowsHostedWebViewTextDrop: false
+            )
+        )
+        BrowserWindowPortalRegistry.synchronizeForAnchor(markdownAnchor)
+        glassRoot.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let dropPoint = markdownAnchor.convert(
+            NSPoint(x: markdownAnchor.bounds.midX, y: markdownAnchor.bounds.midY),
+            to: nil
+        )
+        XCTAssertTrue(
+            BrowserWindowPortalRegistry.webViewAtWindowPoint(dropPoint, in: window) === webView,
+            "The regression setup must hit the portal-hosted markdown WebView."
+        )
+        XCTAssertNil(
+            overlay.textDropDestinationKindUnderPoint(dropPoint),
+            "Markdown portal WebViews must not be rediscovered by the inline text-drop fallback under glass."
+        )
+    }
+
     func testGlobalModifierFlagsContributeShiftWhenWindowIsInactive() {
         let flags = DragOverlayRoutingPolicy.mergedModifierFlags(
             appKitFlags: [],
