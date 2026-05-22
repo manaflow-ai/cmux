@@ -39,6 +39,10 @@ write_dev_cli_shim() {
 set -euo pipefail
 
 CLI_PATH_FILE="/tmp/cmux-last-cli-path"
+if [[ -n "\${CMUX_BUNDLED_CLI_PATH:-}" ]] && [[ -f "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ -x "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ "\$CMUX_BUNDLED_CLI_PATH" != "\$0" ]]; then
+  exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
+fi
+
 CLI_PATH_OWNER="\$(stat -f '%u' "\$CLI_PATH_FILE" 2>/dev/null || stat -c '%u' "\$CLI_PATH_FILE" 2>/dev/null || echo -1)"
 if [[ -r "\$CLI_PATH_FILE" ]] && [[ ! -L "\$CLI_PATH_FILE" ]] && [[ "\$CLI_PATH_OWNER" == "\$(id -u)" ]]; then
   CLI_PATH="\$(cat "\$CLI_PATH_FILE")"
@@ -484,6 +488,13 @@ XCODEBUILD_ARGS=(
 )
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
+fi
+if [[ -n "${CMUX_SOURCE_PACKAGES_DIR:-}" ]]; then
+  mkdir -p "$CMUX_SOURCE_PACKAGES_DIR"
+  XCODEBUILD_ARGS+=(-clonedSourcePackagesDirPath "$CMUX_SOURCE_PACKAGES_DIR")
+fi
+if [[ "${CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION:-}" == "1" ]]; then
+  XCODEBUILD_ARGS+=(-disableAutomaticPackageResolution)
 fi
 if [[ -z "$TAG" ]]; then
   XCODEBUILD_ARGS+=(
