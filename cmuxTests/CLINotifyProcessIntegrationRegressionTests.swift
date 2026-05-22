@@ -865,7 +865,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
-    func testSSHPTYAttachExitsNonZeroWhenBridgeReportsAttachError() throws {
+    func testSSHPTYAttachBridgeErrorClearsLocalStateBeforeReady() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshpty")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -956,6 +956,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods, [
             "workspace.remote.pty_bridge",
+            "workspace.remote.pty_attach_end",
         ])
     }
 

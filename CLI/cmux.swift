@@ -8634,7 +8634,7 @@ struct CMUXCLI {
         var attachFinished = false
         var attachmentToken = ""
         defer {
-            if requireExisting && !attachFinished {
+            if !attachFinished {
                 cleanupFailedSSHPTYAttach(
                     client: client,
                     workspaceId: workspaceId,
