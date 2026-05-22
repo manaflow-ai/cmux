@@ -2,8 +2,8 @@ import Darwin
 import Foundation
 import SwiftUI
 
-struct CmuxTaskManagerRow: Identifiable {
-    enum Kind: String {
+struct CmuxTaskManagerRow: Identifiable, Equatable {
+    enum Kind: String, Equatable {
         case window
         case workspace
         case tag
@@ -255,7 +255,7 @@ private struct SortNode {
     let children: [SortNode]
 }
 
-struct CmuxTaskManagerResources {
+struct CmuxTaskManagerResources: Equatable {
     static let zero = CmuxTaskManagerResources(cpuPercent: 0, residentBytes: 0, processCount: 0)
 
     let cpuPercent: Double
