@@ -3719,6 +3719,39 @@ final class WorkspaceTeardownTests: XCTestCase {
         throw XCTSkip("Debug-only regression test")
 #endif
     }
+
+    func testDisabledPortalRenderingHidesMarkdownPortalSession() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let markdownURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-portal-hide-\(UUID().uuidString).md")
+        try "# Portal hide\n".write(to: markdownURL, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: markdownURL)
+            workspace.teardownAllPanels()
+        }
+
+        let markdownPanel = try XCTUnwrap(workspace.newMarkdownSurface(
+            inPane: pane,
+            filePath: markdownURL.path,
+            focus: false
+        ))
+        let coordinator = markdownPanel.rendererSession.coordinator(
+            panelId: markdownPanel.id,
+            workspaceId: workspace.id,
+            filePath: markdownPanel.filePath
+        )
+        coordinator.webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        coordinator.resetDiagnostics(reason: "unit-test")
+
+        workspace.setPortalRenderingEnabled(false, reason: "unit-test")
+
+        XCTAssertEqual(markdownPanel.rendererSession.diagnosticsSnapshot.portalHideCount, 1)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
 }
 
 
