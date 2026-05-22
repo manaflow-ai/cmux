@@ -4238,6 +4238,51 @@ extension SessionPersistenceTests {
         ))
     }
 
+    func testSurfaceResumeApprovalWritesRecordsIntoCmuxJSON() throws {
+        let settingsURL = try makeSurfaceResumeApprovalCmuxSettingsURL()
+        let secret = Data("approval-secret".utf8)
+        try """
+        {
+          "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+          "schemaVersion": 1,
+          "terminal": {
+            "showScrollBar": false
+          }
+        }
+        """.write(to: settingsURL, atomically: true, encoding: .utf8)
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: settingsURL,
+            signingSecret: secret
+        ))
+
+        let root = try jsonObject(at: settingsURL)
+        let terminal = try XCTUnwrap(root["terminal"] as? [String: Any])
+        XCTAssertEqual(terminal["showScrollBar"] as? Bool, false)
+        let storedRecords = try XCTUnwrap(terminal["resumeCommands"] as? [[String: Any]])
+        XCTAssertEqual(storedRecords.count, 1)
+        XCTAssertEqual(storedRecords.first?["id"] as? String, record.id)
+
+        let validRecords = SurfaceResumeApprovalStore.validRecords(
+            fileURL: settingsURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(validRecords.map(\.id), [record.id])
+        XCTAssertEqual(validRecords.first?.policy, .auto)
+    }
+
     func testSurfaceResumeApprovalPromptsForUnknownManualProposal() throws {
         let binding = SurfaceResumeBindingSnapshot(
             command: "tmux attach -t work",
@@ -4345,6 +4390,21 @@ extension SessionPersistenceTests {
             try? FileManager.default.removeItem(at: root)
         }
         return root.appendingPathComponent("resume-commands.json", isDirectory: false)
+    }
+
+    private func makeSurfaceResumeApprovalCmuxSettingsURL() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        return root.appendingPathComponent("cmux.json", isDirectory: false)
+    }
+
+    private func jsonObject(at url: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: url)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
     @MainActor
