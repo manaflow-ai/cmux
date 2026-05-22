@@ -694,6 +694,13 @@ private final class ClaudeHookSessionStore {
                             on: &record
                         )
                         markPromptTurnTerminal(normalizedTurnId, on: &record)
+                    } else if depthBeforeStop > turnStack.count {
+                        setActivePromptTurnStack(
+                            turnStack,
+                            totalDepth: max(0, totalDepthBeforeStop - 1),
+                            on: &record
+                        )
+                        markPromptTurnTerminal(normalizedTurnId, on: &record)
                     }
                     state.sessions[normalized] = record
                     return true
