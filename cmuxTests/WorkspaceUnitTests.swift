@@ -2715,6 +2715,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
+            remotePTYSessionID: nil,
             remoteCleanupConfiguration: nil
         )
     }
