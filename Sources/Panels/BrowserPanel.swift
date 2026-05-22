@@ -4417,8 +4417,29 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
-        guard preferredURLStringForOmnibar() != nil else { return false }
+        guard preferredURLStringForSessionSnapshot() != nil else { return false }
         return hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView ?? shouldRenderWebView
+    }
+
+    func shouldPersistSessionSnapshot() -> Bool {
+        guard !Self.isTemporarySessionHistoryURL(webView.url),
+              !Self.isTemporarySessionHistoryURL(currentURL),
+              !Self.isTemporarySessionHistoryURL(restoredHistoryCurrentURL) else {
+            return false
+        }
+        return true
+    }
+
+    func preferredURLStringForSessionSnapshot() -> String? {
+        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
+           let value = Self.serializableSessionHistoryURLString(webViewURL) {
+            return value
+        }
+        if let currentURL,
+           let value = Self.serializableSessionHistoryURLString(currentURL) {
+            return value
+        }
+        return nil
     }
 
     private func setupObservers(for webView: WKWebView) {
@@ -7096,6 +7117,7 @@ extension BrowserPanel {
 
     private static func serializableSessionHistoryURLString(_ url: URL?) -> String? {
         guard let url else { return nil }
+        guard !isTemporarySessionHistoryURL(url) else { return nil }
         let value = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value != "about:blank" else { return nil }
         return value
@@ -7105,11 +7127,19 @@ extension BrowserPanel {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "about:blank" else { return nil }
-        return URL(string: trimmed)
+        guard let url = URL(string: trimmed),
+              !isTemporarySessionHistoryURL(url) else {
+            return nil
+        }
+        return url
     }
 
     private static func sanitizedSessionHistoryURLs(_ values: [String]) -> [URL] {
         values.compactMap { sanitizedSessionHistoryURL($0) }
+    }
+
+    private static func isTemporarySessionHistoryURL(_ url: URL?) -> Bool {
+        url?.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme
     }
 
 }

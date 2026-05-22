@@ -239,6 +239,20 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(panel.shouldRenderWebView)
         XCTAssertFalse(panel.shouldRenderWebViewForSessionSnapshot())
     }
+
+    func testDiffViewerURLIsNotPersistedForSessionRestore() throws {
+        let url = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            renderInitialNavigation: false
+        )
+
+        XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
+        XCTAssertNil(panel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(panel.shouldPersistSessionSnapshot())
+        XCTAssertFalse(panel.shouldRenderWebViewForSessionSnapshot())
+    }
 }
 
 

@@ -1358,17 +1358,24 @@ extension CMUXCLI {
         let baselineHashes = record.untrackedPathHashes ?? [:]
         let currentPaths = try gitUntrackedPaths(in: repoRoot)
         let currentPathSet = Set(currentPaths)
-        let addedPaths = try currentPaths.filter { path in
-            guard baselinePaths.contains(path) else { return true }
-            guard let baselineHash = baselineHashes[path] else { return true }
-            return try gitUntrackedPathHash(path, in: repoRoot) != baselineHash
-        }
-        var patches = try addedPaths.map { path in
-            try gitStdout(
-                gitDiffPatchArguments(["--no-index", "--", "/dev/null", path]),
-                in: repoRoot,
-                allowedExitStatuses: [0, 1]
-            )
+        var patches: [String] = []
+        for path in currentPaths {
+            guard baselinePaths.contains(path) else {
+                patches.append(try gitAddedUntrackedPatch(path: path, in: repoRoot))
+                continue
+            }
+            guard let baselineHash = baselineHashes[path] else {
+                patches.append(try gitAddedUntrackedPatch(path: path, in: repoRoot))
+                continue
+            }
+            guard try gitUntrackedPathHash(path, in: repoRoot) != baselineHash else {
+                continue
+            }
+            if let patch = try gitChangedUntrackedPatch(path: path, baselineHash: baselineHash, in: repoRoot) {
+                patches.append(patch)
+            } else {
+                patches.append(try gitAddedUntrackedPatch(path: path, in: repoRoot))
+            }
         }
         for path in baselinePaths.subtracting(currentPathSet).sorted() {
             guard let baselineHash = baselineHashes[path],
@@ -1378,6 +1385,63 @@ extension CMUXCLI {
             patches.append(patch)
         }
         return joinedGitDiffPatches(patches)
+    }
+
+    private func gitAddedUntrackedPatch(path: String, in repoRoot: String) throws -> String {
+        try gitStdout(
+            gitDiffPatchArguments(["--no-index", "--", "/dev/null", path]),
+            in: repoRoot,
+            allowedExitStatuses: [0, 1]
+        )
+    }
+
+    private func gitChangedUntrackedPatch(
+        path: String,
+        baselineHash: String,
+        in repoRoot: String
+    ) throws -> String? {
+        guard let tempPathURL = safeTemporaryGitPathURL(relativePath: path) else {
+            return nil
+        }
+        let objectCheck = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", repoRoot, "cat-file", "-e", "\(baselineHash)^{blob}"],
+            timeout: 30
+        )
+        guard !objectCheck.timedOut, objectCheck.status == 0 else {
+            return nil
+        }
+
+        let tempRoot = tempPathURL.root
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let baselineFile = tempRoot
+            .appendingPathComponent("baseline", isDirectory: true)
+            .appendingPathComponent(path, isDirectory: false)
+        let currentFile = tempRoot
+            .appendingPathComponent("current", isDirectory: true)
+            .appendingPathComponent(path, isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: baselineFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: currentFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let baselineContent = try gitStdout(["cat-file", "blob", baselineHash], in: repoRoot)
+        try baselineContent.write(to: baselineFile, atomically: true, encoding: .utf8)
+        let repoURL = URL(fileURLWithPath: repoRoot, isDirectory: true)
+        try FileManager.default.copyItem(
+            at: repoURL.appendingPathComponent(path, isDirectory: false),
+            to: currentFile
+        )
+
+        let patch = try gitStdout(
+            gitDiffPatchArguments(["--no-index", "--", "baseline/\(path)", "current/\(path)"]),
+            in: tempRoot.path,
+            allowedExitStatuses: [0, 1]
+        )
+        return rewriteChangedUntrackedPatch(patch, path: path)
     }
 
     private func gitDeletedUntrackedPatch(
@@ -1410,6 +1474,16 @@ extension CMUXCLI {
             in: tempRoot.path,
             allowedExitStatuses: [0, 1]
         )
+    }
+
+    private func rewriteChangedUntrackedPatch(_ patch: String, path: String) -> String {
+        patch
+            .replacingOccurrences(
+                of: "diff --git a/baseline/\(path) b/current/\(path)",
+                with: "diff --git a/\(path) b/\(path)"
+            )
+            .replacingOccurrences(of: "--- a/baseline/\(path)", with: "--- a/\(path)")
+            .replacingOccurrences(of: "+++ b/current/\(path)", with: "+++ b/\(path)")
     }
 
     private func safeTemporaryGitPathURL(relativePath: String) -> (root: URL, file: URL)? {

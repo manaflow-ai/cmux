@@ -617,6 +617,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lastTurn.html.contains("new-turn-file.txt"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+created"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("preexisting.txt"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("-before"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+after"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("deleted-untracked.txt"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("-remove me"), lastTurn.html)
