@@ -48,6 +48,9 @@ jobs:
       - name: Validate auxiliary window close shortcut lint
         run: ./tests/test_ci_auxiliary_window_close_shortcuts.sh
 
+      - name: Validate pbxproj test-wiring lint
+        run: ./tests/test_ci_pbxproj_test_wiring.sh
+
       # Paused: stale-base merge races (two PRs each fitting the budget can
       # overshoot when merged back-to-back without rebasing). CodeRabbit and
       # Greptile already flag large-file growth on PRs. Re-enable by uncommenting
