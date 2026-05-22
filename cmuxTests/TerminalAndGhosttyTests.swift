@@ -5071,9 +5071,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         process.standardError = Pipe()
         try process.run()
 
-        let deadline = Date().addingTimeInterval(2.0)
-        while Date() < deadline {
-            if FileManager.default.fileExists(atPath: path) {
+        let deadline = Date.now.addingTimeInterval(2.0)
+        while Date.now < deadline {
+            if foreignSocketAcceptsConnections(at: path) {
                 return process
             }
             if !process.isRunning {
@@ -5083,7 +5083,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
                     userInfo: [NSLocalizedDescriptionKey: "Foreign socket owner helper exited before binding"]
                 )
             }
-            usleep(10_000)
+            RunLoop.current.run(until: Date.now.addingTimeInterval(0.01))
         }
 
         terminate(process)
@@ -5092,6 +5092,35 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             code: Int(ETIMEDOUT),
             userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for foreign socket owner helper"]
         )
+    }
+
+    private func foreignSocketAcceptsConnections(at path: String) -> Bool {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let bytes = Array(path.utf8)
+        let maxPathLen = MemoryLayout.size(ofValue: addr.sun_path)
+        guard bytes.count < maxPathLen else { return false }
+
+        withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+            let cPath = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+            cPath.initialize(repeating: 0, count: maxPathLen)
+            for (index, byte) in bytes.enumerated() {
+                cPath[index] = CChar(bitPattern: byte)
+            }
+        }
+
+        let addrLen = socklen_t(MemoryLayout<sa_family_t>.size + bytes.count + 1)
+        let connectResult = withUnsafePointer(to: &addr) { ptr -> Int32 in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.connect(fd, sockaddrPtr, addrLen)
+            }
+        }
+        return connectResult == 0
     }
 
     private func terminate(_ process: Process) {
