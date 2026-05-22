@@ -497,6 +497,17 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
         XCTAssertEqual(pending?.modifiedAt, currentCrashDate)
     }
 
+    func testCrashMetadataPathNormalizationCanonicalizesDotSegments() throws {
+        XCTAssertEqual(
+            GhosttyCrashReportMetadata.normalizedPath("/tmp/../var//cmux/./cmux DEV"),
+            "/var/cmux/cmux DEV"
+        )
+        XCTAssertEqual(
+            GhosttyCrashReportMetadata.normalizedPath("../cmux/./Debug//cmux DEV"),
+            "../cmux/Debug/cmux DEV"
+        )
+    }
+
     func testPendingCrashReturnsNilForOnlyDifferentExecutableCrash() throws {
         _ = try writeCrashEnvelope(
             named: "foreign-only.ghosttycrash",

@@ -20,10 +20,29 @@ nonisolated enum GhosttyCrashReportMetadata {
     }
 
     static func normalizedPath(_ path: String) -> String {
-        URL(fileURLWithPath: path)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-            .path
+        let isAbsolute = path.hasPrefix("/")
+        var normalizedComponents: [Substring] = []
+
+        for component in path.split(separator: "/", omittingEmptySubsequences: true) {
+            switch component {
+            case ".":
+                continue
+            case "..":
+                if let last = normalizedComponents.last, last != ".." {
+                    normalizedComponents.removeLast()
+                } else if !isAbsolute {
+                    normalizedComponents.append(component)
+                }
+            default:
+                normalizedComponents.append(component)
+            }
+        }
+
+        let normalized = normalizedComponents.joined(separator: "/")
+        if isAbsolute {
+            return normalized.isEmpty ? "/" : "/\(normalized)"
+        }
+        return normalized.isEmpty ? "." : normalized
     }
 
     private static func sentryEvent(from data: Data) -> [String: Any]? {

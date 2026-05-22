@@ -14610,7 +14610,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func browserPortalReady(for browserPanel: BrowserPanel) -> Bool {
-        browserPortalAnchorReady(for: browserPanel) &&
+        guard browserPortalAnchorReady(for: browserPanel) else { return false }
+        if browserPanel.usesOwlChromiumBrowserEngine {
+            let nativeView = browserPanel.browserEngineNativeView
+            return
+                nativeView.window != nil &&
+                nativeView.superview != nil &&
+                nativeView.bounds.width > 1 &&
+                nativeView.bounds.height > 1
+        }
+        return
             browserPanel.webView.window != nil &&
             browserPanel.webView.superview != nil &&
             BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: browserPanel.portalAnchorView)
@@ -14692,21 +14701,27 @@ final class Workspace: Identifiable, ObservableObject {
 
         if let browserPanelId = layoutFollowUpBrowserPanelId {
             if let browserPanel = browserPanel(for: browserPanelId) {
-                let anchorReady = browserPortalAnchorReady(for: browserPanel)
-                let wasReady = browserPortalReady(for: browserPanel)
-                if anchorReady && !wasReady {
-                    BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
-                }
-                let isReady = browserPortalReady(for: browserPanel)
-                if isReady,
-                   (!wasReady || BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)?.containerHidden == true) {
-                    BrowserWindowPortalRegistry.refresh(
-                        webView: browserPanel.webView,
-                        reason: reason
-                    )
-                }
-                if isReady {
-                    layoutFollowUpBrowserPanelId = nil
+                if browserPanel.usesOwlChromiumBrowserEngine {
+                    if browserPortalReady(for: browserPanel) {
+                        layoutFollowUpBrowserPanelId = nil
+                    }
+                } else {
+                    let anchorReady = browserPortalAnchorReady(for: browserPanel)
+                    let wasReady = browserPortalReady(for: browserPanel)
+                    if anchorReady && !wasReady {
+                        BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
+                    }
+                    let isReady = browserPortalReady(for: browserPanel)
+                    if isReady,
+                       (!wasReady || BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)?.containerHidden == true) {
+                        BrowserWindowPortalRegistry.refresh(
+                            webView: browserPanel.webView,
+                            reason: reason
+                        )
+                    }
+                    if isReady {
+                        layoutFollowUpBrowserPanelId = nil
+                    }
                 }
             } else {
                 layoutFollowUpBrowserPanelId = nil
@@ -14916,6 +14931,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
+            guard !browserPanel.usesOwlChromiumBrowserEngine else { continue }
             let shouldBeVisible = visiblePanelIds.contains(browserPanel.id)
             let anchorView = browserPanel.portalAnchorView
             let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
@@ -14976,6 +14992,12 @@ final class Workspace: Identifiable, ObservableObject {
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
             guard visiblePanelIds.contains(browserPanel.id) else { continue }
+            if browserPanel.usesOwlChromiumBrowserEngine {
+                if !browserPortalReady(for: browserPanel) {
+                    return true
+                }
+                continue
+            }
             let anchorView = browserPanel.portalAnchorView
             let anchorReady =
                 anchorView.window != nil &&

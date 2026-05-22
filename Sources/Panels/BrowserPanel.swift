@@ -2475,12 +2475,26 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     private(set) var webView: WKWebView
+    private var browserEngine: (any BrowserEngineAdapter)?
+    @Published private(set) var browserEngineDescriptor: BrowserEngineDescriptor = .webKit
     private var websiteDataStore: WKWebsiteDataStore
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
     @Published private(set) var webViewInstanceID: UUID = UUID()
+
+    /// Monotonic identity for the active browser engine host.
+    /// Incremented when cmux swaps between WKWebView and Owl Chromium.
+    @Published private(set) var browserEngineInstanceID: UUID = UUID()
+
+    var browserEngineNativeView: NSView {
+        browserEngine?.nativeView ?? webView
+    }
+
+    var usesOwlChromiumBrowserEngine: Bool {
+        browserEngineDescriptor.kind == .owlChromium
+    }
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
@@ -3118,6 +3132,7 @@ final class BrowserPanel: Panel, ObservableObject {
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         webView = replacement
+        replaceBrowserEngine(webView: replacement, reason: "discardHiddenWebView")
         hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: now)
         currentURL = restoreURL
         shouldRenderWebView = false
@@ -3454,6 +3469,123 @@ final class BrowserPanel: Panel, ObservableObject {
         setupReactGrabMessageHandler(for: webView)
     }
 
+    private func bindBrowserEngineStateObservation(reason: String) {
+        browserEngine?.onStateChanged = { [weak self] in
+            MainActor.assumeIsolated {
+                self?.refreshBrowserEnginePublishedState(reason: "engineCallback")
+            }
+        }
+        browserEngineDescriptor = browserEngine?.descriptor ?? .webKit
+        refreshBrowserEnginePublishedState(reason: reason)
+    }
+
+    private func replaceBrowserEngine(webView: WKWebView, reason: String) {
+        browserEngine?.close()
+        browserEngine = BrowserEngineAdapterFactory.makePreferred(
+            webView: webView,
+            profileID: profileID,
+            workspaceID: workspaceId
+        )
+        browserEngineInstanceID = UUID()
+        bindBrowserEngineStateObservation(reason: reason)
+    }
+
+#if DEBUG
+    func installBrowserEngineForTesting(_ adapter: any BrowserEngineAdapter) {
+        browserEngine?.close()
+        browserEngine = adapter
+        browserEngineInstanceID = UUID()
+        bindBrowserEngineStateObservation(reason: "test")
+    }
+#endif
+
+    private func refreshBrowserEnginePublishedState(reason: String) {
+        guard let browserEngine, browserEngine.descriptor.kind == .owlChromium else { return }
+        if let engineURL = browserEngine.currentURL {
+            currentURL = Self.remoteProxyDisplayURL(for: engineURL) ?? engineURL
+        }
+        let trimmedTitle = (browserEngine.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTitle.isEmpty {
+            pageTitle = trimmedTitle
+        }
+        nativeCanGoBack = browserEngine.canGoBack
+        nativeCanGoForward = browserEngine.canGoForward
+        estimatedProgress = browserEngine.estimatedProgress
+        handleBrowserEngineLoadingChanged(browserEngine.isLoading)
+        refreshNavigationAvailability()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.engine.state panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) kind=\(browserEngine.descriptor.kind.rawValue) " +
+            "url=\(currentURL?.absoluteString ?? "nil") loading=\(isLoading ? 1 : 0)"
+        )
+#endif
+    }
+
+    private func handleBrowserEngineLoadingChanged(_ loading: Bool) {
+        if loading {
+            loadingGeneration &+= 1
+            loadingEndWorkItem?.cancel()
+            loadingEndWorkItem = nil
+            loadingStartedAt = Date()
+            isLoading = true
+            return
+        }
+        guard isLoading else { return }
+        isLoading = false
+        if let currentURL {
+            historyStore.recordVisit(url: currentURL, title: pageTitle)
+        }
+    }
+
+    func updateBrowserEngineSurfaceGeometry(size: CGSize, scale: CGFloat) {
+        browserEngine?.resize(to: size, scale: scale)
+    }
+
+    func isBrowserEngineSurfaceFocused(in window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return Self.responderChainContains(window.firstResponder, target: browserEngineNativeView)
+    }
+
+    private func evaluateBrowserEngineJavaScript(
+        _ script: String,
+        completion: @escaping (Any?, Error?) -> Void
+    ) {
+        guard usesOwlChromiumBrowserEngine else {
+            webView.evaluateJavaScript(script, completionHandler: completion)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                completion(nil, nil)
+                return
+            }
+            do {
+                completion(try await self.browserEngine?.evaluateJavaScript(script), nil)
+            } catch {
+                completion(nil, error)
+            }
+        }
+    }
+
+    private func browserEngineSupports(
+        _ capability: BrowserEngineCapability,
+        operation: String
+    ) -> Bool {
+        guard browserEngineDescriptor.capabilities.supports(capability) else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.engine.unsupported panel=\(id.uuidString.prefix(5)) " +
+                "kind=\(browserEngineDescriptor.kind.rawValue) capability=\(capability.rawValue) " +
+                "operation=\(operation)"
+            )
+#endif
+            return false
+        }
+        return true
+    }
+
     private func configureNavigationDelegateCallbacks() {
         guard let navigationDelegate else { return }
         let boundWebViewInstanceID = webViewInstanceID
@@ -3553,6 +3685,13 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore
         )
         self.webView = webView
+        let initialBrowserEngine = BrowserEngineAdapterFactory.makePreferred(
+            webView: webView,
+            profileID: resolvedProfileID,
+            workspaceID: workspaceId
+        )
+        self.browserEngine = initialBrowserEngine
+        self.browserEngineDescriptor = initialBrowserEngine.descriptor
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
         applyRemoteProxyConfigurationIfAvailable()
@@ -3664,6 +3803,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self.webViewDidRequestClose?()
         }
         self.uiDelegate = browserUIDelegate
+        bindBrowserEngineStateObservation(reason: "init")
 
         bindWebView(webView)
         installDetachedDeveloperToolsWindowCloseObserver()
@@ -4000,6 +4140,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewInstanceID = UUID()
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
+        replaceBrowserEngine(webView: replacement, reason: "profileSwitch")
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
@@ -4361,6 +4502,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewInstanceID = UUID()
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
+        replaceBrowserEngine(webView: replacement, reason: "webViewReplace")
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
 
@@ -4412,6 +4554,12 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
+        if usesOwlChromiumBrowserEngine {
+            browserEngine?.focus()
+            noteWebViewFocused()
+            return
+        }
+
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
 
         // If nothing meaningful is loaded yet, prefer letting the omnibar take focus.
@@ -4438,6 +4586,13 @@ final class BrowserPanel: Panel, ObservableObject {
         endSuppressWebViewFocusForAddressBar()
         clearWebViewFocusSuppression()
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
+
+        if usesOwlChromiumBrowserEngine {
+            browserEngine?.focus()
+            suppressOmnibarAutofocus(for: 1.5)
+            noteWebViewFocused()
+            return true
+        }
 
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
 
@@ -4468,6 +4623,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func unfocus() {
         invalidateSearchFocusRequests(reason: "panelUnfocus")
+        if usesOwlChromiumBrowserEngine {
+            browserEngine?.unfocus()
+            return
+        }
         guard let window = webView.window else { return }
         if Self.responderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
@@ -4498,6 +4657,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         webView.stopLoading()
+        browserEngine?.close()
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -4961,7 +5121,13 @@ final class BrowserPanel: Panel, ObservableObject {
             historyStore.recordTypedNavigation(url: originalURL)
         }
         navigationDelegate?.lastAttemptedURL = originalURL
-        browserLoadRequest(effectiveRequest, in: webView)
+        if usesOwlChromiumBrowserEngine {
+            currentURL = Self.remoteProxyDisplayURL(for: effectiveRequest.url) ?? effectiveRequest.url
+            browserEngine?.load(effectiveRequest)
+            refreshBrowserEnginePublishedState(reason: "load")
+        } else {
+            browserLoadRequest(effectiveRequest, in: webView)
+        }
     }
 
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
@@ -5313,6 +5479,7 @@ extension BrowserPanel {
         )
         webViewInstanceID = UUID()
         webView = replacement
+        replaceBrowserEngine(webView: replacement, reason: "contextReset")
         shouldRenderWebView = false
         refreshWebViewLifecycleState()
         bindWebView(replacement)
@@ -5374,6 +5541,11 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 
 extension BrowserPanel {
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
+        if usesOwlChromiumBrowserEngine {
+            guard isLoading else { return }
+            browserEngine?.stopLoading()
+            return
+        }
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
@@ -5403,7 +5575,7 @@ extension BrowserPanel {
             }
 
             if nativeCanGoBack {
-                webView.goBack()
+                browserEngine?.goBack()
                 return
             }
 
@@ -5411,7 +5583,7 @@ extension BrowserPanel {
             return
         }
 
-        webView.goBack()
+        browserEngine?.goBack()
     }
 
     /// Go forward in history
@@ -5423,7 +5595,7 @@ extension BrowserPanel {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
             if nativeCanGoForward {
-                webView.goForward()
+                browserEngine?.goForward()
                 return
             }
 
@@ -5444,7 +5616,7 @@ extension BrowserPanel {
             return
         }
 
-        webView.goForward()
+        browserEngine?.goForward()
     }
 
     /// Open a link in a new browser surface in the same pane
@@ -5520,13 +5692,18 @@ extension BrowserPanel {
     }
 
     var currentURLForTabDuplication: URL? {
-        resolvedCurrentSessionHistoryURL()
+        (usesOwlChromiumBrowserEngine ? browserEngine?.currentURL : nil)
+            ?? resolvedCurrentSessionHistoryURL()
             ?? Self.remoteProxyDisplayURL(for: webView.url)
             ?? currentURL
     }
 
     /// Reload the current page
     func reload() {
+        if usesOwlChromiumBrowserEngine {
+            browserEngine?.reload()
+            return
+        }
         if restoreDiscardedWebViewIfNeeded(reason: "reload") {
             return
         }
@@ -5550,7 +5727,7 @@ extension BrowserPanel {
 
     /// Stop loading
     func stopLoading() {
-        webView.stopLoading()
+        browserEngine?.stopLoading()
         isMainFrameProvisionalNavigationActive = false
     }
 
@@ -6215,20 +6392,24 @@ extension BrowserPanel {
 
     /// Take a snapshot of the web view
     func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
-        let config = WKSnapshotConfiguration()
-        webView.takeSnapshot(with: config) { image, error in
-            if let error = error {
-                NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
-                completion(nil)
-                return
-            }
-            completion(image)
+        guard let browserEngine else {
+            completion(nil)
+            return
         }
+        browserEngine.takeSnapshot(completion: completion)
     }
 
     /// Execute JavaScript
     func evaluateJavaScript(_ script: String) async throws -> Any? {
-        try await webView.evaluateJavaScript(script)
+        guard let browserEngine else { return nil }
+        return try await browserEngine.evaluateJavaScript(script)
+    }
+
+    func evaluateJavaScriptSynchronouslyForSocket(_ script: String) throws -> Any? {
+        guard usesOwlChromiumBrowserEngine, let browserEngine else {
+            throw BrowserEngineUnsupportedCapabilityError(engineKind: .webKit, capability: .javaScript)
+        }
+        return try browserEngine.evaluateJavaScriptSynchronously(script)
     }
 
     // MARK: - Find in Page
@@ -6275,6 +6456,7 @@ extension BrowserPanel {
     }
 
     func findNext() {
+        guard browserEngineSupports(.findInPage, operation: "findNext") else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.nextScript())
@@ -6283,6 +6465,7 @@ extension BrowserPanel {
     }
 
     func findPrevious() {
+        guard browserEngineSupports(.findInPage, operation: "findPrevious") else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.previousScript())
@@ -6308,6 +6491,11 @@ extension BrowserPanel {
     }
 
     private func executeFindSearch(_ needle: String) {
+        guard browserEngineSupports(.findInPage, operation: "executeFindSearch") else {
+            searchState?.selected = nil
+            searchState?.total = nil
+            return
+        }
         guard !needle.isEmpty else {
             executeFindClear()
             searchState?.selected = nil
@@ -6327,6 +6515,7 @@ extension BrowserPanel {
     }
 
     private func executeFindClear() {
+        guard browserEngineSupports(.findInPage, operation: "executeFindClear") else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -6491,8 +6680,7 @@ extension BrowserPanel {
             return .browser(.findField)
         }
 
-        if let window,
-           Self.responderChainContains(window.firstResponder, target: webView) {
+        if isBrowserEngineSurfaceFocused(in: window) {
             return .browser(.webView)
         }
 
@@ -6567,7 +6755,7 @@ extension BrowserPanel {
             return .browser(.findField)
         }
 
-        if Self.responderChainContains(responder, target: webView) {
+        if Self.responderChainContains(responder, target: browserEngineNativeView) {
             return .browser(.webView)
         }
 
@@ -6601,7 +6789,7 @@ extension BrowserPanel {
 #endif
             return true
         case .webView:
-            guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
+            guard Self.responderChainContains(window.firstResponder, target: browserEngineNativeView) else { return false }
             return window.makeFirstResponder(nil)
         }
     }
@@ -6655,7 +6843,7 @@ extension BrowserPanel {
     }
 
     private func captureAddressBarPageFocusIfNeeded() {
-        webView.evaluateJavaScript(Self.addressBarFocusCaptureScript) { [weak self] result, error in
+        evaluateBrowserEngineJavaScript(Self.addressBarFocusCaptureScript) { [weak self] result, error in
 #if DEBUG
             guard let self else { return }
             if let error {
@@ -6727,7 +6915,7 @@ extension BrowserPanel {
             completion(false)
             return
         }
-        webView.evaluateJavaScript(Self.addressBarFocusRestoreScript) { [weak self] result, error in
+        evaluateBrowserEngineJavaScript(Self.addressBarFocusRestoreScript) { [weak self] result, error in
             guard let self else {
                 completion(false)
                 return
@@ -6789,6 +6977,14 @@ extension BrowserPanel {
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
     /// `currentURL` can lag behind navigation changes, so prefer the live WKWebView URL.
     func preferredURLStringForOmnibar() -> String? {
+        if let engineURL = usesOwlChromiumBrowserEngine ? browserEngine?.currentURL : nil,
+           let engineURLString = Self.remoteProxyDisplayURL(for: engineURL)?.absoluteString
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !engineURLString.isEmpty,
+           engineURLString != blankURLString {
+            return engineURLString
+        }
+
         if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !webViewURL.isEmpty,
@@ -6807,6 +7003,11 @@ extension BrowserPanel {
     }
 
     private func resolvedCurrentSessionHistoryURL() -> URL? {
+        if let engineURL = usesOwlChromiumBrowserEngine ? browserEngine?.currentURL : nil,
+           Self.serializableSessionHistoryURLString(engineURL) != nil {
+            return engineURL
+        }
+
         if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
            Self.serializableSessionHistoryURLString(webViewURL) != nil {
             return webViewURL
