@@ -30,6 +30,45 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM"))
     }
 
+    func testApplyManagedGitWatchEnvironmentDisablesShellGitWatch() {
+        var environment: [String: String] = [:]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedGitWatchEnvironment(
+            watchGitStatusEnabled: false,
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        XCTAssertEqual(environment["CMUX_NO_GIT_WATCH"], "1")
+        XCTAssertTrue(protectedKeys.contains("CMUX_NO_GIT_WATCH"))
+    }
+
+    func testApplyManagedGitWatchEnvironmentClearsInheritedOptOutWhenEnabled() {
+        var environment = [
+            "CMUX_NO_GIT_WATCH": "1"
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedGitWatchEnvironment(
+            watchGitStatusEnabled: true,
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: environment,
+            protectedKeys: protectedKeys,
+            additionalEnvironment: [
+                "CMUX_NO_GIT_WATCH": "1"
+            ],
+            initialEnvironmentOverrides: [
+                "CMUX_NO_GIT_WATCH": "1"
+            ]
+        )
+
+        XCTAssertEqual(merged["CMUX_NO_GIT_WATCH"], "")
+    }
+
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
         let replayPath = "/tmp/cmux-replay-\(UUID().uuidString)"
         let merged = TerminalSurface.mergedStartupEnvironment(

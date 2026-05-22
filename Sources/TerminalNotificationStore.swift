@@ -661,7 +661,7 @@ enum NotificationAuthorizationState: Equatable {
     }
 }
 
-enum TerminalNotificationClickAction: Hashable, Sendable {
+enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
     case revealInFinder(path: String)
 
     private static let kindUserInfoKey = "cmuxClickAction"
@@ -695,6 +695,7 @@ struct TerminalNotification: Identifiable, Hashable {
     let id: UUID
     let tabId: UUID
     let surfaceId: UUID?
+    let panelId: UUID?
     let title: String
     let subtitle: String
     let body: String
@@ -702,6 +703,40 @@ struct TerminalNotification: Identifiable, Hashable {
     var isRead: Bool
     var paneFlash: Bool = true
     var clickAction: TerminalNotificationClickAction?
+
+    init(
+        id: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID? = nil,
+        title: String,
+        subtitle: String,
+        body: String,
+        createdAt: Date,
+        isRead: Bool,
+        paneFlash: Bool = true,
+        clickAction: TerminalNotificationClickAction? = nil
+    ) {
+        self.id = id
+        self.tabId = tabId
+        self.surfaceId = surfaceId
+        self.panelId = panelId
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.createdAt = createdAt
+        self.isRead = isRead
+        self.paneFlash = paneFlash
+        self.clickAction = clickAction
+    }
+
+    func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
+        guard tabId == targetTabId else { return false }
+        guard let targetSurfaceId else {
+            return surfaceId == nil && panelId == nil
+        }
+        return surfaceId == targetSurfaceId || panelId == targetSurfaceId
+    }
 }
 
 @MainActor
@@ -902,11 +937,20 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func openNotificationSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else {
-            return
-        }
+        guard let url = Self.notificationSettingsURL(bundleIdentifier: Bundle.main.bundleIdentifier) else { return }
         logAuthorization("open settings url=\(url.absoluteString)")
         notificationSettingsURLOpener(url)
+    }
+
+    static func notificationSettingsURL(bundleIdentifier: String?) -> URL? {
+        if let bundleIdentifier = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundleIdentifier.isEmpty,
+           let encodedBundleIdentifier = bundleIdentifier.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            return URL(
+                string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(encodedBundleIdentifier)"
+            )
+        }
+        return URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")
     }
 
     func sendSettingsTestNotification() {
@@ -1081,8 +1125,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func hasUnreadNotificationRequiringPaneFlash(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         notifications.contains { notification in
-            notification.tabId == tabId &&
-                notification.surfaceId == surfaceId &&
+            notification.matches(tabId: tabId, surfaceId: surfaceId) &&
                 !notification.isRead &&
                 notification.paneFlash
         }
@@ -1095,6 +1138,10 @@ final class TerminalNotificationStore: ObservableObject {
 
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
         indexes.latestByTabId[tabId]
+    }
+
+    func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
+        notifications.filter { $0.matches(tabId: tabId, surfaceId: surfaceId) }
     }
 
     func clearLatestNotification(forTabId tabId: UUID) {
@@ -1116,6 +1163,11 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
+#if DEBUG
+        cmuxDebugLog(
+            "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
+        )
+#endif
         let now = Date()
         let resolvedCooldownInterval: TimeInterval?
         if let cooldownInterval, cooldownInterval.isFinite, cooldownInterval > 0 {
@@ -1127,6 +1179,11 @@ final class TerminalNotificationStore: ObservableObject {
            let resolvedCooldownInterval,
            let lastNotificationDate = lastNotificationDateByCooldownKey[cooldownKey],
            now.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
+#if DEBUG
+            cmuxDebugLog(
+                "notification.store.add.skip workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") reason=cooldown"
+            )
+#endif
             return
         }
         let cooldownReservation = makeCooldownReservation(
@@ -1257,11 +1314,18 @@ final class TerminalNotificationStore: ObservableObject {
         let cwd = workspace?.surfaceTabBarDirectory
             ?? workspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let panelId: UUID? = surfaceId.flatMap { surfaceId in
+            if workspace?.panels[surfaceId] != nil {
+                return surfaceId
+            }
+            return workspace?.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+        }
 
         return NotificationPolicyContext(
             request: TerminalNotificationPolicyRequest(
                 tabId: tabId,
                 surfaceId: surfaceId,
+                panelId: panelId,
                 title: title,
                 subtitle: subtitle,
                 body: body,
@@ -1286,6 +1350,7 @@ final class TerminalNotificationStore: ObservableObject {
             request: TerminalNotificationPolicyRequest(
                 tabId: request.tabId,
                 surfaceId: request.surfaceId,
+                panelId: request.panelId,
                 title: payload.title,
                 subtitle: payload.subtitle,
                 body: payload.body,
@@ -1315,6 +1380,7 @@ final class TerminalNotificationStore: ObservableObject {
             id: UUID(),
             tabId: request.tabId,
             surfaceId: request.surfaceId,
+            panelId: request.panelId,
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
@@ -1335,6 +1401,11 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
+#if DEBUG
+        cmuxDebugLog(
+            "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
+        )
+#endif
         if effects.reorderWorkspace, WorkspaceAutoReorderSettings.isEnabled() {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
@@ -1384,6 +1455,11 @@ final class TerminalNotificationStore: ObservableObject {
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
         notifications = updated
         commitCooldownReservation(cooldownReservation, at: now)
+#if DEBUG
+        cmuxDebugLog(
+            "notification.store.record workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") removed=\(idsToClear.count) unread=\(!notification.isRead ? 1 : 0) paneFlash=\(notification.paneFlash ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0) total=\(notifications.count)"
+        )
+#endif
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1410,7 +1486,19 @@ final class TerminalNotificationStore: ObservableObject {
         shouldSuppressExternalDelivery: Bool,
         effects: TerminalNotificationPolicyEffects
     ) {
-        guard effects.desktop || effects.sound || effects.command else { return }
+        guard effects.desktop || effects.sound || effects.command else {
+#if DEBUG
+            cmuxDebugLog(
+                "notification.store.sideEffects.skip workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") reason=noEffects"
+            )
+#endif
+            return
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "notification.store.sideEffects workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
+        )
+#endif
         if shouldSuppressExternalDelivery {
             suppressedNotificationFeedbackHandler(self, notification, effects)
         } else {
@@ -1501,8 +1589,7 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         var idsToClear: [String] = []
         for index in updated.indices {
-            if updated[index].tabId == tabId,
-               updated[index].surfaceId == surfaceId,
+            if updated[index].matches(tabId: tabId, surfaceId: surfaceId),
                !updated[index].isRead {
                 updated[index].isRead = true
                 idsToClear.append(updated[index].id.uuidString)
@@ -1547,7 +1634,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func latestNotificationIndex(forTabId tabId: UUID, surfaceId: UUID?, in notifications: [TerminalNotification]) -> Int? {
-        if let exactIndex = notifications.firstIndex(where: { $0.tabId == tabId && $0.surfaceId == surfaceId }) {
+        if let exactIndex = notifications.firstIndex(where: { $0.matches(tabId: tabId, surfaceId: surfaceId) }) {
             return exactIndex
         }
         if surfaceId != nil,
@@ -1612,6 +1699,30 @@ final class TerminalNotificationStore: ObservableObject {
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
+    func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
+        TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId)
+
+        let removedIds = notifications
+            .filter { $0.tabId == tabId }
+            .map { $0.id.uuidString }
+        let restoredForTab = restoredNotifications
+            .filter { $0.tabId == tabId }
+            .sorted(by: Self.notificationSortPrecedes)
+        let keptNotifications = notifications.filter { $0.tabId != tabId }
+        let nextNotifications = (restoredForTab + keptNotifications).sorted(by: Self.notificationSortPrecedes)
+
+        let didChangeNotifications = nextNotifications != notifications
+        if didChangeNotifications {
+            notifications = nextNotifications
+        }
+        clearFocusedReadIndicator(forTabId: tabId)
+
+        if didChangeNotifications, !removedIds.isEmpty {
+            center.removeDeliveredNotificationsOffMain(withIdentifiers: removedIds)
+            center.removePendingNotificationRequestsOffMain(withIdentifiers: removedIds)
+        }
+    }
+
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
 
     func clearAll(discardQueuedNotifications: Bool = true) {
@@ -1646,7 +1757,7 @@ final class TerminalNotificationStore: ObservableObject {
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
         for notification in notifications {
-            if notification.tabId == tabId, notification.surfaceId == surfaceId {
+            if notification.matches(tabId: tabId, surfaceId: surfaceId) {
                 idsToClear.append(notification.id.uuidString)
             } else {
                 updated.append(notification)
@@ -1673,7 +1784,7 @@ final class TerminalNotificationStore: ObservableObject {
 
         var didMoveNotification = false
         let updated = notifications.map { notification -> TerminalNotification in
-            guard notification.tabId == sourceTabId, notification.surfaceId == surfaceId else {
+            guard notification.matches(tabId: sourceTabId, surfaceId: surfaceId) else {
                 return notification
             }
             didMoveNotification = true
@@ -1681,6 +1792,7 @@ final class TerminalNotificationStore: ObservableObject {
                 id: notification.id,
                 tabId: destinationTabId,
                 surfaceId: notification.surfaceId,
+                panelId: notification.panelId,
                 title: notification.title,
                 subtitle: notification.subtitle,
                 body: notification.body,
@@ -2023,11 +2135,23 @@ final class TerminalNotificationStore: ObservableObject {
             indexes.unreadByTabSurface.insert(
                 TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
             )
+            if let panelId = notification.panelId, panelId != notification.surfaceId {
+                indexes.unreadByTabSurface.insert(
+                    TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId)
+                )
+            }
             if indexes.latestUnreadByTabId[notification.tabId] == nil {
                 indexes.latestUnreadByTabId[notification.tabId] = notification
             }
         }
         return indexes
+    }
+
+    private static func notificationSortPrecedes(_ lhs: TerminalNotification, _ rhs: TerminalNotification) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
 #if DEBUG
@@ -2052,9 +2176,7 @@ final class TerminalNotificationStore: ObservableObject {
                 block()
             }
         }
-        notificationSettingsURLOpener = { url in
-            NSWorkspace.shared.open(url)
-        }
+        notificationSettingsURLOpener = { url in NSWorkspace.shared.open(url) }
         hasPromptedForSettings = false
     }
 
