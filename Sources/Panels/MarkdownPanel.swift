@@ -69,6 +69,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
+    private var pendingTextViewFocus = false
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
@@ -89,12 +90,19 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func focus() {
         guard displayMode == .text else { return }
-        _ = textView?.window?.makeFirstResponder(textView)
-        applyPendingSearchNeedleIfPossible()
+        guard let textView, let window = textView.window else {
+            pendingTextViewFocus = true
+            return
+        }
+        let didFocus = window.makeFirstResponder(textView)
+        pendingTextViewFocus = !didFocus
+        if didFocus {
+            applyPendingSearchNeedleIfPossible()
+        }
     }
 
     func unfocus() {
-        // No-op for read-only panel.
+        pendingTextViewFocus = false
     }
 
     func close() {
@@ -111,11 +119,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         focusFlashToken += 1
     }
 
-    func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
+    func setDisplayMode(_ mode: MarkdownPanelDisplayMode, focusTextEditor: Bool = true) {
         guard displayMode != mode else { return }
         displayMode = mode
-        if mode == .text {
+        if mode == .text, focusTextEditor {
             focus()
+        } else if mode != .text {
+            pendingTextViewFocus = false
         }
     }
 
@@ -128,6 +138,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     }
 
     func retryPendingFocus() {
+        guard pendingTextViewFocus else { return }
         focus()
     }
 

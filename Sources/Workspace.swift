@@ -1056,7 +1056,7 @@ extension Workspace {
                 markdownPanel.markAsProjectNote(slug: slug)
             }
             if let displayMode = snapshotMarkdown.displayMode {
-                markdownPanel.setDisplayMode(displayMode)
+                markdownPanel.setDisplayMode(displayMode, focusTextEditor: false)
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id

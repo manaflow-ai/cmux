@@ -133,7 +133,9 @@ enum NoteSupport {
 
     /// Pick the project root for restoring a persisted note snapshot without
     /// touching the filesystem. If the workspace cwd no longer lives under the
-    /// stored note root, prefer the cwd so moved projects restore into the new tree.
+    /// stored note root, prefer the matching project-name ancestor from the cwd
+    /// when present, otherwise fall back to the cwd so moved projects restore
+    /// into the new tree.
     static func restoredProjectRoot(forStoredNotePath path: String, currentDirectory: String) -> String? {
         let standardizedCwd = (currentDirectory as NSString).standardizingPath
         guard !standardizedCwd.isEmpty else {
@@ -147,7 +149,24 @@ enum NoteSupport {
             standardizedCwd.hasPrefix(standardizedStoredRoot + "/") {
             return storedRoot
         }
+        if let movedRoot = movedProjectRootMatchingStoredName(
+            storedRoot: storedRoot,
+            currentDirectory: standardizedCwd
+        ) {
+            return movedRoot
+        }
         return standardizedCwd
+    }
+
+    private static func movedProjectRootMatchingStoredName(storedRoot: String, currentDirectory: String) -> String? {
+        let storedName = (storedRoot as NSString).lastPathComponent
+        guard !storedName.isEmpty else { return nil }
+
+        let components = (currentDirectory as NSString).pathComponents
+        guard let matchIndex = components.lastIndex(of: storedName) else {
+            return nil
+        }
+        return NSString.path(withComponents: Array(components[...matchIndex]))
     }
 
     /// Project-root-aware reverse lookup for note files. This avoids treating an
