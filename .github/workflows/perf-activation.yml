@@ -78,7 +78,12 @@ jobs:
           ./scripts/install-zig-ci.sh
 
       - name: Build tagged app
-        run: ./scripts/reload.sh --tag "$PERF_TAG"
+        run: |
+          set -euo pipefail
+          CMUX_SKIP_ZIG_BUILD=1 \
+            CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
+            ./scripts/reload.sh --tag "$PERF_TAG"
 
       - name: Run activation session benchmark
         run: |
