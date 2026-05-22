@@ -268,13 +268,14 @@ def wait_for_task_manager_rows(client: SocketClient, workspace_ids: list[str], t
     expected_workspace_ids = set(workspace_ids)
     deadline = time.monotonic() + timeout
     last_snapshot: dict[str, Any] = {}
+    last_error_message = ""
 
     while time.monotonic() < deadline:
         snapshot = client.v2("debug.task_manager.snapshot")
         last_snapshot = snapshot
         error_message = snapshot.get("error_message")
         if isinstance(error_message, str) and error_message:
-            raise RuntimeError(f"Task Manager reported an error while loading rows: {error_message}")
+            last_error_message = error_message
 
         loaded_workspace_ids = {
             value for value in snapshot.get("workspace_ids", [])
@@ -297,7 +298,7 @@ def wait_for_task_manager_rows(client: SocketClient, workspace_ids: list[str], t
     missing = sorted(expected_workspace_ids - loaded_workspace_ids)
     raise RuntimeError(
         "Task Manager did not load seeded workspace rows before sampling: "
-        f"missing={missing} last_snapshot={last_snapshot}"
+        f"missing={missing} last_error={last_error_message!r} last_snapshot={last_snapshot}"
     )
 
 
