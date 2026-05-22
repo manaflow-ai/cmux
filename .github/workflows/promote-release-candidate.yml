@@ -140,7 +140,22 @@ jobs:
               }
             } catch (error) {
               if (error.status === 404) {
-                core.notice(`Release ${stableTag} does not exist yet; safe to publish.`);
+                try {
+                  const existingTagSha = await resolveTagSha(stableTag);
+                  if (existingTagSha !== candidateSha) {
+                    core.setFailed(
+                      `Tag ${stableTag} already points to ${existingTagSha}, ` +
+                      `not candidate ${candidateSha}. Publish a new stable version instead of replacing it.`
+                    );
+                    return;
+                  }
+                  core.notice(`Tag ${stableTag} already points to candidate ${candidateSha}; safe to create the release.`);
+                } catch (tagError) {
+                  if (tagError.status !== 404) {
+                    throw tagError;
+                  }
+                  core.notice(`Release ${stableTag} and refs/tags/${stableTag} do not exist yet; safe to publish.`);
+                }
                 return;
               }
               throw error;

@@ -140,6 +140,7 @@ jobs:
 
             core.setOutput('skip_all', 'false');
             core.setOutput('skip_upload', publish ? 'false' : 'true');
+            core.setOutput('appcast_source', 'build');
 
             try {
               const tagRef = await github.rest.git.getRef({
@@ -196,9 +197,9 @@ jobs:
               }
 
               if (shouldSkipBuildAndUpload) {
-                core.notice(`RC ${rcTag} already has complete immutable assets. Skipping build and upload.`);
+                core.notice(`RC ${rcTag} already has complete immutable assets. Reusing release appcast for R2 upload.`);
                 core.setOutput('skip_all', 'true');
-                core.setOutput('skip_upload', 'true');
+                core.setOutput('appcast_source', 'release');
                 return;
               }
 
@@ -230,6 +231,10 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
+
+      - name: Verify stable Sparkle build number
+        if: steps.guard_rc_assets.outputs.skip_all != 'true'
+        run: tests/test_ci_sparkle_build_monotonic.sh
 
       - name: Install build deps
         if: steps.guard_rc_assets.outputs.skip_all != 'true'
@@ -692,9 +697,18 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          APPCAST_SOURCE: ${{ steps.guard_rc_assets.outputs.appcast_source }}
         run: |
           set -euo pipefail
           command -v aws >/dev/null 2>&1 || { echo "Installing AWS CLI..."; brew install awscli; }
+          if [ "${APPCAST_SOURCE:-build}" = "release" ]; then
+            rm -f appcast.xml
+            gh release download "$RC_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern appcast.xml \
+              --dir .
+          fi
+          test -s appcast.xml
           RC_RELEASE_TAGS="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --exclude-drafts \
             --json tagName,isPrerelease -q '.[] | select(.isPrerelease) | .tagName')"
           LATEST_RC="$(printf '%s\n' "$RC_RELEASE_TAGS" \
