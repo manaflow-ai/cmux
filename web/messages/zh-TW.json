@@ -164,6 +164,28 @@
         "featureSocketApiDesc": "透過程式控制建立分頁和傳送輸入",
         "featureGpuLabel": "GPU 加速",
         "featureGpuDesc": "由 libghostty 驅動，提供流暢的渲染效果"
+      },
+      "passkeyAuth": {
+        "title": "Passkey auth in the cmux browser",
+        "summary": "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
+        "date": "May 22, 2026",
+        "p1": "cmux's browser now supports passkey authentication. Sign-in flows that depend on passkeys, WebAuthn, Touch ID, or hardware security keys can complete inside a cmux browser pane.",
+        "p2": "If you already use another browser for the same site, import compatible cookies once:",
+        "p3": "Requires cmux v0.64+. This helps when Claude Code, Codex, OpenCode, Gemini CLI, or another agent needs to test an authenticated local app without leaving cmux."
+      },
+      "taskManager": {
+        "title": "Task Manager in cmux",
+        "summary": "Use cmux top or Task Manager from the command palette to see CPU and RAM usage for your coding agents.",
+        "date": "May 22, 2026",
+        "p1": "cmux now has a task manager for checking how much CPU and RAM your coding agents and terminal processes are using.",
+        "p2": "Open it from the CLI:",
+        "p3": "Or press Cmd+Shift+P and choose Task Manager from the command palette.",
+        "p4": "Requires cmux v0.64.4+."
+      },
+      "sessionRestore": {
+        "seoP": "If you are looking for how to restore Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder, or Hermes Agent sessions after a terminal crash, install cmux hooks and keep agent resume enabled.",
+        "summary": "How cmux restores layouts and resumes Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions.",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder can resume when cmux has a native session ID. For most agents, install the integration with <code>cmux hooks setup</code>."
       }
     },
     "zenOfCmux": {
@@ -181,6 +203,57 @@
     "introducingCmux": {
       "metaTitle": "cmux 介紹",
       "metaDescription": "我們為什麼要做 cmux，一個全新的 macOS 終端。"
+    },
+    "passkeyAuth": {
+      "metaTitle": "Passkey auth in the cmux browser",
+      "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
+      "metaKeywords": [
+        "cmux browser passkey authentication",
+        "passkey authentication",
+        "WebAuthn",
+        "Touch ID",
+        "cookie import",
+        "browser cookies",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI coding agents"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "Task Manager in cmux",
+      "metaDescription": "cmux v0.64.4+ includes a task manager for checking CPU and RAM usage from coding agents with cmux top or the command palette.",
+      "metaKeywords": [
+        "cmux task manager",
+        "cmux top",
+        "coding agent CPU usage",
+        "coding agent RAM usage",
+        "terminal process monitor",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AI coding agents"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "How to restore Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other coding agent sessions after relaunch or a terminal crash with cmux.",
+      "metaKeywords": [
+        "cmux",
+        "session restore",
+        "restore terminal after crash",
+        "terminal crash recovery",
+        "terminal",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI coding agents"
+      ]
     }
   },
   "docs": {
@@ -756,7 +829,7 @@
     "sessionRestore": {
       "title": "工作階段還原",
       "metaTitle": "工作階段還原",
-      "metaDescription": "cmux 在重新啟動後如何還原視窗、workspace、pane、工作目錄、scrollback、瀏覽器歷史與支援的 agent 工作階段。",
+      "metaDescription": "How cmux restores windows, workspaces, panes, working directories, scrollback, browser history, and Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions after relaunch.",
       "intro": "cmux 會儲存你的工作形態，讓應用程式重新啟動時帶回相同的視窗、workspace、pane、終端機脈絡和瀏覽器狀態。",
       "restoredTitle": "cmux 會還原什麼",
       "restoredDesc": "重新啟動後，cmux 會還原應用程式擁有的佈局與中繼資料：",
@@ -782,7 +855,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "無",
-      "supportedNote": "啟用 Claude 整合時，Claude Code 由 cmux Claude wrapper 處理。Rovo Dev 也接受 rovo 作為 setup 別名。",
+      "supportedNote": "Claude Code is handled by the cmux Claude wrapper when Claude integration is enabled in Settings. Antigravity also accepts agy as the setup alias, and Rovo Dev accepts rovo.",
       "manualTitle": "手動還原",
       "manualDesc": "cmux 正常啟動時會還原最後儲存的 snapshot。你也可以手動重新套用上一個 snapshot：",
       "manualItemMenu": "File > Reopen Previous Session",
@@ -794,7 +867,9 @@
       "underHoodItemScrollback": "終端機 scrollback 會以有界文字儲存，並在還原時透過暫存檔 replay。這是盡力還原，因為終端機應用程式可以重繪或清除畫面。",
       "underHoodItemHooks": "Agent hooks 會寫入 ~/.cmuxterm/<agent>-hook-sessions.json，內容包含 agent 工作階段 ID、cmux workspace ID、surface ID、cwd、可用時的程序 ID，以及清理過的啟動命令。",
       "underHoodItemResume": "還原時，cmux 會先重建視窗和 pane。如果 agent 自動還原已啟用，它會啟動一次性 shell 命令，用儲存的工作階段 ID 執行 agent 的原生 resume 命令。",
-      "underHoodMore": "一般<configLink>設定文件</configLink>說明 cmux.json。工作階段還原會將應用程式佈局與 Ghostty 終端機渲染設定分開保存。"
+      "underHoodMore": "一般<configLink>設定文件</configLink>說明 cmux.json。工作階段還原會將應用程式佈局與 Ghostty 終端機渲染設定分開保存。",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     }
   },
   "legal": {

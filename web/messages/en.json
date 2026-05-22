@@ -110,15 +110,55 @@
     "description": "News and updates from the cmux team",
     "passkeyAuth": {
       "metaTitle": "Passkey auth in the cmux browser",
-      "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import."
+      "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
+      "metaKeywords": [
+        "cmux browser passkey authentication",
+        "passkey authentication",
+        "WebAuthn",
+        "Touch ID",
+        "cookie import",
+        "browser cookies",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI coding agents"
+      ]
     },
     "taskManager": {
       "metaTitle": "Task Manager in cmux",
-      "metaDescription": "cmux v0.64.4+ includes a task manager for checking CPU and RAM usage from coding agents with cmux top or the command palette."
+      "metaDescription": "cmux v0.64.4+ includes a task manager for checking CPU and RAM usage from coding agents with cmux top or the command palette.",
+      "metaKeywords": [
+        "cmux task manager",
+        "cmux top",
+        "coding agent CPU usage",
+        "coding agent RAM usage",
+        "terminal process monitor",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AI coding agents"
+      ]
     },
     "sessionRestore": {
       "metaTitle": "Session restore in cmux",
-      "metaDescription": "How to restore Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other coding agent sessions after relaunch or a terminal crash with cmux."
+      "metaDescription": "How to restore Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other coding agent sessions after relaunch or a terminal crash with cmux.",
+      "metaKeywords": [
+        "cmux",
+        "session restore",
+        "restore terminal after crash",
+        "terminal crash recovery",
+        "terminal",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI coding agents"
+      ]
     },
     "zenOfCmux": {
       "metaTitle": "The Zen of cmux",

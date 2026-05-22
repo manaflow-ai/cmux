@@ -11,20 +11,14 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.taskManager" });
+  const rawKeywords = t.raw("metaKeywords");
+  const keywords = Array.isArray(rawKeywords)
+    ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
+    : [];
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    keywords: [
-      "cmux task manager",
-      "cmux top",
-      "coding agent CPU usage",
-      "coding agent RAM usage",
-      "terminal process monitor",
-      "Claude Code CPU",
-      "Codex CPU",
-      "OpenCode CPU",
-      "AI coding agents",
-    ],
+    keywords,
     openGraph: {
       title: t("metaTitle"),
       description: t("metaDescription"),

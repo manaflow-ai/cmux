@@ -11,22 +11,14 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.passkeyAuth" });
+  const rawKeywords = t.raw("metaKeywords");
+  const keywords = Array.isArray(rawKeywords)
+    ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
+    : [];
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    keywords: [
-      "cmux browser passkey authentication",
-      "passkey authentication",
-      "WebAuthn",
-      "Touch ID",
-      "cookie import",
-      "browser cookies",
-      "Claude Code",
-      "Codex",
-      "OpenCode",
-      "Gemini CLI",
-      "AI coding agents",
-    ],
+    keywords,
     openGraph: {
       title: t("metaTitle"),
       description: t("metaDescription"),

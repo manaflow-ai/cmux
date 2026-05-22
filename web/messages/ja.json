@@ -164,6 +164,28 @@
         "featureGpuDesc": "libghosttyによるスムーズなレンダリング",
         "getStartedTitle": "はじめに",
         "getStartedP": "Homebrewでインストールするか、<link>はじめにガイド</link>からDMGをダウンロードしてください。"
+      },
+      "passkeyAuth": {
+        "title": "Passkey auth in the cmux browser",
+        "summary": "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
+        "date": "May 22, 2026",
+        "p1": "cmux's browser now supports passkey authentication. Sign-in flows that depend on passkeys, WebAuthn, Touch ID, or hardware security keys can complete inside a cmux browser pane.",
+        "p2": "If you already use another browser for the same site, import compatible cookies once:",
+        "p3": "Requires cmux v0.64+. This helps when Claude Code, Codex, OpenCode, Gemini CLI, or another agent needs to test an authenticated local app without leaving cmux."
+      },
+      "taskManager": {
+        "title": "Task Manager in cmux",
+        "summary": "Use cmux top or Task Manager from the command palette to see CPU and RAM usage for your coding agents.",
+        "date": "May 22, 2026",
+        "p1": "cmux now has a task manager for checking how much CPU and RAM your coding agents and terminal processes are using.",
+        "p2": "Open it from the CLI:",
+        "p3": "Or press Cmd+Shift+P and choose Task Manager from the command palette.",
+        "p4": "Requires cmux v0.64.4+."
+      },
+      "sessionRestore": {
+        "seoP": "If you are looking for how to restore Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder, or Hermes Agent sessions after a terminal crash, install cmux hooks and keep agent resume enabled.",
+        "summary": "How cmux restores layouts and resumes Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions.",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder can resume when cmux has a native session ID. For most agents, install the integration with <code>cmux hooks setup</code>."
       }
     },
     "zenOfCmux": {
@@ -181,6 +203,57 @@
     "introducingCmux": {
       "metaTitle": "cmuxのご紹介",
       "metaDescription": "macOS向け新ターミナル、cmuxを作った理由。"
+    },
+    "passkeyAuth": {
+      "metaTitle": "Passkey auth in the cmux browser",
+      "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
+      "metaKeywords": [
+        "cmux browser passkey authentication",
+        "passkey authentication",
+        "WebAuthn",
+        "Touch ID",
+        "cookie import",
+        "browser cookies",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI coding agents"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "Task Manager in cmux",
+      "metaDescription": "cmux v0.64.4+ includes a task manager for checking CPU and RAM usage from coding agents with cmux top or the command palette.",
+      "metaKeywords": [
+        "cmux task manager",
+        "cmux top",
+        "coding agent CPU usage",
+        "coding agent RAM usage",
+        "terminal process monitor",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AI coding agents"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "How to restore Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other coding agent sessions after relaunch or a terminal crash with cmux.",
+      "metaKeywords": [
+        "cmux",
+        "session restore",
+        "restore terminal after crash",
+        "terminal crash recovery",
+        "terminal",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI coding agents"
+      ]
     }
   },
   "docs": {
@@ -231,7 +304,7 @@
     "sessionRestore": {
       "title": "セッション復元",
       "metaTitle": "セッション復元",
-      "metaDescription": "再起動後にcmuxがウィンドウ、ワークスペース、ペイン、作業ディレクトリ、スクロールバック、ブラウザ履歴、対応エージェントセッションを復元する仕組み。",
+      "metaDescription": "How cmux restores windows, workspaces, panes, working directories, scrollback, browser history, and Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions after relaunch.",
       "intro": "cmuxは作業状態の形を保存し、アプリを再起動したときに同じウィンドウ、ワークスペース、ペイン、ターミナルコンテキスト、ブラウザ状態へ戻せるようにします。",
       "restoredTitle": "cmuxが復元するもの",
       "restoredDesc": "再起動後、cmuxはアプリが管理するレイアウトとメタデータを復元します：",
@@ -257,7 +330,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "プラグインイベントバス",
       "none": "なし",
-      "supportedNote": "Claude Codeは、設定でClaude連携が有効な場合にcmux Claudeラッパーで処理されます。Rovo Devはセットアップエイリアスとしてrovoも受け付けます。",
+      "supportedNote": "Claude Code is handled by the cmux Claude wrapper when Claude integration is enabled in Settings. Antigravity also accepts agy as the setup alias, and Rovo Dev accepts rovo.",
       "manualTitle": "手動復元",
       "manualDesc": "cmuxは通常起動時に最後に保存したスナップショットを復元します。以前のスナップショットを手動で再適用することもできます：",
       "manualItemMenu": "ファイル > 前回のセッションを再度開く",
@@ -269,7 +342,9 @@
       "underHoodItemScrollback": "ターミナルのスクロールバックは上限付きテキストとして保存され、復元時に一時ファイル経由で再生されます。ターミナルアプリが画面を再描画またはクリアできるため、これはベストエフォートです。",
       "underHoodItemHooks": "エージェントフックは ~/.cmuxterm/<agent>-hook-sessions.json に、エージェントセッションID、cmuxワークスペースID、サーフェスID、cwd、利用可能な場合はプロセスID、サニタイズ済み起動コマンドを書き込みます。",
       "underHoodItemResume": "復元時、cmuxはまずウィンドウとペインを再構築します。エージェント自動復元が有効な場合、保存されたセッションIDでエージェント固有の復元コマンドを実行する一度限りのシェルコマンドを起動します。",
-      "underHoodMore": "通常の<configLink>設定ドキュメント</configLink>ではcmux.jsonを扱います。セッション復元は、アプリのレイアウトをGhosttyのターミナル描画設定とは別に保存します。"
+      "underHoodMore": "通常の<configLink>設定ドキュメント</configLink>ではcmux.jsonを扱います。セッション復元は、アプリのレイアウトをGhosttyのターミナル描画設定とは別に保存します。",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "concepts": {
       "title": "コンセプト",

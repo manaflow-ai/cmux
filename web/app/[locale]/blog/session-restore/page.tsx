@@ -11,25 +11,14 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.sessionRestore" });
+  const rawKeywords = t.raw("metaKeywords");
+  const keywords = Array.isArray(rawKeywords)
+    ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
+    : [];
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    keywords: [
-      "cmux",
-      "session restore",
-      "restore terminal after crash",
-      "terminal crash recovery",
-      "terminal",
-      "macOS",
-      "Claude Code",
-      "Codex",
-      "OpenCode",
-      "opencode",
-      "Gemini CLI",
-      "Antigravity CLI",
-      "Grok Build CLI",
-      "AI coding agents",
-    ],
+    keywords,
     openGraph: {
       title: t("metaTitle"),
       description: t("metaDescription"),

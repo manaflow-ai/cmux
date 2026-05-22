@@ -164,6 +164,28 @@
         "featureSocketApiDesc": "programmatisk kontroll for å opprette faner og sende inndata",
         "featureGpuLabel": "GPU-akselerert",
         "featureGpuDesc": "drevet av libghostty for jevn gjengivelse"
+      },
+      "passkeyAuth": {
+        "title": "Passkey auth in the cmux browser",
+        "summary": "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
+        "date": "May 22, 2026",
+        "p1": "cmux's browser now supports passkey authentication. Sign-in flows that depend on passkeys, WebAuthn, Touch ID, or hardware security keys can complete inside a cmux browser pane.",
+        "p2": "If you already use another browser for the same site, import compatible cookies once:",
+        "p3": "Requires cmux v0.64+. This helps when Claude Code, Codex, OpenCode, Gemini CLI, or another agent needs to test an authenticated local app without leaving cmux."
+      },
+      "taskManager": {
+        "title": "Task Manager in cmux",
+        "summary": "Use cmux top or Task Manager from the command palette to see CPU and RAM usage for your coding agents.",
+        "date": "May 22, 2026",
+        "p1": "cmux now has a task manager for checking how much CPU and RAM your coding agents and terminal processes are using.",
+        "p2": "Open it from the CLI:",
+        "p3": "Or press Cmd+Shift+P and choose Task Manager from the command palette.",
+        "p4": "Requires cmux v0.64.4+."
+      },
+      "sessionRestore": {
+        "seoP": "If you are looking for how to restore Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder, or Hermes Agent sessions after a terminal crash, install cmux hooks and keep agent resume enabled.",
+        "summary": "How cmux restores layouts and resumes Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions.",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder can resume when cmux has a native session ID. For most agents, install the integration with <code>cmux hooks setup</code>."
       }
     },
     "zenOfCmux": {
@@ -181,6 +203,57 @@
     "introducingCmux": {
       "metaTitle": "Vi presenterer cmux",
       "metaDescription": "Hvorfor vi bygde cmux, en ny terminal for macOS."
+    },
+    "passkeyAuth": {
+      "metaTitle": "Passkey auth in the cmux browser",
+      "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
+      "metaKeywords": [
+        "cmux browser passkey authentication",
+        "passkey authentication",
+        "WebAuthn",
+        "Touch ID",
+        "cookie import",
+        "browser cookies",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI coding agents"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "Task Manager in cmux",
+      "metaDescription": "cmux v0.64.4+ includes a task manager for checking CPU and RAM usage from coding agents with cmux top or the command palette.",
+      "metaKeywords": [
+        "cmux task manager",
+        "cmux top",
+        "coding agent CPU usage",
+        "coding agent RAM usage",
+        "terminal process monitor",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AI coding agents"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "How to restore Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other coding agent sessions after relaunch or a terminal crash with cmux.",
+      "metaKeywords": [
+        "cmux",
+        "session restore",
+        "restore terminal after crash",
+        "terminal crash recovery",
+        "terminal",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI coding agents"
+      ]
     }
   },
   "docs": {
@@ -756,7 +829,7 @@
     "sessionRestore": {
       "title": "Sesjongjenoppretting",
       "metaTitle": "Sesjongjenoppretting",
-      "metaDescription": "Hvordan cmux gjenoppretter vinduer, workspaces, paneler, arbeidsmapper, scrollback, nettleserhistorikk og støttede agentøkter etter omstart.",
+      "metaDescription": "How cmux restores windows, workspaces, panes, working directories, scrollback, browser history, and Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions after relaunch.",
       "intro": "cmux lagrer formen på arbeidet ditt slik at appen etter omstart kan hente tilbake de samme vinduene, workspaces, panelene, terminalkonteksten og nettlesertilstanden.",
       "restoredTitle": "Hva cmux gjenoppretter",
       "restoredDesc": "Etter omstart gjenoppretter cmux layout og metadata som appen eier:",
@@ -782,7 +855,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "ingen",
-      "supportedNote": "Claude Code håndteres av cmux Claude-wrapperen når Claude-integrasjonen er aktivert i Settings. Rovo Dev godtar også rovo som setup-alias.",
+      "supportedNote": "Claude Code is handled by the cmux Claude wrapper when Claude integration is enabled in Settings. Antigravity also accepts agy as the setup alias, and Rovo Dev accepts rovo.",
       "manualTitle": "Manuell gjenoppretting",
       "manualDesc": "cmux gjenoppretter siste lagrede snapshot ved normal oppstart. Du kan også bruke forrige snapshot manuelt igjen:",
       "manualItemMenu": "File > Reopen Previous Session",
@@ -794,7 +867,9 @@
       "underHoodItemScrollback": "Terminal-scrollback lagres som begrenset tekst og spilles av via en midlertidig fil ved gjenoppretting. Dette er best effort fordi terminalapper kan tegne om eller tømme skjermen.",
       "underHoodItemHooks": "Agent hooks skriver ~/.cmuxterm/<agent>-hook-sessions.json med agent session-ID, cmux workspace-ID, surface-ID, cwd, prosess-ID når tilgjengelig og en sanert startkommando.",
       "underHoodItemResume": "Ved gjenoppretting bygger cmux først opp vinduer og paneler. Hvis automatisk agent-gjenopptakelse er aktivert, starter den en engangs shell-kommando som kjører agentens native resume-kommando med lagret session-ID.",
-      "underHoodMore": "Vanlige <configLink>konfigurasjonsdokumenter</configLink> dekker cmux.json. Sesjongjenoppretting holder app-layout separat fra Ghostty-terminalens renderingsinnstillinger."
+      "underHoodMore": "Vanlige <configLink>konfigurasjonsdokumenter</configLink> dekker cmux.json. Sesjongjenoppretting holder app-layout separat fra Ghostty-terminalens renderingsinnstillinger.",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     }
   },
   "legal": {
