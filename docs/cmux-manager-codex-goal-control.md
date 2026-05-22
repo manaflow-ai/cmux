@@ -19,7 +19,7 @@ Codex has a real app-server RPC surface for goals:
 
 The clean path is to launch future managed Codex agents through an app-server-backed thread, store the `threadId` in cmux resume metadata or `~/.cache/cmux-manager-loop/`, and use the RPCs above. That path is better than terminal key tricks because it gives structured state, explicit goal status, turn IDs, and notifications.
 
-The current limitation is that the app-server controls app-server threads. It does not automatically give `$cmux-manager` control over an arbitrary already-running Codex TUI session in a cmux terminal unless that TUI is attached to the same app-server and the manager knows the `threadId`. For existing cmux workspaces, the safe working prototype remains terminal-level control: send prompts, `escape`, and `ctrl+c` through cmux to the Codex surface.
+The current limitation is that the app-server controls app-server threads. It does not automatically give `$cmux-manager` control over an arbitrary already-running Codex TUI session in a cmux terminal unless that TUI is attached to the same app-server and the manager knows the `threadId`. For existing cmux workspaces, the safe working prototype remains terminal-level control: send prompts and `escape` through cmux to the Codex surface.
 
 ## CLI surfaces checked
 
@@ -256,8 +256,11 @@ cmux send-key --workspace <workspace> --surface <surface> escape
 cmux send --workspace <workspace> --surface <surface> 'continue with the current goal'
 cmux send-key --workspace <workspace> --surface <surface> enter
 
-# Swap, interrupting the current turn and sending a replacement goal.
-cmux send-key --workspace <workspace> --surface <surface> ctrl+c
+# Swap, interrupting with Escape first and sending the replacement only if the
+# composer is ready. If it is still busy, record swap-pending and retry resume.
+cmux read-screen --workspace <workspace> --surface <surface> --scrollback --lines 50
+cmux send-key --workspace <workspace> --surface <surface> escape
+cmux read-screen --workspace <workspace> --surface <surface> --scrollback --lines 50
 cmux send --workspace <workspace> --surface <surface> '<new prompt>'
 cmux send-key --workspace <workspace> --surface <surface> enter
 ```
@@ -268,7 +271,7 @@ Terminal fallback checks were run only against Codex processes spawned for this 
 
 - `escape` during a running turn changed the TUI to `Conversation interrupted - tell the model what to do differently` and kept the session usable.
 - Sending a new prompt after `escape` continued the same session and preserved context.
-- `ctrl+c` while idle shut the TUI down and printed a `codex resume <session-id>` command.
+- `ctrl+c` while idle shut the TUI down and printed a `codex resume <session-id>` command. The helper does not use `ctrl+c` for `swap`; it uses `escape` and a read-screen guard instead.
 - `/quit` exits cleanly when submitted at the idle composer, but it is easy to submit it as ordinary text if the session is still in startup hooks or an active turn. Do not use it for manager pause or swap.
 - `SIGSTOP` and `SIGCONT` worked at the POSIX level on a spawned `node .../codex` process (`Ss+` to `Ts+` to `Ss+`), but Codex received no semantic pause event. The process resumed, but app-server, cmux, and manager state had no record of the pause.
 
