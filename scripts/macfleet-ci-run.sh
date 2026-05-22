@@ -125,6 +125,10 @@ EOF
   exit 78
 }
 
+clean_initialized_submodules() {
+  git submodule foreach --recursive 'git reset --hard && git clean -ffdx'
+}
+
 ensure_checkout() {
   mkdir -p "$root" "$spm" "$tmp_root" "$log_dir" "$(dirname "$derived")"
   if [ ! -d "$repo/.git" ]; then
@@ -140,7 +144,10 @@ ensure_checkout() {
   fi
   git reset --hard
   git clean -ffdx -e .ci-source-packages -e .spm-cache -e GhosttyKit.xcframework -e .cmux-ghosttykit-sha
+  clean_initialized_submodules
+  git submodule sync --recursive
   git submodule update --init --recursive
+  clean_initialized_submodules
 }
 
 ensure_toolchain() {
