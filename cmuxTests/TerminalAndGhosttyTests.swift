@@ -1188,6 +1188,24 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testColdSocketInputChunksLongCommittedTextInput() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        let command = "printf '" + String(repeating: "x", count: 360) + "'\n"
+        XCTAssertTrue(panel.surface.sendInput(command))
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(
+            pending.inputTextItems,
+            1,
+            "Long programmatic input must be split into committed-text chunks so Ghostty does not drop the tail of the command."
+        )
+        XCTAssertEqual(pending.pasteTextItems, 0)
+        XCTAssertEqual(pending.keyEvents, 0)
+        XCTAssertEqual(pending.bytes, command.utf8.count)
+    }
+
     func testTeardownClosesHeadlessStartupWindow() {
         let panel = TerminalPanel(
             workspaceId: UUID(),

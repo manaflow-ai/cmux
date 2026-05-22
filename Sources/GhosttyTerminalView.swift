@@ -4817,6 +4817,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         case key(PendingKeyEvent)
     }
 
+    private static let committedTextInputChunkByteLimit = 96
+
     enum NamedKeySendResult: Equatable {
         case sent
         case queued
@@ -6478,7 +6480,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         func flushBufferedText() {
             guard !bufferedText.isEmpty else { return }
-            events.append(.rawBytes(Data(bufferedText.utf8)))
+            for chunk in committedTextInputChunks(from: bufferedText) {
+                events.append(.rawBytes(chunk))
+            }
             bufferedText.removeAll(keepingCapacity: true)
         }
 
@@ -6525,6 +6529,31 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
         flushBufferedText()
         return events
+    }
+
+    private static func committedTextInputChunks(from text: String) -> [Data] {
+        guard !text.isEmpty else { return [] }
+
+        var chunks: [Data] = []
+        chunks.reserveCapacity(max(1, (text.utf8.count / committedTextInputChunkByteLimit) + 1))
+        var chunk = Data()
+        chunk.reserveCapacity(committedTextInputChunkByteLimit)
+
+        func flushChunk() {
+            guard !chunk.isEmpty else { return }
+            chunks.append(chunk)
+            chunk.removeAll(keepingCapacity: true)
+        }
+
+        for scalar in text.unicodeScalars {
+            let scalarBytes = String(scalar).utf8
+            if !chunk.isEmpty, chunk.count + scalarBytes.count > committedTextInputChunkByteLimit {
+                flushChunk()
+            }
+            chunk.append(contentsOf: scalarBytes)
+        }
+        flushChunk()
+        return chunks
     }
 
     private func sendKeyEvent(
