@@ -4079,6 +4079,7 @@ final class WorkspaceRemoteSessionController {
     // after disconnect teardown; production/debug app code leaves it nil. The
     // override closure owns synchronization for any captured test-only state.
     nonisolated(unsafe) static var runProcessOverrideForTesting: ((String, [String], Data?, TimeInterval) throws -> (status: Int32, stdout: String, stderr: String))?
+    nonisolated(unsafe) static var runProcessReadHandlesDidInstallForTesting: ((FileHandle, FileHandle) -> Void)?
 #endif
 
     enum PortScanKickReason: String {
@@ -5112,6 +5113,9 @@ final class WorkspaceRemoteSessionController {
             }
             captureGroup.leave()
         }
+#if DEBUG
+        Self.runProcessReadHandlesDidInstallForTesting?(stdoutHandle, stderrHandle)
+#endif
 
         do {
             try operation?.throwIfCancelled()
@@ -5181,6 +5185,23 @@ final class WorkspaceRemoteSessionController {
         )
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
+
+#if DEBUG
+    func runProcessForTesting(
+        executable: String,
+        arguments: [String],
+        stdin: Data? = nil,
+        timeout: TimeInterval
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        let result = try runProcess(
+            executable: executable,
+            arguments: arguments,
+            stdin: stdin,
+            timeout: timeout
+        )
+        return (result.status, result.stdout, result.stderr)
+    }
+#endif
 
     private func bootstrapDaemonLocked() throws -> DaemonHello {
         debugLog("remote.bootstrap.begin \(debugConfigSummary())")
