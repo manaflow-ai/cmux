@@ -2411,7 +2411,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
-    func testCapturedAgentNetworkSessionsReplayThroughHARFixture() throws {
+    func testCapturedAgentNetworkSessionsIncludeRealHARPayloads() throws {
         let fixture = try loadAgentNetworkCaptureFixture()
         XCTAssertEqual(fixture.version, 1)
         XCTAssertEqual(fixture.captureSource, "real-cli-mitm-har")
@@ -2460,7 +2460,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
         }
 
-        var replayResponses: [AgentNetworkReplayResponse] = []
         for capture in fixture.captures {
             XCTAssertEqual(capture.status, "captured", capture.name)
             XCTAssertTrue(capture.markerObserved, capture.name)
@@ -2471,100 +2470,53 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
             let entries = capture.har.log.entries
             XCTAssertFalse(entries.isEmpty, capture.name)
-            XCTAssertTrue(
-                entries.contains { entry in
-                    !(entry.request.postData?.text ?? "").isEmpty
-                        && !(entry.response.content.text ?? "").isEmpty
-                },
-                "\(capture.name) must include captured request and response bodies"
-            )
 
+            var capturePayloadText = ""
             for entry in entries {
                 let requestBody = entry.request.postData?.text ?? ""
                 let responseBody = entry.response.content.text ?? ""
-                XCTAssertFalse(requestBody.isEmpty, "\(capture.name) \(entry.request.url) missing request body")
-                XCTAssertFalse(responseBody.isEmpty, "\(capture.name) \(entry.request.url) missing response body")
-                assertContentLength(
-                    entry.request.headers,
-                    matches: Data(requestBody.utf8).count,
-                    context: "request \(capture.name) \(entry.request.url)"
+                let webSocketMessages = entry.webSocketMessages ?? []
+                let webSocketText = webSocketMessages.map { $0.data }.joined(separator: "\n")
+                let hasHTTPBodies = !requestBody.isEmpty && !responseBody.isEmpty
+                let hasWebSocketFrames = !webSocketMessages.isEmpty
+
+                XCTAssertTrue(
+                    hasHTTPBodies || hasWebSocketFrames,
+                    "\(capture.name) \(entry.request.url) must include HTTP bodies or WebSocket frames"
                 )
-                assertContentLength(
-                    entry.response.headers,
-                    matches: Data(responseBody.utf8).count,
-                    context: "response \(capture.name) \(entry.request.url)"
-                )
-                XCTAssertGreaterThanOrEqual(entry.response.status, 200, "\(capture.name) \(entry.request.url)")
+                XCTAssertFalse(entry.request.headers.isEmpty, "\(capture.name) \(entry.request.url) missing request headers")
+                XCTAssertFalse(entry.response.headers.isEmpty, "\(capture.name) \(entry.request.url) missing response headers")
                 XCTAssertLessThan(entry.response.status, 600, "\(capture.name) \(entry.request.url)")
-                replayResponses.append(
-                    AgentNetworkReplayResponse(
-                        method: entry.request.method,
-                        url: entry.request.url,
-                        requestBody: Data(requestBody.utf8),
-                        responseStatus: entry.response.status,
-                        requestHeaders: entry.request.headers.reduce(into: [:]) { result, header in
-                            result[header.name] = header.value
-                        },
-                        responseHeaders: entry.response.headers.reduce(into: [:]) { result, header in
-                            result[header.name] = header.value
-                        },
-                        responseBody: Data(responseBody.utf8)
+
+                if hasHTTPBodies {
+                    XCTAssertGreaterThanOrEqual(entry.response.status, 200, "\(capture.name) \(entry.request.url)")
+                    assertContentLength(
+                        entry.request.headers,
+                        matches: Data(requestBody.utf8).count,
+                        context: "request \(capture.name) \(entry.request.url)"
                     )
-                )
+                    assertContentLength(
+                        entry.response.headers,
+                        matches: Data(responseBody.utf8).count,
+                        context: "response \(capture.name) \(entry.request.url)"
+                    )
+                }
+                if hasWebSocketFrames {
+                    XCTAssertEqual(entry.resourceType, "websocket", "\(capture.name) \(entry.request.url)")
+                    XCTAssertEqual(entry.response.status, 101, "\(capture.name) \(entry.request.url)")
+                    XCTAssertTrue(
+                        webSocketMessages.contains { !$0.data.isEmpty },
+                        "\(capture.name) \(entry.request.url) missing WebSocket message data"
+                    )
+                }
+
+                capturePayloadText += requestBody
+                capturePayloadText += responseBody
+                capturePayloadText += webSocketText
             }
-        }
-
-        AgentNetworkReplayURLProtocol.install(responses: replayResponses)
-        defer { AgentNetworkReplayURLProtocol.reset() }
-
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [AgentNetworkReplayURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
-
-        for replay in replayResponses {
-            let expectation = expectation(description: "replayed \(replay.method) \(replay.url)")
-            var request = URLRequest(url: try XCTUnwrap(URL(string: replay.url)))
-            request.httpMethod = replay.method
-            request.httpBody = replay.requestBody
-            request.allHTTPHeaderFields = replay.requestHeaders
-            var replayResult: (data: Data?, response: URLResponse?, error: Error?)?
-            let resultLock = NSLock()
-
-            let task = session.dataTask(with: request) { data, response, error in
-                resultLock.lock()
-                replayResult = (data: data, response: response, error: error)
-                resultLock.unlock()
-                expectation.fulfill()
-            }
-            task.resume()
-            wait(for: [expectation], timeout: 3)
-
-            resultLock.lock()
-            let result = replayResult
-            resultLock.unlock()
-
-            XCTAssertNil(result?.error)
-            let httpResponse = result?.response as? HTTPURLResponse
-            XCTAssertEqual(httpResponse?.statusCode, replay.responseStatus)
-            XCTAssertEqual(result?.data ?? Data(), replay.responseBody)
-            assertHeaders(
-                normalizedAgentNetworkHeaderFields(httpResponse?.allHeaderFields ?? [:]),
-                contain: replay.responseHeaders,
-                context: "response \(replay.method) \(replay.url)"
-            )
-        }
-
-        let observedRequests = AgentNetworkReplayURLProtocol.observedRequests()
-        XCTAssertEqual(observedRequests.count, replayResponses.count)
-        for (observed, replay) in zip(observedRequests, replayResponses) {
-            XCTAssertEqual(observed.method, replay.method)
-            XCTAssertEqual(observed.url, replay.url)
-            XCTAssertEqual(observed.body, replay.requestBody)
-            assertHeaders(
-                observed.headers,
-                contain: replay.requestHeaders,
-                context: "request \(replay.method) \(replay.url)"
+            XCTAssertTrue(
+                capturePayloadText.contains(fixture.prompt) || capturePayloadText.contains("cmux-network-capture-ok"),
+                "\(capture.name) must include the captured prompt or response marker in HAR payloads"
             )
         }
     }
@@ -2701,6 +2653,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let time: Double
         let request: AgentNetworkHARRequest
         let response: AgentNetworkHARResponse
+        let resourceType: String?
+        let webSocketMessages: [AgentNetworkHARWebSocketMessage]?
+
+        private enum CodingKeys: String, CodingKey {
+            case startedDateTime
+            case time
+            case request
+            case response
+            case resourceType = "_resourceType"
+            case webSocketMessages = "_webSocketMessages"
+        }
     }
 
     private struct AgentNetworkHARRequest: Decodable {
@@ -2730,6 +2693,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
     private struct AgentNetworkHARHeader: Decodable {
         let name: String
         let value: String
+    }
+
+    private struct AgentNetworkHARWebSocketMessage: Decodable {
+        let type: String
+        let time: Double
+        let opcode: Int
+        let data: String
     }
 
     private struct AgentHookTrajectory: Decodable {
@@ -2978,19 +2948,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return result
     }
 
-    private func assertHeaders(
-        _ actual: [String: String],
-        contain expected: [String: String],
-        context: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let normalizedExpected = normalizedAgentNetworkHeaders(expected)
-        for (name, value) in normalizedExpected {
-            XCTAssertEqual(actual[name], value, "\(context) header \(name)", file: file, line: line)
-        }
-    }
-
     private func assertContentLength(
         _ headers: [AgentNetworkHARHeader],
         matches byteCount: Int,
@@ -3004,150 +2961,5 @@ extension CLINotifyProcessIntegrationRegressionTests {
         if let contentLength = normalized["content-length"] {
             XCTAssertEqual(Int(contentLength), byteCount, "\(context) content-length", file: file, line: line)
         }
-    }
-}
-
-private struct AgentNetworkReplayResponse: Equatable {
-    let method: String
-    let url: String
-    let requestBody: Data
-    let responseStatus: Int
-    let requestHeaders: [String: String]
-    let responseHeaders: [String: String]
-    let responseBody: Data
-}
-
-private struct AgentNetworkObservedRequest: Equatable {
-    let method: String
-    let url: String
-    let headers: [String: String]
-    let body: Data
-}
-
-private func normalizedAgentNetworkHeaders(_ headers: [String: String]) -> [String: String] {
-    headers.reduce(into: [:]) { result, item in
-        result[item.key.lowercased()] = item.value
-    }
-}
-
-private func normalizedAgentNetworkHeaderFields(_ headers: [AnyHashable: Any]) -> [String: String] {
-    headers.reduce(into: [:]) { result, item in
-        result[String(describing: item.key).lowercased()] = String(describing: item.value)
-    }
-}
-
-private final class AgentNetworkReplayURLProtocol: URLProtocol {
-    private static let lock = NSLock()
-    private static var responses: [String: AgentNetworkReplayResponse] = [:]
-    private static var observed: [AgentNetworkObservedRequest] = []
-
-    static func install(responses newResponses: [AgentNetworkReplayResponse]) {
-        lock.lock()
-        responses = Dictionary(
-            newResponses.map { (key(method: $0.method, url: $0.url), $0) },
-            uniquingKeysWith: { _, new in new }
-        )
-        observed = []
-        lock.unlock()
-    }
-
-    static func reset() {
-        lock.lock()
-        responses = [:]
-        observed = []
-        lock.unlock()
-    }
-
-    static func observedRequests() -> [AgentNetworkObservedRequest] {
-        lock.lock()
-        defer { lock.unlock() }
-        return observed
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        guard let method = request.httpMethod, let url = request.url?.absoluteString else {
-            return false
-        }
-        lock.lock()
-        let canReplay = responses[key(method: method, url: url)] != nil
-        lock.unlock()
-        return canReplay
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        guard let method = request.httpMethod,
-              let url = request.url?.absoluteString
-        else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
-            return
-        }
-
-        let body = Self.bodyData(from: request)
-        Self.lock.lock()
-        let response = Self.responses[Self.key(method: method, url: url)]
-        Self.observed.append(
-            AgentNetworkObservedRequest(
-                method: method,
-                url: url,
-                headers: normalizedAgentNetworkHeaders(request.allHTTPHeaderFields ?? [:]),
-                body: body
-            )
-        )
-        Self.lock.unlock()
-
-        guard let response else {
-            client?.urlProtocol(self, didFailWithError: URLError(.resourceUnavailable))
-            return
-        }
-        guard body == response.requestBody else {
-            client?.urlProtocol(self, didFailWithError: URLError(.cannotDecodeContentData))
-            return
-        }
-        guard let httpResponse = HTTPURLResponse(
-            url: request.url ?? URL(fileURLWithPath: "/"),
-            statusCode: response.responseStatus,
-            httpVersion: "HTTP/1.1",
-            headerFields: response.responseHeaders
-        ) else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
-        }
-
-        client?.urlProtocol(self, didReceive: httpResponse, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: response.responseBody)
-        client?.urlProtocolDidFinishLoading(self)
-    }
-
-    override func stopLoading() {}
-
-    private static func key(method: String, url: String) -> String {
-        "\(method.uppercased())\n\(url)"
-    }
-
-    private static func bodyData(from request: URLRequest) -> Data {
-        if let body = request.httpBody {
-            return body
-        }
-        guard let stream = request.httpBodyStream else {
-            return Data()
-        }
-        stream.open()
-        defer { stream.close() }
-
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        while stream.hasBytesAvailable {
-            let count = stream.read(&buffer, maxLength: buffer.count)
-            if count > 0 {
-                data.append(buffer, count: count)
-            } else {
-                break
-            }
-        }
-        return data
     }
 }

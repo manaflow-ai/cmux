@@ -260,6 +260,21 @@ def has_request_response_body(entry: dict[str, Any]) -> bool:
     return bool(request_text) and bool(response_text)
 
 
+def websocket_message_text(entry: dict[str, Any]) -> str:
+    messages = entry.get("_webSocketMessages", [])
+    if not isinstance(messages, list):
+        return ""
+    parts: list[str] = []
+    for message in messages:
+        if isinstance(message, dict) and isinstance(message.get("data"), str):
+            parts.append(message["data"])
+    return "\n".join(parts)
+
+
+def has_replayable_payload(entry: dict[str, Any]) -> bool:
+    return has_request_response_body(entry) or bool(websocket_message_text(entry))
+
+
 def score_entry(agent: str, entry: dict[str, Any]) -> int:
     request = entry.get("request", {})
     response = entry.get("response", {})
@@ -268,6 +283,7 @@ def score_entry(agent: str, entry: dict[str, Any]) -> int:
         {
             "request": request.get("postData", {}),
             "response": response.get("content", {}),
+            "webSocketMessages": websocket_message_text(entry),
         },
         sort_keys=True,
     )
@@ -280,9 +296,37 @@ def score_entry(agent: str, entry: dict[str, Any]) -> int:
         score += 50
     if agent == "codex" and "backend-api" in url:
         score += 40
+    if agent == "codex" and "/v1/responses" in url:
+        score += 60
     if has_request_response_body(entry):
         score += 20
+    if websocket_message_text(entry):
+        score += 30
     return score
+
+
+def sanitize_websocket_messages(entry: dict[str, Any]) -> list[dict[str, Any]]:
+    messages = entry.get("_webSocketMessages", [])
+    if not isinstance(messages, list):
+        return []
+    sanitized: list[dict[str, Any]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        data = message.get("data", "")
+        if not isinstance(data, str):
+            continue
+        text, truncated = trim_text(sanitize_text(data))
+        sanitized_message: dict[str, Any] = {
+            "type": message.get("type", ""),
+            "time": message.get("time", 0),
+            "opcode": message.get("opcode", 0),
+            "data": text,
+        }
+        if truncated or "<cmux-truncated>" in text:
+            sanitized_message["_cmuxBodyTruncated"] = True
+        sanitized.append(sanitized_message)
+    return sanitized
 
 
 def sanitize_entry(entry: dict[str, Any]) -> dict[str, Any]:
@@ -290,7 +334,7 @@ def sanitize_entry(entry: dict[str, Any]) -> dict[str, Any]:
     response = entry.get("response", {})
     request_post_data = sanitize_post_data(request.get("postData"))
     response_content = sanitize_content(response.get("content", {}))
-    return {
+    sanitized = {
         "startedDateTime": entry.get("startedDateTime", ""),
         "time": entry.get("time", 0),
         "request": {
@@ -314,6 +358,12 @@ def sanitize_entry(entry: dict[str, Any]) -> dict[str, Any]:
             "content": response_content,
         },
     }
+    if entry.get("_resourceType"):
+        sanitized["_resourceType"] = entry.get("_resourceType")
+    websocket_messages = sanitize_websocket_messages(entry)
+    if websocket_messages:
+        sanitized["_webSocketMessages"] = websocket_messages
+    return sanitized
 
 
 def selected_entries(agent: str, har_path: pathlib.Path) -> list[dict[str, Any]]:
@@ -321,7 +371,20 @@ def selected_entries(agent: str, har_path: pathlib.Path) -> list[dict[str, Any]]
         return []
     data = json.loads(har_path.read_text(errors="replace"))
     entries = data.get("log", {}).get("entries", [])
-    candidates = [entry for entry in entries if has_request_response_body(entry)]
+    candidates = [entry for entry in entries if has_replayable_payload(entry)]
+    marker_entries = [
+        entry for entry in candidates
+        if MARKER in json.dumps(
+            {
+                "request": entry.get("request", {}).get("postData", {}),
+                "response": entry.get("response", {}).get("content", {}),
+                "webSocketMessages": websocket_message_text(entry),
+            },
+            sort_keys=True,
+        )
+    ]
+    if marker_entries:
+        candidates = marker_entries
     preferred = [
         entry for entry in candidates
         if (
@@ -332,7 +395,10 @@ def selected_entries(agent: str, har_path: pathlib.Path) -> list[dict[str, Any]]
             and "chatgpt.com/backend-api/codex/responses" in str(entry.get("request", {}).get("url", ""))
         ) or (
             agent == "codex"
-            and "backend-api" in str(entry.get("request", {}).get("url", ""))
+            and (
+                "backend-api" in str(entry.get("request", {}).get("url", ""))
+                or "/v1/responses" in str(entry.get("request", {}).get("url", ""))
+            )
         )
     ]
     if preferred:
