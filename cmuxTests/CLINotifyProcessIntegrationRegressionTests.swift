@@ -683,6 +683,70 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTransientVisibleSuppressionDoesNotPersistUnrestorableState() throws {
+        let context = try makeClaudeHookContext(name: "codex-transient-visible-suppression")
+        defer { context.cleanup() }
+
+        let sessionId = "transient-visible-suppression-parent"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+
+        let suppressedStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(suppressedStart.timedOut, suppressedStart.stderr)
+        XCTAssertEqual(suppressedStart.status, 0, suppressedStart.stderr)
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A transiently suppressed SessionStart should not publish visible resume state, saw \(context.state.commands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        var savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        var savedSession = try XCTUnwrap(savedSessions[sessionId] as? [String: Any])
+        XCTAssertNil(
+            savedSession["isRestorable"],
+            "A transient visible-mutation suppression must not permanently mark the parent session non-restorable."
+        )
+
+        let stopStart = context.state.commands.count
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == sessionId
+            },
+            "A later unsuppressed Stop should still refresh the parent resume binding, saw \(stopCommands)"
+        )
+        XCTAssertTrue(
+            stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A later unsuppressed Stop should still notify, saw \(stopCommands)"
+        )
+
+        savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        savedSession = try XCTUnwrap(savedSessions[sessionId] as? [String: Any])
+        XCTAssertNil(savedSession["isRestorable"])
+    }
+
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-relay")
         defer { context.cleanup() }
