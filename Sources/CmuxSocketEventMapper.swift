@@ -43,8 +43,8 @@ enum CmuxSocketEventMapper {
             break
         case "workspace.rename":
             publishResult(name: "workspace.renamed", category: "workspace", method: method, params: params, result: result)
-        case "workspace.reorder":
-            publishResult(name: "workspace.reordered", category: "workspace", method: method, params: params, result: result)
+        case "workspace.reorder", "workspace.reorder_many":
+            publishWorkspaceReorderedEvents(params: params, result: result)
         case "workspace.move_to_window":
             publishResult(name: "workspace.moved", category: "workspace", method: method, params: params, result: result)
         case "workspace.action":
@@ -190,6 +190,35 @@ enum CmuxSocketEventMapper {
         )
     }
 
+    private static func publishWorkspaceReorderedEvents(params: [String: Any], result: [String: Any]) {
+        guard (result["dry_run"] as? Bool) != true else { return }
+        let eventItems = result["events"] as? [[String: Any]] ?? [result]
+        for item in eventItems {
+            guard let fromIndex = intValue(item["from_index"]),
+                  let toIndex = intValue(item["to_index"]),
+                  fromIndex != toIndex else {
+                continue
+            }
+            let workspace = stringValue(item["workspace_ref"] ?? item["workspace_id"] ?? params["workspace_id"])
+            let window = stringValue(item["window_ref"] ?? result["window_ref"] ?? item["window_id"] ?? result["window_id"] ?? params["window_id"])
+            CmuxEventBus.shared.publish(
+                name: "workspace.reordered",
+                category: "workspace",
+                source: "socket.v2",
+                workspaceId: stringValue(item["workspace_id"] ?? params["workspace_id"]),
+                windowId: stringValue(item["window_id"] ?? result["window_id"] ?? params["window_id"]),
+                payload: [
+                    "type": "workspace.reordered",
+                    "window": window ?? NSNull(),
+                    "workspace": workspace ?? NSNull(),
+                    "from_index": fromIndex,
+                    "to_index": toIndex,
+                    "ts": CmuxEventBus.isoTimestamp(Date())
+                ]
+            )
+        }
+    }
+
     private static func redactedInputParams(_ params: [String: Any]) -> [String: Any] {
         var out = params
         if let text = out["text"] as? String {
@@ -245,6 +274,13 @@ enum CmuxSocketEventMapper {
     private static func stringValue(_ value: Any?) -> String? {
         if let string = value as? String, !string.isEmpty { return string }
         if let uuid = value as? UUID { return uuid.uuidString }
+        return nil
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string) }
         return nil
     }
 }
