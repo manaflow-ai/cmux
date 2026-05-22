@@ -383,6 +383,7 @@ ci_tests_job() {
   CMUX_CLI_BIN="$cli_bin" python3 tests/test_cli_omo_openagent_plugin_migration.py
   CMUX_CLI_BIN="$cli_bin" python3 tests/test_cli_socket_autodiscovery.py
   python3 tests/test_claude_wrapper_hooks.py
+  python3 tests/test_shell_git_config_remote_url_parsing.py
   CMUX_CLI_BIN="$cli_bin" python3 tests/test_claude_hook_stop_last_assistant.py
   CMUX_CLI_BIN="$cli_bin" python3 tests/test_claude_hook_clear_running_status.py
   CMUX_CLI_BIN="$cli_bin" python3 tests/test_pi_extension_install.py

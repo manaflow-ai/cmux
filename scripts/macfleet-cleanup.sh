@@ -49,7 +49,21 @@ rm_old_children() {
   local dir="$1"
   local minutes="$2"
   [ -d "$dir" ] || return 0
+  [ ! -L "$dir" ] || {
+    log "skipping symlinked directory $dir"
+    return 0
+  }
   find "$dir" -mindepth 1 -maxdepth 1 -mmin +"$minutes" -print -exec rm -rf {} + 2>/dev/null || true
+}
+
+purge_children() {
+  local dir="$1"
+  [ -d "$dir" ] || return 0
+  [ ! -L "$dir" ] || {
+    log "skipping symlinked directory $dir"
+    return 0
+  }
+  find "$dir" -mindepth 1 -maxdepth 1 -print -exec rm -rf {} + 2>/dev/null || true
 }
 
 truncate_large_logs() {
@@ -99,7 +113,8 @@ if [ "$active" -eq 0 ] && [ "$(free_gib)" -lt "$min_free_gib" ]; then
   log "free space below ${min_free_gib}GiB, pruning all macfleet DerivedData"
   for home in /Users/cmuxvnc*; do
     [ -d "$home" ] || continue
-    rm -rf "$home/cmux-ci/DerivedData"/* "$home/Library/Developer/Xcode/DerivedData"/* 2>/dev/null || true
+    purge_children "$home/cmux-ci/DerivedData"
+    purge_children "$home/Library/Developer/Xcode/DerivedData"
   done
 fi
 
