@@ -13762,6 +13762,8 @@ class TerminalController {
 
     private func v2DebugTaskManagerShow() -> V2CallResult {
         var visible = false
+        // DEBUG socket command handlers are invoked off the main thread; keep
+        // this in the existing v2MainSync pattern until the V2 dispatcher is async.
         v2MainSync {
             TaskManagerWindowController.shared.show()
             visible = TaskManagerWindowController.shared.window?.isVisible == true

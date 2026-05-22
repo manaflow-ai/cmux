@@ -62,15 +62,18 @@ class SocketClient:
             sock.settimeout(self.response_timeout)
             sock.connect(self.path)
             sock.sendall((line + "\n").encode("utf-8"))
-            chunks: list[bytes] = []
-            while True:
-                chunk = sock.recv(1024 * 1024)
+            data = bytearray()
+            deadline = time.monotonic() + self.response_timeout
+            while b"\n" not in data:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"timed out waiting for response to {line!r}")
+                sock.settimeout(remaining)
+                chunk = sock.recv(8192)
                 if not chunk:
-                    break
-                chunks.append(chunk)
-                if len(chunk) < 1024 * 1024:
-                    break
-        return b"".join(chunks).decode("utf-8", errors="replace").strip()
+                    raise RuntimeError(f"socket closed while waiting for response to {line!r}")
+                data.extend(chunk)
+        return data.split(b"\n", 1)[0].decode("utf-8", errors="replace").strip()
 
     def v2(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         frame = {
@@ -413,7 +416,6 @@ def run_guard(args: argparse.Namespace) -> int:
         time.sleep(args.warmup_seconds)
         samples = collect_samples(proc.pid, args.duration_seconds, args.sample_interval_seconds)
         trend = classify_trend(samples, args.max_growth_mb, args.max_slope_mb_per_min)
-        write_artifacts(artifacts_dir, samples, trend)
         print(
             "Task Manager memory guard result: "
             f"baseline={trend.baseline_mb:.1f} MB final={trend.final_mb:.1f} MB "
