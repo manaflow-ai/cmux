@@ -317,6 +317,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "Approval needed to run grep error.log"
             ),
             (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Approval needed to run failed_tests.sh"}"#,
+                "Claude Workspace - Claude waiting",
+                "Tool approval",
+                "Approval needed to run failed_tests.sh"
+            ),
+            (
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Permission request: run failed_tests.sh"}"#,
+                "Claude Workspace - Claude waiting",
+                "Permission request",
+                "Permission request: run failed_tests.sh"
+            ),
+            (
                 #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Edit","notification_type":"approval","message":"Approve Edit to update Sources/AppDelegate.swift"}"#,
                 "Claude Workspace - Claude waiting",
                 "Tool approval",
@@ -503,6 +515,33 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertTrue(repeatedPermissionCommand.contains("Claude Workspace - Claude waiting|Permission request|"), repeatedPermissionCommand)
         XCTAssertTrue(repeatedPermissionCommand.contains("Allow Bash to read grep error.log?"), repeatedPermissionCommand)
+
+        let nextPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(nextPrompt.timedOut, nextPrompt.stderr)
+        XCTAssertEqual(nextPrompt.status, 0, nextPrompt.stderr)
+        let sessionAfterNextPrompt = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(sessionAfterNextPrompt["lastBody"])
+        XCTAssertNil(sessionAfterNextPrompt["lastSubtitle"])
+
+        let genericAfterPromptStart = context.state.commands.count
+        let genericAfterPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your input."}"#
+        )
+        XCTAssertFalse(genericAfterPrompt.timedOut, genericAfterPrompt.stderr)
+        XCTAssertEqual(genericAfterPrompt.status, 0, genericAfterPrompt.stderr)
+
+        let genericAfterPromptNotifyCommands = Array(context.state.commands.dropFirst(genericAfterPromptStart))
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let genericAfterPromptCommand = try XCTUnwrap(genericAfterPromptNotifyCommands.last)
+        XCTAssertTrue(genericAfterPromptCommand.contains("Claude Workspace - Claude waiting|Idle prompt|"), genericAfterPromptCommand)
+        XCTAssertTrue(genericAfterPromptCommand.contains("Claude Code needs your input."), genericAfterPromptCommand)
+        XCTAssertFalse(genericAfterPromptCommand.contains("Allow Bash to read grep error.log?"), genericAfterPromptCommand)
     }
 
     func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {

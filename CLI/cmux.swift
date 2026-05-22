@@ -788,7 +788,7 @@ private final class ClaudeHookSessionStore {
         record.updatedAt = now
     }
 
-    func clearNotificationEmission(sessionId: String) throws {
+    func clearNotificationEmission(sessionId: String, clearSummary: Bool = false) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
@@ -798,6 +798,10 @@ private final class ClaudeHookSessionStore {
             record.lastEmittedNotificationAt = nil
             record.pendingNotificationFingerprint = nil
             record.pendingNotificationStartedAt = nil
+            if clearSummary {
+                record.lastSubtitle = nil
+                record.lastBody = nil
+            }
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -2255,6 +2259,12 @@ struct CMUXCLI {
             if metadata.contains("approve") || metadata.contains("approval") {
                 return .toolApproval
             }
+            if messageIndicatesActionablePermissionRequest(messageText) {
+                return .permissionRequest
+            }
+            if messageIndicatesActionableToolApproval(messageText) {
+                return .toolApproval
+            }
             if messageIndicatesError(messageText) {
                 return .error
             }
@@ -2290,6 +2300,26 @@ struct CMUXCLI {
                 || messageText.contains("reported an error")
                 || messageText.contains("encountered an error")
                 || messageText.hasPrefix("error ")
+        }
+
+        static func messageIndicatesActionablePermissionRequest(_ messageText: String) -> Bool {
+            messageText.contains("permission request:")
+                || messageText.contains("permission required")
+                || messageText.contains("permission needed")
+                || messageText.contains("requires permission")
+                || messageText.contains("needs permission")
+                || messageText.contains("requesting permission")
+                || messageText.contains("permission_prompt")
+        }
+
+        static func messageIndicatesActionableToolApproval(_ messageText: String) -> Bool {
+            messageText.contains("approval needed")
+                || messageText.contains("approval required")
+                || messageText.contains("needs approval")
+                || messageText.contains("waiting for approval")
+                || messageText.hasPrefix("approve ")
+                || messageText.contains(" approve ")
+                || messageText.contains("approve:")
         }
 
         private static func containsStandaloneErrorCue(_ text: String) -> Bool {
@@ -18571,7 +18601,7 @@ struct CMUXCLI {
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
-                try? sessionStore.clearNotificationEmission(sessionId: sessionId)
+                try? sessionStore.clearNotificationEmission(sessionId: sessionId, clearSummary: true)
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
