@@ -5434,6 +5434,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
 #if DEBUG
+        if let injectedStalePointer = debugInjectedStaleSurfacePointerForTesting,
+           injectedStalePointer == surfaceToFree {
+            debugInjectedStaleSurfacePointerForTesting = nil
+            runtimeSurfaceFreedOutOfBandForTesting = false
+            injectedStalePointer.deallocate()
+            callbackContext?.release()
+            return
+        }
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
@@ -6684,6 +6692,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     func replaceSurfaceWithStalePointerForTesting() {
         guard !runtimeSurfaceFreedOutOfBandForTesting else { return }
+
+        let callbackContext = surfaceCallbackContext
+        surfaceCallbackContext = nil
+        if let surfaceToFree = surface {
+            TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+            ghostty_surface_free(surfaceToFree)
+        }
+        callbackContext?.release()
 
         debugInjectedStaleSurfacePointerForTesting?.deallocate()
 
