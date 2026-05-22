@@ -629,23 +629,24 @@ enum SurfaceResumeApprovalStore {
 
     static func loadRecords(
         fileURL: URL = defaultURL(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        defaultSettingsURL: URL = defaultURL()
     ) -> [SurfaceResumeApprovalRecord] {
         if storesRecordsInCmuxSettings(fileURL) {
             let loaded = loadRecordsFromCmuxSettings(fileURL: fileURL)
             if loaded.hasResumeCommandsKey {
                 return loaded.records
             }
-            guard loaded.canWriteSettings else {
-                return loaded.records
-            }
-            guard fileURL.standardizedFileURL.path == defaultURL().standardizedFileURL.path else {
+            guard fileURL.standardizedFileURL.path == defaultSettingsURL.standardizedFileURL.path else {
                 return loaded.records
             }
             let legacyURL = legacyURL(forCmuxSettingsURL: fileURL)
             let legacyRecords = loadStandaloneRecords(fileURL: legacyURL, fileManager: fileManager)
             guard !legacyRecords.isEmpty else {
                 return loaded.records
+            }
+            guard loaded.canWriteSettings else {
+                return legacyRecords
             }
             _ = migrateLegacyRecordsIfNeeded(
                 fileURL: fileURL,

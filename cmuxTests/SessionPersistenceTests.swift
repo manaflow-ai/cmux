@@ -4375,6 +4375,12 @@ extension SessionPersistenceTests {
             signingSecret: secret
         ))
 
+        XCTAssertEqual(SurfaceResumeApprovalStore.loadRecords(
+            fileURL: settingsURL,
+            defaultSettingsURL: settingsURL
+        ).map(\.id), [legacyRecord.id])
+        XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
+
         XCTAssertFalse(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
             fileURL: settingsURL,
             legacyFileURL: legacyURL
