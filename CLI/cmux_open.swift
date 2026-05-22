@@ -1289,29 +1289,91 @@ extension CMUXCLI {
         let baselinePaths = Set(record.untrackedPaths ?? [])
         let baselineHashes = record.untrackedPathHashes ?? [:]
         let currentPaths = try gitUntrackedPaths(in: repoRoot)
+        let currentPathSet = Set(currentPaths)
         let addedPaths = try currentPaths.filter { path in
             guard baselinePaths.contains(path) else { return true }
-            guard let baselineHash = baselineHashes[path] else { return false }
+            guard let baselineHash = baselineHashes[path] else { return true }
             return try gitUntrackedPathHash(path, in: repoRoot) != baselineHash
         }
-        let patches = try addedPaths.map { path in
+        var patches = try addedPaths.map { path in
             try gitStdout(
                 gitDiffPatchArguments(["--no-index", "--", "/dev/null", path]),
                 in: repoRoot,
                 allowedExitStatuses: [0, 1]
             )
         }
+        for path in baselinePaths.subtracting(currentPathSet).sorted() {
+            guard let baselineHash = baselineHashes[path],
+                  let patch = try gitDeletedUntrackedPatch(path: path, baselineHash: baselineHash, in: repoRoot) else {
+                continue
+            }
+            patches.append(patch)
+        }
         return joinedGitDiffPatches(patches)
     }
 
-    private func gitUntrackedPathHash(_ path: String, in repoRoot: String) throws -> String {
-        try gitSingleLine(["hash-object", "--no-filters", "--", path], in: repoRoot)
+    private func gitDeletedUntrackedPatch(
+        path: String,
+        baselineHash: String,
+        in repoRoot: String
+    ) throws -> String? {
+        guard let tempPathURL = safeTemporaryGitPathURL(relativePath: path) else {
+            return nil
+        }
+        let objectCheck = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", repoRoot, "cat-file", "-e", "\(baselineHash)^{blob}"],
+            timeout: 30
+        )
+        guard !objectCheck.timedOut, objectCheck.status == 0 else {
+            return nil
+        }
+
+        let tempRoot = tempPathURL.root
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        try FileManager.default.createDirectory(
+            at: tempPathURL.file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let content = try gitStdout(["cat-file", "blob", baselineHash], in: repoRoot)
+        try content.write(to: tempPathURL.file, atomically: true, encoding: .utf8)
+        return try gitStdout(
+            gitDiffPatchArguments(["--no-index", "--", path, "/dev/null"]),
+            in: tempRoot.path,
+            allowedExitStatuses: [0, 1]
+        )
+    }
+
+    private func safeTemporaryGitPathURL(relativePath: String) -> (root: URL, file: URL)? {
+        guard !relativePath.hasPrefix("/") else { return nil }
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard !components.isEmpty,
+              components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            return nil
+        }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-untracked-\(UUID().uuidString)", isDirectory: true)
+        let file = components.reduce(root) { partial, component in
+            partial.appendingPathComponent(component, isDirectory: false)
+        }
+        return (root, file)
+    }
+
+    private func gitUntrackedPathHash(_ path: String, in repoRoot: String, writeObject: Bool = false) throws -> String {
+        var arguments = ["hash-object"]
+        if writeObject {
+            arguments.append("-w")
+        }
+        arguments.append(contentsOf: ["--no-filters", "--", path])
+        return try gitSingleLine(arguments, in: repoRoot)
     }
 
     private func gitUntrackedPathHashes(paths: [String], in repoRoot: String) throws -> [String: String] {
         var hashes: [String: String] = [:]
         for path in paths {
-            hashes[path] = try gitUntrackedPathHash(path, in: repoRoot)
+            let hash = try gitUntrackedPathHash(path, in: repoRoot, writeObject: true)
+            _ = try gitStdout(["update-ref", agentTurnDiffBaselineUntrackedRefName(for: hash), hash], in: repoRoot)
+            hashes[path] = hash
         }
         return hashes
     }
@@ -1399,6 +1461,10 @@ extension CMUXCLI {
         "refs/cmux/last-turn/\(commit)"
     }
 
+    private func agentTurnDiffBaselineUntrackedRefName(for blob: String) -> String {
+        "refs/cmux/last-turn/untracked/\(blob)"
+    }
+
     private func latestAgentTurnDiffBaseline(
         repoRoot: String,
         workspaceId: String,
@@ -1483,6 +1549,25 @@ extension CMUXCLI {
                 arguments: ["git", "-C", repoRoot, "update-ref", "-d", agentTurnDiffBaselineRefName(for: record.baseCommit)],
                 timeout: 30
             )
+        }
+        var deletedBlobKeys: Set<String> = []
+        for record in removedRecords {
+            let repoRoot = standardizedDiffSourcePath(record.repoRoot)
+            let blobs = Set(record.untrackedPathHashes.map { Array($0.values) } ?? [])
+            for blob in blobs {
+                let key = "\(repoRoot)\u{0}\(blob)"
+                guard deletedBlobKeys.insert(key).inserted else { continue }
+                let stillRetained = retainedRecords.contains { retained in
+                    standardizedDiffSourcePath(retained.repoRoot) == repoRoot
+                        && (retained.untrackedPathHashes?.values.contains(blob) ?? false)
+                }
+                guard !stillRetained else { continue }
+                _ = CLIProcessRunner.runProcess(
+                    executablePath: "/usr/bin/env",
+                    arguments: ["git", "-C", repoRoot, "update-ref", "-d", agentTurnDiffBaselineUntrackedRefName(for: blob)],
+                    timeout: 30
+                )
+            }
         }
     }
 

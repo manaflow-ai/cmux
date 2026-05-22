@@ -581,16 +581,18 @@ final class CMUXOpenCommandTests: XCTestCase {
         let surfaceId = UUID().uuidString.lowercased()
         try "before\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
         try "same\n".write(to: repoURL.appendingPathComponent("unchanged-untracked.txt"), atomically: true, encoding: .utf8)
+        try "remove me\n".write(to: repoURL.appendingPathComponent("deleted-untracked.txt"), atomically: true, encoding: .utf8)
         try writeDiffBaselineStore(
             stateDirectoryURL: stateURL,
             repoURL: repoURL,
             workspaceId: workspaceId.uppercased(),
             surfaceId: surfaceId.uppercased(),
             baseCommit: initialCommit,
-            untrackedPaths: ["preexisting.txt", "unchanged-untracked.txt"]
+            untrackedPaths: ["preexisting.txt", "unchanged-untracked.txt", "deleted-untracked.txt"]
         )
         try "after\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
         try "created\n".write(to: repoURL.appendingPathComponent("new-turn-file.txt"), atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: repoURL.appendingPathComponent("deleted-untracked.txt"))
         let lastTurn = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", "--last-turn"],
@@ -611,6 +613,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lastTurn.html.contains("+created"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("preexisting.txt"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+after"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("deleted-untracked.txt"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("-remove me"), lastTurn.html)
         XCTAssertFalse(lastTurn.html.contains("unchanged-untracked.txt"), lastTurn.html)
         assertNoANSIEscape(lastTurn.html)
 
@@ -1266,11 +1270,13 @@ final class CMUXOpenCommandTests: XCTestCase {
         ]
         if let untrackedPaths {
             record["untrackedPaths"] = untrackedPaths
-            record["untrackedPathHashes"] = Dictionary(
-                uniqueKeysWithValues: try untrackedPaths.map { path in
-                    (path, try runGitStdout(["hash-object", "--no-filters", "--", path], in: repoURL))
-                }
-            )
+            var untrackedPathHashes: [String: String] = [:]
+            for path in untrackedPaths {
+                let hash = try runGitStdout(["hash-object", "-w", "--no-filters", "--", path], in: repoURL)
+                try runGit(["update-ref", "refs/cmux/last-turn/untracked/\(hash)", hash], in: repoURL)
+                untrackedPathHashes[path] = hash
+            }
+            record["untrackedPathHashes"] = untrackedPathHashes
         }
         let payload: [String: Any] = [
             "version": 1,
