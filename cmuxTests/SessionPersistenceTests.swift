@@ -65,13 +65,12 @@ final class SessionPersistenceTests: XCTestCase {
         let workspace = Workspace()
         workspace.currentDirectory = oldRoot.path
         let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
-        let notePanel = try XCTUnwrap(
-            await workspace.newNoteSurface(
-                inPane: paneId,
-                slug: "todo",
-                focus: true
-            )
+        let createdPanel = await workspace.newNoteSurface(
+            inPane: paneId,
+            slug: "todo",
+            focus: true
         )
+        let notePanel = try XCTUnwrap(createdPanel)
         XCTAssertEqual(notePanel.filePath, oldNotePath)
 
         workspace.currentDirectory = newRoot.path
