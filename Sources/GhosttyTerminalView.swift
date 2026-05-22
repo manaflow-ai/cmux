@@ -4919,6 +4919,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var lastSearchNeedle = ""
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
+
+    func startupEnvironmentValue(_ key: String) -> String? {
+        additionalEnvironment[key] ?? initialEnvironmentOverrides[key]
+    }
+
     init(
         tabId: UUID,
         context: ghostty_surface_context_e,
@@ -5703,6 +5708,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
+        if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
+            setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
+        }
+        setManagedEnvironmentValue(
+            AgentSubagentNotificationSettings.environmentKey,
+            AgentSubagentNotificationSettings.suppressNotifications() ? "1" : "0"
+        )
         if !CursorIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_CURSOR_HOOKS_DISABLED", "1")
         }
@@ -5727,6 +5739,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path {
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
+            Self.applyManagedGitWatchEnvironment(
+                watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
+                to: &env,
+                protectedKeys: &protectedStartupEnvironmentKeys
+            )
 
             let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
                 ?? getenv("SHELL").map { String(cString: $0) }
