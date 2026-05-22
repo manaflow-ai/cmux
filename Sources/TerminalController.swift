@@ -58,8 +58,8 @@ class TerminalController {
     private nonisolated(unsafe) var nextAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var pendingAcceptLoopRearmGeneration: UInt64?
     private nonisolated(unsafe) var listenerStartInProgress = false
-    private nonisolated let listenerStateLock = NSLock()
-    private nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
+    private let listenerStateLock = NSLock()
+    private let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
     private nonisolated(unsafe) var listenerReadSource: DispatchSourceRead?
     private nonisolated(unsafe) var listenerReadSourceSuspended = false
     private nonisolated(unsafe) var socketPathMonitorSource: DispatchSourceFileSystemObject?
@@ -67,7 +67,7 @@ class TerminalController {
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
-    private nonisolated let myPid = getpid()
+    private let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenBacklog: Int32 = 128
     private nonisolated static let acceptFailureBaseBackoffMs = 10

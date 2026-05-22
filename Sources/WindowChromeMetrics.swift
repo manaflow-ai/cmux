@@ -48,7 +48,7 @@ struct SidebarWorkspaceScrollInsets: Equatable {
     let top: CGFloat
     let bottom: CGFloat
 
-    nonisolated var total: CGFloat {
+    var total: CGFloat {
         top + bottom
     }
 }

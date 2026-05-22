@@ -1,18 +1,18 @@
 import Foundation
 import os
 
-private nonisolated struct CmuxTopProcessSnapshotCacheState {
+private struct CmuxTopProcessSnapshotCacheState {
     var snapshot: CmuxTopProcessSnapshot?
     var includeProcessDetails = false
 }
 
 // libproc snapshots are a short-lived platform bridge shared by the CLI, socket,
 // and Task Manager paths; keep the cache here so ownership stays with capture().
-private nonisolated let cmuxTopProcessSnapshotCache = OSAllocatedUnfairLock(
+private let cmuxTopProcessSnapshotCache = OSAllocatedUnfairLock(
     initialState: CmuxTopProcessSnapshotCacheState()
 )
 
-nonisolated extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     static func captureCached(
         includeProcessDetails: Bool = false,
         maximumAge: TimeInterval

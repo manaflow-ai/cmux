@@ -16,7 +16,7 @@ private struct CmuxTopProcessScopeCacheValue {
 // both async task-manager sampling and sync v2 system.top socket handling. Keep
 // this tiny lock isolated to dictionary reads/writes; procargs/sysctl work must
 // happen outside the critical section.
-private nonisolated let cmuxTopScopeCache = OSAllocatedUnfairLock(
+private let cmuxTopScopeCache = OSAllocatedUnfairLock(
     initialState: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheValue]()
 )
 

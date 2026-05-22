@@ -9,7 +9,7 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 }
 
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
+enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case files
     case find
     case sessions

@@ -3,7 +3,7 @@ import Combine
 
 @MainActor
 final class BackgroundWorkspacePrimeCoordinator {
-    private nonisolated enum PrimeCompletionReason: String {
+    private enum PrimeCompletionReason: String {
         case alreadyCleared = "already_cleared"
         case cancelled
         case noSurfaceWork = "no_surface_work"
@@ -12,16 +12,16 @@ final class BackgroundWorkspacePrimeCoordinator {
         case workspaceRemoved = "workspace_removed"
     }
 
-    private nonisolated enum PrimeState {
+    private enum PrimeState {
         case pending
         case completed(reason: PrimeCompletionReason)
     }
 
-    private nonisolated enum Policy {
+    private enum Policy {
         static let timeoutSeconds: TimeInterval = 2.0
     }
 
-    private nonisolated final class Waiter: @unchecked Sendable {
+    private final class Waiter: @unchecked Sendable {
         // Cancellation handlers cannot await an actor hop; this lock keeps continuation
         // and cleanup state synchronous across task cancellation and readiness callbacks.
         private let lock = NSLock()

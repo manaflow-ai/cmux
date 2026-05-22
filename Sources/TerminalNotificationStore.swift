@@ -4,7 +4,7 @@ import os
 import UserNotifications
 import Bonsplit
 
-nonisolated private let terminalNotificationLogger = Logger(
+private let terminalNotificationLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "notification"
 )

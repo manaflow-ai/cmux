@@ -1061,7 +1061,7 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 }
 
-nonisolated struct SurfaceResumeBindingIndex: Sendable {
+struct SurfaceResumeBindingIndex: Sendable {
     static let empty = SurfaceResumeBindingIndex(bindingsByPanel: [:])
 
     typealias PanelKey = RestorableAgentSessionIndex.PanelKey

@@ -233,7 +233,7 @@ enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {
     case auto
 }
 
-nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
+struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var name: String?
     var kind: String?
     var command: String
@@ -381,7 +381,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-nonisolated struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
+struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
     var version: Int
     var id: String
     var name: String?

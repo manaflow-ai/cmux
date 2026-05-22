@@ -52,3 +52,6 @@ web/public/pagefind/
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+
+# Built remote daemon binary
+daemon/remote/cmuxd-remote
