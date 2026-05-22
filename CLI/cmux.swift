@@ -24857,7 +24857,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-                let suppressVisibleMutations = mapped.isRestorable == false
+                let suppressVisibleMutations = shouldSuppressSubagentRestoreTakeover()
+                    || mapped.isRestorable == false
                     || shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
                 if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
