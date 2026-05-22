@@ -10,7 +10,7 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "blog.sessionRestore" });
+  const t = await getTranslations({ locale, namespace: "blog.passkeyAuth" });
   const rawKeywords = t.raw("metaKeywords");
   const keywords = Array.isArray(rawKeywords)
     ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
@@ -23,20 +23,19 @@ export async function generateMetadata({
       title: t("metaTitle"),
       description: t("metaDescription"),
       type: "article",
-      publishedTime: "2026-05-13T00:00:00Z",
-      modifiedTime: "2026-05-22T00:00:00Z",
+      publishedTime: "2026-05-22T00:00:00Z",
     },
     twitter: {
       card: "summary_large_image",
       title: t("metaTitle"),
       description: t("metaDescription"),
     },
-    alternates: buildAlternates(locale, "/blog/session-restore"),
+    alternates: buildAlternates(locale, "/blog/passkey-auth"),
   };
 }
 
-export default function SessionRestoreBlogPage() {
-  const t = useTranslations("blog.posts.sessionRestore");
+export default function PasskeyAuthPage() {
+  const t = useTranslations("blog.posts.passkeyAuth");
   const tc = useTranslations("common");
 
   return (
@@ -51,44 +50,25 @@ export default function SessionRestoreBlogPage() {
       </div>
 
       <h1>{t("title")}</h1>
-      <time dateTime="2026-05-13" className="text-sm text-muted">
+      <time dateTime="2026-05-22" className="text-sm text-muted">
         {t("date")}
       </time>
 
+      <video
+        src="/blog/passkey-browser-import.mp4"
+        width={1280}
+        height={988}
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="my-6 rounded-lg w-full h-auto"
+      />
+
       <p className="mt-6">{t("p1")}</p>
       <p>{t("p2")}</p>
-      <p>{t("seoP")}</p>
-
-      <h2>{t("baselineTitle")}</h2>
-      <p>{t("baselineP")}</p>
-      <ul>
-        <li>{t("baselineItemLayout")}</li>
-        <li>{t("baselineItemCwd")}</li>
-        <li>{t("baselineItemScrollback")}</li>
-        <li>{t("baselineItemBrowser")}</li>
-      </ul>
-
-      <h2>{t("agentTitle")}</h2>
-      <p>
-        {t.rich("agentP", {
-          code: (chunks) => <code>{chunks}</code>,
-        })}
-      </p>
-      <CodeBlock lang="bash">{`cmux hooks setup`}</CodeBlock>
-      <p>{t("agentP2")}</p>
-
-      <h2>{t("implementationTitle")}</h2>
-      <p>{t("implementationP1")}</p>
-      <p>{t("implementationP2")}</p>
-
-      <h2>{t("limitsTitle")}</h2>
-      <p>{t("limitsP")}</p>
-
-      <p className="mt-6">
-        {t.rich("docsCta", {
-          link: (chunks) => <Link href="/docs/session-restore">{chunks}</Link>,
-        })}
-      </p>
+      <CodeBlock lang="bash">{`cmux browser import`}</CodeBlock>
+      <p>{t("p3")}</p>
     </>
   );
 }
