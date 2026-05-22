@@ -1349,7 +1349,7 @@ extension CMUXCLI {
         _ arguments: [String],
         in directory: String,
         timeout: TimeInterval = 60,
-        allowedExitStatuses: Set<Int32>
+        allowedExitStatuses: Set<Int32> = [0]
     ) throws -> Data {
         let result = CLIProcessRunner.runProcessData(
             executablePath: "/usr/bin/env",
