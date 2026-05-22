@@ -19428,7 +19428,11 @@ struct CMUXCLI {
     }
 
     private func claudeWorkspaceTitle(workspaceId: String, client: SocketClient) -> String? {
-        guard let payload = try? client.sendV2(method: "workspace.list", params: ["workspace_id": workspaceId]) else { return nil }
+        guard let payload = try? client.sendV2(
+            method: "workspace.list",
+            params: ["workspace_id": workspaceId],
+            responseTimeout: 0.75
+        ) else { return nil }
         let workspaces = payload["workspaces"] as? [[String: Any]] ?? []
         for workspace in workspaces {
             let identifiers = [
