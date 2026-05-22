@@ -2299,7 +2299,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "${workspace_id}": workspaceId,
             "${surface_id}": surfaceId,
         ]
-        let feedResults = replayFeedResultsByRequestId(fixture: fixture, replacements: replacements)
+        let feedResults = try replayFeedResultsByRequestId(fixture: fixture, replacements: replacements)
+        let connectionLimit = replayConnectionLimit(for: fixture)
 
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         defer {
@@ -2308,7 +2309,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 80) { line in
+        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: connectionLimit) { line in
             self.agentReplaySocketResponse(
                 line: line,
                 surfaceId: surfaceId,
@@ -2597,17 +2598,38 @@ extension CLINotifyProcessIntegrationRegressionTests {
     private func replayFeedResultsByRequestId(
         fixture: AgentHookTrajectoryReplayFixture,
         replacements: [String: String]
-    ) -> [String: [String: Any]] {
+    ) throws -> [String: [String: Any]] {
         var results: [String: [String: Any]] = [:]
-        for step in fixture.trajectories.flatMap(\.steps) {
-            guard let result = step.feedResult?.replacing(replacements).objectValue(),
-                  let requestId = result["request_id"] as? String
-            else {
-                continue
+        var resultOwners: [String: String] = [:]
+        for trajectory in fixture.trajectories {
+            for step in trajectory.steps {
+                guard let result = step.feedResult?.replacing(replacements).objectValue(),
+                      let requestId = result["request_id"] as? String
+                else {
+                    continue
+                }
+                let owner = "\(trajectory.name).\(step.name)"
+                if let previousOwner = resultOwners[requestId] {
+                    throw NSError(
+                        domain: "AgentHookTrajectoryReplayFixture",
+                        code: 1,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: "Duplicate feed result request_id \(requestId) in \(owner); already used by \(previousOwner)"
+                        ]
+                    )
+                }
+                resultOwners[requestId] = owner
+                results[requestId] = result
             }
-            results[requestId] = result
         }
         return results
+    }
+
+    private func replayConnectionLimit(for fixture: AgentHookTrajectoryReplayFixture) -> Int {
+        let stepCount = fixture.trajectories.reduce(0) { $0 + $1.steps.count }
+        // Hook invocations use short-lived sockets; budget four connections per step
+        // for discovery, feed/status, notification, and one spare.
+        return max(4, stepCount * 4)
     }
 
     private func agentReplaySocketResponse(
