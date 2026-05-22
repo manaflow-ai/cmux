@@ -14593,8 +14593,10 @@ struct CMUXCLI {
             token = suffix.isEmpty ? String(token[..<colon]) : String(suffix)
         }
         let selector = tmuxSelectorToken(token)
+        let normalizedSelectorToken = selector.token
 
-        if let resolvedHandle = try? normalizeWorkspaceHandle(token, client: client, allowCurrent: true) {
+        if (!selector.sigiled || isUUID(normalizedSelectorToken)),
+           let resolvedHandle = try? normalizeWorkspaceHandle(normalizedSelectorToken, client: client, allowCurrent: true) {
             return try resolveWorkspaceId(resolvedHandle, client: client)
         }
 
