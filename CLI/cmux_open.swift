@@ -10,6 +10,7 @@ struct CMUXAgentTurnDiffBaselineRecord: Codable {
     var repoRoot: String
     var baseCommit: String
     var untrackedPaths: [String]?
+    var untrackedPathHashes: [String: String]?
     var capturedAt: TimeInterval
 }
 
@@ -146,6 +147,8 @@ extension CMUXCLI {
         var title: String?
         var layout: String?
         var fontSize: String?
+        var cwd: String?
+        var branchBase: String?
         var source: DiffSource?
         var inputs: [String] = []
     }
@@ -161,6 +164,8 @@ extension CMUXCLI {
     private struct DiffSourceContext {
         var workspaceId: String?
         var surfaceId: String?
+        var repoRoot: String?
+        var branchBaseRef: String?
     }
 
     private struct DiffViewerWriteResult {
@@ -171,11 +176,29 @@ extension CMUXCLI {
     }
 
     private struct DiffViewerDeferredSourceSet {
-        var selectedSource: DiffSource
-        var urls: [DiffSource: URL]
+        var pages: [DiffViewerDeferredSourcePage]
         var layout: String
         var appearance: DiffViewerAppearance
+    }
+
+    private struct DiffViewerDeferredSourcePage {
+        var source: DiffSource
+        var url: URL
+        var titleOverride: String?
         var context: DiffSourceContext
+        var sourceOptions: [DiffViewerSourceOption]
+        var repoOptions: [DiffViewerSourceOption]
+        var baseOptions: [DiffViewerSourceOption]
+    }
+
+    private struct DiffViewerRepoOption {
+        var repoRoot: String
+        var label: String
+    }
+
+    private struct DiffViewerBranchBaseOption {
+        var ref: String
+        var label: String
     }
 
     private struct DiffViewerSourceOption {
@@ -253,6 +276,8 @@ extension CMUXCLI {
                 "parsingDiff": CMUXDiffViewerLocalization.string("diffViewer.parsingDiff", defaultValue: "Parsing diff..."),
                 "refresh": CMUXDiffViewerLocalization.string("diffViewer.refresh", defaultValue: "Refresh"),
                 "renderingDiff": CMUXDiffViewerLocalization.string("diffViewer.renderingDiff", defaultValue: "Rendering diff..."),
+                "repoPath": CMUXDiffViewerLocalization.string("diffViewer.repoPath", defaultValue: "Repository path"),
+                "branchBase": CMUXDiffViewerLocalization.string("diffViewer.branchBase", defaultValue: "Branch base"),
                 "showBackgrounds": CMUXDiffViewerLocalization.string("diffViewer.showBackgrounds", defaultValue: "Show backgrounds"),
                 "showFiles": CMUXDiffViewerLocalization.string("diffViewer.showFiles", defaultValue: "Show files"),
                 "showFileSearch": CMUXDiffViewerLocalization.string("diffViewer.showFileSearch", defaultValue: "Show file search"),
@@ -568,15 +593,25 @@ extension CMUXCLI {
             didResolveTarget = true
         }
 
-        var diffSourceContext = DiffSourceContext(workspaceId: nil, surfaceId: nil)
+        var diffSourceContext = DiffSourceContext(
+            workspaceId: nil,
+            surfaceId: nil,
+            repoRoot: nil,
+            branchBaseRef: parsedArgs.branchBase
+        )
+        if let cwd = parsedArgs.cwd {
+            diffSourceContext.repoRoot = try gitRepoRoot(startingAt: resolvePath(cwd))
+        }
         if parsedArgs.source != nil {
             try resolveTargetIfNeeded()
-            let sourceContext = try canonicalDiffSourceContext(
+            var sourceContext = try canonicalDiffSourceContext(
                 workspaceHandle: workspaceHandle,
                 surfaceHandle: surfaceHandle,
                 windowHandle: windowHandle,
                 client: try connectedClient()
             )
+            sourceContext.repoRoot = diffSourceContext.repoRoot
+            sourceContext.branchBaseRef = diffSourceContext.branchBaseRef
             diffSourceContext = sourceContext
             workspaceHandle = sourceContext.workspaceId ?? workspaceHandle
             surfaceHandle = sourceContext.surfaceId ?? surfaceHandle
@@ -643,7 +678,7 @@ extension CMUXCLI {
             windowHandle: windowHandle,
             client: client
         )
-        return DiffSourceContext(workspaceId: workspaceId, surfaceId: surfaceId)
+        return DiffSourceContext(workspaceId: workspaceId, surfaceId: surfaceId, repoRoot: nil, branchBaseRef: nil)
     }
 
     private func canonicalDiffWorkspaceId(
@@ -847,6 +882,14 @@ extension CMUXCLI {
                     parsed.fontSize = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
+                case "--cwd", "--repo", "--path":
+                    parsed.cwd = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--base", "--branch-base":
+                    parsed.branchBase = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
                 case "--source":
                     let rawSource = try openOptionValue(commandArgs, index: index, name: arg)
                     guard let source = DiffSource(rawValue: rawSource) else {
@@ -873,7 +916,7 @@ extension CMUXCLI {
                     continue
                 default:
                     if arg.hasPrefix("-"), arg != "-" {
-                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
+                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
                     }
                 }
             }
@@ -991,7 +1034,7 @@ extension CMUXCLI {
     }
 
     private func readGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
-        let repoRoot = try currentGitRepoRoot()
+        let repoRoot = try gitRepoRootForDiff(context)
         let patch: String
         let sourceLabel: String
         switch source {
@@ -1002,7 +1045,7 @@ extension CMUXCLI {
             patch = try gitStdout(gitDiffPatchArguments(["--cached", "--"]), in: repoRoot)
             sourceLabel = "git staged"
         case .branch:
-            let baseRef = try gitBranchDiffBaseRef(in: repoRoot)
+            let baseRef = try resolvedGitBranchDiffBaseRef(context.branchBaseRef, in: repoRoot)
             let mergeBase = try gitSingleLine(["merge-base", "HEAD", baseRef], in: repoRoot)
             patch = try gitStdout(gitDiffPatchArguments([mergeBase, "--"]), in: repoRoot)
             sourceLabel = "git branch \(baseRef)"
@@ -1131,6 +1174,14 @@ extension CMUXCLI {
         try gitRepoRoot(startingAt: FileManager.default.currentDirectoryPath)
     }
 
+    private func gitRepoRootForDiff(_ context: DiffSourceContext) throws -> String {
+        guard let repoRoot = context.repoRoot?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !repoRoot.isEmpty else {
+            return try currentGitRepoRoot()
+        }
+        return try gitRepoRoot(startingAt: repoRoot)
+    }
+
     private func gitRepoRoot(startingAt directory: String) throws -> String {
         do {
             return try standardizedDiffSourcePath(gitSingleLine(["rev-parse", "--show-toplevel"], in: directory))
@@ -1154,6 +1205,18 @@ extension CMUXCLI {
             return upstream
         }
         throw CLIError(message: "Unable to find a branch diff base. Set an upstream branch or create origin/main.")
+    }
+
+    private func resolvedGitBranchDiffBaseRef(_ rawBaseRef: String?, in repoRoot: String) throws -> String {
+        guard let rawBaseRef,
+              !rawBaseRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return try gitBranchDiffBaseRef(in: repoRoot)
+        }
+        let baseRef = rawBaseRef.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (try? gitStdout(["rev-parse", "--verify", "--quiet", "\(baseRef)^{commit}"], in: repoRoot)) != nil else {
+            throw CLIError(message: "Branch diff base not found in repository: \(baseRef)")
+        }
+        return baseRef
     }
 
     private func gitSingleLine(_ arguments: [String], in directory: String) throws -> String {
@@ -1224,8 +1287,13 @@ extension CMUXCLI {
         in repoRoot: String
     ) throws -> String {
         let baselinePaths = Set(record.untrackedPaths ?? [])
+        let baselineHashes = record.untrackedPathHashes ?? [:]
         let currentPaths = try gitUntrackedPaths(in: repoRoot)
-        let addedPaths = currentPaths.filter { !baselinePaths.contains($0) }
+        let addedPaths = try currentPaths.filter { path in
+            guard baselinePaths.contains(path) else { return true }
+            guard let baselineHash = baselineHashes[path] else { return false }
+            return try gitUntrackedPathHash(path, in: repoRoot) != baselineHash
+        }
         let patches = try addedPaths.map { path in
             try gitStdout(
                 gitDiffPatchArguments(["--no-index", "--", "/dev/null", path]),
@@ -1234,6 +1302,18 @@ extension CMUXCLI {
             )
         }
         return joinedGitDiffPatches(patches)
+    }
+
+    private func gitUntrackedPathHash(_ path: String, in repoRoot: String) throws -> String {
+        try gitSingleLine(["hash-object", "--no-filters", "--", path], in: repoRoot)
+    }
+
+    private func gitUntrackedPathHashes(paths: [String], in repoRoot: String) throws -> [String: String] {
+        var hashes: [String: String] = [:]
+        for path in paths {
+            hashes[path] = try gitUntrackedPathHash(path, in: repoRoot)
+        }
+        return hashes
     }
 
     private func joinedGitDiffPatches(_ patches: [String]) -> String {
@@ -1259,6 +1339,7 @@ extension CMUXCLI {
         let repoRoot = try gitRepoRoot(startingAt: cwd)
         let baseCommit = try agentTurnDiffBaselineCommit(in: repoRoot)
         let untrackedPaths = try gitUntrackedPaths(in: repoRoot)
+        let untrackedPathHashes = try gitUntrackedPathHashes(paths: untrackedPaths, in: repoRoot)
         let record = CMUXAgentTurnDiffBaselineRecord(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
@@ -1268,6 +1349,7 @@ extension CMUXCLI {
             repoRoot: repoRoot,
             baseCommit: baseCommit,
             untrackedPaths: untrackedPaths.isEmpty ? nil : untrackedPaths,
+            untrackedPathHashes: untrackedPathHashes.isEmpty ? nil : untrackedPathHashes,
             capturedAt: Date().timeIntervalSince1970
         )
         var removedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
@@ -1416,6 +1498,7 @@ extension CMUXCLI {
             && lhs.agent == rhs.agent
             && lhs.baseCommit == rhs.baseCommit
             && lhs.untrackedPaths == rhs.untrackedPaths
+            && lhs.untrackedPathHashes == rhs.untrackedPathHashes
             && lhs.capturedAt == rhs.capturedAt
     }
 
@@ -1893,7 +1976,15 @@ extension CMUXCLI {
         let directory = try diffViewerDirectory()
         let timestamp = Int(Date().timeIntervalSince1970)
         let groupID = "\(timestamp)-\(UUID().uuidString.prefix(8))"
-        let selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: context)
+        var selectedContext = context
+        selectedContext.repoRoot = try gitRepoRootForDiff(context)
+        if selectedSource == .branch {
+            selectedContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(
+                selectedContext.branchBaseRef,
+                in: selectedContext.repoRoot ?? FileManager.default.currentDirectoryPath
+            )
+        }
+        let selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: selectedContext)
         let urls = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
             (
                 source,
@@ -1903,8 +1994,57 @@ extension CMUXCLI {
                 )
             )
         })
-
         let sourceOptions = diffViewerSourceOptions(selected: selectedSource, urls: urls)
+        let repoRoot = selectedContext.repoRoot ?? FileManager.default.currentDirectoryPath
+        guard let selectedURL = urls[selectedSource] else {
+            throw CLIError(message: "Failed to write diff viewer")
+        }
+        let repoCandidates = gitDiffViewerRepoOptions(selectedRepoRoot: repoRoot)
+        let repoURLs: [String: URL] = Dictionary(uniqueKeysWithValues: repoCandidates.enumerated().map { index, option in
+            if option.repoRoot == repoRoot {
+                return (option.repoRoot, selectedURL)
+            }
+            return (
+                option.repoRoot,
+                directory.appendingPathComponent(
+                    "diff-\(groupID)-repo-\(index)-\(selectedSource.slug).html",
+                    isDirectory: false
+                )
+            )
+        })
+        let repoOptions = diffViewerRepoOptions(selectedRepoRoot: repoRoot, candidates: repoCandidates, urls: repoURLs)
+
+        let branchBaseForOptions = try? resolvedGitBranchDiffBaseRef(selectedContext.branchBaseRef, in: repoRoot)
+        let baseCandidates: [DiffViewerBranchBaseOption]
+        let baseURLs: [String: URL]
+        if let branchBaseForOptions, let branchURL = urls[.branch] {
+            baseCandidates = gitDiffViewerBranchBaseOptions(
+                in: repoRoot,
+                selectedBaseRef: branchBaseForOptions
+            )
+            baseURLs = Dictionary(uniqueKeysWithValues: baseCandidates.enumerated().map { index, option in
+                if option.ref == branchBaseForOptions {
+                    return (option.ref, branchURL)
+                }
+                return (
+                    option.ref,
+                    directory.appendingPathComponent(
+                        "diff-\(groupID)-base-\(index)-branch.html",
+                        isDirectory: false
+                    )
+                )
+            })
+        } else {
+            baseCandidates = []
+            baseURLs = [:]
+        }
+        let baseOptions = diffViewerBranchBaseOptions(
+            selectedBaseRef: branchBaseForOptions,
+            candidates: baseCandidates,
+            urls: baseURLs
+        )
+
+        var deferredPages: [DiffViewerDeferredSourcePage] = []
         for source in DiffSource.allCases where source != selectedSource {
             if let url = urls[source] {
                 try writePendingDiffViewerHTML(
@@ -1913,12 +2053,83 @@ extension CMUXCLI {
                     message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(source.menuLabel)",
                     pollForReplacement: true
                 )
+                var pageContext = selectedContext
+                if source == .branch {
+                    pageContext.branchBaseRef = branchBaseForOptions
+                } else {
+                    pageContext.branchBaseRef = nil
+                }
+                deferredPages.append(
+                    DiffViewerDeferredSourcePage(
+                        source: source,
+                        url: url,
+                        titleOverride: nil,
+                        context: pageContext,
+                        sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
+                        repoOptions: repoOptions,
+                        baseOptions: source == .branch ? baseOptions : []
+                    )
+                )
             }
         }
 
-        guard let selectedURL = urls[selectedSource] else {
-            throw CLIError(message: "Failed to write diff viewer")
+        for option in repoCandidates where option.repoRoot != repoRoot {
+            guard let url = repoURLs[option.repoRoot] else { continue }
+            try writePendingDiffViewerHTML(
+                to: url,
+                title: option.label,
+                message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(option.label)",
+                pollForReplacement: true
+            )
+            deferredPages.append(
+                DiffViewerDeferredSourcePage(
+                    source: selectedSource,
+                    url: url,
+                    titleOverride: titleOverride,
+                    context: DiffSourceContext(
+                        workspaceId: selectedContext.workspaceId,
+                        surfaceId: selectedContext.surfaceId,
+                        repoRoot: option.repoRoot,
+                        branchBaseRef: selectedSource == .branch ? nil : selectedContext.branchBaseRef
+                    ),
+                    sourceOptions: [],
+                    repoOptions: diffViewerRepoOptions(
+                        selectedRepoRoot: option.repoRoot,
+                        candidates: repoCandidates,
+                        urls: repoURLs
+                    ),
+                    baseOptions: []
+                )
+            )
         }
+
+        for option in baseCandidates where !(branchBaseForOptions.map { $0 == option.ref } ?? false) {
+            guard let url = baseURLs[option.ref] else { continue }
+            try writePendingDiffViewerHTML(
+                to: url,
+                title: option.label,
+                message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(option.label)",
+                pollForReplacement: true
+            )
+            var pageContext = selectedContext
+            pageContext.branchBaseRef = option.ref
+            deferredPages.append(
+                DiffViewerDeferredSourcePage(
+                    source: .branch,
+                    url: url,
+                    titleOverride: selectedSource == .branch ? titleOverride : nil,
+                    context: pageContext,
+                    sourceOptions: diffViewerSourceOptions(selected: .branch, urls: urls),
+                    repoOptions: repoOptions,
+                    baseOptions: diffViewerBranchBaseOptions(
+                        selectedBaseRef: option.ref,
+                        candidates: baseCandidates,
+                        urls: baseURLs
+                    )
+                )
+            )
+        }
+
         try writeDiffViewerHTML(
             to: selectedURL,
             patch: selectedInput.patch,
@@ -1927,7 +2138,11 @@ extension CMUXCLI {
             externalURL: selectedInput.externalURL,
             layout: layout,
             appearance: appearance,
-            sourceOptions: sourceOptions
+            sourceOptions: sourceOptions,
+            repoOptions: repoOptions,
+            baseOptions: selectedSource == .branch ? baseOptions : [],
+            repoRoot: repoRoot,
+            branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil
         )
 
         return DiffViewerWriteResult(
@@ -1935,34 +2150,41 @@ extension CMUXCLI {
             title: titleOverride ?? selectedInput.defaultTitle,
             input: selectedInput,
             deferredSourceSet: DiffViewerDeferredSourceSet(
-                selectedSource: selectedSource,
-                urls: urls,
+                pages: deferredPages,
                 layout: layout,
-                appearance: appearance,
-                context: context
+                appearance: appearance
             )
         )
     }
 
     private func completeDeferredDiffViewerSources(_ sourceSet: DiffViewerDeferredSourceSet?) {
         guard let sourceSet else { return }
-        for source in DiffSource.allCases where source != sourceSet.selectedSource {
-            guard let url = sourceSet.urls[source] else { continue }
+        for page in sourceSet.pages {
             do {
-                let input = try nonEmptyGitDiffInput(source: source, context: sourceSet.context)
+                var pageContext = page.context
+                if page.source == .branch {
+                    let repoRoot = try gitRepoRootForDiff(pageContext)
+                    pageContext.repoRoot = repoRoot
+                    pageContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(pageContext.branchBaseRef, in: repoRoot)
+                }
+                let input = try nonEmptyGitDiffInput(source: page.source, context: pageContext)
                 try writeDiffViewerHTML(
-                    to: url,
+                    to: page.url,
                     patch: input.patch,
-                    title: input.defaultTitle,
+                    title: page.titleOverride ?? input.defaultTitle,
                     sourceLabel: input.sourceLabel,
                     externalURL: input.externalURL,
                     layout: sourceSet.layout,
                     appearance: sourceSet.appearance,
-                    sourceOptions: diffViewerSourceOptions(selected: source, urls: sourceSet.urls)
+                    sourceOptions: page.sourceOptions,
+                    repoOptions: page.repoOptions,
+                    baseOptions: page.baseOptions,
+                    repoRoot: pageContext.repoRoot,
+                    branchBaseRef: page.source == .branch ? pageContext.branchBaseRef : nil
                 )
             } catch {
                 let message = (error as? CLIError)?.message ?? error.localizedDescription
-                try? writePendingDiffViewerHTML(to: url, title: source.title, message: message, pollForReplacement: false)
+                try? writePendingDiffViewerHTML(to: page.url, title: page.source.title, message: message, pollForReplacement: false)
             }
         }
     }
@@ -1989,6 +2211,149 @@ extension CMUXCLI {
                 message: nil,
                 sourceLabel: nil
             )
+        }
+    }
+
+    private func diffViewerRepoOptions(
+        selectedRepoRoot: String,
+        candidates: [DiffViewerRepoOption],
+        urls: [String: URL]
+    ) -> [DiffViewerSourceOption] {
+        guard candidates.count > 1 else { return [] }
+        return candidates.map { option in
+            DiffViewerSourceOption(
+                value: option.repoRoot,
+                label: option.label,
+                selected: option.repoRoot == selectedRepoRoot,
+                url: urls[option.repoRoot]?.absoluteString,
+                disabled: false,
+                message: option.repoRoot,
+                sourceLabel: nil
+            )
+        }
+    }
+
+    private func diffViewerBranchBaseOptions(
+        selectedBaseRef: String?,
+        candidates: [DiffViewerBranchBaseOption],
+        urls: [String: URL]
+    ) -> [DiffViewerSourceOption] {
+        guard candidates.count > 1 else { return [] }
+        return candidates.map { option in
+            DiffViewerSourceOption(
+                value: option.ref,
+                label: option.label,
+                selected: selectedBaseRef.map { $0 == option.ref } ?? false,
+                url: urls[option.ref]?.absoluteString,
+                disabled: false,
+                message: option.ref,
+                sourceLabel: nil
+            )
+        }
+    }
+
+    private func gitDiffViewerRepoOptions(selectedRepoRoot: String) -> [DiffViewerRepoOption] {
+        let selectedURL = URL(fileURLWithPath: selectedRepoRoot, isDirectory: true).standardizedFileURL
+        var candidateURLs: [URL] = [selectedURL]
+        let parentURL = selectedURL.deletingLastPathComponent()
+        candidateURLs.append(contentsOf: gitChildRepoURLs(in: parentURL))
+
+        if parentURL.lastPathComponent == "worktrees" {
+            let hqURL = parentURL.deletingLastPathComponent()
+            candidateURLs.append(hqURL.appendingPathComponent("repo", isDirectory: true))
+            candidateURLs.append(contentsOf: gitChildRepoURLs(in: parentURL))
+        } else if selectedURL.lastPathComponent == "repo" {
+            let worktreesURL = parentURL.appendingPathComponent("worktrees", isDirectory: true)
+            candidateURLs.append(contentsOf: gitChildRepoURLs(in: worktreesURL))
+        }
+
+        var seen: Set<String> = []
+        var roots: [String] = []
+        for candidateURL in candidateURLs {
+            guard roots.count < 24,
+                  let root = try? gitRepoRoot(startingAt: candidateURL.path),
+                  !seen.contains(root) else {
+                continue
+            }
+            seen.insert(root)
+            roots.append(root)
+        }
+
+        if !seen.contains(selectedRepoRoot) {
+            roots.insert(selectedRepoRoot, at: 0)
+        }
+
+        return roots.map { root in
+            DiffViewerRepoOption(
+                repoRoot: root,
+                label: gitDiffViewerRepoLabel(root, selectedRepoRoot: selectedRepoRoot)
+            )
+        }
+    }
+
+    private func gitChildRepoURLs(in directoryURL: URL) -> [URL] {
+        guard let children = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return []
+        }
+        return children
+            .filter { url in
+                (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    private func gitDiffViewerRepoLabel(_ repoRoot: String, selectedRepoRoot: String) -> String {
+        let repoURL = URL(fileURLWithPath: repoRoot, isDirectory: true).standardizedFileURL
+        let selectedURL = URL(fileURLWithPath: selectedRepoRoot, isDirectory: true).standardizedFileURL
+        let selectedParent = selectedURL.deletingLastPathComponent()
+        let selectedGrandparent = selectedParent.deletingLastPathComponent()
+        if selectedParent.lastPathComponent == "worktrees",
+           repoURL.deletingLastPathComponent() == selectedParent {
+            return "worktrees/\(repoURL.lastPathComponent)"
+        }
+        if repoURL.deletingLastPathComponent() == selectedGrandparent,
+           repoURL.lastPathComponent == "repo" {
+            return "repo"
+        }
+        if repoURL.deletingLastPathComponent() == selectedParent {
+            let name = repoURL.lastPathComponent
+            return name.isEmpty ? repoRoot : name
+        }
+        return repoRoot
+    }
+
+    private func gitDiffViewerBranchBaseOptions(
+        in repoRoot: String,
+        selectedBaseRef: String?
+    ) -> [DiffViewerBranchBaseOption] {
+        var refs: [String] = []
+        func appendRef(_ ref: String?) {
+            guard let ref = ref?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !ref.isEmpty,
+                  !refs.contains(ref),
+                  !ref.hasSuffix("/HEAD") else {
+                return
+            }
+            refs.append(ref)
+        }
+
+        appendRef(selectedBaseRef)
+        appendRef(try? gitBranchDiffBaseRef(in: repoRoot))
+        if let listing = try? gitStdout(
+            ["for-each-ref", "--format=%(refname:short)", "refs/remotes", "refs/heads"],
+            in: repoRoot
+        ) {
+            for line in listing.split(whereSeparator: \.isNewline).map(String.init) where refs.count < 24 {
+                appendRef(line)
+            }
+        }
+
+        return refs.map { ref in
+            DiffViewerBranchBaseOption(ref: ref, label: ref)
         }
     }
 
@@ -2085,7 +2450,11 @@ extension CMUXCLI {
         externalURL: String?,
         layout: String,
         appearance: DiffViewerAppearance,
-        sourceOptions: [DiffViewerSourceOption]
+        sourceOptions: [DiffViewerSourceOption],
+        repoOptions: [DiffViewerSourceOption] = [],
+        baseOptions: [DiffViewerSourceOption] = [],
+        repoRoot: String? = nil,
+        branchBaseRef: String? = nil
     ) throws -> URL {
         let directory = try diffViewerDirectory()
 
@@ -2100,7 +2469,11 @@ extension CMUXCLI {
             externalURL: externalURL,
             layout: layout,
             appearance: appearance,
-            sourceOptions: sourceOptions
+            sourceOptions: sourceOptions,
+            repoOptions: repoOptions,
+            baseOptions: baseOptions,
+            repoRoot: repoRoot,
+            branchBaseRef: branchBaseRef
         )
         return viewerURL
     }
@@ -2113,7 +2486,11 @@ extension CMUXCLI {
         externalURL: String?,
         layout: String,
         appearance: DiffViewerAppearance,
-        sourceOptions: [DiffViewerSourceOption]
+        sourceOptions: [DiffViewerSourceOption],
+        repoOptions: [DiffViewerSourceOption] = [],
+        baseOptions: [DiffViewerSourceOption] = [],
+        repoRoot: String? = nil,
+        branchBaseRef: String? = nil
     ) throws {
         let labels = DiffViewerLabels.localized()
         var payload: [String: Any] = [
@@ -2124,10 +2501,18 @@ extension CMUXCLI {
             "appearance": appearance.jsonObject,
             "labels": labels.jsonObject,
             "sourceOptions": sourceOptions.map(\.jsonObject),
+            "repoOptions": repoOptions.map(\.jsonObject),
+            "baseOptions": baseOptions.map(\.jsonObject),
             "generatedAt": ISO8601DateFormatter().string(from: Date())
         ]
         if let externalURL {
             payload["externalURL"] = externalURL
+        }
+        if let repoRoot {
+            payload["repoRoot"] = repoRoot
+        }
+        if let branchBaseRef {
+            payload["branchBaseRef"] = branchBaseRef
         }
         let assets = try ensureDiffViewerAssets(nextTo: viewerURL)
         let payloadLiteral = try jsonScriptLiteral(payload)
@@ -2135,6 +2520,8 @@ extension CMUXCLI {
         let treesModuleLiteral = try jsonStringLiteral(assets.treesModuleURL)
         let escapedTitle = htmlEscaped(title)
         let diffTargetLabel = htmlEscaped(labels["diffTarget"])
+        let repoPathLabel = htmlEscaped(labels["repoPath"])
+        let branchBaseLabel = htmlEscaped(labels["branchBase"])
         let jumpToFileLabel = htmlEscaped(labels["jumpToFile"])
         let openSourceURLLabel = htmlEscaped(labels["openSourceURL"])
         let hideFilesLabel = htmlEscaped(labels["hideFiles"])
@@ -2245,6 +2632,8 @@ extension CMUXCLI {
               flex: 0 0 auto;
             }
             #source-select,
+            #repo-select,
+            #base-select,
             #jump-select {
               appearance: none;
               height: 28px;
@@ -2261,13 +2650,25 @@ extension CMUXCLI {
               font: inherit;
             }
             #source-select[hidden],
+            #repo-select[hidden],
+            #base-select[hidden],
             #jump-select[hidden] {
               display: none;
             }
             #jump-select {
               min-width: min(280px, 36vw);
             }
+            #repo-select {
+              min-width: 132px;
+              max-width: min(26vw, 320px);
+            }
+            #base-select {
+              min-width: 120px;
+              max-width: min(22vw, 260px);
+            }
             #source-select:focus,
+            #repo-select:focus,
+            #base-select:focus,
             #jump-select:focus,
             .toolbar-icon:focus-visible,
             .menu-item:focus-visible,
@@ -2622,6 +3023,8 @@ extension CMUXCLI {
             <header id="toolbar">
               <div class="toolbar-left">
                 <select id="source-select" aria-label="\(diffTargetLabel)" hidden></select>
+                <select id="repo-select" aria-label="\(repoPathLabel)" hidden></select>
+                <select id="base-select" aria-label="\(branchBaseLabel)" hidden></select>
                 <span id="source-detail"></span>
               </div>
               <div class="toolbar-middle">
@@ -2662,6 +3065,8 @@ extension CMUXCLI {
             const status = document.getElementById("status");
             const toolbar = document.getElementById("toolbar");
             const sourceSelect = document.getElementById("source-select");
+            const repoSelect = document.getElementById("repo-select");
+            const baseSelect = document.getElementById("base-select");
             const sourceDetail = document.getElementById("source-detail");
             const jumpSelect = document.getElementById("jump-select");
             const externalLink = document.getElementById("external-link");
@@ -2700,6 +3105,8 @@ extension CMUXCLI {
             applyViewerAppearance(payload.appearance);
             setupToolbar();
             setupSourceSelector(payload.sourceOptions ?? []);
+            setupNavigationSelector(repoSelect, payload.repoOptions ?? [], payload.repoRoot ?? "", label("repoPath"));
+            setupNavigationSelector(baseSelect, payload.baseOptions ?? [], payload.branchBaseRef ?? "", label("branchBase"));
             const scheduleRender = globalThis.queueMicrotask ?? ((callback) => setTimeout(callback, 0));
             scheduleRender(() => {
               renderDiff().catch((error) => {
@@ -3035,7 +3442,7 @@ extension CMUXCLI {
             }
 
             function setupSourceSelector(options) {
-              sourceDetail.textContent = payload.sourceLabel ?? "";
+              sourceDetail.textContent = diffSourceDetail();
               if (!Array.isArray(options) || options.length < 2) {
                 return;
               }
@@ -3052,12 +3459,49 @@ extension CMUXCLI {
                 }
                 sourceSelect.append(item);
               }
-              sourceDetail.textContent = selected?.sourceLabel ?? payload.sourceLabel ?? "";
+              sourceDetail.textContent = selected?.sourceLabel ?? diffSourceDetail();
               sourceSelect.hidden = false;
               sourceSelect.addEventListener("change", () => {
                 const next = options.find((option) => option.value === sourceSelect.value);
                 if (!next?.url) {
                   sourceSelect.value = selected?.value ?? "";
+                  return;
+                }
+                status.dataset.error = "false";
+                status.textContent = label("loadingDiff");
+                window.location.href = next.url;
+              });
+            }
+
+            function diffSourceDetail() {
+              const parts = [payload.sourceLabel, payload.repoRoot, payload.branchBaseRef]
+                .filter((value) => typeof value === "string" && value.trim() !== "");
+              return parts.join(" | ");
+            }
+
+            function setupNavigationSelector(selectElement, options, fallbackValue, labelText) {
+              if (!selectElement || !Array.isArray(options) || options.length < 2) {
+                return;
+              }
+              selectElement.textContent = "";
+              const selected = options.find((option) => option.selected) ?? options.find((option) => !option.disabled);
+              for (const option of options) {
+                const item = document.createElement("option");
+                item.value = option.value;
+                item.textContent = option.label;
+                item.disabled = option.disabled || !option.url;
+                item.selected = option.value === selected?.value;
+                if (option.message) {
+                  item.title = option.message;
+                }
+                selectElement.append(item);
+              }
+              selectElement.hidden = false;
+              selectElement.title = labelText;
+              selectElement.addEventListener("change", () => {
+                const next = options.find((option) => option.value === selectElement.value);
+                if (!next?.url) {
+                  selectElement.value = selected?.value ?? fallbackValue ?? "";
                   return;
                 }
                 status.dataset.error = "false";
@@ -3750,6 +4194,8 @@ extension CMUXCLI {
           --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
           --surface <id|ref|index>     Source surface to split from (default: $CMUX_SURFACE_ID)
           --window <id|ref|index>      Target window
+          --cwd, --repo <path>          Git repository or worktree path for git sources
+          --base <ref>                  Base ref for --branch (default: origin/HEAD or main)
           --focus <true|false>         Focus the diff browser split (default: false)
           --no-focus                   Do not focus the diff browser split
           --title <text>               Diff viewer title
@@ -3762,6 +4208,7 @@ extension CMUXCLI {
           cmux diff --unstaged
           cmux diff --staged
           cmux diff --branch
+          cmux diff --branch --base upstream/main --repo ../repo
           cmux diff --last-turn
           cmux diff pr.patch --layout unified --font-size 15 --focus true
         """

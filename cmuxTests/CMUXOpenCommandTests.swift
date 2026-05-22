@@ -455,6 +455,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.contains("diff [patch-file|-]"), result.stdout)
         XCTAssertTrue(result.stdout.contains("[--focus <true|false>] [--no-focus] [--title <text>]"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("[--cwd <path>] [--base <ref>]"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("--base <ref>"), result.stdout)
     }
 
     func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
@@ -487,6 +489,22 @@ final class CMUXOpenCommandTests: XCTestCase {
         try runGit(["update-ref", "refs/remotes/origin/main", initialCommit], in: repoURL)
         try runGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], in: repoURL)
 
+        let siblingRepoURL = rootURL.appendingPathComponent("other-repo", isDirectory: true)
+        let siblingFileURL = siblingRepoURL.appendingPathComponent("other.txt")
+        try FileManager.default.createDirectory(at: siblingRepoURL, withIntermediateDirectories: true)
+        try runGit(["init"], in: siblingRepoURL)
+        try runGit(["checkout", "-b", "main"], in: siblingRepoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: siblingRepoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: siblingRepoURL)
+        try "base\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "other.txt"], in: siblingRepoURL)
+        try runGit(["commit", "-m", "initial"], in: siblingRepoURL)
+        let siblingInitialCommit = try runGitStdout(["rev-parse", "HEAD"], in: siblingRepoURL)
+        try runGit(["update-ref", "refs/remotes/origin/main", siblingInitialCommit], in: siblingRepoURL)
+        try runGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], in: siblingRepoURL)
+        try runGit(["checkout", "-b", "feature/other"], in: siblingRepoURL)
+        try "base\nchanged\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
+
         try runGit(["checkout", "-b", "feature/diff-source"], in: repoURL)
         try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "story.txt"], in: repoURL)
@@ -506,12 +524,37 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(branch.html.contains("+three"), branch.html)
         XCTAssertTrue(branch.html.contains("\"sourceLabel\":\"git branch origin/main\""), branch.html)
         XCTAssertTrue(branch.html.contains("id=\"source-select\""), branch.html)
+        XCTAssertTrue(branch.html.contains("id=\"repo-select\""), branch.html)
+        XCTAssertTrue(branch.html.contains("id=\"base-select\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"sourceOptions\""), branch.html)
+        XCTAssertTrue(branch.html.contains("\"repoOptions\""), branch.html)
+        XCTAssertTrue(branch.html.contains("\"baseOptions\""), branch.html)
+        XCTAssertTrue(branch.html.contains("\"repoRoot\":\"\(repoURL.path)\""), branch.html)
+        XCTAssertTrue(branch.html.contains("\"branchBaseRef\":\"origin/main\""), branch.html)
+        XCTAssertTrue(branch.html.contains("other-repo"), branch.html)
         XCTAssertTrue(branch.html.contains("\"label\":\"Unstaged\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"label\":\"Staged\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"label\":\"Branch\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"label\":\"Last turn\""), branch.html)
         assertNoANSIEscape(branch.html)
+
+        let branchWithBase = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--branch", "--base", "main"],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(branchWithBase.html.contains("\"sourceLabel\":\"git branch main\""), branchWithBase.html)
+        XCTAssertTrue(branchWithBase.html.contains("\"branchBaseRef\":\"main\""), branchWithBase.html)
+        XCTAssertTrue(branchWithBase.html.contains("+two"), branchWithBase.html)
+
+        let repoOverride = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--unstaged", "--repo", repoURL.path],
+            currentDirectoryURL: rootURL
+        )
+        XCTAssertTrue(repoOverride.html.contains("\"sourceLabel\":\"git unstaged\""), repoOverride.html)
+        XCTAssertTrue(repoOverride.html.contains("\"repoRoot\":\"\(repoURL.path)\""), repoOverride.html)
+        XCTAssertTrue(repoOverride.html.contains("+three"), repoOverride.html)
 
         let unstaged = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
@@ -537,14 +580,16 @@ final class CMUXOpenCommandTests: XCTestCase {
         let workspaceId = UUID().uuidString.lowercased()
         let surfaceId = UUID().uuidString.lowercased()
         try "before\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
+        try "same\n".write(to: repoURL.appendingPathComponent("unchanged-untracked.txt"), atomically: true, encoding: .utf8)
         try writeDiffBaselineStore(
             stateDirectoryURL: stateURL,
             repoURL: repoURL,
             workspaceId: workspaceId.uppercased(),
             surfaceId: surfaceId.uppercased(),
             baseCommit: initialCommit,
-            untrackedPaths: ["preexisting.txt"]
+            untrackedPaths: ["preexisting.txt", "unchanged-untracked.txt"]
         )
+        try "after\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
         try "created\n".write(to: repoURL.appendingPathComponent("new-turn-file.txt"), atomically: true, encoding: .utf8)
         let lastTurn = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
@@ -564,7 +609,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lastTurn.html.contains("+three"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("new-turn-file.txt"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+created"), lastTurn.html)
-        XCTAssertFalse(lastTurn.html.contains("preexisting.txt"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("preexisting.txt"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("+after"), lastTurn.html)
+        XCTAssertFalse(lastTurn.html.contains("unchanged-untracked.txt"), lastTurn.html)
         assertNoANSIEscape(lastTurn.html)
 
         let refLastTurn = try runDiffCLIAndReadHTML(
@@ -1219,6 +1266,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         ]
         if let untrackedPaths {
             record["untrackedPaths"] = untrackedPaths
+            record["untrackedPathHashes"] = Dictionary(
+                uniqueKeysWithValues: try untrackedPaths.map { path in
+                    (path, try runGitStdout(["hash-object", "--no-filters", "--", path], in: repoURL))
+                }
+            )
         }
         let payload: [String: Any] = [
             "version": 1,
