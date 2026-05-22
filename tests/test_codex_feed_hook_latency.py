@@ -245,24 +245,24 @@ def main() -> int:
             if len(frames) != args.iterations:
                 failures.append(f"slow socket saw {len(frames)} feed.push frames, expected {args.iterations}")
 
-            for frame in frames:
+            for frame_index, frame in enumerate(frames):
                 if not isinstance(frame, dict):
-                    failures.append(f"unexpected non-object frame: {frame!r}")
-                    break
+                    failures.append(f"frame {frame_index} was not an object: {frame!r}")
+                    continue
                 params = frame.get("params")
                 if not isinstance(params, dict):
-                    failures.append(f"unexpected params in frame: {frame!r}")
-                    break
+                    failures.append(f"frame {frame_index} had unexpected params: {frame!r}")
+                    continue
                 event = params.get("event")
                 if frame.get("method") != "feed.push":
-                    failures.append(f"unexpected method in frame: {frame!r}")
-                    break
+                    failures.append(f"frame {frame_index} had unexpected method: {frame!r}")
+                    continue
                 if params.get("wait_timeout_seconds") != 0:
-                    failures.append(f"PreToolUse frame should not wait for a Feed decision: {frame!r}")
-                    break
+                    failures.append(f"frame {frame_index} waited for a Feed decision: {frame!r}")
+                    continue
                 if not isinstance(event, dict) or event.get("hook_event_name") != "PreToolUse":
-                    failures.append(f"unexpected event in frame: {frame!r}")
-                    break
+                    failures.append(f"frame {frame_index} had unexpected event: {frame!r}")
+                    continue
 
             elapsed = [run.elapsed_ms for run in runs]
             p50 = percentile(elapsed, 50)
