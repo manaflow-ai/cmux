@@ -9529,8 +9529,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
-        initialDetachedSurface: DetachedSurfaceTransfer? = nil,
-        warmTerminalPoolSourceWorkspaceId: UUID? = nil
+        initialDetachedSurface: DetachedSurfaceTransfer? = nil
     ) {
         self.id = UUID()
         self.portOrdinal = portOrdinal
@@ -9606,8 +9605,6 @@ final class Workspace: Identifiable, ObservableObject {
                 initialInput: initialTerminalInput,
                 initialEnvironmentOverrides: initialTerminalEnvironment,
                 startupEnvironment: [:],
-                warmPoolTakeContext: warmTerminalPoolSourceWorkspaceId == nil ? nil : GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                allowedWarmPoolOwnerWorkspaceId: warmTerminalPoolSourceWorkspaceId,
                 reason: "workspace.init"
             )
             configureTerminalPanel(terminalPanel)
@@ -12462,7 +12459,6 @@ final class Workspace: Identifiable, ObservableObject {
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
         workingDirectory: String?,
-        allowedWarmPoolOwnerWorkspaceId: UUID?,
         reason: String
     ) -> TerminalPanel? {
         Self.installWarmTerminalPoolSettingsObserverIfNeeded()
@@ -12472,14 +12468,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard let panel = Self.warmTerminalPoolPanel else { return nil }
         let previousOwner = Self.warmTerminalPoolOwnerWorkspaceId
-        let expectedOwner = allowedWarmPoolOwnerWorkspaceId ?? id
-        guard previousOwner == expectedOwner else {
+        guard previousOwner == id else {
 #if DEBUG
             let previousOwnerLabel = previousOwner.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
                 "terminal.warmPool.skipOwnerMismatch panel=\(panel.id.uuidString.prefix(5)) " +
                 "workspace=\(id.uuidString.prefix(5)) previousOwner=\(previousOwnerLabel) " +
-                "expectedOwner=\(expectedOwner.uuidString.prefix(5)) reason=\(reason)"
+                "reason=\(reason)"
             )
 #endif
             return nil
@@ -12557,8 +12552,6 @@ final class Workspace: Identifiable, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         startupEnvironment: [String: String],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
-        warmPoolTakeContext: ghostty_surface_context_e? = nil,
-        allowedWarmPoolOwnerWorkspaceId: UUID? = nil,
         reason: String
     ) -> TerminalPanel {
         if canUseWarmTerminalPool(
@@ -12569,10 +12562,9 @@ final class Workspace: Identifiable, ObservableObject {
             startupEnvironment: startupEnvironment,
             configTemplate: configTemplate
         ), let warmPanel = takeWarmTerminalPanelIfAvailable(
-            context: warmPoolTakeContext ?? context,
+            context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
-            allowedWarmPoolOwnerWorkspaceId: allowedWarmPoolOwnerWorkspaceId,
             reason: reason
         ) {
             return warmPanel

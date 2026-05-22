@@ -2382,8 +2382,7 @@ class TabManager: ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate?,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String],
-        warmTerminalPoolSourceWorkspaceId: UUID? = nil
+        initialTerminalEnvironment: [String: String]
     ) -> Workspace {
         Workspace(
             title: title,
@@ -2392,8 +2391,7 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
-            initialTerminalEnvironment: initialTerminalEnvironment,
-            warmTerminalPoolSourceWorkspaceId: warmTerminalPoolSourceWorkspaceId
+            initialTerminalEnvironment: initialTerminalEnvironment
         )
     }
 
@@ -2509,8 +2507,7 @@ class TabManager: ObservableObject {
                 configTemplate: inheritedConfig,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment,
-                warmTerminalPoolSourceWorkspaceId: select ? capturedSelectedTabId : nil
+                initialTerminalEnvironment: initialTerminalEnvironment
             )
             applyCreationChromeInheritance(
                 to: newWorkspace,
