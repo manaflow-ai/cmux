@@ -4287,6 +4287,32 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertEqual(workspace.dockLayout.openDocksSnapshot(for: .left).count, 1)
     }
 
+    func testDockFilePreviewTextDropTargetUsesOwningController() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let filePanel = try XCTUnwrap(
+            workspace.newFilePreviewSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                filePath: "/tmp/cmux-dock-text-drop.txt",
+                focus: true
+            )
+        )
+
+        let dropTarget = PaneDropTargetView(frame: .zero)
+        let destination = dropTarget.debugFileDropTextDestinationKind(
+            context: PaneDropContext(
+                workspaceId: workspace.id,
+                panelId: filePanel.id,
+                paneId: dockPaneId
+            ),
+            workspace: workspace
+        )
+
+        XCTAssertEqual(destination, .editor)
+    }
+
     func testDockLastPanelReplacementFocusUsesReplacementController() throws {
         let workspace = Workspace()
         let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
