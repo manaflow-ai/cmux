@@ -454,6 +454,63 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(coordinator.diagnosticsSnapshot.portalHideCount, 0)
     }
 
+    func testMarkdownRendererIgnoresStaleProbeGeometryAfterReplacementBind() throws {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        let frame = NSRect(x: 0, y: 0, width: 560, height: 320)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: frame)
+        window.contentView = root
+
+        let staleProbe = MarkdownWebPortalProbeView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        let replacementProbe = MarkdownWebPortalProbeView(frame: NSRect(x: 260, y: 140, width: 220, height: 150))
+        root.addSubview(staleProbe)
+        root.addSubview(replacementProbe)
+        let dropContext = BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID()),
+            allowsHostedWebViewTextDrop: false
+        )
+
+        coordinator.bindPortal(
+            to: staleProbe,
+            visibleInUI: true,
+            zPriority: 1,
+            dropContext: dropContext,
+            reason: "unit-test-stale"
+        )
+        coordinator.bindPortal(
+            to: replacementProbe,
+            visibleInUI: true,
+            zPriority: 1,
+            dropContext: dropContext,
+            reason: "unit-test-replacement"
+        )
+
+        staleProbe.frame = NSRect(x: 40, y: 40, width: 190, height: 130)
+        coordinator.synchronizePortal(for: staleProbe)
+
+        let snapshot = try XCTUnwrap(coordinator.portalSnapshot())
+        XCTAssertEqual(snapshot.frameInWindow.origin.x, replacementProbe.frame.origin.x, accuracy: 0.5)
+        XCTAssertEqual(snapshot.frameInWindow.origin.y, replacementProbe.frame.origin.y, accuracy: 0.5)
+        XCTAssertEqual(snapshot.frameInWindow.width, replacementProbe.frame.width, accuracy: 0.5)
+        XCTAssertEqual(snapshot.frameInWindow.height, replacementProbe.frame.height, accuracy: 0.5)
+    }
+
     func testMarkdownRendererHidesPortalWhenHiddenProbeMovesOffWindow() throws {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())

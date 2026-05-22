@@ -491,8 +491,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         func synchronizePortal(for probe: MarkdownWebPortalProbeView) {
             guard !isClosed else { return }
             guard webView != nil else { return }
+            guard currentPortalProbe === probe else { return }
             guard let anchorView = updatePortalAnchorFrame(from: probe) else {
-                guard currentPortalProbe === probe, !currentPortalHostVisibleInUI else { return }
+                guard !currentPortalHostVisibleInUI else { return }
                 hidePortal(reason: "geometry.offWindow")
                 return
             }
