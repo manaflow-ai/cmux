@@ -239,6 +239,25 @@ extension SessionIndexStore {
         let fileURL: URL
     }
 
+    private struct AntigravityPendingHistoryMetadata {
+        let title: String
+        let cwd: String?
+        let modified: Date
+    }
+
+    private struct AntigravityHistorySnapshot {
+        var bySessionID: [String: AntigravityHistoryMetadata] = [:]
+        var pending: [AntigravityPendingHistoryMetadata] = []
+    }
+
+    private struct AntigravityTranscriptMetadata {
+        var title: String = ""
+    }
+
+    private static let antigravityHistoryMetadataByteCap = 4 * 1024 * 1024
+    private static let antigravityTranscriptMetadataByteCap = 512 * 1024
+    private static let antigravityPendingHistoryMatchWindow: TimeInterval = 24 * 60 * 60
+
     private struct GrokSessionMetadata {
         var title: String = ""
         var model: String?
@@ -374,7 +393,7 @@ extension SessionIndexStore {
         limit: Int
     ) async -> [SessionEntry] {
         if registration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
-            return loadAntigravityHistoryEntries(
+            return loadAntigravityEntries(
                 registration: registration,
                 needle: needle,
                 cwdFilter: cwdFilter,
@@ -463,7 +482,7 @@ extension SessionIndexStore {
         return Array(matches.dropFirst(offset).prefix(limit))
     }
 
-    nonisolated private static func loadAntigravityHistoryEntries(
+    nonisolated private static func loadAntigravityEntries(
         registration: CmuxVaultAgentRegistration,
         needle: String,
         cwdFilter: String?,
@@ -473,80 +492,271 @@ extension SessionIndexStore {
         let roots = registeredSessionRoots(registration: registration, cwdFilter: cwdFilter)
         guard !roots.isEmpty else { return [] }
 
-        let fm = FileManager.default
-        var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
+        var matches: [SessionEntry] = []
+        var seenSessionIDs = Set<String>()
+        let target = offset + limit
+        let normalizedCWDFilter = normalizedAntigravityCWD(cwdFilter)
 
         for root in roots {
             if Task.isCancelled { break }
-            let historyURL = URL(fileURLWithPath: root, isDirectory: true)
-                .appendingPathComponent("history.jsonl", isDirectory: false)
-            var isDirectory: ObjCBool = false
-            guard fm.fileExists(atPath: historyURL.path, isDirectory: &isDirectory),
-                  !isDirectory.boolValue else {
-                continue
-            }
-            let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
-                ?? Date.distantPast
-
-            forEachJSONLine(url: historyURL, maxBytes: Int.max) { object in
-                if Task.isCancelled { return true }
-                guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
-                    return false
+            let rootURL = URL(fileURLWithPath: root, isDirectory: true)
+            let historySnapshot = antigravityHistorySnapshot(rootURL: rootURL)
+            let historyBySessionID = historySnapshot.bySessionID
+            let cwdBySessionID = antigravityLastConversationCWDBySessionID(rootURL: rootURL)
+            let candidates = enumerateAntigravityTranscriptCandidates(rootURL: rootURL)
+                .sorted {
+                    if $0.modified == $1.modified {
+                        return $0.sessionId < $1.sessionId
+                    }
+                    return $0.modified > $1.modified
                 }
-                let cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
-                if let cwdFilter, cwd != cwdFilter { return false }
 
-                let title = antigravityHistoryTitle(in: object) ?? ""
+            var scanned = 0
+            for candidate in candidates {
+                if Task.isCancelled { break }
+                if matches.count >= target { break }
+                if scanned >= searchMaxFiles { break }
+                scanned += 1
+
+                let history = historyBySessionID[candidate.sessionId]
+                let transcriptMetadata = antigravityTranscriptMetadata(url: candidate.url)
+                let pendingHistory: AntigravityPendingHistoryMetadata?
+                if history == nil {
+                    pendingHistory = antigravityPendingHistoryMatch(
+                        title: transcriptMetadata.title,
+                        modified: candidate.modified,
+                        pending: historySnapshot.pending
+                    )
+                } else {
+                    pendingHistory = nil
+                }
+                let title = normalizedAntigravityValue(transcriptMetadata.title)
+                    ?? normalizedAntigravityValue(history?.title)
+                    ?? normalizedAntigravityValue(pendingHistory?.title)
+                    ?? candidate.sessionId
+                let cwd = normalizedAntigravityCWD(history?.cwd)
+                    ?? normalizedAntigravityCWD(pendingHistory?.cwd)
+                    ?? cwdBySessionID[candidate.sessionId]
+                if let normalizedCWDFilter, cwd != normalizedCWDFilter { continue }
                 guard antigravityHistoryMatchesNeedle(
                     needle: needle,
-                    sessionId: sessionId,
+                    sessionId: candidate.sessionId,
                     title: title,
                     cwd: cwd
                 ) else {
-                    return false
+                    continue
                 }
 
-                let modified = antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
-                let metadata = AntigravityHistoryMetadata(
-                    sessionId: sessionId,
+                guard seenSessionIDs.insert(candidate.sessionId).inserted else { continue }
+                let modified = max(
+                    candidate.modified,
+                    history?.modified ?? pendingHistory?.modified ?? Date.distantPast
+                )
+                matches.append(SessionEntry(
+                    id: "\(registration.id):\(candidate.sessionId)",
+                    agent: .registered(RegisteredSessionAgent(registration: registration)),
+                    sessionId: candidate.sessionId,
                     title: title,
                     cwd: cwd,
+                    gitBranch: nil,
+                    pullRequest: nil,
                     modified: modified,
-                    fileURL: historyURL
-                )
-                if let existing = latestBySessionID[sessionId] {
-                    if metadata.modified >= existing.modified {
-                        latestBySessionID[sessionId] = metadata
-                    }
-                } else {
-                    latestBySessionID[sessionId] = metadata
-                }
-                return false
+                    fileURL: candidate.url,
+                    specifics: .registered(registration)
+                ))
             }
-        }
 
-        let entries = latestBySessionID.values
-            .sorted {
+            let historyFallbacks = historyBySessionID.values.sorted {
                 if $0.modified == $1.modified {
                     return $0.sessionId < $1.sessionId
                 }
                 return $0.modified > $1.modified
             }
-            .map { metadata in
-                SessionEntry(
+            for metadata in historyFallbacks {
+                if Task.isCancelled { break }
+                if matches.count >= target { break }
+                guard seenSessionIDs.insert(metadata.sessionId).inserted else { continue }
+                let title = normalizedAntigravityValue(metadata.title) ?? metadata.sessionId
+                let cwd = normalizedAntigravityCWD(metadata.cwd)
+                if let normalizedCWDFilter, cwd != normalizedCWDFilter { continue }
+                guard antigravityHistoryMatchesNeedle(
+                    needle: needle,
+                    sessionId: metadata.sessionId,
+                    title: title,
+                    cwd: cwd
+                ) else {
+                    continue
+                }
+                matches.append(SessionEntry(
                     id: "\(registration.id):\(metadata.sessionId)",
                     agent: .registered(RegisteredSessionAgent(registration: registration)),
                     sessionId: metadata.sessionId,
-                    title: metadata.title,
-                    cwd: metadata.cwd,
+                    title: title,
+                    cwd: cwd,
                     gitBranch: nil,
                     pullRequest: nil,
                     modified: metadata.modified,
                     fileURL: metadata.fileURL,
                     specifics: .registered(registration)
-                )
+                ))
             }
+        }
+
+        let entries = matches.sorted {
+            if $0.modified == $1.modified {
+                return $0.sessionId < $1.sessionId
+            }
+            return $0.modified > $1.modified
+        }
         return Array(entries.dropFirst(offset).prefix(limit))
+    }
+
+    nonisolated private static func antigravityHistorySnapshot(
+        rootURL: URL
+    ) -> AntigravityHistorySnapshot {
+        let historyURL = rootURL.appendingPathComponent("history.jsonl", isDirectory: false)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: historyURL.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return AntigravityHistorySnapshot()
+        }
+        let fallbackModified = ((try? FileManager.default.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
+            ?? Date.distantPast
+        var snapshot = AntigravityHistorySnapshot()
+        let tail = readFileTail(url: historyURL, byteCap: antigravityHistoryMetadataByteCap)
+        for line in tail.split(separator: "\n", omittingEmptySubsequences: true) {
+            if Task.isCancelled { return snapshot }
+            let data = Data(line.utf8)
+            guard let object = autoreleasepool(invoking: { () -> [String: Any]? in
+                try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            }) else {
+                continue
+            }
+            let title = antigravityHistoryTitle(in: object) ?? ""
+            let cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
+            let modified = antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
+            guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
+                snapshot.pending.append(
+                    AntigravityPendingHistoryMetadata(
+                        title: title,
+                        cwd: cwd,
+                        modified: modified
+                    )
+                )
+                continue
+            }
+            let metadata = AntigravityHistoryMetadata(
+                sessionId: sessionId,
+                title: title,
+                cwd: cwd,
+                modified: modified,
+                fileURL: historyURL
+            )
+            if let existing = snapshot.bySessionID[sessionId], existing.modified > metadata.modified {
+                continue
+            }
+            snapshot.bySessionID[sessionId] = metadata
+        }
+        return snapshot
+    }
+
+    nonisolated private static func antigravityPendingHistoryMatch(
+        title: String,
+        modified: Date,
+        pending: [AntigravityPendingHistoryMetadata]
+    ) -> AntigravityPendingHistoryMetadata? {
+        guard let normalizedTitle = normalizedAntigravityValue(title) else { return nil }
+        let lowercasedTitle = normalizedTitle.lowercased()
+        return pending
+            .filter { metadata in
+                guard let metadataTitle = normalizedAntigravityValue(metadata.title) else {
+                    return false
+                }
+                let delta = abs(metadata.modified.timeIntervalSince(modified))
+                return metadataTitle.lowercased() == lowercasedTitle
+                    && delta <= antigravityPendingHistoryMatchWindow
+            }
+            .min {
+                abs($0.modified.timeIntervalSince(modified))
+                    < abs($1.modified.timeIntervalSince(modified))
+            }
+    }
+
+    nonisolated private static func antigravityLastConversationCWDBySessionID(
+        rootURL: URL
+    ) -> [String: String] {
+        let url = rootURL
+            .appendingPathComponent("cache", isDirectory: true)
+            .appendingPathComponent("last_conversations.json", isDirectory: false)
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        var result: [String: String] = [:]
+        for (cwd, sessionId) in object {
+            guard let normalizedCWD = normalizedAntigravityCWD(cwd),
+                  let normalizedSessionID = normalizedAntigravityValue(sessionId) else {
+                continue
+            }
+            result[normalizedSessionID] = normalizedCWD
+        }
+        return result
+    }
+
+    nonisolated private static func enumerateAntigravityTranscriptCandidates(
+        rootURL: URL
+    ) -> [(sessionId: String, url: URL, modified: Date)] {
+        let brainURL = rootURL.appendingPathComponent("brain", isDirectory: true)
+        guard let sessionDirs = try? FileManager.default.contentsOfDirectory(
+            at: brainURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsPackageDescendants]
+        ) else {
+            return []
+        }
+        var candidates: [(sessionId: String, url: URL, modified: Date)] = []
+        for sessionDir in sessionDirs {
+            if Task.isCancelled { break }
+            let values = try? sessionDir.resourceValues(forKeys: [.isDirectoryKey])
+            guard values?.isDirectory == true else { continue }
+            let transcriptURL = sessionDir
+                .appendingPathComponent(".system_generated", isDirectory: true)
+                .appendingPathComponent("logs", isDirectory: true)
+                .appendingPathComponent("transcript.jsonl", isDirectory: false)
+            let transcriptValues = try? transcriptURL.resourceValues(
+                forKeys: [.contentModificationDateKey, .isRegularFileKey]
+            )
+            guard transcriptValues?.isRegularFile == true,
+                  let modified = transcriptValues?.contentModificationDate else {
+                continue
+            }
+            candidates.append((sessionDir.lastPathComponent, transcriptURL, modified))
+        }
+        return candidates
+    }
+
+    nonisolated private static func antigravityTranscriptMetadata(
+        url: URL
+    ) -> AntigravityTranscriptMetadata {
+        var metadata = AntigravityTranscriptMetadata()
+        forEachJSONLine(url: url, maxBytes: antigravityTranscriptMetadataByteCap) { object in
+            if Task.isCancelled { return true }
+            if metadata.title.isEmpty,
+               let text = antigravityTranscriptUserRequest(in: object) {
+                metadata.title = text
+            }
+            return !metadata.title.isEmpty
+        }
+        return metadata
+    }
+
+    nonisolated private static func normalizedAntigravityValue(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    nonisolated private static func normalizedAntigravityCWD(_ value: String?) -> String? {
+        normalizedAntigravityValue(value).map { ($0 as NSString).standardizingPath }
     }
 
     nonisolated private static func registeredSessionRoots(
@@ -738,6 +948,25 @@ extension SessionIndexStore {
     nonisolated private static func antigravityHistoryTitle(in object: [String: Any]) -> String? {
         firstText(in: object, keys: ["title", "prompt", "display"])
             ?? firstTopLevelTitle(in: object)
+    }
+
+    nonisolated private static func antigravityTranscriptUserRequest(in object: [String: Any]) -> String? {
+        guard (object["source"] as? String) == "USER_EXPLICIT",
+              (object["type"] as? String) == "USER_INPUT",
+              let content = object["content"] as? String else {
+            return nil
+        }
+        return antigravityUserRequestText(from: content) ?? normalizedAntigravityValue(content)
+    }
+
+    nonisolated private static func antigravityUserRequestText(from content: String) -> String? {
+        let startTag = "<USER_REQUEST>"
+        let endTag = "</USER_REQUEST>"
+        guard let startRange = content.range(of: startTag),
+              let endRange = content.range(of: endTag, range: startRange.upperBound..<content.endIndex) else {
+            return nil
+        }
+        return normalizedAntigravityValue(String(content[startRange.upperBound..<endRange.lowerBound]))
     }
 
     nonisolated private static func antigravityHistoryMatchesNeedle(

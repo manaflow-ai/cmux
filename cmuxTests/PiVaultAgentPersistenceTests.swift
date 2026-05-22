@@ -150,6 +150,61 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         )
     }
 
+    func testBuiltInAntigravityRegistrationIndexesFirstTranscriptWithoutHistoryConversationID() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-first-transcript-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        try writeAntigravityTranscript(root: tempDir, sessionId: "first-thread-session", prompt: "2222+2222")
+        let historyURL = tempDir.appendingPathComponent("history.jsonl", isDirectory: false)
+        try """
+        {"display":"2222+2222","timestamp":1779426206992,"workspace":"/tmp/antigravity repo"}
+        """.write(to: historyURL, atomically: true, encoding: .utf8)
+
+        var registration = CmuxVaultAgentRegistration.builtInAntigravity
+        registration.sessionDirectory = tempDir.path
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "2222",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10
+        )
+
+        XCTAssertEqual(entries.map(\.sessionId), ["first-thread-session"])
+        XCTAssertEqual(entries.first?.title, "2222+2222")
+        XCTAssertEqual(entries.first?.cwd, "/tmp/antigravity repo")
+        XCTAssertEqual(entries.first?.fileURL?.lastPathComponent, "transcript.jsonl")
+    }
+
+    func testBuiltInAntigravityRegistrationUsesLastConversationCWDForFirstTranscript() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-first-cwd-\(UUID().uuidString)", isDirectory: true)
+        let cwd = tempDir.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        try writeAntigravityTranscript(root: tempDir, sessionId: "cwd-thread-session", prompt: "3+33333")
+        let cacheURL = tempDir.appendingPathComponent("cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+        let mappingData = try JSONSerialization.data(withJSONObject: [cwd.path: "cwd-thread-session"])
+        try mappingData.write(to: cacheURL.appendingPathComponent("last_conversations.json", isDirectory: false))
+
+        var registration = CmuxVaultAgentRegistration.builtInAntigravity
+        registration.sessionDirectory = tempDir.path
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: cwd.path,
+            offset: 0,
+            limit: 10
+        )
+
+        XCTAssertEqual(entries.map(\.sessionId), ["cwd-thread-session"])
+        XCTAssertEqual(entries.first?.cwd, cwd.path)
+    }
+
     func testRegisteredAgentJSONLWorkspaceKeyIsSharedCWDMetadata() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-workspace-cwd-\(UUID().uuidString)", isDirectory: true)
@@ -1073,6 +1128,42 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             loadedAgent.resumeCommand,
             "cd '/tmp/pi repo' && '/opt/homebrew/bin/pi' '--session' '\(sessionPath)'"
         )
+    }
+
+    private func writeAntigravityTranscript(root: URL, sessionId: String, prompt: String) throws {
+        let transcriptURL = root
+            .appendingPathComponent("brain", isDirectory: true)
+            .appendingPathComponent(sessionId, isDirectory: true)
+            .appendingPathComponent(".system_generated", isDirectory: true)
+            .appendingPathComponent("logs", isDirectory: true)
+            .appendingPathComponent("transcript.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let rows: [[String: Any]] = [
+            [
+                "step_index": 0,
+                "source": "USER_EXPLICIT",
+                "type": "USER_INPUT",
+                "status": "DONE",
+                "created_at": "2026-05-22T05:03:26Z",
+                "content": "<USER_REQUEST>\n\(prompt)\n</USER_REQUEST>"
+            ],
+            [
+                "step_index": 1,
+                "source": "MODEL",
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "created_at": "2026-05-22T05:03:27Z",
+                "content": "done"
+            ]
+        ]
+        let jsonl = try rows.map { row -> String in
+            let data = try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
+            return String(decoding: data, as: UTF8.self)
+        }.joined(separator: "\n")
+        try (jsonl + "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
     }
 
     private func makeSnapshot() -> AppSessionSnapshot {
