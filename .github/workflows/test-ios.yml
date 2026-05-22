@@ -152,4 +152,20 @@ jobs:
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
           fi
           XCODEBUILD_ARGS+=(test)
-          xcodebuild "${XCODEBUILD_ARGS[@]}"
+          for attempt in 1 2; do
+            LOG_PATH="/tmp/cmux-ios-${{ matrix.family }}-attempt-${attempt}.log"
+            echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
+            xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
+            xcrun simctl erase "$SIMULATOR_ID"
+            xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
+            xcrun simctl bootstatus "$SIMULATOR_ID" -b
+            if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
+              exit 0
+            fi
+            status="${PIPESTATUS[0]}"
+            if [ "$attempt" -lt 2 ] && grep -Eq "Timed out while launching application via Xcode|Failed to send signal 19|DTXMessage" "$LOG_PATH"; then
+              echo "Detected Xcode simulator launch failure, retrying on a clean simulator."
+              continue
+            fi
+            exit "$status"
+          done

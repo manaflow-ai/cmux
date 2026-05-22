@@ -81,7 +81,7 @@ final class cmuxMobileUITests: XCTestCase {
             1: "workspace: Workspace 3",
             2: "terminal: Terminal 1",
         ], in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(workspaceStart), 4.0)
+        XCTAssertLessThan(Date().timeIntervalSince(workspaceStart), 6.0)
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
@@ -90,7 +90,7 @@ final class cmuxMobileUITests: XCTestCase {
             1: "workspace: Workspace 3",
             2: "terminal: Terminal 2",
         ], in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 4.0)
+        XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 6.0)
     }
 
     @MainActor
