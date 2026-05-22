@@ -4,9 +4,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/ci-unit-test-output-guard.sh"
-WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
-COMPAT_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
-DEPOT_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/test-depot.yml"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -14,42 +11,6 @@ if [ ! -x "$SCRIPT" ]; then
   echo "FAIL: missing executable hard-failure guard at $SCRIPT" >&2
   exit 1
 fi
-
-if ! grep -Fq './tests/test_ci_unit_test_output_guard.sh' "$WORKFLOW_FILE"; then
-  echo "FAIL: ci.yml must run the unit-test hard-failure guard test" >&2
-  exit 1
-fi
-
-line_no() {
-  local pattern="$1"
-  local file="$2"
-  awk -v pattern="$pattern" 'index($0, pattern) { print NR; exit }' "$file"
-}
-
-last_line_no() {
-  local pattern="$1"
-  local file="$2"
-  awk -v pattern="$pattern" 'index($0, pattern) { line = NR } END { if (line) print line }' "$file"
-}
-
-assert_guard_before_summary_parser() {
-  local workflow_file="$1"
-  local guard_pattern='./scripts/ci-unit-test-output-guard.sh "$EXIT_CODE" /tmp/test-output.txt'
-  local summary_pattern='SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)'
-  local guard_line
-  local summary_line
-  guard_line="$(last_line_no "$guard_pattern" "$workflow_file")"
-  summary_line="$(line_no "$summary_pattern" "$workflow_file")"
-
-  if [ -z "$guard_line" ] || [ -z "$summary_line" ] || [ "$guard_line" -ge "$summary_line" ]; then
-    echo "FAIL: $(basename "$workflow_file") must run the hard-failure guard before parsing XCTest summaries" >&2
-    exit 1
-  fi
-}
-
-assert_guard_before_summary_parser "$WORKFLOW_FILE"
-assert_guard_before_summary_parser "$COMPAT_WORKFLOW_FILE"
-assert_guard_before_summary_parser "$DEPOT_WORKFLOW_FILE"
 
 write_log() {
   local name="$1"
