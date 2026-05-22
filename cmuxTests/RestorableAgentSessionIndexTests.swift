@@ -199,6 +199,64 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    func testPanelRestorePrefersLaunchBackedParentOverNewerLaunchlessSubagent() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-codex-subagent-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fm.createDirectory(at: stateDir, withIntermediateDirectories: true)
+
+        let workspaceId = UUID()
+        let movedWorkspaceId = UUID()
+        let panelId = UUID()
+        let parentSessionId = "parent-thread"
+        let childSessionId = "child-thread"
+        let parentCwd = root.appendingPathComponent("parent-repo", isDirectory: true).path
+        let childCwd = root.appendingPathComponent("child-repo", isDirectory: true).path
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                parentSessionId: [
+                    "sessionId": parentSessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": parentCwd,
+                    "updatedAt": 10,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                        "workingDirectory": parentCwd,
+                        "capturedAt": 10,
+                        "source": "test",
+                    ],
+                ],
+                childSessionId: [
+                    "sessionId": childSessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": childCwd,
+                    "updatedAt": 20,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+
+        XCTAssertEqual(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId,
+            parentSessionId
+        )
+        XCTAssertEqual(
+            index.snapshot(workspaceId: movedWorkspaceId, panelId: panelId)?.sessionId,
+            parentSessionId
+        )
+    }
+
     private func hookRecord(
         sessionId: String,
         workspaceId: UUID,
