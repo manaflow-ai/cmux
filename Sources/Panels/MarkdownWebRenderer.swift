@@ -36,7 +36,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         let probe = MarkdownWebPortalProbeView(frame: .zero)
         applyBackground(to: probe)
         let reusedWebView = context.coordinator.webView != nil
-        let webView = context.coordinator.webView ?? makeWebView(context: context)
+        guard let webView = context.coordinator.ensureWebView(make: { makeWebView(context: context) }) else {
+            return probe
+        }
 
         configureWebViewCallbacks(webView, coordinator: context.coordinator)
         applyBackground(to: webView)
@@ -66,7 +68,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.recordUpdateNSView()
 #endif
         applyBackground(to: nsView)
-        let webView = context.coordinator.ensureWebView(make: { makeWebView(context: context) })
+        guard let webView = context.coordinator.ensureWebView(make: { makeWebView(context: context) }) else {
+            return
+        }
         configureWebViewCallbacks(webView, coordinator: context.coordinator)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
@@ -201,6 +205,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private weak var currentPortalProbe: MarkdownWebPortalProbeView?
         private let portalAnchorView = MarkdownWebPortalAnchorView(frame: .zero)
         private var currentPortalHostVisibleInUI = false
+        private var isClosed = false
         private var webContentProcessRecoveryAttempts = 0
         private let maxWebContentProcessRecoveryAttempts = 2
 
@@ -313,6 +318,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
 
         func bind(panelId: UUID, workspaceId: UUID, filePath: String) {
+            guard !isClosed else { return }
             self.panelId = panelId
             self.workspaceId = workspaceId
             self.filePath = filePath
@@ -328,12 +334,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             theme: MarkdownWebTheme,
             initialMarkdown: String
         ) {
+            guard !isClosed else { return }
             guard self.webView == nil else { return }
             self.webView = webView
             loadShell(theme: theme, initialMarkdown: initialMarkdown)
         }
 
-        func ensureWebView(make: () -> MarkdownWebView) -> MarkdownWebView {
+        func ensureWebView(make: () -> MarkdownWebView) -> MarkdownWebView? {
+            guard !isClosed else { return nil }
             if let webView {
                 return webView
             }
@@ -347,6 +355,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             dropContext: BrowserPaneDropContext,
             reason: String
         ) {
+            guard !isClosed else { return }
             guard let webView else { return }
             guard let anchorView = updatePortalAnchorFrame(from: probe) else {
                 if currentPortalProbe === probe {
@@ -438,6 +447,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         func hidePortal(reason: String) {
+            guard !isClosed else { return }
             guard let webView else { return }
             currentPortalHostVisibleInUI = false
             BrowserWindowPortalRegistry.hide(webView: webView, source: "markdown.\(reason)")
@@ -448,6 +458,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         func updatePortalDropContext(_ context: BrowserPaneDropContext?) {
+            guard !isClosed else { return }
             guard let webView else { return }
             BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: context)
         }
@@ -458,6 +469,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             dropContext: BrowserPaneDropContext,
             reason: String
         ) -> Bool {
+            guard !isClosed else { return false }
             guard let probe = currentPortalProbe else { return false }
             bindPortal(
                 to: probe,
@@ -471,11 +483,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         func portalSnapshot() -> BrowserWindowPortalRegistry.DebugSnapshot? {
+            guard !isClosed else { return nil }
             guard let webView else { return nil }
             return BrowserWindowPortalRegistry.debugSnapshot(for: webView)
         }
 
         func synchronizePortal(for probe: MarkdownWebPortalProbeView) {
+            guard !isClosed else { return }
             guard webView != nil else { return }
             guard let anchorView = updatePortalAnchorFrame(from: probe) else {
                 guard currentPortalProbe === probe, !currentPortalHostVisibleInUI else { return }
@@ -486,6 +500,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         func close() {
+            isClosed = true
             if let webView {
                 BrowserWindowPortalRegistry.discard(webView: webView, source: "markdown.close")
                 webView.stopLoading()

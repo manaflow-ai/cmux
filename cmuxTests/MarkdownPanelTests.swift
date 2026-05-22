@@ -314,6 +314,30 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
+    func testMarkdownRendererCoordinatorDoesNotRecreateWebViewAfterClose() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let originalWebView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        coordinator.webView = originalWebView
+
+        coordinator.close()
+
+        var didAttemptCreate = false
+        let recreatedWebView = coordinator.ensureWebView {
+            didAttemptCreate = true
+            return MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        }
+        let lateWebView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        coordinator.installWebView(
+            lateWebView,
+            theme: MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor),
+            initialMarkdown: "# Closed\n"
+        )
+
+        XCTAssertNil(recreatedWebView)
+        XCTAssertFalse(didAttemptCreate)
+        XCTAssertNil(coordinator.webView)
+    }
+
     func testMarkdownRendererDismantleClearsProbeCallbacksOnly() {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
