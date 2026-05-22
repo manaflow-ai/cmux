@@ -740,6 +740,7 @@ workflow_guards() {
   ./tests/test_ci_swift_warning_budget.sh
   ./tests/test_ci_swift_file_length_budget.sh
   ./tests/test_ci_auxiliary_window_close_shortcuts.sh
+  ./tests/test_ci_pbxproj_test_wiring.sh
   ./tests/test_macfleet_cleanup_active_run_guard.sh
   node scripts/release_asset_guard.test.js
 }
