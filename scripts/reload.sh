@@ -46,8 +46,25 @@ should_skip_ghostty_cli_helper_zig_build() {
 write_dev_cli_shim() {
   local target="$1"
   local fallback_bin="$2"
-  mkdir -p "$(dirname "$target")"
-  cat > "$target" <<EOF
+  local target_dir
+  local tmp_target
+  target_dir="$(dirname "$target")"
+  tmp_target="${target}.$$.tmp"
+
+  if ! mkdir -p "$target_dir" 2>/dev/null; then
+    echo "warning: skipping dev CLI shim; cannot create $target_dir" >&2
+    return 0
+  fi
+  if [[ ! -w "$target_dir" ]]; then
+    echo "warning: skipping dev CLI shim; directory is not writable: $target_dir" >&2
+    return 0
+  fi
+  if [[ -e "$target" && ! -w "$target" ]]; then
+    echo "warning: skipping dev CLI shim; target is not writable: $target" >&2
+    return 0
+  fi
+
+  if ! cat > "$tmp_target" <<EOF
 #!/usr/bin/env bash
 # cmux dev shim (managed by scripts/reload.sh)
 set -euo pipefail
@@ -72,7 +89,21 @@ fi
 echo "error: no reload-selected dev cmux CLI found. Run ./scripts/reload.sh --tag <name> first." >&2
 exit 1
 EOF
-  chmod +x "$target"
+  then
+    echo "warning: skipping dev CLI shim; cannot write $target" >&2
+    rm -f "$tmp_target"
+    return 0
+  fi
+  if ! chmod +x "$tmp_target" 2>/dev/null; then
+    echo "warning: skipping dev CLI shim; cannot mark executable: $target" >&2
+    rm -f "$tmp_target"
+    return 0
+  fi
+  if ! mv "$tmp_target" "$target" 2>/dev/null; then
+    echo "warning: skipping dev CLI shim; cannot replace $target" >&2
+    rm -f "$tmp_target"
+    return 0
+  fi
 }
 
 select_cmux_shim_target() {
@@ -97,7 +128,7 @@ select_cmux_shim_target() {
       target="$candidate"
       break
     fi
-    if [[ -f "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
+    if [[ -f "$candidate" && -w "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
       target="$candidate"
       break
     fi
@@ -116,7 +147,7 @@ select_cmux_shim_target() {
       echo "$candidate"
       return 0
     fi
-    if [[ -f "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
+    if [[ -f "$candidate" && -w "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
       echo "$candidate"
       return 0
     fi
