@@ -3366,6 +3366,57 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
     }
 
+    func testTmuxWorkspacePaneOverlayModelAnimatesFirstObservedFlashToken() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let workspaceId = UUID()
+        let flashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: workspaceId,
+                unreadRects: [],
+                flashRect: flashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
+    }
+
+    func testTmuxWorkspacePaneOverlayModelWaitsForRectBeforeFirstObservedFlashToken() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let workspaceId = UUID()
+        let flashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: workspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 1,
+            flashReason: .unreadIndicatorDismiss
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: workspaceId,
+                unreadRects: [],
+                flashRect: flashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
+    }
+
     func testNavigationFlashUsesNonNotificationPresentation() {
         XCTAssertNotEqual(
             WorkspaceAttentionCoordinator.flashStyle(for: .navigation),
