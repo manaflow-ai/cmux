@@ -335,7 +335,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(afterDismantle?.visibleInUI, true)
     }
 
-    func testMarkdownRendererHidesPortalWhenProbeMovesOffWindow() throws {
+    func testMarkdownRendererKeepsVisiblePortalDuringTransientProbeMoveOffWindow() throws {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
         coordinator.webView = webView
@@ -380,6 +380,59 @@ final class MarkdownPanelTests: XCTestCase {
             zPriority: 1,
             dropContext: dropContext,
             reason: "unit-test-off-window"
+        )
+
+        let snapshot = try XCTUnwrap(coordinator.portalSnapshot())
+        XCTAssertEqual(snapshot.visibleInUI, true)
+        XCTAssertEqual(snapshot.containerHidden, false)
+        XCTAssertEqual(coordinator.diagnosticsSnapshot.portalHideCount, 0)
+    }
+
+    func testMarkdownRendererHidesPortalWhenHiddenProbeMovesOffWindow() throws {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: frame)
+        window.contentView = root
+
+        let probe = MarkdownWebPortalProbeView(frame: NSRect(x: 20, y: 20, width: 320, height: 180))
+        root.addSubview(probe)
+        let dropContext = BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID()),
+            allowsHostedWebViewTextDrop: false
+        )
+        coordinator.bindPortal(
+            to: probe,
+            visibleInUI: true,
+            zPriority: 1,
+            dropContext: dropContext,
+            reason: "unit-test"
+        )
+        XCTAssertEqual(coordinator.portalSnapshot()?.visibleInUI, true)
+
+        probe.removeFromSuperview()
+        coordinator.bindPortal(
+            to: probe,
+            visibleInUI: false,
+            zPriority: 1,
+            dropContext: dropContext,
+            reason: "unit-test-hidden-off-window"
         )
 
         let snapshot = try XCTUnwrap(coordinator.portalSnapshot())
@@ -462,6 +515,88 @@ final class MarkdownPanelTests: XCTestCase {
         let snapshot = try XCTUnwrap(firstPanel.rendererSession.portalSnapshot())
         XCTAssertEqual(snapshot.visibleInUI, false)
         XCTAssertEqual(firstPanel.rendererSession.diagnosticsSnapshot.dismantleRetainedWebViewCount, 0)
+    }
+
+    func testMarkdownDetachedPanelLifecycleHidesPreservedPortalAnchor() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-detach-hide-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appendingPathComponent("detached.md")
+        try "# Detached\n\nPreserved panel source portals should hide.\n"
+            .write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace(title: "Markdown detach hide")
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(workspace.newMarkdownSurface(
+            inPane: pane,
+            filePath: fileURL.path,
+            focus: true
+        ))
+        defer {
+            panel.close()
+            for panel in workspace.panels.values {
+                panel.close()
+            }
+        }
+
+        let coordinator = panel.rendererSession.coordinator(
+            panelId: panel.id,
+            workspaceId: workspace.id,
+            filePath: panel.filePath
+        )
+        coordinator.webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: frame)
+        window.contentView = root
+
+        let probe = MarkdownWebPortalProbeView(frame: NSRect(x: 20, y: 20, width: 320, height: 180))
+        root.addSubview(probe)
+        coordinator.bindPortal(
+            to: probe,
+            visibleInUI: true,
+            zPriority: 1,
+            dropContext: BrowserPaneDropContext(
+                workspaceId: workspace.id,
+                panelId: panel.id,
+                paneId: pane,
+                allowsHostedWebViewTextDrop: false
+            ),
+            reason: "unit-test"
+        )
+
+        XCTAssertEqual(panel.rendererSession.portalSnapshot()?.visibleInUI, true)
+
+        workspace.discardClosedPanelLifecycleState(
+            panelId: panel.id,
+            tabId: workspace.surfaceIdFromPanelId(panel.id),
+            paneId: pane,
+            panel: panel,
+            origin: "unit-test-detach",
+            closePanel: false,
+            publishSurfaceClosedEvent: false,
+            clearSurfaceNotifications: false,
+            requestTransferredRemoteCleanup: false
+        )
+
+        let snapshot = try XCTUnwrap(panel.rendererSession.portalSnapshot())
+        XCTAssertEqual(snapshot.visibleInUI, false)
+        XCTAssertEqual(snapshot.containerHidden, true)
+        XCTAssertEqual(panel.rendererSession.diagnosticsSnapshot.portalHideCount, 1)
     }
 
     func testMarkdownLayoutReconcileRestoresVisibleHiddenPortalAnchor() throws {
