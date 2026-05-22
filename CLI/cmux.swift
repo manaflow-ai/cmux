@@ -19232,7 +19232,7 @@ struct CMUXCLI {
            let id = extractParentSessionIdFromHookSource(source) {
             return id
         }
-        return firstStringRecursively(in: object, keys: Set(parentKeys), maxDepth: 4)
+        return nil
     }
 
     private func extractParentSessionIdFromHookSource(_ source: [String: Any]) -> String? {
@@ -19248,36 +19248,6 @@ struct CMUXCLI {
             if let spawn = spawnSource as? [String: Any],
                let id = firstString(in: spawn, keys: ["parent_thread_id", "parentThreadId", "parent_session_id", "parentSessionId"]) {
                 return id
-            }
-        }
-        return nil
-    }
-
-    private func firstStringRecursively(
-        in value: Any,
-        keys: Set<String>,
-        maxDepth: Int
-    ) -> String? {
-        guard maxDepth >= 0 else { return nil }
-        if let object = value as? [String: Any] {
-            for key in keys {
-                if let string = object[key] as? String {
-                    let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty {
-                        return trimmed
-                    }
-                }
-            }
-            for nested in object.values {
-                if let match = firstStringRecursively(in: nested, keys: keys, maxDepth: maxDepth - 1) {
-                    return match
-                }
-            }
-        } else if let array = value as? [Any] {
-            for nested in array {
-                if let match = firstStringRecursively(in: nested, keys: keys, maxDepth: maxDepth - 1) {
-                    return match
-                }
             }
         }
         return nil
