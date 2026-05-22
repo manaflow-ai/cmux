@@ -19,6 +19,11 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let authenticated: Bool
 }
 
+nonisolated private struct SocketAccessRejection: Sendable {
+    let code: String
+    let message: String
+}
+
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -1746,6 +1751,57 @@ class TerminalController {
         return nil
     }
 
+    private nonisolated func cmuxOnlyAccessRejection(
+        for socket: Int32,
+        peerPid: pid_t?
+    ) -> SocketAccessRejection? {
+        guard accessMode == .cmuxOnly else {
+            return nil
+        }
+
+        // Use pre-captured peer PID if available (captured in accept loop before
+        // the peer can disconnect), falling back to live lookup.
+        let pid = peerPid ?? getPeerPid(socket)
+        if let pid {
+            guard isDescendant(pid) else {
+                return SocketAccessRejection(
+                    code: "access_denied",
+                    message: String(
+                        localized: "socketControl.error.accessDeniedCmuxOnly",
+                        defaultValue: "Access denied: only processes started inside cmux can connect"
+                    )
+                )
+            }
+            return nil
+        }
+
+        // If pid is nil, LOCAL_PEERPID failed (common with short-lived clients).
+        // We still verify the peer runs as the same user via LOCAL_PEERCRED. This
+        // is the same security boundary as the socket file permissions (0600).
+        guard peerHasSameUID(socket) else {
+            return SocketAccessRejection(
+                code: "client_unverified",
+                message: String(
+                    localized: "socketControl.error.clientUnverified",
+                    defaultValue: "Unable to verify client process"
+                )
+            )
+        }
+        return nil
+    }
+
+    private nonisolated func accessRejectionResponse(
+        for command: String,
+        rejection: SocketAccessRejection
+    ) -> String {
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return "ERROR: \(rejection.message)"
+        }
+        return v2Error(id: dict["id"], code: rejection.code, message: rejection.message)
+    }
+
     private enum SocketCommandExecutionPolicy: Equatable {
         case mainActor
         case socketWorker
@@ -2178,38 +2234,7 @@ class TerminalController {
     private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
         defer { close(socket) }
 
-        // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
-        // In allowAll mode (env-var only), skip the ancestry check.
-        if accessMode == .cmuxOnly {
-            // Use pre-captured peer PID if available (captured in accept loop before
-            // the peer can disconnect), falling back to live lookup.
-            let pid = peerPid ?? getPeerPid(socket)
-            if let pid {
-                guard isDescendant(pid) else {
-                    _ = writeSocketResponse(
-                        "ERROR: Access denied — only processes started inside cmux can connect",
-                        to: socket
-                    )
-                    return
-                }
-            }
-            // If pid is nil, LOCAL_PEERPID failed (peer disconnected before we
-            // could read it — common with ncat --send-only). We still verify the
-            // peer runs as the same user via LOCAL_PEERCRED. This is the same
-            // security boundary as the socket file permissions (0600), so it does
-            // not widen the attack surface. We also require that the peer actually
-            // sent data (checked in the read loop below) — a connect-only probe
-            // with no data is harmless.
-            if pid == nil {
-                guard peerHasSameUID(socket) else {
-                    _ = writeSocketResponse(
-                        "ERROR: Unable to verify client process",
-                        to: socket
-                    )
-                    return
-                }
-            }
-        }
+        let accessRejection = cmuxOnlyAccessRejection(for: socket, peerPid: peerPid)
 
         var buffer = [UInt8](repeating: 0, count: 4096)
         var pending = ""
@@ -2227,6 +2252,14 @@ class TerminalController {
                 pending = String(pending[pending.index(after: newlineIndex)...])
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
+
+                if let accessRejection {
+                    _ = writeSocketResponse(
+                        accessRejectionResponse(for: trimmed, rejection: accessRejection),
+                        to: socket
+                    )
+                    return
+                }
 
                 if isEventsStreamRequest(trimmed) {
                     if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
