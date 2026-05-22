@@ -6848,13 +6848,16 @@ class TabManager: ObservableObject {
 
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        guard tab.updatePanelTitle(panelId: panelId, title: title) else {
-            _ = tab.bufferWarmTerminalTitleIfNeeded(panelId: panelId, title: title)
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard tab.panels[panelId] != nil else {
+            _ = tab.bufferWarmTerminalTitleIfNeeded(panelId: panelId, title: trimmed)
             return
         }
 
+        _ = tab.updatePanelTitle(panelId: panelId, title: trimmed)
         if tab.focusedPanelId == panelId {
-            tab.applyProcessTitle(title)
+            tab.applyProcessTitle(trimmed)
             if selectedTabId == tabId {
                 updateWindowTitle(for: tab)
             }
