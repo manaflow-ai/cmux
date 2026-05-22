@@ -639,8 +639,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let childCommands = Array(context.state.commands.dropFirst(childStartIndex))
         XCTAssertFalse(
-            childCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
-            "Spawned Codex subagent should not publish or modify any resume binding, saw \(childCommands)"
+            childCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Spawned Codex subagent should not publish a child resume binding, saw \(childCommands)"
         )
         XCTAssertFalse(
             childCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
@@ -658,7 +665,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
         XCTAssertFalse(
-            childStopCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
             "Stored non-restorable subagent Stop should not publish a child resume binding, saw \(childStopCommands)"
         )
         XCTAssertFalse(
@@ -1020,9 +1034,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertFalse(
-            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
-            "Subagent SessionEnd payload should not clear the parent resume binding, saw \(context.state.commands)"
+        let clearRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertTrue(
+            clearRequests.allSatisfy { $0["checkpoint_id"] as? String == sessionId },
+            "Subagent SessionEnd may clear only the child checkpoint, never the parent binding, saw \(context.state.commands)"
         )
         XCTAssertFalse(
             context.state.commands.contains { $0.hasPrefix("clear_agent_pid codex.") },

@@ -24061,6 +24061,57 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                   parentSessionId != sessionId else { return false }
             return true
         }
+        func repairSuppressedSubagentResumeBinding(
+            workspaceId: String,
+            surfaceId: String,
+            mapped: ClaudeHookSessionRecord?
+        ) {
+            guard !sessionId.isEmpty else { return }
+            guard let parentSessionId = normalizedHookValue(input.parentSessionId)
+                    ?? normalizedHookValue(mapped?.parentSessionId),
+                  parentSessionId != sessionId else {
+                return
+            }
+            var ancestorSessionId = parentSessionId
+            var seenSessionIds: Set<String> = [sessionId]
+            var restorableAncestor: ClaudeHookSessionRecord?
+            for _ in 0..<8 {
+                guard seenSessionIds.insert(ancestorSessionId).inserted,
+                      let candidate = try? store.lookup(sessionId: ancestorSessionId),
+                      normalizedHookValue(candidate.workspaceId) == normalizedHookValue(workspaceId),
+                      normalizedHookValue(candidate.surfaceId) == normalizedHookValue(surfaceId) else {
+                    break
+                }
+                if candidate.isRestorable != false {
+                    restorableAncestor = candidate
+                    break
+                }
+                guard let nextAncestor = normalizedHookValue(candidate.parentSessionId),
+                      nextAncestor != candidate.sessionId else {
+                    break
+                }
+                ancestorSessionId = nextAncestor
+            }
+            if let parent = restorableAncestor {
+                publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: def.name,
+                    displayName: def.displayName,
+                    sessionId: parent.sessionId,
+                    cwd: parent.cwd,
+                    launchCommand: parent.launchCommand
+                )
+            } else {
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
+                )
+            }
+        }
         func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
             if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
 #if DEBUG
@@ -24232,6 +24283,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     updateRuntimeStatus: !suppressVisibleMutations
                 )
                 if suppressVisibleMutations {
+                    repairSuppressedSubagentResumeBinding(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        mapped: mapped
+                    )
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
                 } else {
                     try? store.clearNotificationEmission(sessionId: sessionId)
@@ -24337,6 +24393,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             } else {
+                repairSuppressedSubagentResumeBinding(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    mapped: mapped
+                )
                 telemetry.breadcrumb("\(def.name)-hook.prompt-submit.nested-suppressed")
             }
             if def.name == "codex", !sessionId.isEmpty, !suppressVisibleMutations {
@@ -24547,6 +24608,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
                 && !suppressCompletionNotification
             if suppressVisibleMutations {
+                repairSuppressedSubagentResumeBinding(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    mapped: mapped
+                )
                 telemetry.breadcrumb("\(def.name)-hook.stop.nested-suppressed")
             } else if suppressCompletionNotification {
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
@@ -24736,6 +24802,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
             if suppressVisibleMutations {
+                repairSuppressedSubagentResumeBinding(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    mapped: mapped
+                )
                 telemetry.breadcrumb("\(def.name)-hook.notification.subagent-restore-suppressed")
                 sendAgentFeedTelemetry(workspaceId: workspaceId)
                 print("{}")
@@ -24848,6 +24919,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                             updateRuntimeStatus: true
                         )
                     }
+                    repairSuppressedSubagentResumeBinding(
+                        workspaceId: mapped.workspaceId,
+                        surfaceId: mapped.surfaceId,
+                        mapped: mapped
+                    )
                     telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
                 } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                     clearAgentSurfaceResumeBinding(
