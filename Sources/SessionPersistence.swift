@@ -613,6 +613,12 @@ enum SurfaceResumeApprovalStore {
         var records: [SurfaceResumeApprovalRecord]
     }
 
+    private enum CmuxSettingsRootLoadResult {
+        case missing
+        case invalid
+        case parsed([String: Any])
+    }
+
     static func defaultURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         if let override = environment["CMUX_SURFACE_RESUME_APPROVAL_STORE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {
@@ -628,6 +634,9 @@ enum SurfaceResumeApprovalStore {
         if storesRecordsInCmuxSettings(fileURL) {
             let loaded = loadRecordsFromCmuxSettings(fileURL: fileURL)
             if loaded.hasResumeCommandsKey {
+                return loaded.records
+            }
+            guard loaded.canWriteSettings else {
                 return loaded.records
             }
             guard fileURL.standardizedFileURL.path == defaultURL().standardizedFileURL.path else {
@@ -659,6 +668,9 @@ enum SurfaceResumeApprovalStore {
         }
         let loaded = loadRecordsFromCmuxSettings(fileURL: fileURL)
         guard !loaded.hasResumeCommandsKey else {
+            return false
+        }
+        guard loaded.canWriteSettings else {
             return false
         }
         let legacyURL = legacyFileURL ?? legacyURL(forCmuxSettingsURL: fileURL)
@@ -982,33 +994,40 @@ enum SurfaceResumeApprovalStore {
 
     private static func loadRecordsFromCmuxSettings(
         fileURL: URL
-    ) -> (records: [SurfaceResumeApprovalRecord], hasResumeCommandsKey: Bool) {
-        guard let root = loadCmuxSettingsRoot(fileURL: fileURL) else {
-            return ([], false)
+    ) -> (records: [SurfaceResumeApprovalRecord], hasResumeCommandsKey: Bool, canWriteSettings: Bool) {
+        let root: [String: Any]
+        switch loadCmuxSettingsRoot(fileURL: fileURL) {
+        case .missing:
+            return ([], false, true)
+        case .invalid:
+            return ([], false, false)
+        case .parsed(let parsedRoot):
+            root = parsedRoot
         }
         guard let terminalSection = root[settingsTerminalSectionKey] as? [String: Any],
               let rawRecords = terminalSection[settingsRecordsKey] else {
-            return ([], false)
+            return ([], false, true)
         }
         guard JSONSerialization.isValidJSONObject(rawRecords),
               let data = try? JSONSerialization.data(withJSONObject: rawRecords, options: []),
               let records = try? JSONDecoder().decode([SurfaceResumeApprovalRecord].self, from: data) else {
-            NSLog("[SurfaceResumeApprovalStore] ignoring invalid terminal.%@ in %@", settingsRecordsKey, fileURL.path)
-            return ([], true)
+            return ([], true, true)
         }
-        return (records, true)
+        return (records, true, true)
     }
 
-    private static func loadCmuxSettingsRoot(fileURL: URL) -> [String: Any]? {
+    private static func loadCmuxSettingsRoot(fileURL: URL) -> CmuxSettingsRootLoadResult {
         guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else {
-            return nil
+            return .missing
         }
         do {
             let sanitized = try JSONCParser.preprocess(data: data)
-            return try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any]
+            guard let root = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any] else {
+                return .invalid
+            }
+            return .parsed(root)
         } catch {
-            NSLog("[SurfaceResumeApprovalStore] parse error at %@: %@", fileURL.path, String(describing: error))
-            return nil
+            return .invalid
         }
     }
 
@@ -1019,10 +1038,19 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager
     ) -> Bool {
         do {
-            var root = loadCmuxSettingsRoot(fileURL: fileURL) ?? [
-                "$schema": CmuxSettingsFileStore.schemaURLString,
-                "schemaVersion": CmuxSettingsFileStore.currentSchemaVersion,
-            ]
+            let rootLoadResult = loadCmuxSettingsRoot(fileURL: fileURL)
+            var root: [String: Any]
+            switch rootLoadResult {
+            case .missing:
+                root = [
+                    "$schema": CmuxSettingsFileStore.schemaURLString,
+                    "schemaVersion": CmuxSettingsFileStore.currentSchemaVersion,
+                ]
+            case .invalid:
+                return false
+            case .parsed(let parsedRoot):
+                root = parsedRoot
+            }
 
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]

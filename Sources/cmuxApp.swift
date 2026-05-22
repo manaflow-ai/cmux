@@ -7740,7 +7740,7 @@ private struct SurfaceResumeApprovalSettingsCard: View {
     var body: some View {
         SettingsCard {
             SettingsCardRow(
-                configurationReview: .settingsOnly,
+                configurationReview: .json("terminal.resumeCommands"),
                 String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"),
                 subtitle: String(
                     localized: "settings.terminal.resumeCommands.subtitle",

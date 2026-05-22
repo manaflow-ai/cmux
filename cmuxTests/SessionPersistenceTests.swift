@@ -4350,6 +4350,55 @@ extension SessionPersistenceTests {
         XCTAssertEqual(storedRecordsAfterSecondMigration.count, 1)
     }
 
+    func testSurfaceResumeApprovalDoesNotOverwriteInvalidCmuxJSON() throws {
+        let settingsURL = try makeSurfaceResumeApprovalCmuxSettingsURL()
+        let legacyURL = settingsURL.deletingLastPathComponent()
+            .appendingPathComponent("resume-commands.json", isDirectory: false)
+        let secret = Data("approval-secret".utf8)
+        let invalidSettingsData = Data("{ \"terminal\":".utf8)
+        try invalidSettingsData.write(to: settingsURL, options: [.atomic])
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let legacyRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: legacyURL,
+            signingSecret: secret
+        ))
+
+        XCTAssertFalse(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
+            fileURL: settingsURL,
+            legacyFileURL: legacyURL
+        ))
+        XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
+
+        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: settingsURL,
+            signingSecret: secret
+        ))
+        XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
+        XCTAssertTrue(SurfaceResumeApprovalStore.validRecords(
+            fileURL: settingsURL,
+            signingSecret: secret
+        ).isEmpty)
+        XCTAssertEqual(SurfaceResumeApprovalStore.validRecords(
+            fileURL: legacyURL,
+            signingSecret: secret
+        ).map(\.id), [legacyRecord.id])
+    }
+
     func testSurfaceResumeApprovalPromptsForUnknownManualProposal() throws {
         let binding = SurfaceResumeBindingSnapshot(
             command: "tmux attach -t work",
