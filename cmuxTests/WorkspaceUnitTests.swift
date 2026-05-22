@@ -4146,6 +4146,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         let rightDock = workspace.dockLayout.addDock(edge: .right)
         let leftPaneId = try XCTUnwrap(leftDock.controller.allPaneIds.first)
         let rightPaneId = try XCTUnwrap(rightDock.controller.allPaneIds.first)
+        let initialRevision = workspace.focusedBonsplitControllerRevision
 
         workspace.focusBonsplitPane(leftPaneId, controller: leftDock.controller)
         rightDock.controller.focusPane(rightPaneId)
@@ -4156,7 +4157,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertFalse(
             workspace.isFocusedBonsplitPaneForCommands(rightPaneId, controller: rightDock.controller)
         )
+        XCTAssertGreaterThan(workspace.focusedBonsplitControllerRevision, initialRevision)
 
+        let leftFocusedRevision = workspace.focusedBonsplitControllerRevision
         workspace.focusBonsplitPane(rightPaneId, controller: rightDock.controller)
 
         XCTAssertFalse(
@@ -4165,6 +4168,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertTrue(
             workspace.isFocusedBonsplitPaneForCommands(rightPaneId, controller: rightDock.controller)
         )
+        XCTAssertGreaterThan(workspace.focusedBonsplitControllerRevision, leftFocusedRevision)
     }
 
     func testDockTargetTerminalSplitUpdatesWorkspaceFocus() throws {

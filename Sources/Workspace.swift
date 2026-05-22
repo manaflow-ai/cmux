@@ -8022,6 +8022,7 @@ final class Workspace: Identifiable, ObservableObject {
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
     weak var owningTabManager: TabManager?
     private weak var focusedBonsplitController: BonsplitController?
+    @Published private(set) var focusedBonsplitControllerRevision: UInt64 = 0
 
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
     // layout/size synchronization.
@@ -13099,7 +13100,25 @@ final class Workspace: Identifiable, ObservableObject {
     func isFocusedBonsplitPaneForCommands(_ paneId: PaneID, controller: BonsplitController) -> Bool {
         let focusedController = currentFocusNavigationController()
         guard focusedController === controller else { return false }
+        if focusedController.focusedPaneId == paneId { return true }
         return preferredNavigationPane(in: focusedController) == paneId
+    }
+
+    private func setFocusedBonsplitController(_ controller: BonsplitController?) {
+        let didChange: Bool = {
+            switch (focusedBonsplitController, controller) {
+            case let (current?, next?):
+                return current !== next
+            case (nil, nil):
+                return false
+            case (.some, nil), (nil, .some):
+                return true
+            }
+        }()
+        focusedBonsplitController = controller
+        if didChange {
+            focusedBonsplitControllerRevision &+= 1
+        }
     }
 
     private func moveFocusWithinController(
@@ -13134,7 +13153,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func focusPane(_ paneId: PaneID, in controller: BonsplitController) -> Bool {
         controller.focusPane(paneId)
         revealControllerForFocus(controller)
-        focusedBonsplitController = controller
+        setFocusedBonsplitController(controller)
         guard let tabId = controller.selectedTab(inPane: paneId)?.id else {
             return true
         }
@@ -13154,7 +13173,7 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
 
-        focusedBonsplitController = bonsplitController
+        setFocusedBonsplitController(bonsplitController)
         _ = focusPreferredPane(in: bonsplitController)
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.dockEdgeDidClose")
@@ -13674,7 +13693,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let targetPanelId, let targetPanel = panels[targetPanelId] else { return }
-        focusedBonsplitController = targetController
+        setFocusedBonsplitController(targetController)
 
         for (panelId, panel) in panels where panelId != targetPanelId {
             panel.unfocus()
@@ -15240,7 +15259,7 @@ extension Workspace: BonsplitDelegate {
     ) {
         let previousFocusedPanelId = focusedPanelId
         revealControllerForFocus(controller)
-        focusedBonsplitController = controller
+        setFocusedBonsplitController(controller)
 #if DEBUG
         let focusedPaneBefore = controller.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
         let selectedTabBefore = controller.focusedPaneId
