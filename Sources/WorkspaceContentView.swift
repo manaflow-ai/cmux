@@ -684,23 +684,22 @@ struct WorkspaceContentView: View {
 
 extension WorkspaceContentView {
     static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
-        var parts: [String] = [panel.displayTitle]
-        if let panelTitle = workspace.panelTitle(panelId: panel.id) {
-            parts.append(panelTitle)
-        }
+        var parts: [String] = []
         if let terminalPanel = panel as? TerminalPanel {
             if let initialCommand = terminalPanel.surface.initialCommand {
-                parts.append(initialCommand)
+                parts.append("initialCommand:\(initialCommand)")
             }
             if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
-                parts.append(tmuxStartCommand)
+                parts.append("tmuxStartCommand:\(tmuxStartCommand)")
             }
         }
         if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
-            parts.append(restoredAgent.kind.rawValue)
+            parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
         }
         if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {
-            parts.append(agentPIDKeys.sorted().joined(separator: " "))
+            for key in agentPIDKeys.sorted() {
+                parts.append("agentPIDKey:\(key)")
+            }
         }
         return parts
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

@@ -6909,7 +6909,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(
             TextBoxSubmit.dispatchEvents(
                 for: [.text("what is "), .attachment(attachment), .text("now")],
-                terminalAgentContext: "Claude Code"
+                terminalAgentContext: "restoredAgent:claude"
             ),
             [
                 .captureVisibleTextBaseline,
@@ -6928,8 +6928,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertEqual(
             TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text("now")],
+                terminalAgentContext: "initialCommand:/bin/zsh -lc claude --resume"
+            ),
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text("now")],
+                terminalAgentContext: "restoredAgent:claude"
+            )
+        )
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
                 for: [.text("what is "), .attachment(attachment), .text(" now")],
-                terminalAgentContext: "Claude Code"
+                terminalAgentContext: "restoredAgent:claude"
             ),
             [
                 .captureVisibleTextBaseline,
@@ -6949,7 +6959,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(
             TextBoxSubmit.dispatchEvents(
                 for: [.text("what is "), .attachment(attachment)],
-                terminalAgentContext: "Claude Code"
+                terminalAgentContext: "restoredAgent:claude"
             ),
             [
                 .captureVisibleTextBaseline,
@@ -6967,7 +6977,27 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(
             TextBoxSubmit.dispatchEvents(
                 for: [.text("what is "), .attachment(attachment), .text("now")],
-                terminalAgentContext: "Codex"
+                terminalAgentContext: "restoredAgent:codex"
+            ),
+            [
+                .pasteText("what is \(imageSubmissionText) now"),
+                .namedKey("return")
+            ]
+        )
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text("now")],
+                terminalAgentContext: "panelTitle:Claude Code"
+            ),
+            [
+                .pasteText("what is \(imageSubmissionText) now"),
+                .namedKey("return")
+            ]
+        )
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text("now")],
+                terminalAgentContext: "initialCommand:echo Claude Code"
             ),
             [
                 .pasteText("what is \(imageSubmissionText) now"),
@@ -6977,7 +7007,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(
             TextBoxSubmit.dispatchEvents(
                 for: [.text("hello\nworld")],
-                terminalAgentContext: "Claude Code"
+                terminalAgentContext: "restoredAgent:claude"
             ),
             [.pasteText("hello\nworld"), .namedKey("ctrl+enter")]
         )
@@ -6998,7 +7028,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                     .attachment(attachment),
                     .text("what does this say?\n\n3+3")
                 ],
-                terminalAgentContext: "Claude Code"
+                terminalAgentContext: "restoredAgent:claude"
             ),
             [
                 .captureVisibleTextBaseline,
@@ -7027,7 +7057,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let events = TextBoxSubmit.dispatchEvents(
             for: [.text(longPrompt), .attachment(attachment)],
-            terminalAgentContext: "Claude Code"
+            terminalAgentContext: "restoredAgent:claude"
         )
         let visibleWaitTexts = events.compactMap { event -> String? in
             if case .waitForVisibleText(let text) = event { return text }
@@ -7051,7 +7081,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let events = TextBoxSubmit.dispatchEvents(
             for: [.text("what is "), .attachment(attachment), .text("now")],
-            terminalAgentContext: "Claude Code"
+            terminalAgentContext: "restoredAgent:claude"
         )
 
         XCTAssertEqual(
@@ -7066,7 +7096,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(
             TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: [.attachment(attachment)],
-                terminalAgentContext: "Claude Code",
+                terminalAgentContext: "restoredAgent:claude",
                 completionContext: TextBoxSubmit.CompletionContext(
                     confirmedClaudeImageSubmissionTexts: [
                         attachment.submissionText: 1
@@ -7434,7 +7464,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         for testCase in cases {
             let events = TextBoxSubmit.dispatchEvents(
                 for: testCase.parts,
-                terminalAgentContext: "Claude Code"
+                terminalAgentContext: "restoredAgent:claude"
             )
             let pastedFilePaths = events.compactMap { event -> String? in
                 if case .pasteFilePath(let path) = event {
@@ -7468,7 +7498,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 .attachment(attachment),
                 .text(" これは?")
             ],
-            terminalAgentContext: "Claude Code"
+            terminalAgentContext: "restoredAgent:claude"
         )
 
         XCTAssertFalse(events.contains(.namedKeyRepeat(TextBoxTerminalKey.arrowLeft.rawValue, 1)))
@@ -7539,7 +7569,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(
             TextBoxSubmit.dispatchEvents(
                 for: textView.submissionParts(),
-                terminalAgentContext: "Claude Code"
+                terminalAgentContext: "restoredAgent:claude"
             ),
             [
                 .captureVisibleTextBaseline,
@@ -7792,7 +7822,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(
             TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: [.attachment(attachment)],
-                terminalAgentContext: "OpenCode"
+                terminalAgentContext: "restoredAgent:opencode"
             ).isEmpty
         )
 
@@ -8251,19 +8281,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(
             TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: [.attachment(restoredAttachment)],
-                terminalAgentContext: "OpenCode"
+                terminalAgentContext: "restoredAgent:opencode"
             ).isEmpty
         )
         XCTAssertTrue(
             TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: [.attachment(restoredAttachment)],
-                terminalAgentContext: "Claude Code"
+                terminalAgentContext: "restoredAgent:claude"
             ).isEmpty
         )
         XCTAssertEqual(
             TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: [.attachment(restoredAttachment)],
-                terminalAgentContext: "Claude Code",
+                terminalAgentContext: "restoredAgent:claude",
                 completionContext: TextBoxSubmit.CompletionContext(
                     confirmedClaudeImageSubmissionTexts: [
                         restoredAttachment.submissionText: 1
@@ -8323,7 +8353,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.clearContent(cleanupAttachmentFiles: false)
         let cleanupAttachments = TextBoxSubmit.cleanupAttachmentsAfterSubmit(
             from: [.attachment(attachment)],
-            terminalAgentContext: "OpenCode"
+            terminalAgentContext: "restoredAgent:opencode"
         )
         textView.cleanupDisposableAttachmentFiles(cleanupAttachments)
 
@@ -8344,7 +8374,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(
             TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: [.attachment(attachment)],
-                terminalAgentContext: "OpenCode"
+                terminalAgentContext: "restoredAgent:opencode"
             ).map(\.displayName),
             ["moon.png"]
         )
@@ -8361,13 +8391,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(
             TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: [.attachment(attachment)],
-                terminalAgentContext: "Claude Code"
+                terminalAgentContext: "restoredAgent:claude"
             ).isEmpty
         )
         XCTAssertEqual(
             TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: [.attachment(attachment)],
-                terminalAgentContext: "Claude Code",
+                terminalAgentContext: "restoredAgent:claude",
                 completionContext: TextBoxSubmit.CompletionContext(
                     confirmedClaudeImageSubmissionTexts: [
                         attachment.submissionText: 1
