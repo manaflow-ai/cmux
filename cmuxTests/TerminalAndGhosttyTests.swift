@@ -1843,6 +1843,28 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
     }
 
+    func testLowContrastPanelForegroundFallsBackToReadableColor() {
+        var config = GhosttyConfig()
+        config.backgroundColor = NSColor(hex: "#FFFFFF")!
+        config.backgroundOpacity = 1.0
+        config.foregroundColor = NSColor(hex: "#FFFFFF")!
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+
+        XCTAssertEqual(appearance.foregroundColor.hexString(), "#000000")
+    }
+
+    func testReadablePanelForegroundPreservesThemeColor() {
+        var config = GhosttyConfig()
+        config.backgroundColor = NSColor(hex: "#000000")!
+        config.backgroundOpacity = 1.0
+        config.foregroundColor = NSColor(hex: "#FDF6E3")!
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+
+        XCTAssertEqual(appearance.foregroundColor.hexString(), "#FDF6E3")
+    }
+
     func testGhosttyGlassBackgroundUsesClearContentBackground() {
         var config = GhosttyConfig()
         config.backgroundOpacity = 1.0
@@ -5006,7 +5028,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true
+            socketPathExists: true,
+            socketPathOwnedByListener: true
         )
         XCTAssertTrue(health.isHealthy)
         XCTAssertTrue(health.failureSignals.isEmpty)
@@ -5017,12 +5040,25 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false
+            socketPathExists: false,
+            socketPathOwnedByListener: false
         )
         XCTAssertFalse(health.isHealthy)
         XCTAssertEqual(
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
         )
+    }
+
+    func testSocketListenerHealthReportsIdentityMismatchSeparately() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathExists: true,
+            socketPathOwnedByListener: false
+        )
+        XCTAssertFalse(health.isHealthy)
+        XCTAssertEqual(health.failureSignals, ["socket_identity_mismatch"])
     }
 }
