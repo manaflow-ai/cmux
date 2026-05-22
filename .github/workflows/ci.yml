@@ -463,9 +463,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          APP="$(find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -print -quit)"
+          APP="${CMUX_LAG_DERIVED_DATA_PATH:?}/Build/Products/Debug/cmux DEV.app"
           if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
-            echo "cmux DEV.app not found in DerivedData" >&2
+            echo "cmux DEV.app not found at expected build output: $APP" >&2
             exit 1
           fi
 

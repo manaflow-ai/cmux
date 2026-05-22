@@ -9400,12 +9400,32 @@ class TerminalController {
 
         let result = v2BrowserWithPanel(params: params) { _, _, surfaceId, browserPanel in
             let actions = BrowserWebExtensionSupport.actionSnapshots(for: browserPanel)
+            let installedExtensions = BrowserWebExtensionSupport.installedExtensionSummaries(profileID: browserPanel.profileID)
+            let exactInstalledMatches = installedExtensions.filter { summary in
+                summary.id.uuidString.caseInsensitiveCompare(query) == .orderedSame ||
+                    summary.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame
+            }
+            guard exactInstalledMatches.count <= 1 else {
+                return .err(
+                    code: "ambiguous",
+                    message: "Multiple browser extensions match '\(query)'",
+                    data: [
+                        "extension": query,
+                        "matches": exactInstalledMatches.map(\.displayName),
+                    ]
+                )
+            }
+            let resolvedInstalledID = exactInstalledMatches.first?.id
             let exactMatches = actions.filter { action in
-                action.id.uuidString.caseInsensitiveCompare(query) == .orderedSame ||
+                action.id == resolvedInstalledID ||
+                    action.id.uuidString.caseInsensitiveCompare(query) == .orderedSame ||
                     action.label.localizedCaseInsensitiveCompare(query) == .orderedSame
             }
             let matches = exactMatches.isEmpty
-                ? actions.filter { $0.label.localizedCaseInsensitiveContains(query) }
+                ? actions.filter { action in
+                    action.label.localizedCaseInsensitiveContains(query) ||
+                        installedExtensions.first(where: { $0.id == action.id })?.displayName.localizedCaseInsensitiveContains(query) == true
+                }
                 : exactMatches
 
             guard !matches.isEmpty else {
@@ -9427,11 +9447,30 @@ class TerminalController {
             }
 
             BrowserWebExtensionSupport.performAction(action.id, for: browserPanel)
+            let extensionPayload: [String: Any]
+            if let summary = installedExtensions.first(where: { $0.id == action.id }) {
+                extensionPayload = BrowserExtensionAutomation.extensionPayload(summary, profileID: browserPanel.profileID)
+            } else {
+                extensionPayload = [
+                    "id": action.id.uuidString,
+                    "profile_id": browserPanel.profileID.uuidString,
+                    "name": action.label,
+                    "detail": "",
+                    "source_kind": "unknown",
+                    "source_path": "",
+                    "enabled": action.isEnabled,
+                    "loaded": true,
+                    "permissions": [],
+                    "host_permissions": [],
+                    "last_error": NSNull(),
+                ]
+            }
             return .ok([
                 "activated": true,
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "extension": [
+                "extension": extensionPayload,
+                "action": [
                     "id": action.id.uuidString,
                     "name": action.label,
                     "badge_text": action.badgeText,

@@ -466,7 +466,7 @@ enum BrowserExtensionAutomation {
         ]
     }
 
-    private static func extensionPayload(
+    static func extensionPayload(
         _ summary: BrowserWebExtensionInstalledSummary,
         profileID: UUID
     ) -> [String: Any] {

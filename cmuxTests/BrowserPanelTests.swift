@@ -442,6 +442,14 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
             ),
             "com.example.Bitwarden.Extension.cmux-profile.00000000-0000-0000-0000-000000000123"
         )
+        XCTAssertEqual(
+            browserWebExtensionContextUniqueIdentifier(
+                for: appExtensionRecord,
+                profileID: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+                dataStoreSuffix: "store.00000000-0000-0000-0000-000000000456"
+            ),
+            "com.example.Bitwarden.Extension.cmux-profile.00000000-0000-0000-0000-000000000123.store.00000000-0000-0000-0000-000000000456"
+        )
     }
 
     func testDiscoversSafariWebExtensionInsideApplicationBundle() throws {

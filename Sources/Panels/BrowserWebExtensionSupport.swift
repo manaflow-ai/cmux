@@ -34,6 +34,41 @@ private struct BrowserWebExtensionActivePopupState: Equatable {
     let actionID: UUID
 }
 
+@available(macOS 15.4, *)
+private struct BrowserWebExtensionRuntimeKey: Hashable {
+    enum DataStoreScope: Hashable {
+        case defaultStore
+        case persistent(UUID)
+        case transient(UInt)
+    }
+
+    let profileID: UUID
+    let dataStoreScope: DataStoreScope
+
+    init(profileID: UUID, websiteDataStore: WKWebsiteDataStore) {
+        self.profileID = profileID
+        if let identifier = websiteDataStore.identifier {
+            dataStoreScope = .persistent(identifier)
+        } else if websiteDataStore === WKWebsiteDataStore.default() {
+            dataStoreScope = .defaultStore
+        } else {
+            dataStoreScope = .transient(UInt(bitPattern: ObjectIdentifier(websiteDataStore)))
+        }
+    }
+
+    var contextUniqueIdentifierDataStoreSuffix: String? {
+        switch dataStoreScope {
+        case .defaultStore:
+            return nil
+        case .persistent(let identifier):
+            guard identifier != profileID else { return nil }
+            return "store.\(identifier.uuidString.lowercased())"
+        case .transient(let identity):
+            return "store.transient.\(String(identity, radix: 16))"
+        }
+    }
+}
+
 func browserWebExtensionAuxiliaryWindowContentRect(
     requestedFrame: CGRect,
     visibleFrame: NSRect,
@@ -438,7 +473,8 @@ func browserWebExtensionSummaryDetail(
 
 func browserWebExtensionContextUniqueIdentifier(
     for record: BrowserWebExtensionInstallRecord,
-    profileID: UUID
+    profileID: UUID,
+    dataStoreSuffix: String? = nil
 ) -> String? {
     switch record.sourceKind {
     case .appExtensionBundle:
@@ -448,7 +484,11 @@ func browserWebExtensionContextUniqueIdentifier(
         guard let bundleIdentifier, !bundleIdentifier.isEmpty else {
             return nil
         }
-        return "\(bundleIdentifier).cmux-profile.\(profileID.uuidString.lowercased())"
+        let profileIdentifier = "\(bundleIdentifier).cmux-profile.\(profileID.uuidString.lowercased())"
+        guard let dataStoreSuffix, !dataStoreSuffix.isEmpty else {
+            return profileIdentifier
+        }
+        return "\(profileIdentifier).\(dataStoreSuffix)"
     }
 }
 
@@ -1058,18 +1098,19 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     static let shared = BrowserWebExtensionRuntime()
 
     private let store = BrowserWebExtensionInstallStore()
-    private var controllersByProfileID: [UUID: WKWebExtensionController] = [:]
-    private var contextsByProfileID: [UUID: [UUID: WKWebExtensionContext]] = [:]
+    private var controllersByRuntimeKey: [BrowserWebExtensionRuntimeKey: WKWebExtensionController] = [:]
+    private var contextsByRuntimeKey: [BrowserWebExtensionRuntimeKey: [UUID: WKWebExtensionContext]] = [:]
+    private var websiteDataStoresByRuntimeKey: [BrowserWebExtensionRuntimeKey: WKWebsiteDataStore] = [:]
     private var tabAdaptersByPanelID: [UUID: BrowserWebExtensionTabAdapter] = [:]
     private var auxiliaryWindowAdaptersByID: [UUID: BrowserWebExtensionAuxiliaryWindowAdapter] = [:]
     private var actionPopupPresentationsByID: [UUID: BrowserWebExtensionActionPopupPresentation] = [:]
     private var actionPopupAnchorViewsByPanelID: [UUID: BrowserWebExtensionWeakView] = [:]
     private var actionPopupAnchorScreenRectsByPanelID: [UUID: NSRect] = [:]
     private var activeActionPopupByPanelID: [UUID: BrowserWebExtensionActivePopupState] = [:]
-    private var windowAdaptersByProfileID: [UUID: BrowserWebExtensionWindowAdapter] = [:]
+    private var windowAdaptersByRuntimeKey: [BrowserWebExtensionRuntimeKey: BrowserWebExtensionWindowAdapter] = [:]
     private var runtimePermissionPromptTasks: [UUID: Task<Void, Never>] = [:]
     private var runtimePermissionPromptDenyHandlers: [UUID: () -> Void] = [:]
-    private var loadedProfileIDs: Set<UUID> = []
+    private var loadedRuntimeKeys: Set<BrowserWebExtensionRuntimeKey> = []
 
     override init() {
         super.init()
@@ -1080,8 +1121,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         profileID: UUID,
         websiteDataStore: WKWebsiteDataStore
     ) {
+        let key = runtimeKey(profileID: profileID, websiteDataStore: websiteDataStore)
         let controller = ensureController(
-            profileID: profileID,
+            runtimeKey: key,
             defaultWebsiteDataStore: websiteDataStore
         )
         configuration.webExtensionController = controller
@@ -1089,55 +1131,61 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     func register(panel: BrowserPanel) {
         let profileID = panel.profileID
+        let key = runtimeKey(for: panel)
         let controller = ensureController(
-            profileID: profileID,
+            runtimeKey: key,
             defaultWebsiteDataStore: panel.websiteDataStore
         )
-        let windowAdapter = ensureWindowAdapter(profileID: profileID)
+        let windowAdapter = ensureWindowAdapter(runtimeKey: key)
         let existingAdapter = tabAdaptersByPanelID[panel.id]
-        if let existingAdapter, existingAdapter.profileID != profileID {
-            controllersByProfileID[existingAdapter.profileID]?.didCloseTab(existingAdapter, windowIsClosing: false)
+        if let existingAdapter, existingAdapter.runtimeKey != key {
+            controllersByRuntimeKey[existingAdapter.runtimeKey]?.didCloseTab(existingAdapter, windowIsClosing: false)
             tabAdaptersByPanelID[panel.id] = nil
         }
         let adapter = tabAdaptersByPanelID[panel.id]
             ?? BrowserWebExtensionTabAdapter(
                 panel: panel,
                 windowAdapter: windowAdapter,
-                profileID: profileID
+                runtimeKey: key
             )
         adapter.panel = panel
         tabAdaptersByPanelID[panel.id] = adapter
-        if existingAdapter == nil || existingAdapter?.profileID != profileID {
+        if existingAdapter == nil || existingAdapter?.runtimeKey != key {
             controller.didOpenTab(adapter)
         }
         if shouldNotifyWindowFocus(for: panel) {
             controller.didFocusWindow(windowAdapter)
         }
         controller.didChangeTabProperties(WKWebExtension.TabChangedProperties([.title, .URL, .loading]), for: adapter)
-        Task { @MainActor [weak self] in
-            await self?.loadInstalledRecordsIfNeeded(profileID: profileID)
+        Task { @MainActor [weak self, websiteDataStore = panel.websiteDataStore] in
+            await self?.loadInstalledRecordsIfNeeded(runtimeKey: key, websiteDataStore: websiteDataStore)
         }
         postDidChange()
     }
 
     func unregister(panelID: UUID) {
         guard let adapter = tabAdaptersByPanelID.removeValue(forKey: panelID) else { return }
+        closeActionPopup(forPanelID: panelID)
         actionPopupAnchorViewsByPanelID.removeValue(forKey: panelID)
         actionPopupAnchorScreenRectsByPanelID.removeValue(forKey: panelID)
-        controllersByProfileID[adapter.profileID]?.didCloseTab(adapter, windowIsClosing: false)
+        controllersByRuntimeKey[adapter.runtimeKey]?.didCloseTab(adapter, windowIsClosing: false)
         postDidChange()
     }
 
     func installedExtensionSummaries(profileID: UUID) -> [BrowserWebExtensionInstalledSummary] {
-        store.summaries(
+        let loadedRecordIDs = contextsByRuntimeKey.reduce(into: Set<UUID>()) { result, element in
+            guard element.key.profileID == profileID else { return }
+            result.formUnion(element.value.keys)
+        }
+        return store.summaries(
             profileID: profileID,
-            loadedRecordIDs: Set(contextsByProfileID[profileID, default: [:]].keys)
+            loadedRecordIDs: loadedRecordIDs
         )
     }
 
     func actionSnapshots(for panel: BrowserPanel) -> [BrowserWebExtensionActionSnapshot] {
         guard let tab = tabAdaptersByPanelID[panel.id] else { return [] }
-        return contextsByProfileID[panel.profileID, default: [:]].compactMap { recordID, context in
+        return contextsByRuntimeKey[tab.runtimeKey, default: [:]].compactMap { recordID, context in
             actionSnapshot(recordID: recordID, context: context, tab: tab)
         }
         .sorted {
@@ -1148,7 +1196,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     func activeActionPopupSnapshot(for panel: BrowserPanel) -> BrowserWebExtensionActionSnapshot? {
         guard let activePopup = activeActionPopupByPanelID[panel.id],
               let tab = tabAdaptersByPanelID[panel.id],
-              let context = contextsByProfileID[panel.profileID]?[activePopup.actionID]
+              let context = contextsByRuntimeKey[tab.runtimeKey]?[activePopup.actionID]
         else {
             return nil
         }
@@ -1156,7 +1204,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     func performAction(_ actionID: UUID, for panel: BrowserPanel) {
-        guard let context = contextsByProfileID[panel.profileID]?[actionID] else {
+        guard let runtimeKey = tabAdaptersByPanelID[panel.id]?.runtimeKey,
+              let context = contextsByRuntimeKey[runtimeKey]?[actionID] else {
             return
         }
         let tab = tabAdaptersByPanelID[panel.id]
@@ -1191,7 +1240,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     func notePanelPropertiesChanged(panel: BrowserPanel) {
         guard let tab = tabAdaptersByPanelID[panel.id] else { return }
-        controllersByProfileID[tab.profileID]?.didChangeTabProperties([.title, .URL, .loading], for: tab)
+        controllersByRuntimeKey[tab.runtimeKey]?.didChangeTabProperties([.title, .URL, .loading], for: tab)
         postDidChange()
     }
 
@@ -1227,9 +1276,13 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         )
         try await load(record: record, profileID: profileID)
         postDidChange()
+        let loadedRecordIDs = contextsByRuntimeKey.reduce(into: Set<UUID>()) { result, element in
+            guard element.key.profileID == profileID else { return }
+            result.formUnion(element.value.keys)
+        }
         let summary = store.summaries(
             profileID: profileID,
-            loadedRecordIDs: Set(contextsByProfileID[profileID, default: [:]].keys)
+            loadedRecordIDs: loadedRecordIDs
         ).first { $0.id == record.id }
             ?? BrowserWebExtensionInstalledSummary(
                 id: record.id,
@@ -1243,7 +1296,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 grantedPermissions: record.profileState(for: profileID).grantedPermissions,
                 grantedPermissionMatchPatterns: record.profileState(for: profileID).grantedPermissionMatchPatterns,
                 isEnabled: record.profileState(for: profileID).isEnabled,
-                isLoaded: contextsByProfileID[profileID]?[record.id] != nil,
+                isLoaded: loadedRecordIDs.contains(record.id),
                 lastError: record.profileState(for: profileID).lastError
             )
         return BrowserWebExtensionInstallResult(summary: summary, parseErrors: parseErrors)
@@ -1253,17 +1306,17 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         cancelRuntimePermissionPrompts()
         closeAllActionPopups()
         closeAllAuxiliaryWindows()
-        for (profileID, contextsByRecordID) in contextsByProfileID {
-            guard let controller = controllersByProfileID[profileID] else { continue }
+        for (runtimeKey, contextsByRecordID) in contextsByRuntimeKey {
+            guard let controller = controllersByRuntimeKey[runtimeKey] else { continue }
             for context in contextsByRecordID.values {
                 try? controller.unload(context)
             }
         }
-        contextsByProfileID.removeAll()
-        loadedProfileIDs.removeAll()
+        contextsByRuntimeKey.removeAll()
+        loadedRuntimeKeys.removeAll()
         store.reload()
-        for profileID in controllersByProfileID.keys {
-            await loadInstalledRecordsIfNeeded(profileID: profileID)
+        for (runtimeKey, dataStore) in websiteDataStoresByRuntimeKey {
+            await loadInstalledRecordsIfNeeded(runtimeKey: runtimeKey, websiteDataStore: dataStore)
         }
         postDidChange()
     }
@@ -1299,8 +1352,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     func removeExtension(id: UUID) throws {
         cancelRuntimePermissionPrompts()
         closeAllActionPopups()
-        for profileID in controllersByProfileID.keys {
-            unload(recordID: id, profileID: profileID)
+        for runtimeKey in controllersByRuntimeKey.keys {
+            unload(recordID: id, runtimeKey: runtimeKey)
         }
         try store.remove(recordID: id)
         postDidChange()
@@ -1334,10 +1387,11 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     private func ensureController(
-        profileID: UUID,
+        runtimeKey: BrowserWebExtensionRuntimeKey,
         defaultWebsiteDataStore: WKWebsiteDataStore
     ) -> WKWebExtensionController {
-        if let controller = controllersByProfileID[profileID] {
+        websiteDataStoresByRuntimeKey[runtimeKey] = defaultWebsiteDataStore
+        if let controller = controllersByRuntimeKey[runtimeKey] {
             return controller
         }
 
@@ -1353,33 +1407,69 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
         let controller = WKWebExtensionController(configuration: configuration)
         controller.delegate = self
-        controllersByProfileID[profileID] = controller
+        controllersByRuntimeKey[runtimeKey] = controller
 
         Task { @MainActor [weak self] in
-            await self?.loadInstalledRecordsIfNeeded(profileID: profileID)
+            await self?.loadInstalledRecordsIfNeeded(runtimeKey: runtimeKey, websiteDataStore: defaultWebsiteDataStore)
         }
 
         return controller
     }
 
-    private func ensureWindowAdapter(profileID: UUID) -> BrowserWebExtensionWindowAdapter {
-        if let adapter = windowAdaptersByProfileID[profileID] {
+    private func ensureWindowAdapter(runtimeKey: BrowserWebExtensionRuntimeKey) -> BrowserWebExtensionWindowAdapter {
+        if let adapter = windowAdaptersByRuntimeKey[runtimeKey] {
             return adapter
         }
-        let adapter = BrowserWebExtensionWindowAdapter(profileID: profileID)
+        let adapter = BrowserWebExtensionWindowAdapter(runtimeKey: runtimeKey)
         adapter.runtime = self
-        windowAdaptersByProfileID[profileID] = adapter
+        windowAdaptersByRuntimeKey[runtimeKey] = adapter
         return adapter
     }
 
+    private func runtimeKey(for panel: BrowserPanel) -> BrowserWebExtensionRuntimeKey {
+        runtimeKey(profileID: panel.profileID, websiteDataStore: panel.websiteDataStore)
+    }
+
+    private func runtimeKey(
+        profileID: UUID,
+        websiteDataStore: WKWebsiteDataStore
+    ) -> BrowserWebExtensionRuntimeKey {
+        BrowserWebExtensionRuntimeKey(profileID: profileID, websiteDataStore: websiteDataStore)
+    }
+
+    private func defaultRuntimeKey(profileID: UUID) -> BrowserWebExtensionRuntimeKey {
+        runtimeKey(
+            profileID: profileID,
+            websiteDataStore: BrowserProfileStore.shared.websiteDataStore(for: profileID)
+        )
+    }
+
+    private func activeRuntimeKeys(profileID: UUID) -> [BrowserWebExtensionRuntimeKey] {
+        let keys = Set(
+            controllersByRuntimeKey.keys.filter { $0.profileID == profileID } +
+                contextsByRuntimeKey.keys.filter { $0.profileID == profileID }
+        )
+        return keys.sorted { lhs, rhs in
+            String(describing: lhs.dataStoreScope) < String(describing: rhs.dataStoreScope)
+        }
+    }
+
     private func profileID(for controller: WKWebExtensionController) -> UUID? {
-        controllersByProfileID.first { $0.value === controller }?.key
+        runtimeKey(for: controller)?.profileID
+    }
+
+    private func runtimeKey(for controller: WKWebExtensionController) -> BrowserWebExtensionRuntimeKey? {
+        controllersByRuntimeKey.first { $0.value === controller }?.key
     }
 
     private func profileID(for context: WKWebExtensionContext) -> UUID? {
-        for (profileID, contexts) in contextsByProfileID {
+        runtimeKey(for: context)?.profileID
+    }
+
+    private func runtimeKey(for context: WKWebExtensionContext) -> BrowserWebExtensionRuntimeKey? {
+        for (runtimeKey, contexts) in contextsByRuntimeKey {
             if contexts.values.contains(where: { $0 === context }) {
-                return profileID
+                return runtimeKey
             }
         }
         return nil
@@ -1424,28 +1514,58 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         return configuration
     }
 
-    private func loadInstalledRecordsIfNeeded(profileID: UUID) async {
-        guard !loadedProfileIDs.contains(profileID) else { return }
-        loadedProfileIDs.insert(profileID)
-        for record in store.records where record.profileState(for: profileID).isEnabled {
+    private func loadInstalledRecordsIfNeeded(
+        runtimeKey: BrowserWebExtensionRuntimeKey,
+        websiteDataStore: WKWebsiteDataStore
+    ) async {
+        guard !loadedRuntimeKeys.contains(runtimeKey) else { return }
+        loadedRuntimeKeys.insert(runtimeKey)
+        for record in store.records where record.profileState(for: runtimeKey.profileID).isEnabled {
             do {
-                try await load(record: record, profileID: profileID)
+                try await load(record: record, runtimeKey: runtimeKey, websiteDataStore: websiteDataStore)
             } catch {
-                try? store.setLastError(error.localizedDescription, for: record.id, profileID: profileID)
+                try? store.setLastError(error.localizedDescription, for: record.id, profileID: runtimeKey.profileID)
             }
         }
         postDidChange()
     }
 
     private func load(record: BrowserWebExtensionInstallRecord, profileID: UUID) async throws {
-        let dataStore = BrowserProfileStore.shared.websiteDataStore(for: profileID)
+        var keys = activeRuntimeKeys(profileID: profileID)
+        if keys.isEmpty {
+            keys = [defaultRuntimeKey(profileID: profileID)]
+        }
+
+        var firstError: Error?
+        for runtimeKey in keys {
+            let dataStore = websiteDataStoresByRuntimeKey[runtimeKey]
+                ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
+            do {
+                try await load(record: record, runtimeKey: runtimeKey, websiteDataStore: dataStore)
+            } catch {
+                if firstError == nil {
+                    firstError = error
+                }
+            }
+        }
+        if let firstError {
+            throw firstError
+        }
+    }
+
+    private func load(
+        record: BrowserWebExtensionInstallRecord,
+        runtimeKey: BrowserWebExtensionRuntimeKey,
+        websiteDataStore: WKWebsiteDataStore
+    ) async throws {
+        let profileID = runtimeKey.profileID
         let controller = ensureController(
-            profileID: profileID,
-            defaultWebsiteDataStore: dataStore
+            runtimeKey: runtimeKey,
+            defaultWebsiteDataStore: websiteDataStore
         )
-        if let existing = contextsByProfileID[profileID]?[record.id] {
+        if let existing = contextsByRuntimeKey[runtimeKey]?[record.id] {
             try? controller.unload(existing)
-            contextsByProfileID[profileID]?[record.id] = nil
+            contextsByRuntimeKey[runtimeKey]?[record.id] = nil
         }
 
         let source = BrowserWebExtensionInstallSource(
@@ -1454,7 +1574,11 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         )
         let webExtension = try await loadWebExtension(from: source)
         let context = WKWebExtensionContext(for: webExtension)
-        if let uniqueIdentifier = browserWebExtensionContextUniqueIdentifier(for: record, profileID: profileID) {
+        if let uniqueIdentifier = browserWebExtensionContextUniqueIdentifier(
+            for: record,
+            profileID: profileID,
+            dataStoreSuffix: runtimeKey.contextUniqueIdentifierDataStoreSuffix
+        ) {
             context.uniqueIdentifier = uniqueIdentifier
         }
         context.inspectionName = record.displayName
@@ -1480,11 +1604,11 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 context.setPermissionStatus(.grantedExplicitly, for: pattern)
             }
         }
-        contextsByProfileID[profileID, default: [:]][record.id] = context
+        contextsByRuntimeKey[runtimeKey, default: [:]][record.id] = context
         do {
             try controller.load(context)
         } catch {
-            contextsByProfileID[profileID]?[record.id] = nil
+            contextsByRuntimeKey[runtimeKey]?[record.id] = nil
             let loadError = BrowserWebExtensionInstallError.loadFailed(error.localizedDescription)
             try? store.setLastError(loadError.localizedDescription, for: record.id, profileID: profileID)
             throw loadError
@@ -1512,9 +1636,15 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     private func unload(recordID: UUID, profileID: UUID) {
-        guard let context = contextsByProfileID[profileID]?[recordID] else { return }
-        try? controllersByProfileID[profileID]?.unload(context)
-        contextsByProfileID[profileID]?[recordID] = nil
+        for runtimeKey in activeRuntimeKeys(profileID: profileID) {
+            unload(recordID: recordID, runtimeKey: runtimeKey)
+        }
+    }
+
+    private func unload(recordID: UUID, runtimeKey: BrowserWebExtensionRuntimeKey) {
+        guard let context = contextsByRuntimeKey[runtimeKey]?[recordID] else { return }
+        try? controllersByRuntimeKey[runtimeKey]?.unload(context)
+        contextsByRuntimeKey[runtimeKey]?[recordID] = nil
     }
 
     private func loadWebExtension(from source: BrowserWebExtensionInstallSource) async throws -> WKWebExtension {
@@ -1609,12 +1739,12 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         _ controller: WKWebExtensionController,
         openWindowsFor context: WKWebExtensionContext
     ) -> [any WKWebExtensionWindow] {
-        let profileID = profileID(for: controller)
+        let runtimeKey = runtimeKey(for: controller)
         let auxiliaryWindows = auxiliaryWindowAdaptersByID.values
-            .filter { profileID == nil || $0.profileID == profileID }
+            .filter { runtimeKey == nil || $0.runtimeKey == runtimeKey }
             .filter(\.isVisible)
             .sorted { $0.createdAt < $1.createdAt }
-        let windowAdapter = profileID.map { ensureWindowAdapter(profileID: $0) }
+        let windowAdapter = runtimeKey.map { ensureWindowAdapter(runtimeKey: $0) }
         if let focusedAuxiliaryWindow = auxiliaryWindows.first(where: \.isKeyWindow) {
             var windows: [any WKWebExtensionWindow] = [focusedAuxiliaryWindow]
             if let windowAdapter {
@@ -1635,13 +1765,13 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         _ controller: WKWebExtensionController,
         focusedWindowFor context: WKWebExtensionContext
     ) -> (any WKWebExtensionWindow)? {
-        let profileID = profileID(for: controller)
+        let runtimeKey = runtimeKey(for: controller)
         if let focusedAuxiliaryWindow = auxiliaryWindowAdaptersByID.values.first(where: {
-            $0.isKeyWindow && (profileID == nil || $0.profileID == profileID)
+            $0.isKeyWindow && (runtimeKey == nil || $0.runtimeKey == runtimeKey)
         }) {
             return focusedAuxiliaryWindow
         }
-        let window = profileID.map { ensureWindowAdapter(profileID: $0) }
+        let window = runtimeKey.map { ensureWindowAdapter(runtimeKey: $0) }
         return window
     }
 
@@ -1651,10 +1781,11 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         for context: WKWebExtensionContext,
         completionHandler: @escaping ((any WKWebExtensionWindow)?, Error?) -> Void
     ) {
-        let profileID = profileID(for: controller) ?? BrowserProfileStore.shared.builtInDefaultProfileID
+        let runtimeKey = runtimeKey(for: controller)
+            ?? defaultRuntimeKey(profileID: BrowserProfileStore.shared.builtInDefaultProfileID)
         let opener = configuration.tabs.compactMap { ($0 as? BrowserWebExtensionTabAdapter)?.panel }.first
-            ?? activeTabAdapter(profileID: profileID)?.panel
-            ?? tabAdaptersByPanelID.values.filter { $0.profileID == profileID }.compactMap(\.panel).first
+            ?? activeTabAdapter(runtimeKey: runtimeKey)?.panel
+            ?? tabAdaptersByPanelID.values.filter { $0.runtimeKey == runtimeKey }.compactMap(\.panel).first
         let initialURL = configuration.tabURLs.first
         guard let webViewConfiguration = auxiliaryWebViewConfiguration(
             initialURL: initialURL,
@@ -1668,7 +1799,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
         let window = BrowserWebExtensionAuxiliaryWindowAdapter(
             runtime: self,
-            profileID: profileID,
+            runtimeKey: runtimeKey,
             configuration: configuration,
             webViewConfiguration: webViewConfiguration,
             customUserAgent: BrowserUserAgentSettings.safariUserAgent,
@@ -1691,10 +1822,11 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         for context: WKWebExtensionContext,
         completionHandler: @escaping ((any WKWebExtensionTab)?, Error?) -> Void
     ) {
-        let profileID = profileID(for: controller) ?? BrowserProfileStore.shared.builtInDefaultProfileID
+        let runtimeKey = runtimeKey(for: controller)
+            ?? defaultRuntimeKey(profileID: BrowserProfileStore.shared.builtInDefaultProfileID)
         let opener = (configuration.parentTab as? BrowserWebExtensionTabAdapter)?.panel
-            ?? activeTabAdapter(profileID: profileID)?.panel
-            ?? tabAdaptersByPanelID.values.filter { $0.profileID == profileID }.compactMap(\.panel).first
+            ?? activeTabAdapter(runtimeKey: runtimeKey)?.panel
+            ?? tabAdaptersByPanelID.values.filter { $0.runtimeKey == runtimeKey }.compactMap(\.panel).first
         guard let opener,
               let app = AppDelegate.shared,
               let workspace = app.workspaceContainingPanel(
@@ -1719,20 +1851,20 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     fileprivate func auxiliaryWindowDidFocus(_ window: BrowserWebExtensionAuxiliaryWindowAdapter) {
-        controllersByProfileID[window.profileID]?.didFocusWindow(window)
+        controllersByRuntimeKey[window.runtimeKey]?.didFocusWindow(window)
     }
 
     fileprivate func auxiliaryWindowDidChangeTabProperties(
         _ properties: WKWebExtension.TabChangedProperties,
         tab: BrowserWebExtensionAuxiliaryTabAdapter
     ) {
-        controllersByProfileID[tab.profileID]?.didChangeTabProperties(properties, for: tab)
+        controllersByRuntimeKey[tab.runtimeKey]?.didChangeTabProperties(properties, for: tab)
     }
 
     fileprivate func auxiliaryWindowDidClose(_ window: BrowserWebExtensionAuxiliaryWindowAdapter) {
         auxiliaryWindowAdaptersByID.removeValue(forKey: window.id)
-        controllersByProfileID[window.profileID]?.didCloseTab(window.tabAdapter, windowIsClosing: true)
-        controllersByProfileID[window.profileID]?.didCloseWindow(window)
+        controllersByRuntimeKey[window.runtimeKey]?.didCloseTab(window.tabAdapter, windowIsClosing: true)
+        controllersByRuntimeKey[window.runtimeKey]?.didCloseWindow(window)
         postDidChange()
     }
 
@@ -1740,6 +1872,17 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         let windows = Array(auxiliaryWindowAdaptersByID.values)
         for window in windows {
             window.closeWindow()
+        }
+    }
+
+    private func closeActionPopup(forPanelID panelID: UUID) {
+        let presentations = actionPopupPresentationsByID.values.filter { $0.panelID == panelID }
+        for presentation in presentations {
+            presentation.close()
+        }
+        activeActionPopupByPanelID.removeValue(forKey: panelID)
+        for presentation in presentations {
+            actionPopupPresentationsByID.removeValue(forKey: presentation.id)
         }
     }
 
@@ -1797,7 +1940,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         let presentation = BrowserWebExtensionActionPopupPresentation(
             action: action,
             panelID: actionPanel.id,
-            actionID: action.webExtensionContext.flatMap { recordID(for: $0, profileID: actionPanel.profileID) },
+            actionID: action.webExtensionContext.flatMap { recordID(for: $0) },
             popupWebView: popupWebView,
             requestedContentSize: popupPopover?.contentSize ?? .zero,
             runtime: self
@@ -1833,8 +1976,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         )
     }
 
-    private func recordID(for context: WKWebExtensionContext, profileID: UUID) -> UUID? {
-        contextsByProfileID[profileID]?.first { _, candidateContext in
+    private func recordID(for context: WKWebExtensionContext) -> UUID? {
+        guard let runtimeKey = runtimeKey(for: context) else { return nil }
+        return contextsByRuntimeKey[runtimeKey]?.first { _, candidateContext in
             candidateContext === context
         }?.key
     }
@@ -1864,8 +2008,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     private func sourceKind(for context: WKWebExtensionContext) -> BrowserWebExtensionInstallRecord.SourceKind {
-        guard let profileID = profileID(for: context),
-              let recordID = contextsByProfileID[profileID]?.first(where: { $0.value === context })?.key,
+        guard let recordID = recordID(for: context),
               let record = store.records.first(where: { $0.id == recordID }) else {
             return .appExtensionBundle
         }
@@ -1979,19 +2122,19 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         return panel.webView.window?.isKeyWindow == true
     }
 
-    fileprivate func activeTabAdapter(profileID: UUID? = nil) -> BrowserWebExtensionTabAdapter? {
+    fileprivate func activeTabAdapter(runtimeKey: BrowserWebExtensionRuntimeKey? = nil) -> BrowserWebExtensionTabAdapter? {
         if let focusedPanelID = AppDelegate.shared?.tabManager?.selectedWorkspace?.focusedPanelId,
            let adapter = tabAdaptersByPanelID[focusedPanelID],
-           profileID == nil || adapter.profileID == profileID {
+           runtimeKey == nil || adapter.runtimeKey == runtimeKey {
             return adapter
         }
         return tabAdaptersByPanelID.values.first { adapter in
-            guard profileID == nil || adapter.profileID == profileID else { return false }
+            guard runtimeKey == nil || adapter.runtimeKey == runtimeKey else { return false }
             return adapter.panel?.webView.window?.isKeyWindow == true
         }
     }
 
-    fileprivate func tabAdapters(profileID: UUID) -> [BrowserWebExtensionTabAdapter] {
+    fileprivate func tabAdapters(runtimeKey: BrowserWebExtensionRuntimeKey) -> [BrowserWebExtensionTabAdapter] {
         var seenPanelIDs: Set<UUID> = []
         var orderedAdapters: [BrowserWebExtensionTabAdapter] = []
 
@@ -1999,7 +2142,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             for workspace in tabManager.tabs {
                 for panelID in workspace.sidebarOrderedPanelIds() where seenPanelIDs.insert(panelID).inserted {
                     if let adapter = tabAdaptersByPanelID[panelID],
-                       adapter.profileID == profileID {
+                       adapter.runtimeKey == runtimeKey {
                         orderedAdapters.append(adapter)
                     }
                 }
@@ -2009,7 +2152,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         let fallbackPanelIDs = tabAdaptersByPanelID.keys.sorted { $0.uuidString < $1.uuidString }
         for panelID in fallbackPanelIDs where seenPanelIDs.insert(panelID).inserted {
             if let adapter = tabAdaptersByPanelID[panelID],
-               adapter.profileID == profileID {
+               adapter.runtimeKey == runtimeKey {
                 orderedAdapters.append(adapter)
             }
         }
@@ -2246,6 +2389,7 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSWind
 private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebExtensionWindow, NSWindowDelegate {
     let id = UUID()
     let createdAt = Date()
+    let runtimeKey: BrowserWebExtensionRuntimeKey
     let profileID: UUID
     let tabAdapter: BrowserWebExtensionAuxiliaryTabAdapter
 
@@ -2270,7 +2414,7 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
 
     init(
         runtime: BrowserWebExtensionRuntime,
-        profileID: UUID,
+        runtimeKey: BrowserWebExtensionRuntimeKey,
         configuration: WKWebExtension.WindowConfiguration,
         webViewConfiguration: WKWebViewConfiguration,
         customUserAgent: String,
@@ -2278,7 +2422,8 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
         openerPanel: BrowserPanel?
     ) {
         self.runtime = runtime
-        self.profileID = profileID
+        self.runtimeKey = runtimeKey
+        self.profileID = runtimeKey.profileID
         self.windowType = configuration.windowType
         self.isPrivateWindow = configuration.shouldBePrivate
 
@@ -2319,7 +2464,7 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
         webView.customUserAgent = customUserAgent
         self.webView = webView
-        self.tabAdapter = BrowserWebExtensionAuxiliaryTabAdapter(webView: webView, profileID: profileID)
+        self.tabAdapter = BrowserWebExtensionAuxiliaryTabAdapter(webView: webView, runtimeKey: runtimeKey)
 
         super.init()
 
@@ -2520,11 +2665,13 @@ private final class BrowserWebExtensionAuxiliaryUIDelegate: NSObject, WKUIDelega
 private final class BrowserWebExtensionAuxiliaryTabAdapter: NSObject, WKWebExtensionTab {
     weak var windowAdapter: BrowserWebExtensionAuxiliaryWindowAdapter?
     private weak var webView: WKWebView?
+    let runtimeKey: BrowserWebExtensionRuntimeKey
     let profileID: UUID
 
-    init(webView: WKWebView, profileID: UUID) {
+    init(webView: WKWebView, runtimeKey: BrowserWebExtensionRuntimeKey) {
         self.webView = webView
-        self.profileID = profileID
+        self.runtimeKey = runtimeKey
+        self.profileID = runtimeKey.profileID
     }
 
     func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
@@ -2625,10 +2772,12 @@ private final class BrowserWebExtensionAuxiliaryTabAdapter: NSObject, WKWebExten
 @MainActor
 private final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     weak var runtime: BrowserWebExtensionRuntime?
+    let runtimeKey: BrowserWebExtensionRuntimeKey
     let profileID: UUID
 
-    init(profileID: UUID) {
-        self.profileID = profileID
+    init(runtimeKey: BrowserWebExtensionRuntimeKey) {
+        self.runtimeKey = runtimeKey
+        self.profileID = runtimeKey.profileID
         super.init()
     }
 
@@ -2637,7 +2786,7 @@ private final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWi
     }
 
     func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
-        runtime?.activeTabAdapter(profileID: profileID) ?? runtimeTabAdapters().first
+        runtime?.activeTabAdapter(runtimeKey: runtimeKey) ?? runtimeTabAdapters().first
     }
 
     func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType {
@@ -2645,7 +2794,7 @@ private final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWi
     }
 
     func windowState(for context: WKWebExtensionContext) -> WKWebExtension.WindowState {
-        guard let window = runtime?.activeTabAdapter(profileID: profileID)?.panel?.webView.window ?? NSApp.keyWindow else {
+        guard let window = runtime?.activeTabAdapter(runtimeKey: runtimeKey)?.panel?.webView.window ?? NSApp.keyWindow else {
             return .normal
         }
         if window.styleMask.contains(.fullScreen) {
@@ -2662,20 +2811,20 @@ private final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWi
     }
 
     func frame(for context: WKWebExtensionContext) -> CGRect {
-        (runtime?.activeTabAdapter(profileID: profileID)?.panel?.webView.window ?? NSApp.keyWindow)?.frame ?? .null
+        (runtime?.activeTabAdapter(runtimeKey: runtimeKey)?.panel?.webView.window ?? NSApp.keyWindow)?.frame ?? .null
     }
 
     func screenFrame(for context: WKWebExtensionContext) -> CGRect {
-        (runtime?.activeTabAdapter(profileID: profileID)?.panel?.webView.window ?? NSApp.keyWindow)?.screen?.frame ?? .null
+        (runtime?.activeTabAdapter(runtimeKey: runtimeKey)?.panel?.webView.window ?? NSApp.keyWindow)?.screen?.frame ?? .null
     }
 
     func focus(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        runtime?.activeTabAdapter(profileID: profileID)?.panel?.focus()
+        runtime?.activeTabAdapter(runtimeKey: runtimeKey)?.panel?.focus()
         completionHandler(nil)
     }
 
     private func runtimeTabAdapters() -> [BrowserWebExtensionTabAdapter] {
-        runtime?.tabAdapters(profileID: profileID) ?? []
+        runtime?.tabAdapters(runtimeKey: runtimeKey) ?? []
     }
 }
 
@@ -2684,12 +2833,14 @@ private final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWi
 private final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     weak var panel: BrowserPanel?
     private weak var windowAdapter: BrowserWebExtensionWindowAdapter?
+    let runtimeKey: BrowserWebExtensionRuntimeKey
     let profileID: UUID
 
-    init(panel: BrowserPanel, windowAdapter: BrowserWebExtensionWindowAdapter, profileID: UUID) {
+    init(panel: BrowserPanel, windowAdapter: BrowserWebExtensionWindowAdapter, runtimeKey: BrowserWebExtensionRuntimeKey) {
         self.panel = panel
         self.windowAdapter = windowAdapter
-        self.profileID = profileID
+        self.runtimeKey = runtimeKey
+        self.profileID = runtimeKey.profileID
     }
 
     func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
