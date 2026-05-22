@@ -80,27 +80,62 @@ extension CMUXCLI {
             let orderBy: String
             switch sort {
             case .peak:
-                orderBy = "MAX(rss_bytes) DESC, AVG(rss_bytes) DESC"
+                orderBy = "peak_rss_bytes DESC, avg_rss_bytes DESC"
             case .average:
-                orderBy = "AVG(rss_bytes) DESC, MAX(rss_bytes) DESC"
+                orderBy = "avg_rss_bytes DESC, peak_rss_bytes DESC"
             }
             let sql = """
+            WITH filtered AS (
+                SELECT *
+                FROM workspace_memory_samples
+                WHERE sampled_at >= ?
+            ),
+            aggregated AS (
+                SELECT
+                    workspace_id,
+                    COUNT(*) AS sample_count,
+                    MAX(rss_bytes) AS peak_rss_bytes,
+                    AVG(rss_bytes) AS avg_rss_bytes,
+                    MAX(memory_percent) AS peak_memory_percent,
+                    AVG(memory_percent) AS avg_memory_percent,
+                    MAX(cpu_percent) AS peak_cpu_percent,
+                    AVG(cpu_percent) AS avg_cpu_percent,
+                    MAX(process_count) AS peak_process_count,
+                    MAX(sampled_at) AS last_sampled_at
+                FROM filtered
+                GROUP BY workspace_id
+            ),
+            latest AS (
+                SELECT
+                    current.workspace_id,
+                    current.workspace_ref,
+                    current.workspace_title
+                FROM filtered AS current
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM filtered AS newer
+                    WHERE newer.workspace_id = current.workspace_id
+                      AND (
+                        newer.sampled_at > current.sampled_at
+                        OR (newer.sampled_at = current.sampled_at AND newer.id > current.id)
+                      )
+                )
+            )
             SELECT
-                workspace_id,
-                COALESCE(MAX(workspace_ref), ''),
-                COALESCE(MAX(workspace_title), ''),
-                COUNT(*),
-                MAX(rss_bytes),
-                AVG(rss_bytes),
-                MAX(memory_percent),
-                AVG(memory_percent),
-                MAX(cpu_percent),
-                AVG(cpu_percent),
-                MAX(process_count),
-                MAX(sampled_at)
-            FROM workspace_memory_samples
-            WHERE sampled_at >= ?
-            GROUP BY workspace_id
+                aggregated.workspace_id,
+                COALESCE(latest.workspace_ref, ''),
+                COALESCE(latest.workspace_title, ''),
+                aggregated.sample_count,
+                aggregated.peak_rss_bytes,
+                aggregated.avg_rss_bytes,
+                aggregated.peak_memory_percent,
+                aggregated.avg_memory_percent,
+                aggregated.peak_cpu_percent,
+                aggregated.avg_cpu_percent,
+                aggregated.peak_process_count,
+                aggregated.last_sampled_at
+            FROM aggregated
+            LEFT JOIN latest ON latest.workspace_id = aggregated.workspace_id
             ORDER BY \(orderBy)
             LIMIT ?
             """
