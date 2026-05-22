@@ -621,6 +621,47 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(genericCommand.contains("Allow Bash to inspect grep error.log?"), genericCommand)
     }
 
+    func testClaudePermissionRequestSkipsNotificationWhenPromptWasClearedBeforePendingWrite() throws {
+        let context = try makeClaudeHookContext(name: "claude-permission-cleared-before-pending")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-permission-cleared-before-pending-session"
+        let commandStart = context.state.commands.count
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"grep error.log","allowed_prompts":[{"prompt":"Allow Bash to inspect grep error.log?"}]}}"#,
+            extraEnvironment: [
+                "CMUX_WORKSPACE_ID": "",
+                "CMUX_SURFACE_ID": "",
+            ],
+            responseOverride: { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      payload["method"] as? String == "workspace.current" else {
+                    return nil
+                }
+                try? self.markClaudeHookPendingNotificationCleared(sessionId, context: context)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": context.workspaceId])
+            }
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let commands = Array(context.state.commands.dropFirst(commandStart))
+        let notifyCommands = commands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertTrue(notifyCommands.isEmpty, "Expected pre-cleared permission prompt to suppress notification, saw \(notifyCommands)")
+        XCTAssertFalse(commands.contains { $0.contains("set_status claude_code Needs input") }, commands.joined(separator: "\n"))
+
+        let sessionAfterPermission = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(sessionAfterPermission["pendingNotificationFingerprint"])
+        XCTAssertNil(sessionAfterPermission["lastSubtitle"])
+        XCTAssertNil(sessionAfterPermission["lastBody"])
+        XCTAssertNotNil(sessionAfterPermission["pendingNotificationClearedAt"])
+    }
+
     func testClaudeNotificationRefreshesSessionBeforeGenericDedupe() throws {
         let context = try makeClaudeHookContext(name: "claude-notification-refreshes-session")
         defer { context.cleanup() }
@@ -4674,6 +4715,39 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         session.removeValue(forKey: "pendingNotificationFingerprint")
         session.removeValue(forKey: "pendingNotificationStartedAt")
+        sessions[sessionId] = session
+        state["sessions"] = sessions
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted]).write(to: stateURL, options: .atomic)
+    }
+
+    private func markClaudeHookPendingNotificationCleared(_ sessionId: String, context: ClaudeHookContext) throws {
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let existingState = FileManager.default.fileExists(atPath: stateURL.path)
+            ? (try JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+            : nil
+        var state: [String: Any] = existingState ?? [
+            "version": 1,
+            "sessions": [String: Any](),
+            "activeSessionsByWorkspace": [String: Any](),
+        ]
+        var sessions = (state["sessions"] as? [String: Any]) ?? [:]
+        let now = Date().timeIntervalSince1970
+        var session = (sessions[sessionId] as? [String: Any]) ?? [
+            "sessionId": sessionId,
+            "workspaceId": context.workspaceId,
+            "surfaceId": context.surfaceId,
+            "cwd": context.root.path,
+            "startedAt": now,
+        ]
+        session["workspaceId"] = context.workspaceId
+        session["surfaceId"] = context.surfaceId
+        session["cwd"] = context.root.path
+        session["pendingNotificationClearedAt"] = now
+        session["updatedAt"] = now
+        session.removeValue(forKey: "pendingNotificationFingerprint")
+        session.removeValue(forKey: "pendingNotificationStartedAt")
+        session.removeValue(forKey: "lastSubtitle")
+        session.removeValue(forKey: "lastBody")
         sessions[sessionId] = session
         state["sessions"] = sessions
         try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted]).write(to: stateURL, options: .atomic)
