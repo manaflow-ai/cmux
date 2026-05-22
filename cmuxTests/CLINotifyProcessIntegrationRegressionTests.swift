@@ -606,6 +606,55 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(child["isRestorable"] as? Bool, false)
     }
 
+    func testCodexLaunchlessTopLevelSessionStartCanReplaceOlderLaunchBackedBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-launchless-top-level")
+        defer { context.cleanup() }
+
+        let oldSessionId = "older-launch-backed-thread"
+        let latestSessionId = "newer-launchless-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+
+        let oldStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(oldSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: oldSessionId)
+        )
+        XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
+        XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
+
+        let latestStartIndex = context.state.commands.count
+        let latestStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(latestSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(latestStart.timedOut, latestStart.stderr)
+        XCTAssertEqual(latestStart.status, 0, latestStart.stderr)
+
+        let latestCommands = Array(context.state.commands.dropFirst(latestStartIndex))
+        XCTAssertTrue(
+            latestCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == latestSessionId
+            },
+            "A launchless top-level Codex SessionStart should replace an older binding, saw \(latestCommands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        let latest = try XCTUnwrap(savedSessions[latestSessionId] as? [String: Any])
+        XCTAssertNil(
+            latest["isRestorable"],
+            "Top-level launchless sessions must remain restorable unless an explicit subagent signal suppresses them."
+        )
+    }
+
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-relay")
         defer { context.cleanup() }

@@ -814,17 +814,7 @@ struct RestorableAgentSessionIndex: Sendable {
         over existing: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)?
     ) -> Bool {
         guard let existing else { return true }
-
-        let candidateRank = restoreSelectionRank(candidate.snapshot)
-        let existingRank = restoreSelectionRank(existing.snapshot)
-        if candidateRank != existingRank {
-            return candidateRank > existingRank
-        }
         return candidate.updatedAt >= existing.updatedAt
-    }
-
-    private static func restoreSelectionRank(_ snapshot: SessionRestorableAgentSnapshot) -> Int {
-        snapshot.launchCommand == nil ? 0 : 1
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {

@@ -872,15 +872,14 @@ private final class ClaudeHookSessionStore {
         workspaceId: String,
         surfaceId: String,
         excludingSessionId: String,
-        parentSessionId: String? = nil,
-        requireLaunchCommand: Bool = false
+        parentSessionId: String
     ) throws -> ClaudeHookSessionRecord? {
         guard let normalizedWorkspace = normalizeOptional(workspaceId),
               let normalizedSurface = normalizeOptional(surfaceId),
-              let excluded = normalizeOptional(excludingSessionId) else {
+              let excluded = normalizeOptional(excludingSessionId),
+              let normalizedParent = normalizeOptional(parentSessionId) else {
             return nil
         }
-        let normalizedParent = normalizeOptional(parentSessionId)
         return try withLockedState { state in
             let peers = state.sessions.values.filter { record in
                 guard record.sessionId != excluded,
@@ -889,18 +888,9 @@ private final class ClaudeHookSessionStore {
                       record.isRestorable != false else {
                     return false
                 }
-                if requireLaunchCommand {
-                    return recordHasLaunchCommand(record)
-                }
                 return true
             }
-            if let normalizedParent,
-               let parent = peers.first(where: { $0.sessionId == normalizedParent }) {
-                return parent
-            }
-            return peers
-                .filter { !requireLaunchCommand || recordHasLaunchCommand($0) }
-                .max(by: { $0.updatedAt < $1.updatedAt })
+            return peers.first(where: { $0.sessionId == normalizedParent })
         }
     }
 
@@ -1031,11 +1021,6 @@ private final class ClaudeHookSessionStore {
             }
         }
         return nil
-    }
-
-    private func recordHasLaunchCommand(_ record: ClaudeHookSessionRecord) -> Bool {
-        guard let launchCommand = record.launchCommand else { return false }
-        return !launchCommand.arguments.isEmpty
     }
 
     private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
@@ -24127,27 +24112,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         func shouldSuppressSubagentRestoreTakeover(
             workspaceId: String,
-            surfaceId: String,
-            launchCommand: AgentHookLaunchCommandRecord?
+            surfaceId: String
         ) -> Bool {
-            guard !sessionId.isEmpty else { return false }
-            if let parentSessionId = input.parentSessionId,
-               (try? store.sameSurfaceRestorablePeer(
-                   workspaceId: workspaceId,
-                   surfaceId: surfaceId,
-                   excludingSessionId: sessionId,
-                   parentSessionId: parentSessionId
-               )) != nil {
-                return true
-            }
-            guard launchCommand == nil else {
-                return false
-            }
+            guard !sessionId.isEmpty,
+                  let parentSessionId = input.parentSessionId else { return false }
             return (try? store.sameSurfaceRestorablePeer(
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 excludingSessionId: sessionId,
-                requireLaunchCommand: true
+                parentSessionId: parentSessionId
             )) != nil
         }
         func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
@@ -24304,8 +24277,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
                 workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                launchCommand: launchCommand
+                surfaceId: surfaceId
             )
             let suppressRestorableRecord = nestedAgentSuppressVisibleMutations || suppressRestoreTakeover
             let suppressVisibleMutations = suppressRestorableRecord
@@ -24365,8 +24337,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
                 workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                launchCommand: launchCommand
+                surfaceId: surfaceId
             )
             let nestedAgentSuppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
@@ -24572,8 +24543,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
                 workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                launchCommand: launchCommand
+                surfaceId: surfaceId
             )
             let nestedAgentSuppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
@@ -24820,8 +24790,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
                 let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    launchCommand: launchCommand
+                    surfaceId: surfaceId
                 )
                 suppressRestorableRecord = suppressRestoreTakeover
                     || shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
