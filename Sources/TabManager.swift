@@ -5737,6 +5737,7 @@ class TabManager: ObservableObject {
         sidebarSelectedWorkspaceIds.remove(workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        TerminalController.stopCodexTranscriptMonitors(forWorkspaceId: workspace.id)
         workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)

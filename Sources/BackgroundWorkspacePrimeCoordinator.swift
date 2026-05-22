@@ -52,16 +52,12 @@ final class BackgroundWorkspacePrimeCoordinator {
             }
         }
 
-        func addObserver(_ observer: NSObjectProtocol) {
-            addCleanup { NotificationCenter.default.removeObserver(observer) }
-        }
-
-        func addCancellable(_ cancellable: AnyCancellable) {
-            addCleanup { cancellable.cancel() }
-        }
-
         func addTask(_ task: Task<Void, Never>) {
             addCleanup { task.cancel() }
+        }
+
+        func addCleanupAction(_ action: @escaping () -> Void) {
+            addCleanup(action)
         }
 
         func finish(reason: PrimeCompletionReason) {
@@ -94,8 +90,24 @@ final class BackgroundWorkspacePrimeCoordinator {
         }
     }
 
+    private struct RegisteredWaiter {
+        let id: UUID
+        weak var waiter: Waiter?
+    }
+
+    private weak var observedTabManager: TabManager?
+    private var readinessWaitersByWorkspaceId: [UUID: [RegisteredWaiter]] = [:]
+    private var readinessCancellables: Set<AnyCancellable> = []
+    private var readinessObservers: [NSObjectProtocol] = []
+
     deinit {
-        // Explicit for the required_deinit lint; per-prime resources live on Waiter.
+        let waiters = readinessWaitersByWorkspaceId.values.flatMap { registrations in
+            registrations.compactMap(\.waiter)
+        }
+        readinessWaitersByWorkspaceId.removeAll(keepingCapacity: false)
+        waiters.forEach { $0.finish(reason: .cancelled) }
+        readinessCancellables.forEach { $0.cancel() }
+        readinessObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     func taskKey(for tabManager: TabManager) -> [String] {
@@ -215,7 +227,7 @@ final class BackgroundWorkspacePrimeCoordinator {
                 waiter.start(continuation: continuation)
                 guard !waiter.isResolved else { return }
 
-                installReadinessObservers(
+                registerReadinessWaiter(
                     waiter: waiter,
                     workspaceId: workspaceId,
                     tabManager: tabManager
@@ -247,68 +259,130 @@ final class BackgroundWorkspacePrimeCoordinator {
         }
     }
 
-    private func installReadinessObservers(
+    private func registerReadinessWaiter(
         waiter: Waiter,
         workspaceId: UUID,
         tabManager: TabManager
     ) {
+        ensureSharedReadinessObservers(tabManager: tabManager)
+        let registrationId = UUID()
+        readinessWaitersByWorkspaceId[workspaceId, default: []].append(
+            RegisteredWaiter(id: registrationId, waiter: waiter)
+        )
+        waiter.addCleanupAction { [weak self] in
+            Task { @MainActor in
+                self?.unregisterReadinessWaiter(registrationId: registrationId, workspaceId: workspaceId)
+            }
+        }
+    }
+
+    private func ensureSharedReadinessObservers(tabManager: TabManager) {
+        if let observedTabManager, observedTabManager === tabManager {
+            return
+        }
+
+        readinessCancellables.forEach { $0.cancel() }
+        readinessCancellables.removeAll(keepingCapacity: false)
+        readinessObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        readinessObservers.removeAll(keepingCapacity: false)
+        cancelRegisteredReadinessWaiters()
+        observedTabManager = tabManager
+
         let readyObserver = NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
             object: nil,
             queue: .main
-        ) { [weak self, weak waiter, weak tabManager] notification in
+        ) { [weak self, weak tabManager] notification in
             guard let readyWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
-                  readyWorkspaceId == workspaceId,
                   let self,
-                  let waiter,
                   let tabManager else { return }
             Task { @MainActor in
-                self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
+                self.evaluateRegisteredWaiters(for: readyWorkspaceId, tabManager: tabManager)
             }
         }
-        waiter.addObserver(readyObserver)
+        readinessObservers.append(readyObserver)
 
         let hostedViewObserver = NotificationCenter.default.addObserver(
             forName: .terminalSurfaceHostedViewDidMoveToWindow,
             object: nil,
             queue: .main
-        ) { [weak self, weak waiter, weak tabManager] notification in
+        ) { [weak self, weak tabManager] notification in
             guard let readyWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
-                  readyWorkspaceId == workspaceId,
                   let self,
-                  let waiter,
                   let tabManager else { return }
             Task { @MainActor in
-                self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
+                self.evaluateRegisteredWaiters(for: readyWorkspaceId, tabManager: tabManager)
             }
         }
-        waiter.addObserver(hostedViewObserver)
+        readinessObservers.append(hostedViewObserver)
 
         let pendingObserver = tabManager.$pendingBackgroundWorkspaceLoadIds
             .dropFirst()
-            .sink { [weak self, weak waiter, weak tabManager] pendingIds in
-                guard !pendingIds.contains(workspaceId),
-                      let self,
-                      let waiter,
-                      let tabManager else { return }
+            .sink { [weak self, weak tabManager] pendingIds in
+                guard let self, let tabManager else { return }
                 Task { @MainActor in
-                    self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
+                    self.handlePendingWorkspaceIdsChange(pendingIds, tabManager: tabManager)
                 }
             }
-        waiter.addCancellable(pendingObserver)
+        readinessCancellables.insert(pendingObserver)
 
         let tabsObserver = tabManager.$tabs
             .dropFirst()
-            .sink { [weak self, weak waiter, weak tabManager] tabs in
-                guard !tabs.contains(where: { $0.id == workspaceId }),
-                      let self,
-                      let waiter,
-                      let tabManager else { return }
+            .sink { [weak self, weak tabManager] tabs in
+                let tabIds = Set(tabs.map(\.id))
+                guard let self, let tabManager else { return }
                 Task { @MainActor in
-                    self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
+                    self.handleTabIdsChange(tabIds, tabManager: tabManager)
                 }
             }
-        waiter.addCancellable(tabsObserver)
+        readinessCancellables.insert(tabsObserver)
+    }
+
+    private func cancelRegisteredReadinessWaiters() {
+        let waiters = readinessWaitersByWorkspaceId.values.flatMap { registrations in
+            registrations.compactMap(\.waiter)
+        }
+        readinessWaitersByWorkspaceId.removeAll(keepingCapacity: false)
+        waiters.forEach { $0.finish(reason: .cancelled) }
+    }
+
+    private func unregisterReadinessWaiter(registrationId: UUID, workspaceId: UUID) {
+        guard var waiters = readinessWaitersByWorkspaceId[workspaceId] else { return }
+        waiters.removeAll { $0.id == registrationId || $0.waiter == nil || $0.waiter?.isResolved == true }
+        if waiters.isEmpty {
+            readinessWaitersByWorkspaceId.removeValue(forKey: workspaceId)
+        } else {
+            readinessWaitersByWorkspaceId[workspaceId] = waiters
+        }
+    }
+
+    private func handlePendingWorkspaceIdsChange(_ pendingIds: Set<UUID>, tabManager: TabManager) {
+        let readyWorkspaceIds = readinessWaitersByWorkspaceId.keys.filter { !pendingIds.contains($0) }
+        for workspaceId in readyWorkspaceIds {
+            evaluateRegisteredWaiters(for: workspaceId, tabManager: tabManager)
+        }
+    }
+
+    private func handleTabIdsChange(_ tabIds: Set<UUID>, tabManager: TabManager) {
+        let removedWorkspaceIds = readinessWaitersByWorkspaceId.keys.filter { !tabIds.contains($0) }
+        for workspaceId in removedWorkspaceIds {
+            evaluateRegisteredWaiters(for: workspaceId, tabManager: tabManager)
+        }
+    }
+
+    private func evaluateRegisteredWaiters(for workspaceId: UUID, tabManager: TabManager) {
+        guard var waiters = readinessWaitersByWorkspaceId[workspaceId] else { return }
+        waiters.removeAll { $0.waiter == nil || $0.waiter?.isResolved == true }
+        for registration in waiters {
+            guard let waiter = registration.waiter else { continue }
+            evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
+        }
+        waiters.removeAll { $0.waiter == nil || $0.waiter?.isResolved == true }
+        if waiters.isEmpty {
+            readinessWaitersByWorkspaceId.removeValue(forKey: workspaceId)
+        } else {
+            readinessWaitersByWorkspaceId[workspaceId] = waiters
+        }
     }
 
     private func evaluate(waiter: Waiter, workspaceId: UUID, tabManager: TabManager) {

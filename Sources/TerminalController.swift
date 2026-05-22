@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import CMUXWorkstream
+import Darwin
 import Foundation
 import Bonsplit
 import WebKit
@@ -18,6 +19,7 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let response: String
     let authenticated: Bool
 }
+
 
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
@@ -2910,6 +2912,11 @@ class TerminalController {
         case "feed.list":
             return v2Result(id: id, self.v2FeedList(params: params))
 
+        // Agent runtime hooks
+        case "agent.codex_transcript_monitor.start":
+            return v2Result(id: id, self.v2CodexTranscriptMonitorStart(params: params))
+        case "agent.codex_transcript_monitor.stop":
+            return v2Result(id: id, self.v2CodexTranscriptMonitorStop(params: params))
 
         // Surfaces / input
         case "surface.list":
@@ -3324,6 +3331,8 @@ class TerminalController {
             "feed.exit_plan.reply",
             "feed.jump",
             "feed.list",
+            "agent.codex_transcript_monitor.start",
+            "agent.codex_transcript_monitor.stop",
             "surface.list",
             "surface.current",
             "surface.focus",
@@ -9664,6 +9673,119 @@ class TerminalController {
         return .ok([
             "items": items.map { FeedSocketEncoding.itemDict($0) }
         ])
+    }
+
+    // MARK: - V2 Agent Runtime Methods
+
+    private func v2CodexTranscriptMonitorStart(params: [String: Any]) -> V2CallResult {
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "agent.codex_transcript_monitor.start requires workspace_id", data: nil)
+        }
+        guard let sessionId = v2String(params, "session_id") else {
+            return .err(code: "invalid_params", message: "agent.codex_transcript_monitor.start requires session_id", data: nil)
+        }
+        let surfaceId = v2UUID(params, "surface_id")
+        if v2HasNonNullParam(params, "surface_id"), surfaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+
+        guard let workspace = tabForSidebarMutation(id: workspaceId) else {
+            return .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": workspaceId.uuidString])
+        }
+        if let surfaceId, workspace.panels[surfaceId] == nil {
+            return .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
+        }
+
+        CodexTranscriptMonitorRegistry.shared.start(
+            CodexTranscriptMonitorRequest(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId,
+                turnId: v2String(params, "turn_id"),
+                transcriptPath: v2RawString(params, "transcript_path"),
+                codexHome: v2RawString(params, "codex_home")
+            )
+        )
+        return .ok(["started": true])
+    }
+
+    private func v2CodexTranscriptMonitorStop(params: [String: Any]) -> V2CallResult {
+        guard let sessionId = v2String(params, "session_id") else {
+            return .err(code: "invalid_params", message: "agent.codex_transcript_monitor.stop requires session_id", data: nil)
+        }
+        CodexTranscriptMonitorRegistry.shared.stop(
+            sessionId: sessionId,
+            turnId: v2String(params, "turn_id")
+        )
+        return .ok(["stopped": true])
+    }
+
+    nonisolated static func stopCodexTranscriptMonitors(forWorkspaceId workspaceId: UUID) {
+        CodexTranscriptMonitorRegistry.shared.stopWorkspace(workspaceId)
+    }
+
+    func handleCodexTranscriptMonitorEvent(_ event: CodexTranscriptMonitorEvent) {
+        let request: CodexTranscriptMonitorRequest
+        switch event {
+        case .userInput(let eventRequest, _), .failure(let eventRequest, _), .completion(let eventRequest):
+            request = eventRequest
+        }
+
+        guard let tab = tabForSidebarMutation(id: request.workspaceId) else {
+            CodexTranscriptMonitorRegistry.shared.stop(sessionId: request.sessionId, turnId: request.turnId)
+            return
+        }
+        if let surfaceId = request.surfaceId, tab.panels[surfaceId] == nil {
+            CodexTranscriptMonitorRegistry.shared.stop(sessionId: request.sessionId, turnId: request.turnId)
+            return
+        }
+
+        let title = String(localized: "sessionIndex.agent.codex", defaultValue: "Codex")
+        switch event {
+        case .userInput(_, let body):
+            let subtitle = String(localized: "agent.codex.input.subtitle.waiting", defaultValue: "Waiting")
+            if let surfaceId = request.surfaceId {
+                AppDelegate.shared?.notificationStore?.addNotification(
+                    tabId: request.workspaceId,
+                    surfaceId: surfaceId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                )
+            }
+            tab.statusEntries["codex"] = SidebarStatusEntry(
+                key: "codex",
+                value: String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input"),
+                icon: "bell.fill",
+                color: "#4C8DFF",
+                priority: 100,
+                timestamp: Date.now
+            )
+
+        case .failure(_, let summary):
+            if let surfaceId = request.surfaceId {
+                AppDelegate.shared?.notificationStore?.addNotification(
+                    tabId: request.workspaceId,
+                    surfaceId: surfaceId,
+                    title: title,
+                    subtitle: summary.subtitle,
+                    body: summary.body
+                )
+            }
+            tab.statusEntries["codex"] = SidebarStatusEntry(
+                key: "codex",
+                value: summary.statusValue,
+                icon: "exclamationmark.triangle.fill",
+                color: "#FF453A",
+                priority: 100,
+                timestamp: Date.now
+            )
+
+        case .completion:
+            if tab.statusEntries["codex"]?.icon == "bell.fill" {
+                tab.statusEntries.removeValue(forKey: "codex")
+            }
+        }
     }
 
     // MARK: - V2 App Focus Methods
@@ -18140,12 +18262,7 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
-            tab.logEntries.append(SidebarLogEntry(message: message, level: level, source: source, timestamp: Date()))
-            let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
-            let limit = max(1, min(500, configuredLimit))
-            if tab.logEntries.count > limit {
-                tab.logEntries.removeFirst(tab.logEntries.count - limit)
-            }
+            tab.enqueueSidebarLog(message: message, level: level, source: source)
         }
         return result
     }
@@ -18157,7 +18274,7 @@ class TerminalController {
                 result = "ERROR: Tab not found"
                 return
             }
-            tab.logEntries.removeAll()
+            tab.clearSidebarLogEntries()
         }
         return result
     }
@@ -18181,6 +18298,7 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
+            tab.flushPendingSidebarLogEntries()
             if tab.logEntries.isEmpty {
                 result = "No log entries"
                 return
