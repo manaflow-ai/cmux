@@ -236,15 +236,33 @@ Le scorciatoie degli strumenti di sviluppo del browser seguono i valori predefin
 
 cmux NIGHTLY è un'app separata con il proprio bundle ID, quindi funziona in parallelo alla versione stabile. Compilata automaticamente dall'ultimo commit `main` e aggiornata automaticamente tramite il proprio feed Sparkle.
 
-## Ripristino sessione (comportamento attuale)
+## Ripristino sessione
 
-Al riavvio, cmux attualmente ripristina solo il layout e i metadati dell'applicazione:
+Alla chiusura, cmux salva la sessione corrente. Al riavvio, cmux ripristina lo stato gestito dall'app:
 - Layout di finestre/workspace/pannelli
 - Directory di lavoro
 - Scrollback del terminale (best effort)
 - URL del browser e cronologia di navigazione
 
-cmux **non** ripristina lo stato dei processi attivi nelle applicazioni del terminale. Per esempio, le sessioni attive di Claude Code/tmux/vim non vengono ancora riprese dopo un riavvio.
+cmux non crea checkpoint per processi attivi arbitrari. tmux, vim, shell e app terminale non supportate si riaprono come terminali normali.
+
+Le sessioni degli agent supportati possono riprendere quando gli hook hanno salvato un ID sessione nativo:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Utenti avanzati e integrazioni possono associare un comando di ripristino personalizzato alla surface del terminale corrente. È utile per strumenti con stato persistente proprio, come sessioni tmux o CLI agent personalizzate:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+L'associazione resta legata alla surface di cmux. Le associazioni create dal CLI pubblico o dal socket vengono salvate per ispezione e ripristino manuale. cmux esegue automaticamente solo le associazioni di resume che marca come attendibili, per esempio quelle tmux rilevate dai processi attivi. Le chiavi di ambiente sensibili, come token, password, segreti e chiavi API, vengono scartate prima di salvare un’associazione di resume.
 
 ## Cronologia Stelle
 
