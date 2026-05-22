@@ -55,6 +55,12 @@ reviews:
     - path: "CLI/cmux.swift"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook setup, uninstall, Feed bridge, and agent lifecycle command changes.
+    - path: "Resources/bin/claude"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Claude wrapper hook injection, Feed routing, and hook timeout changes.
+    - path: "Resources/bin/grok"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Grok wrapper hook installation, socket routing, and launch metadata changes.
     - path: "Packages/CMUXAgentLaunch/**"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook config writers and agent launch environment policy.
@@ -79,6 +85,15 @@ reviews:
     - path: "docs/feed.md"
       instructions: |
         Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Hook docs should describe shared setup commands and avoid hardcoded app bundle or socket paths. For Feed bridge event docs, verify the longer Feed timeout and source/event routing through `cmux hooks feed --source <agent> --event <event>` are preserved.
+    - path: "docs/events.md"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed and agent hook event documentation.
+    - path: "docs/cli-contract.md"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for `cmux hooks` CLI contract documentation.
+    - path: "docs/notifications.md"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for notification hook documentation.
 
   pre_merge_checks:
     custom_checks:
