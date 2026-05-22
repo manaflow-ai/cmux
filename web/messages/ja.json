@@ -304,7 +304,7 @@
     "sessionRestore": {
       "title": "セッション復元",
       "metaTitle": "セッション復元",
-      "metaDescription": "How cmux restores windows, workspaces, panes, working directories, scrollback, browser history, and Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions after relaunch.",
+      "metaDescription": "再起動後にcmuxがウィンドウ、ワークスペース、ペイン、作業ディレクトリ、スクロールバック、ブラウザ履歴、対応エージェントセッションを復元する仕組み。",
       "intro": "cmuxは作業状態の形を保存し、アプリを再起動したときに同じウィンドウ、ワークスペース、ペイン、ターミナルコンテキスト、ブラウザ状態へ戻せるようにします。",
       "restoredTitle": "cmuxが復元するもの",
       "restoredDesc": "再起動後、cmuxはアプリが管理するレイアウトとメタデータを復元します：",
@@ -330,7 +330,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "プラグインイベントバス",
       "none": "なし",
-      "supportedNote": "Claude Code is handled by the cmux Claude wrapper when Claude integration is enabled in Settings. Antigravity also accepts agy as the setup alias, and Rovo Dev accepts rovo.",
+      "supportedNote": "Claude Codeは、設定でClaude連携が有効な場合にcmux Claudeラッパーで処理されます。Rovo Devはセットアップエイリアスとしてrovoも受け付けます。",
       "manualTitle": "手動復元",
       "manualDesc": "cmuxは通常起動時に最後に保存したスナップショットを復元します。以前のスナップショットを手動で再適用することもできます：",
       "manualItemMenu": "ファイル > 前回のセッションを再度開く",

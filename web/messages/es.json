@@ -829,7 +829,7 @@
     "sessionRestore": {
       "title": "Restauración de sesión",
       "metaTitle": "Restauración de sesión",
-      "metaDescription": "How cmux restores windows, workspaces, panes, working directories, scrollback, browser history, and Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions after relaunch.",
+      "metaDescription": "Cómo cmux restaura ventanas, workspaces, paneles, directorios de trabajo, scrollback, historial del navegador y sesiones de agentes compatibles después de reiniciar.",
       "intro": "cmux guarda la forma de tu trabajo para que al relanzar la app vuelvan las mismas ventanas, workspaces, paneles, contexto de terminal y estado del navegador.",
       "restoredTitle": "Qué restaura cmux",
       "restoredDesc": "Después de relanzar, cmux restaura layout y metadatos propios de la app:",
@@ -855,7 +855,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "bus de eventos de plugin",
       "none": "ninguno",
-      "supportedNote": "Claude Code is handled by the cmux Claude wrapper when Claude integration is enabled in Settings. Antigravity also accepts agy as the setup alias, and Rovo Dev accepts rovo.",
+      "supportedNote": "Claude Code lo maneja el wrapper de Claude de cmux cuando la integración de Claude está activada en Settings. Rovo Dev también acepta rovo como alias de setup.",
       "manualTitle": "Restauración manual",
       "manualDesc": "cmux restaura el último snapshot guardado en un arranque normal. También puedes reaplicar manualmente el snapshot anterior:",
       "manualItemMenu": "File > Reopen Previous Session",

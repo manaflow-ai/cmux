@@ -829,7 +829,7 @@
     "sessionRestore": {
       "title": "工作階段還原",
       "metaTitle": "工作階段還原",
-      "metaDescription": "How cmux restores windows, workspaces, panes, working directories, scrollback, browser history, and Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI, and other agent sessions after relaunch.",
+      "metaDescription": "cmux 在重新啟動後如何還原視窗、workspace、pane、工作目錄、scrollback、瀏覽器歷史與支援的 agent 工作階段。",
       "intro": "cmux 會儲存你的工作形態，讓應用程式重新啟動時帶回相同的視窗、workspace、pane、終端機脈絡和瀏覽器狀態。",
       "restoredTitle": "cmux 會還原什麼",
       "restoredDesc": "重新啟動後，cmux 會還原應用程式擁有的佈局與中繼資料：",
@@ -855,7 +855,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "無",
-      "supportedNote": "Claude Code is handled by the cmux Claude wrapper when Claude integration is enabled in Settings. Antigravity also accepts agy as the setup alias, and Rovo Dev accepts rovo.",
+      "supportedNote": "啟用 Claude 整合時，Claude Code 由 cmux Claude wrapper 處理。Rovo Dev 也接受 rovo 作為 setup 別名。",
       "manualTitle": "手動還原",
       "manualDesc": "cmux 正常啟動時會還原最後儲存的 snapshot。你也可以手動重新套用上一個 snapshot：",
       "manualItemMenu": "File > Reopen Previous Session",
