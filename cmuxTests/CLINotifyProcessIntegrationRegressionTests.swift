@@ -874,6 +874,41 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(try memoryTelemetrySampleCount(in: dbURL), 0)
     }
 
+    func testMemoryTelemetryDatabaseRetriesInitializationAfterMigrationFailure() throws {
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "open-retry")
+        defer {
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        try createMemoryTelemetrySchemaNameBlocker(in: dbURL)
+        let database = CMUXCLI.MemoryTelemetryDatabase(url: dbURL)
+
+        XCTAssertThrowsError(try database.open())
+
+        try dropMemoryTelemetrySchemaNameBlocker(in: dbURL)
+        try database.insert(
+            samples: [
+                CMUXCLI.MemoryWorkspaceSample(
+                    sampledAt: Date(),
+                    windowId: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+                    windowRef: "window:1",
+                    workspaceId: "88888888-8888-8888-8888-888888888888",
+                    workspaceRef: "workspace:8",
+                    workspaceTitle: "Retried Init Workspace",
+                    cpuPercent: 1.5,
+                    memoryPercent: 0.2,
+                    residentBytes: 2048,
+                    virtualBytes: 4096,
+                    processCount: 1,
+                    topProcessNames: ["codex"]
+                )
+            ],
+            retention: 3600
+        )
+
+        XCTAssertEqual(try memoryTelemetrySampleCount(in: dbURL), 1)
+    }
+
     func testMemoryTrimDryRunSelectsOwnedAgentWithoutSendingOrKilling() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("mem-trim")
@@ -7535,6 +7570,31 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { sqlite3_finalize(stmt) }
         XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW)
         return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    private func createMemoryTelemetrySchemaNameBlocker(in dbURL: URL) throws {
+        try FileManager.default.createDirectory(
+            at: dbURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        var db: OpaquePointer?
+        let openResult = sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE, nil)
+        XCTAssertEqual(openResult, SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        try sqliteExec(db, "CREATE TABLE schema_name_blocker (id INTEGER NOT NULL)")
+        try sqliteExec(db, "CREATE INDEX workspace_memory_samples ON schema_name_blocker(id)")
+    }
+
+    private func dropMemoryTelemetrySchemaNameBlocker(in dbURL: URL) throws {
+        var db: OpaquePointer?
+        let openResult = sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READWRITE, nil)
+        XCTAssertEqual(openResult, SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        try sqliteExec(db, "DROP INDEX workspace_memory_samples")
+        try sqliteExec(db, "DROP TABLE schema_name_blocker")
     }
 
     private func sqliteExec(_ db: OpaquePointer?, _ sql: String) throws {
