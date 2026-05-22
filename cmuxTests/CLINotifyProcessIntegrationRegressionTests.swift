@@ -844,6 +844,73 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let child = try XCTUnwrap(savedSessions[childSessionId] as? [String: Any])
         XCTAssertEqual(child["parentSessionId"] as? String, parentSessionId)
         XCTAssertEqual(child["isRestorable"] as? Bool, false)
+        XCTAssertNil(
+            child["runtimeStatus"],
+            "A suppressed child Stop must not leave hidden child runtime state marked running."
+        )
+    }
+
+    func testCodexLateSubagentRepairWorksAfterPanelWorkspaceMove() throws {
+        let context = try makeClaudeHookContext(name: "codex-late-subagent-moved-panel")
+        defer { context.cleanup() }
+
+        let oldWorkspaceId = "33333333-3333-3333-3333-333333333333"
+        let parentSessionId = "moved-parent-thread"
+        let childSessionId = "moved-child-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 40)
+
+        let parentStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: parentSessionId)
+        )
+        XCTAssertFalse(parentStart.timedOut, parentStart.stderr)
+        XCTAssertEqual(parentStart.status, 0, parentStart.stderr)
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        var savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        var parent = try XCTUnwrap(savedSessions[parentSessionId] as? [String: Any])
+        parent["workspaceId"] = oldWorkspaceId
+        savedSessions[parentSessionId] = parent
+        savedState["sessions"] = savedSessions
+        try JSONSerialization.data(withJSONObject: savedState, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateURL, options: .atomic)
+
+        let childStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: childSessionId)
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+
+        let childStopIndex = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}"#
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertTrue(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == parentSessionId
+                    && params["surface_id"] as? String == context.surfaceId
+                    && params["expected_checkpoint_id"] as? String == childSessionId
+            },
+            "Parent repair should use the matching panel ID even after the panel moves workspaces, saw \(childStopCommands)"
+        )
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, parentSessionId)
     }
 
     func testCodexLateSubagentRepairDoesNotReplaceNewerTopLevelResumeBinding() throws {
