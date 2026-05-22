@@ -658,6 +658,70 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTerminalInterruptedStackClearsBeforeCurrentPrompt() throws {
+        let context = try makeClaudeHookContext(name: "codex-terminal-stack-reset")
+        defer { context.cleanup() }
+
+        let sessionId = "terminal-stack-reset-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-terminal-stack-reset.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"parent-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"parent-turn"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"child-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"parent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let currentPromptStart = context.state.commands.count
+        let currentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
+        XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
+        let currentPromptCommands = Array(context.state.commands.dropFirst(currentPromptStart))
+        XCTAssertTrue(
+            currentPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A current prompt after a fully terminal interrupted stack must become top-level, saw \(currentPromptCommands)"
+        )
+
+        let currentStopStart = context.state.commands.count
+        let currentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
+        XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
+        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+        XCTAssertTrue(
+            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A current Stop after a fully terminal interrupted stack must notify, saw \(currentStopCommands)"
+        )
+    }
+
     func testCodexDepthOnlyLegacyNestingRemainsNestedWhenTurnIdsAppear() throws {
         let context = try makeClaudeHookContext(name: "codex-depth-only-nested")
         defer { context.cleanup() }
@@ -718,6 +782,78 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(
             childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
             "A legacy depth-only nested Stop that first gains a turn_id must remain nested, saw \(childStopCommands)"
+        )
+    }
+
+    func testCodexDepthOnlyParentStopNotifiesAfterChildTurnStops() throws {
+        let context = try makeClaudeHookContext(name: "codex-depth-only-parent-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "depth-only-parent-stop-session"
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"child"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "The child Stop should close only the child depth, saw \(childStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "The depth-only parent Stop must notify after its child turn stops, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "The depth-only parent Stop must mark Codex idle, saw \(parentStopCommands)"
         )
     }
 
