@@ -14,7 +14,12 @@ tmp_root="$root/tmp/$safe_run_id"
 keep_derived="${CMUX_CI_KEEP_DERIVEDDATA:-0}"
 xcodebuild_timeout="${CMUX_CI_XCODEBUILD_TIMEOUT_SECONDS:-2700}"
 postgres_slot_hash="$(printf '%s' "$safe_run_id" | cksum | awk '{ print $1 % 200 }')"
-postgres_port="${CMUX_CI_POSTGRES_PORT:-$((25432 + (($(id -u) - 500) * 200) + postgres_slot_hash))}"
+uid_port_offset="$(id -u)"
+if [ "$uid_port_offset" -ge 500 ]; then
+  uid_port_offset=$((uid_port_offset - 500))
+fi
+default_postgres_port=$((20000 + (((uid_port_offset * 200) + postgres_slot_hash) % 40000)))
+postgres_port="${CMUX_CI_POSTGRES_PORT:-$default_postgres_port}"
 postgres_data="$root/postgres-$safe_run_id-$postgres_port"
 postgres_sock="$tmp_root/pg-socket"
 postgres_log="$tmp_root/postgres.log"
@@ -195,10 +200,15 @@ ensure_checkout() {
   fi
 
   cd "$repo"
-  git -c fetch.recurseSubmodules=false fetch --prune origin
-  if git rev-parse --verify --quiet "origin/$ref" >/dev/null; then
+  git -c fetch.recurseSubmodules=false fetch --prune --tags origin \
+    '+refs/heads/*:refs/remotes/origin/*' \
+    '+refs/tags/*:refs/tags/*'
+  if git rev-parse --verify --quiet "refs/remotes/origin/$ref^{commit}" >/dev/null; then
     git checkout -B "ci-$ref" "origin/$ref"
   else
+    if ! git rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
+      git -c fetch.recurseSubmodules=false fetch --depth=1 origin "$ref" || true
+    fi
     git checkout --detach "$ref"
   fi
   git reset --hard
@@ -382,6 +392,47 @@ app_path() {
   find "$derived" -path "*/Build/Products/Debug/cmux DEV.app" -type d -print -quit
 }
 
+cmux_socket_ping_ready() {
+  python3 - "$1" <<'PY'
+import socket
+import sys
+
+path = sys.argv[1]
+try:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(1.0)
+        sock.connect(path)
+        sock.sendall(b"ping\n")
+        response = b""
+        while not response.endswith(b"\n"):
+            chunk = sock.recv(64)
+            if not chunk:
+                break
+            response += chunk
+    raise SystemExit(0 if response.strip() == b"PONG" else 1)
+except OSError:
+    raise SystemExit(1)
+PY
+}
+
+wait_for_cmux_socket_ready() {
+  local socket_path="$1"
+  local app_pid="$2"
+  local attempts="${3:-240}"
+  local i
+  for i in $(seq 1 "$attempts"); do
+    if cmux_socket_ping_ready "$socket_path"; then
+      return 0
+    fi
+    if ! kill -0 "$app_pid" 2>/dev/null; then
+      echo "cmux exited before socket accepted ping at $socket_path" >&2
+      return 1
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
 tests_build_and_lag() {
   require_gui_session
   ensure_toolchain
@@ -444,11 +495,11 @@ tests_build_and_lag() {
   CMUX_TAG="$tag" CMUX_SOCKET_PATH="$sock" CMUX_UI_TEST_MODE=1 "$app/Contents/MacOS/cmux DEV" >"$tmp_root/cmux-ci-lag.log" 2>&1 &
   local app_pid=$!
   track_pid "$app_pid"
-  for _ in $(seq 1 240); do
-    [ -S "$sock" ] && break
-    sleep 0.25
-  done
-  [ -S "$sock" ] || { echo "Socket not ready at $sock" >&2; exit 1; }
+  if ! wait_for_cmux_socket_ready "$sock" "$app_pid"; then
+    echo "Socket did not accept ping at $sock" >&2
+    cat "$tmp_root/cmux-ci-lag.log" >&2 2>/dev/null || true
+    exit 1
+  fi
 
   CMUX_SOCKET_PATH="$sock" \
   CMUX_LAG_MAX_P95_RATIO=1.70 \
@@ -585,7 +636,6 @@ ui_regressions() {
         cat "$helper_log" >&2 || true
         exit 1
       fi
-      sleep 3
       continue
     fi
 
@@ -638,7 +688,6 @@ ui_regressions() {
       echo "Display resolution UI regression failed after 2 attempts" >&2
       exit 1
     fi
-    sleep 3
   done
 
   if [ "$display_regression_passed" -ne 1 ]; then

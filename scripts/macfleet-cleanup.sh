@@ -53,20 +53,17 @@ rm_old_children() {
 }
 
 truncate_large_logs() {
-  local pattern="$1"
-  (
-    shopt -s nullglob
-    for f in $pattern; do
-      [ -f "$f" ] || continue
-      if [ "$(stat -f %z "$f" 2>/dev/null || echo 0)" -gt $((50 * 1024 * 1024)) ]; then
-        if { : > "$f"; } 2>/dev/null; then
-          log "truncated $f"
-        else
-          log "could not truncate $f"
-        fi
+  local f
+  for f in "$@"; do
+    [ -f "$f" ] || continue
+    if [ "$(stat -f %z "$f" 2>/dev/null || echo 0)" -gt $((50 * 1024 * 1024)) ]; then
+      if { : > "$f"; } 2>/dev/null; then
+        log "truncated $f"
+      else
+        log "could not truncate $f"
       fi
-    done
-  )
+    fi
+  done
 }
 
 log "cleanup start host=$(hostname) free_gib=$(free_gib)"
@@ -109,7 +106,9 @@ fi
 prune_stopped_orchard_tart_vms
 
 find /tmp /private/tmp -maxdepth 1 \( -name 'cmux-*' -o -name 'macfleet-ci-*' -o -name 'sat15-*' -o -name 'smoke-*' \) -mmin +"$tmp_max_age_minutes" -print -exec rm -rf {} + 2>/dev/null || true
-truncate_large_logs '/var/log/cmux-actions-runner-*.log'
-truncate_large_logs '/var/log/cmux-actions-runner-*.err'
+(
+  shopt -s nullglob
+  truncate_large_logs /var/log/cmux-actions-runner-*.log /var/log/cmux-actions-runner-*.err
+)
 
 log "cleanup done free_gib=$(free_gib)"
