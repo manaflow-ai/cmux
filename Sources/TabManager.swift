@@ -3043,6 +3043,16 @@ class TabManager: ObservableObject {
         }
     }
 
+    private nonisolated static func gitProbeParentDirectoryPath(for path: String) -> String? {
+        let currentPath = (path as NSString).standardizingPath
+        guard currentPath != "/" else { return nil }
+
+        let parentPath = (currentPath as NSString).deletingLastPathComponent
+        let normalizedParentPath = parentPath.isEmpty ? "/" : parentPath
+        guard normalizedParentPath != currentPath else { return nil }
+        return normalizedParentPath
+    }
+
     private nonisolated static func gitDirectoryFromDotGitFile(
         _ dotGitURL: URL,
         relativeTo workTreeRootURL: URL
@@ -4890,6 +4900,10 @@ class TabManager: ObservableObject {
     }
 
 #if DEBUG
+    nonisolated static func gitProbeParentDirectoryPathForTesting(_ path: String) -> String? {
+        gitProbeParentDirectoryPath(for: path)
+    }
+
     nonisolated static func workspaceGitMetadataWatchedPathsForTesting(directory: String) -> [String] {
         workspaceGitMetadataWatcherDescriptor(for: directory)?.watchedPaths ?? []
     }

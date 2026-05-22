@@ -645,6 +645,40 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    func testSidebarGitMetadataProbeStopsAtFilesystemRoot() throws {
+        XCTAssertEqual(TabManager.gitProbeParentDirectoryPathForTesting("/Users/runner"), "/Users")
+        XCTAssertEqual(TabManager.gitProbeParentDirectoryPathForTesting("/Users"), "/")
+        XCTAssertNil(TabManager.gitProbeParentDirectoryPathForTesting("/"))
+        XCTAssertNil(TabManager.gitProbeParentDirectoryPathForTesting("/.."))
+        XCTAssertNil(TabManager.gitProbeParentDirectoryPathForTesting("/../.."))
+
+        let nonRepositoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-git-root-stop-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: nonRepositoryURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: nonRepositoryURL)
+        }
+
+        var path = nonRepositoryURL.path
+        var visitedPaths: [String] = []
+        for _ in 0..<32 {
+            visitedPaths.append(path)
+            guard let parent = TabManager.gitProbeParentDirectoryPathForTesting(path) else {
+                break
+            }
+            path = parent
+        }
+
+        XCTAssertEqual(visitedPaths.last, "/")
+        XCTAssertFalse(
+            visitedPaths.contains { $0.hasPrefix("/..") },
+            "Git metadata parent traversal must not climb from / to /.. on macOS 15."
+        )
+        XCTAssertEqual(TabManager.workspaceGitMetadataWatchedPathsForTesting(directory: nonRepositoryURL.path), [])
+    }
+
     func testBranchOnlyGitReportDoesNotClearExistingDirtyState() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
