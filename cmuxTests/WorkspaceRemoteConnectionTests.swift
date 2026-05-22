@@ -629,6 +629,18 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.panelDirectories[panelID], "/home/demo/project")
         XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
         XCTAssertEqual(workspace.currentDirectory, originalDirectory)
+        XCTAssertTrue(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty)
+
+        manager.updateSurfaceGitBranch(
+            tabId: workspace.id,
+            surfaceId: panelID,
+            branch: "main",
+            isDirty: false
+        )
+
+        XCTAssertEqual(workspace.panelGitBranches[panelID]?.branch, "main")
+        XCTAssertEqual(workspace.currentDirectory, originalDirectory)
+        XCTAssertTrue(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty)
     }
 
     @MainActor

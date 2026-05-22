@@ -5480,6 +5480,9 @@ class TabManager: ObservableObject {
         let nextIsDirty = isDirty ?? (current?.branch == normalizedBranch ? current?.isDirty ?? false : false)
         guard current?.branch != normalizedBranch || current?.isDirty != nextIsDirty else { return }
         tab.updatePanelGitBranch(panelId: surfaceId, branch: normalizedBranch, isDirty: nextIsDirty)
+        if tab.isRemoteWorkspace {
+            return
+        }
         if let directory = gitProbeDirectory(for: tab, panelId: surfaceId) {
             workspaceGitTrackedDirectoryByKey[probeKey] = directory
             updateWorkspaceGitMetadataWatcher(for: probeKey, directory: directory)
