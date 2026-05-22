@@ -46,7 +46,6 @@ final class VNCPanelConnection {
         case active
         case closed
         case failedBeforePublish
-        case failedAfterPublish
     }
 
     init(
@@ -107,9 +106,6 @@ final class VNCPanelConnection {
             case .closed:
                 return
             case .failedBeforePublish:
-                notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: false))
-            case .failedAfterPublish:
-                parentSocket = nil
                 notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: false))
             }
         } catch {
@@ -197,7 +193,6 @@ final class VNCPanelConnection {
         }
 
         return writeQueue.sync {
-            var published = false
             do {
                 guard let initialPending = stateLock.withLock({ () -> [VNCControlMessage]? in
                     guard !isClosed else { return nil }
@@ -211,20 +206,16 @@ final class VNCPanelConnection {
                     try Self.write(try VNCIPCCodec.encodeControl(control), to: accepted)
                 }
 
-                guard let pendingAfterPublish = stateLock.withLock({ () -> [VNCControlMessage]? in
-                    guard !isClosed else { return nil }
+                guard stateLock.withLock({ () -> Bool in
+                    guard !isClosed else { return false }
                     clientFileDescriptor = accepted
-                    published = true
-                    return pendingControlMessages.drain()
+                    return true
                 }) else {
                     return .closed
                 }
-                for control in pendingAfterPublish {
-                    try Self.write(try VNCIPCCodec.encodeControl(control), to: accepted)
-                }
                 return .active
             } catch {
-                return published ? .failedAfterPublish : .failedBeforePublish
+                return .failedBeforePublish
             }
         }
     }

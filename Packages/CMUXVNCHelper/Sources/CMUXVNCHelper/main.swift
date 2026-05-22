@@ -397,21 +397,21 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     }
 
     private func setVisible(_ visible: Bool) {
-        var shouldClose = false
+        var shouldFail = false
         let snapshot = frameSnapshotLock.withLock { () -> FrameSnapshot? in
             guard let refreshSequence = stateLock.withLock({ frameGate.setVisible(visible) }) else { return nil }
             guard let framebuffer = currentFramebuffer() else { return nil }
             let width = UInt16(clamping: Int(framebuffer.size.width))
             let height = UInt16(clamping: Int(framebuffer.size.height))
             guard let snapshot = snapshotFrame(framebuffer: framebuffer, sequence: refreshSequence, x: 0, y: 0, width: width, height: height) else {
-                shouldClose = true
+                shouldFail = true
                 return nil
             }
             return snapshot
         }
         guard let snapshot else {
-            if shouldClose {
-                close()
+            if shouldFail {
+                failProtocolError()
             }
             return
         }
@@ -425,15 +425,23 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         width: UInt16,
         height: UInt16
     ) {
-        frameSnapshotLock.withLock {
-            guard let nextSequence = stateLock.withLock({ frameGate.nextUpdateSequence() }) else { return }
+        var shouldFail = false
+        let snapshot = frameSnapshotLock.withLock { () -> FrameSnapshot? in
+            guard let nextSequence = stateLock.withLock({ frameGate.nextUpdateSequence() }) else { return nil }
             guard let snapshot = snapshotFrame(framebuffer: framebuffer, sequence: nextSequence, x: x, y: y, width: width, height: height) else {
-                close()
-                return
+                shouldFail = true
+                return nil
             }
-            runOnConnectionQueue { [weak self] in
-                self?.sendFrame(snapshot)
+            return snapshot
+        }
+        guard let snapshot else {
+            if shouldFail {
+                failProtocolError()
             }
+            return
+        }
+        runOnConnectionQueue { [weak self] in
+            self?.sendFrame(snapshot)
         }
     }
 
@@ -492,7 +500,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         do {
             try channel.send(try VNCIPCCodec.encodeFrame(header: snapshot.header, payload: snapshot.payload))
         } catch {
-            close()
+            failProtocolError()
         }
     }
 
@@ -533,6 +541,22 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             sessionName: request.sessionName,
             state: "failed",
             errorCode: "inputQueueFull"
+        ))
+        signalTerminated()
+    }
+
+    private func failProtocolError() {
+        guard markClosed() else { return }
+        setExitCode(HelperExit.protocolError.rawValue)
+        inputLock.withLock {
+            isRemoteInputReady = false
+            pendingInputMessages.removeAll(keepingCapacity: false)
+        }
+        sendControl(VNCControlMessage(
+            kind: "state",
+            sessionName: request.sessionName,
+            state: "failed",
+            errorCode: "helperProtocolFailed"
         ))
         signalTerminated()
     }

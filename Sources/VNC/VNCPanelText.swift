@@ -142,6 +142,8 @@ enum VNCPanelText {
             return inputQueueFull
         case "connectionFailed":
             return connectionFailed
+        case "helperProtocolFailed":
+            return helperProtocolFailed
         default:
             return stateFailed
         }
