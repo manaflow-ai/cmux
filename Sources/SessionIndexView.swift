@@ -972,7 +972,10 @@ private struct SessionTranscriptTurnView: View, Equatable {
                 if row.isContinuation {
                     Circle()
                         .fill(row.role.foregroundColor.opacity(0.38))
-                        .frame(width: 3, height: 3)
+                        .frame(
+                            width: UIScaleSettings.scaled(3, by: uiScaleFactor),
+                            height: UIScaleSettings.scaled(3, by: uiScaleFactor)
+                        )
                 }
             }
             Text(row.text)
@@ -1991,8 +1994,8 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
             let shouldRefresh = currentEntry?.id != entry.id || currentUIScaleFactor != nextUIScaleFactor
             currentEntry = entry
             currentUIScaleFactor = nextUIScaleFactor
-            guard popover?.isShown == true else { return }
-            if shouldRefresh {
+            // Hidden popovers rebuild from currentEntry/currentUIScaleFactor in present().
+            if shouldRefresh, popover?.isShown == true {
                 refreshContent()
             }
         }

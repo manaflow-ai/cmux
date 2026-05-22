@@ -303,6 +303,20 @@ final class UIScaleSettingsTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(appSection["appearance"] as? String), "system")
     }
 
+    func testJSONCEditorEscapesInsertedKeys() throws {
+        let updated = try CmuxSettingsJSONCEditor.updatingMember(
+            in: #"{"schemaVersion":1}"#,
+            keyPath: ["app\"section", "ui\\scale"],
+            valueText: "1.4"
+        )
+
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONCParser.preprocess(data: Data(updated.utf8))) as? [String: Any]
+        )
+        let appSection = try XCTUnwrap(json["app\"section"] as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(appSection["ui\\scale"] as? Double), 1.4, accuracy: 0.001)
+    }
+
     func testWritingAppUIScaleDoesNotReplaceUnreadableConfig() throws {
         let settingsFileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ui-scale-unreadable-\(UUID().uuidString).json", isDirectory: false)

@@ -134,7 +134,7 @@ enum CmuxSettingsJSONCEditor {
         let memberIndent = memberIndent(in: source, objectRange: objectRange)
         let closingIndent = closingIndent(in: source, objectRange: objectRange)
         let suffix = hasMembers ? "," : "\n\(closingIndent)"
-        let insertion = "\n\(memberIndent)\"\(key)\": \(valueText)\(suffix)"
+        let insertion = "\n\(memberIndent)\(quotedJSONString(key)): \(valueText)\(suffix)"
         var updated = source
         updated.insert(contentsOf: insertion, at: source.index(after: objectRange.lowerBound))
         return updated
@@ -255,7 +255,18 @@ enum CmuxSettingsJSONCEditor {
             memberIndent: childIndent,
             source: source
         )
-        return "{\n\(childIndent)\"\(key)\": \(childValueText)\n\(memberIndent)}"
+        return "{\n\(childIndent)\(quotedJSONString(key)): \(childValueText)\n\(memberIndent)}"
+    }
+
+    private static func quotedJSONString(_ value: String) -> String {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(value),
+           let encoded = String(data: data, encoding: .utf8) {
+            return encoded
+        }
+        return "\"" + value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     private static func valueRange(
