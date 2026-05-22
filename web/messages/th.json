@@ -185,45 +185,63 @@
       "sessionRestore": {
         "seoP": "ถ้าคุณกำลังหาวิธีกู้คืนเซสชัน Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder หรือ Hermes Agent หลัง terminal ล่ม ให้ติดตั้ง cmux hooks และเปิดการทำงานต่อของเอเจนต์ไว้",
         "summary": "cmux กู้คืนเลย์เอาต์และทำงานต่อกับเซสชัน Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI และเอเจนต์อื่นอย่างไร",
-        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory และ Qoder สามารถทำงานต่อได้เมื่อ cmux มี native session ID สำหรับเอเจนต์ส่วนใหญ่ ให้ติดตั้ง integration ด้วย <code>cmux hooks setup</code>"
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory และ Qoder สามารถทำงานต่อได้เมื่อ cmux มี native session ID สำหรับเอเจนต์ส่วนใหญ่ ให้ติดตั้ง integration ด้วย <code>cmux hooks setup</code>",
+        "title": "การกู้คืนเซสชันใน cmux",
+        "date": "13 พฤษภาคม 2026",
+        "p1": "เวิร์กโฟลว์เทอร์มินัลทนต่อการขัดจังหวะได้ดีกว่าเมื่อแอปสร้างรูปแบบงานของคุณกลับมาได้ cmux ตอนนี้ถือว่าเลย์เอาต์ workspace เป็นสถานะถาวร ไม่ใช่สิ่งที่ผูกกับโปรเซสของแอปเพียงตัวเดียว",
+        "p2": "ขอบเขตสำคัญคือสถานะของโปรเซสที่ยังทำงานอยู่ cmux กู้คืนสิ่งที่ตัวเองเป็นเจ้าของและสิ่งที่เครื่องมือที่รองรับเปิดเผยผ่าน resume API ของตัวเอง ไม่ได้ checkpoint โปรเซสเทอร์มินัลใดๆ",
+        "baselineTitle": "สิ่งที่กลับมาเสมอ",
+        "baselineP": "หลังเปิดใหม่ตามปกติ cmux จะกู้คืน snapshot เซสชันระดับแอป:",
+        "baselineItemLayout": "เลย์เอาต์หน้าต่าง workspace และ pane",
+        "baselineItemCwd": "ไดเรกทอรีทำงาน",
+        "baselineItemScrollback": "scrollback ของเทอร์มินัล แบบพยายามดีที่สุด",
+        "baselineItemBrowser": "URL เบราว์เซอร์และประวัติการนำทาง",
+        "agentTitle": "เซสชันของเอเจนต์ต้องใช้ hooks",
+        "agentP2": "คำสั่ง setup จะติดตั้งเอเจนต์ที่รองรับซึ่งพบ binary บน PATH และข้ามตัวที่เหลือ Claude Code ถูกจัดการโดย cmux Claude wrapper เมื่อเปิดใช้การเชื่อมต่อ Claude ใน Settings",
+        "implementationTitle": "วิธีทำงาน",
+        "implementationP1": "cmux เขียน snapshot เซสชัน JSON ใน Application Support พร้อม tree ของหน้าต่าง metadata ของ workspace เลย์เอาต์ pane cwd ของเทอร์มินัล ข้อมูล replay scrollback และสถานะนำทางของเบราว์เซอร์",
+        "implementationP2": "Agent hooks เขียน mapping เซสชันไว้ใน ~/.cmuxterm เมื่อกู้คืน cmux จะสร้าง UI ใหม่ก่อน หากเปิด auto agent resume จะเปิดเอเจนต์ที่รองรับด้วยคำสั่ง resume ดั้งเดิมของเอเจนต์และ ID เซสชันที่บันทึกไว้",
+        "limitsTitle": "สิ่งที่อยู่นอกขอบเขต",
+        "limitsP": "tmux, vim, shells และเครื่องมือที่ไม่รองรับจะเปิดใหม่เป็นเทอร์มินัลปกติ เว้นแต่จะมีการเชื่อมต่อ cmux ที่บันทึกคำสั่ง resume ดั้งเดิมที่ปลอดภัย วิธีนี้ทำให้การกู้คืนคาดเดาได้และเลี่ยงการ replay prompts หรือ secrets เก่า",
+        "docsCta": "อ่าน<link>เอกสารการกู้คืนเซสชัน</link>สำหรับคำสั่ง setup เอเจนต์ที่รองรับ และการแก้ปัญหา"
       },
       "cmuxFinder": {
-        "title": "Introducing cmux Finder",
-        "summary": "cmux now has a file explorer that previews videos, images, PDFs, and markdown files.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a Finder-style file explorer in the sidebar.",
-        "p2": "It previews videos, images, PDFs, and markdown files inside cmux, so you can inspect generated artifacts without leaving the workspace.",
-        "p3": "I use it most for demo videos and screenshots that Codex records while it is testing changes.",
-        "p4": "Toggle file previews from Cmd+Shift+P, then choose Enable Cmd-click File Previews or Disable Cmd-click File Previews.",
-        "p5": "Requires cmux v0.64+."
+        "title": "แนะนำ cmux Finder",
+        "summary": "cmux ตอนนี้มีตัวสำรวจไฟล์ที่พรีวิววิดีโอ รูปภาพ PDF และไฟล์ Markdown ได้",
+        "date": "22 พฤษภาคม 2026",
+        "p1": "cmux ตอนนี้มีตัวสำรวจไฟล์สไตล์ Finder ใน sidebar",
+        "p2": "มันพรีวิววิดีโอ รูปภาพ PDF และไฟล์ Markdown ภายใน cmux เพื่อให้คุณตรวจ artefact ที่สร้างขึ้นโดยไม่ต้องออกจาก workspace",
+        "p3": "ผมใช้บ่อยที่สุดกับวิดีโอเดโมและภาพหน้าจอที่ Codex บันทึกขณะทดสอบการเปลี่ยนแปลง",
+        "p4": "สลับ file previews จาก Cmd+Shift+P แล้วเลือก Enable Cmd-click File Previews หรือ Disable Cmd-click File Previews",
+        "p5": "ต้องใช้ cmux v0.64+"
       },
       "cmuxVault": {
-        "title": "cmux Vault",
-        "summary": "Search Codex, Claude Code, OpenCode, and Pi sessions from the Vault pane and drag them into your workspace.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a Vault pane in the right sidebar for old agent sessions.",
-        "p2": "It indexes Codex, Claude Code, OpenCode, and Pi sessions, with full-text search across transcripts.",
-        "p3": "Drag a session from Vault into a workspace to reopen it where you are working.",
-        "p4": "Requires cmux v0.64+."
+        "title": "แนะนำ cmux Vault",
+        "summary": "ค้นหาเซสชัน Codex, Claude Code, OpenCode และ Pi จาก pane Vault แล้วลากเข้า workspace",
+        "date": "22 พฤษภาคม 2026",
+        "p1": "cmux ตอนนี้มี pane Vault ใน sidebar ขวาสำหรับเซสชันเอเจนต์เก่า",
+        "p2": "มันทำดัชนีเซสชัน Codex, Claude Code, OpenCode และ Pi พร้อมค้นหาแบบเต็มข้อความใน transcript",
+        "p3": "ลากเซสชันจาก Vault เข้า workspace เพื่อเปิดใหม่ในที่ที่คุณกำลังทำงาน",
+        "p4": "ต้องใช้ cmux v0.64+"
       },
       "markdownViewer": {
-        "title": "A better markdown viewer in cmux",
-        "summary": "Open README.md with cmux open or drag markdown files from the right sidebar.",
-        "date": "May 22, 2026",
-        "p1": "cmux has a better markdown viewer for README files, docs, and generated reports.",
-        "p2": "Open a file from the CLI:",
-        "p3": "You can also drag a markdown file from the right sidebar into the workspace.",
-        "p4": "Thank you <tobiLink>@tobi</tobiLink> for the contribution."
+        "title": "ตัวดู Markdown ที่ดีขึ้นใน cmux",
+        "summary": "เปิด README.md ด้วย cmux open หรือลากไฟล์ Markdown จาก sidebar ขวา",
+        "date": "22 พฤษภาคม 2026",
+        "p1": "cmux มีตัวดู Markdown ที่ดีขึ้นสำหรับ README เอกสาร และรายงานที่สร้างขึ้น",
+        "p2": "เปิดไฟล์จาก CLI:",
+        "p3": "คุณยังลากไฟล์ Markdown จาก sidebar ขวาเข้า workspace ได้ด้วย",
+        "p4": "ขอบคุณ <tobiLink>@tobi</tobiLink> สำหรับ contribution"
       },
       "unreadShortcuts": {
-        "title": "Unread workspace shortcuts in cmux",
-        "summary": "Cmd+Control+U cycles through unread workspaces while keeping them unread, and Cmd+Option+U toggles read state.",
-        "date": "May 22, 2026",
-        "p1": "cmux has two more shortcuts for managing unread workspaces when agents finish at the same time.",
-        "p2": "Cmd+Control+U marks the current workspace as the oldest unread workspace, then jumps to the most recent unread workspace.",
-        "p3": "That sends the current workspace to the back of the unread cycle, so you can keep cycling through unread work without clearing it.",
-        "p4": "Cmd+Option+U toggles the current workspace read or unread.",
-        "p5": "This is useful when you jump to a new unread workspace with Cmd+Shift+U but need to context switch away before responding."
+        "title": "ชอร์ตคัต workspace ที่ยังไม่อ่านใน cmux",
+        "summary": "Cmd+Control+U วน workspace ที่ยังไม่อ่านโดยคงสถานะไว้ และ Cmd+Option+U สลับสถานะอ่านแล้ว",
+        "date": "22 พฤษภาคม 2026",
+        "p1": "cmux มีชอร์ตคัตเพิ่มอีกสองตัวสำหรับจัดการ workspace ที่ยังไม่อ่านเมื่อเอเจนต์หลายตัวเสร็จพร้อมกัน",
+        "p2": "Cmd+Control+U ทำเครื่องหมาย workspace ปัจจุบันเป็น workspace ที่ยังไม่อ่านที่เก่าที่สุด แล้วไปยัง workspace ที่ยังไม่อ่านล่าสุด",
+        "p3": "นั่นส่ง workspace ปัจจุบันไปท้ายรอบที่ยังไม่อ่าน เพื่อให้คุณวนดูงานที่ยังไม่อ่านต่อได้โดยไม่ล้างสถานะ",
+        "p4": "Cmd+Option+U สลับ workspace ปัจจุบันเป็นอ่านแล้วหรือยังไม่อ่าน",
+        "p5": "มีประโยชน์เมื่อคุณกระโดดไปยัง workspace ที่ยังไม่อ่านด้วย Cmd+Shift+U แต่ต้องสลับบริบทก่อนตอบ"
       }
     },
     "zenOfCmux": {
@@ -291,62 +309,63 @@
         "Antigravity CLI",
         "Grok Build CLI",
         "เอเจนต์เขียนโค้ด AI"
-      ]
+      ],
+      "metaTitle": "การกู้คืนเซสชันใน cmux"
     },
     "cmuxFinder": {
-      "metaTitle": "Introducing cmux Finder",
-      "metaDescription": "cmux v0.64+ includes a Finder-style file explorer that previews videos, images, PDFs, and markdown files inside your workspace.",
+      "metaTitle": "แนะนำ cmux Finder",
+      "metaDescription": "cmux v0.64+ มีตัวสำรวจไฟล์สไตล์ Finder ที่พรีวิววิดีโอ รูปภาพ PDF และไฟล์ Markdown ภายใน workspace ของคุณ",
       "metaKeywords": [
         "cmux Finder",
-        "cmux file explorer",
-        "terminal file explorer",
-        "preview video in terminal",
-        "preview screenshots in terminal",
-        "PDF preview",
-        "markdown preview",
-        "AI coding agents",
-        "Codex demo videos"
+        "ตัวสำรวจไฟล์ cmux",
+        "ตัวสำรวจไฟล์ในเทอร์มินัล",
+        "พรีวิววิดีโอในเทอร์มินัล",
+        "พรีวิวภาพหน้าจอในเทอร์มินัล",
+        "พรีวิว PDF",
+        "พรีวิว Markdown",
+        "เอเจนต์เขียนโค้ด AI",
+        "วิดีโอเดโม Codex"
       ]
     },
     "cmuxVault": {
-      "metaTitle": "cmux Vault",
-      "metaDescription": "cmux v0.64+ adds a Vault pane for searching Codex, Claude Code, OpenCode, and Pi sessions, then dragging them into your workspace.",
+      "metaTitle": "แนะนำ cmux Vault",
+      "metaDescription": "cmux v0.64+ เพิ่ม pane Vault สำหรับค้นหาเซสชัน Codex, Claude Code, OpenCode และ Pi แล้วลากเข้า workspace",
       "metaKeywords": [
         "cmux Vault",
-        "Codex sessions",
-        "Claude Code sessions",
-        "OpenCode sessions",
-        "Pi sessions",
-        "AI coding agent history",
-        "agent session search",
-        "restore coding agent session",
-        "full-text search"
+        "เซสชัน Codex",
+        "เซสชัน Claude Code",
+        "เซสชัน OpenCode",
+        "เซสชัน Pi",
+        "ประวัติเอเจนต์เขียนโค้ด AI",
+        "ค้นหาเซสชันเอเจนต์",
+        "กู้คืนเซสชันเอเจนต์เขียนโค้ด",
+        "ค้นหาแบบเต็มข้อความ"
       ]
     },
     "markdownViewer": {
-      "metaTitle": "A better markdown viewer in cmux",
-      "metaDescription": "Open README.md with cmux open or drag markdown files from the right sidebar into the improved cmux markdown viewer.",
+      "metaTitle": "ตัวดู Markdown ที่ดีขึ้นใน cmux",
+      "metaDescription": "เปิด README.md ด้วย cmux open หรือลากไฟล์ Markdown จากแถบขวาเข้าไปในตัวดู Markdown ที่ปรับปรุงแล้วของ cmux",
       "metaKeywords": [
-        "cmux markdown viewer",
+        "ตัวดู Markdown ของ cmux",
         "cmux open README.md",
-        "markdown preview",
-        "README viewer",
-        "terminal markdown viewer",
-        "developer docs preview"
+        "พรีวิว Markdown",
+        "ตัวดู README",
+        "ตัวดู Markdown ในเทอร์มินัล",
+        "พรีวิวเอกสารนักพัฒนา"
       ]
     },
     "unreadShortcuts": {
-      "metaTitle": "Unread workspace shortcuts in cmux",
-      "metaDescription": "Use Cmd+Control+U and Cmd+Option+U to cycle through unread cmux workspaces without clearing unread state before you respond.",
+      "metaTitle": "ชอร์ตคัต workspace ที่ยังไม่อ่านใน cmux",
+      "metaDescription": "ใช้ Cmd+Control+U และ Cmd+Option+U เพื่อวนดู workspace ที่ยังไม่อ่านใน cmux โดยไม่ล้างสถานะก่อนตอบ",
       "metaKeywords": [
-        "cmux unread shortcuts",
+        "ชอร์ตคัตยังไม่อ่านของ cmux",
         "Cmd+Control+U",
         "Cmd+Option+U",
         "Cmd+Shift+U",
-        "coding agent notifications",
-        "terminal notifications",
-        "AI coding agents",
-        "workspace unread"
+        "การแจ้งเตือนเอเจนต์เขียนโค้ด",
+        "การแจ้งเตือนเทอร์มินัล",
+        "เอเจนต์เขียนโค้ด AI",
+        "workspace ยังไม่อ่าน"
       ]
     }
   },

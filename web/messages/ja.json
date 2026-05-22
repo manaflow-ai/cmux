@@ -185,45 +185,63 @@
       "sessionRestore": {
         "seoP": "ターミナルのクラッシュ後にClaude Code、OpenCode、opencode、Codex、Gemini CLI、Antigravity CLI、Grok Build CLI、Amp、Cursor CLI、Rovo Dev、Copilot、CodeBuddy、Factory、Qoder、Hermes Agentのセッションを復元する方法を探している場合は、cmux hooksをインストールし、エージェント再開を有効にしておいてください。",
         "summary": "cmuxがレイアウトを復元し、Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Grok Build CLIなどのエージェントセッションを再開する仕組み。",
-        "agentP": "Claude Code、Codex、Grok Build CLI、OpenCode、Pi、Amp、Cursor CLI、Gemini CLI、Antigravity CLI、Rovo Dev、Hermes Agent、Copilot、CodeBuddy、Factory、Qoderは、cmuxがネイティブのセッションIDを取得している場合に再開できます。ほとんどのエージェントでは、<code>cmux hooks setup</code>で連携をインストールします。"
+        "agentP": "Claude Code、Codex、Grok Build CLI、OpenCode、Pi、Amp、Cursor CLI、Gemini CLI、Antigravity CLI、Rovo Dev、Hermes Agent、Copilot、CodeBuddy、Factory、Qoderは、cmuxがネイティブのセッションIDを取得している場合に再開できます。ほとんどのエージェントでは、<code>cmux hooks setup</code>で連携をインストールします。",
+        "title": "cmuxのセッション復元",
+        "date": "2026年5月13日",
+        "p1": "ターミナルの作業は、アプリが作業の形を再構築できると中断に強くなります。cmuxはワークスペースのレイアウトを、単一のアプリプロセスに結びついたものではなく、永続的な状態として扱うようになりました。",
+        "p2": "重要な境界はライブプロセスの状態です。cmuxは自分が所有するものと、対応ツールが独自の再開APIで公開するものを復元します。任意のターミナルプロセスをチェックポイント化するわけではありません。",
+        "baselineTitle": "常に戻るもの",
+        "baselineP": "通常の再起動後、cmuxはアプリレベルのセッションスナップショットを復元します。",
+        "baselineItemLayout": "ウィンドウ、ワークスペース、ペインのレイアウト",
+        "baselineItemCwd": "作業ディレクトリ",
+        "baselineItemScrollback": "ターミナルのスクロールバック、ベストエフォート",
+        "baselineItemBrowser": "ブラウザURLとナビゲーション履歴",
+        "agentTitle": "エージェントセッションにはhooksが必要です",
+        "agentP2": "setupコマンドはPATH上にある対応エージェントをインストールし、それ以外はスキップします。Claude CodeはSettingsでClaude連携が有効な場合、cmux Claudeラッパーで処理されます。",
+        "implementationTitle": "仕組み",
+        "implementationP1": "cmuxはApplication Support内に、ウィンドウツリー、ワークスペースメタデータ、ペインレイアウト、ターミナルcwd、スクロールバック再生データ、ブラウザのナビゲーション状態を含むJSONセッションスナップショットを書き込みます。",
+        "implementationP2": "エージェントhooksは~/.cmuxtermにセッション対応表を書き込みます。復元時、cmuxはまずUIを再構築します。自動エージェント再開が有効なら、保存されたセッションIDを使って各対応エージェントのネイティブ再開コマンドを起動します。",
+        "limitsTitle": "対象外のもの",
+        "limitsP": "tmux、vim、シェル、未対応ツールは、安全なネイティブ再開コマンドを記録するcmux連携がない限り、通常のターミナルとして再び開きます。これにより復元は予測可能になり、古いプロンプトやシークレットの再生を避けられます。",
+        "docsCta": "設定コマンド、対応エージェント、トラブルシューティングは<link>セッション復元ドキュメント</link>を読んでください。"
       },
       "cmuxFinder": {
-        "title": "Introducing cmux Finder",
-        "summary": "cmux now has a file explorer that previews videos, images, PDFs, and markdown files.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a Finder-style file explorer in the sidebar.",
-        "p2": "It previews videos, images, PDFs, and markdown files inside cmux, so you can inspect generated artifacts without leaving the workspace.",
-        "p3": "I use it most for demo videos and screenshots that Codex records while it is testing changes.",
-        "p4": "Toggle file previews from Cmd+Shift+P, then choose Enable Cmd-click File Previews or Disable Cmd-click File Previews.",
-        "p5": "Requires cmux v0.64+."
+        "title": "cmux Finderのご紹介",
+        "summary": "cmuxに動画、画像、PDF、Markdownファイルをプレビューできるファイルエクスプローラが追加されました。",
+        "date": "2026年5月22日",
+        "p1": "cmuxのサイドバーにFinder風のファイルエクスプローラが追加されました。",
+        "p2": "動画、画像、PDF、Markdownファイルをcmux内でプレビューできるため、ワークスペースを離れずに生成された成果物を確認できます。",
+        "p3": "私はCodexが変更をテストしながら記録するデモ動画やスクリーンショットの確認に一番よく使っています。",
+        "p4": "Cmd+Shift+Pからファイルプレビューを切り替え、Enable Cmd-click File PreviewsまたはDisable Cmd-click File Previewsを選びます。",
+        "p5": "cmux v0.64+が必要です。"
       },
       "cmuxVault": {
-        "title": "cmux Vault",
-        "summary": "Search Codex, Claude Code, OpenCode, and Pi sessions from the Vault pane and drag them into your workspace.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a Vault pane in the right sidebar for old agent sessions.",
-        "p2": "It indexes Codex, Claude Code, OpenCode, and Pi sessions, with full-text search across transcripts.",
-        "p3": "Drag a session from Vault into a workspace to reopen it where you are working.",
-        "p4": "Requires cmux v0.64+."
+        "title": "cmux Vaultの紹介",
+        "summary": "VaultペインからCodex、Claude Code、OpenCode、Piのセッションを検索し、ワークスペースへドラッグできます。",
+        "date": "2026年5月22日",
+        "p1": "cmuxの右サイドバーに、古いエージェントセッション用のVaultペインが追加されました。",
+        "p2": "Codex、Claude Code、OpenCode、Piのセッションをインデックスし、トランスクリプト全体を全文検索できます。",
+        "p3": "Vaultからセッションをワークスペースへドラッグすると、作業中の場所で再び開けます。",
+        "p4": "cmux v0.64+が必要です。"
       },
       "markdownViewer": {
-        "title": "A better markdown viewer in cmux",
-        "summary": "Open README.md with cmux open or drag markdown files from the right sidebar.",
-        "date": "May 22, 2026",
-        "p1": "cmux has a better markdown viewer for README files, docs, and generated reports.",
-        "p2": "Open a file from the CLI:",
-        "p3": "You can also drag a markdown file from the right sidebar into the workspace.",
-        "p4": "Thank you <tobiLink>@tobi</tobiLink> for the contribution."
+        "title": "cmuxの改善されたMarkdownビューア",
+        "summary": "cmux openでREADME.mdを開くか、右サイドバーからMarkdownファイルをドラッグできます。",
+        "date": "2026年5月22日",
+        "p1": "cmuxにはREADME、ドキュメント、生成レポート向けの改善されたMarkdownビューアがあります。",
+        "p2": "CLIからファイルを開くには：",
+        "p3": "右サイドバーからMarkdownファイルをワークスペースへドラッグすることもできます。",
+        "p4": "貢献してくれた<tobiLink>@tobi</tobiLink>に感謝します。"
       },
       "unreadShortcuts": {
-        "title": "Unread workspace shortcuts in cmux",
-        "summary": "Cmd+Control+U cycles through unread workspaces while keeping them unread, and Cmd+Option+U toggles read state.",
-        "date": "May 22, 2026",
-        "p1": "cmux has two more shortcuts for managing unread workspaces when agents finish at the same time.",
-        "p2": "Cmd+Control+U marks the current workspace as the oldest unread workspace, then jumps to the most recent unread workspace.",
-        "p3": "That sends the current workspace to the back of the unread cycle, so you can keep cycling through unread work without clearing it.",
-        "p4": "Cmd+Option+U toggles the current workspace read or unread.",
-        "p5": "This is useful when you jump to a new unread workspace with Cmd+Shift+U but need to context switch away before responding."
+        "title": "cmuxの未読ワークスペースショートカット",
+        "summary": "Cmd+Control+Uは未読状態を保ったまま未読ワークスペースを巡回し、Cmd+Option+Uは既読状態を切り替えます。",
+        "date": "2026年5月22日",
+        "p1": "複数のエージェントが同時に完了したときに未読ワークスペースを管理するため、cmuxに2つのショートカットが追加されました。",
+        "p2": "Cmd+Control+Uは現在のワークスペースを最古の未読としてマークし、最新の未読ワークスペースへ移動します。",
+        "p3": "これにより現在のワークスペースが未読サイクルの後ろへ送られ、未読を消さずに巡回できます。",
+        "p4": "Cmd+Option+Uは現在のワークスペースの既読と未読を切り替えます。",
+        "p5": "Cmd+Shift+Uで新しい未読ワークスペースに移動したものの、返信前に別の作業へ切り替えたいときに便利です。"
       }
     },
     "zenOfCmux": {
@@ -291,62 +309,63 @@
         "Antigravity CLI",
         "Grok Build CLI",
         "AIコーディングエージェント"
-      ]
+      ],
+      "metaTitle": "cmuxのセッション復元"
     },
     "cmuxFinder": {
-      "metaTitle": "Introducing cmux Finder",
-      "metaDescription": "cmux v0.64+ includes a Finder-style file explorer that previews videos, images, PDFs, and markdown files inside your workspace.",
+      "metaTitle": "cmux Finderのご紹介",
+      "metaDescription": "cmux v0.64+には、ワークスペース内で動画、画像、PDF、MarkdownファイルをプレビューできるFinder風ファイルエクスプローラが含まれます。",
       "metaKeywords": [
         "cmux Finder",
-        "cmux file explorer",
-        "terminal file explorer",
-        "preview video in terminal",
-        "preview screenshots in terminal",
-        "PDF preview",
-        "markdown preview",
-        "AI coding agents",
-        "Codex demo videos"
+        "cmux ファイルエクスプローラ",
+        "ターミナル ファイルエクスプローラ",
+        "ターミナルで動画プレビュー",
+        "ターミナルでスクリーンショットプレビュー",
+        "PDFプレビュー",
+        "Markdownプレビュー",
+        "AIコーディングエージェント",
+        "Codexデモ動画"
       ]
     },
     "cmuxVault": {
-      "metaTitle": "cmux Vault",
-      "metaDescription": "cmux v0.64+ adds a Vault pane for searching Codex, Claude Code, OpenCode, and Pi sessions, then dragging them into your workspace.",
+      "metaTitle": "cmux Vaultの紹介",
+      "metaDescription": "cmux v0.64+ではVaultペインでCodex、Claude Code、OpenCode、Piのセッションを検索し、ワークスペースへドラッグできます。",
       "metaKeywords": [
         "cmux Vault",
-        "Codex sessions",
-        "Claude Code sessions",
-        "OpenCode sessions",
-        "Pi sessions",
-        "AI coding agent history",
-        "agent session search",
-        "restore coding agent session",
-        "full-text search"
+        "Codexセッション",
+        "Claude Codeセッション",
+        "OpenCodeセッション",
+        "Piセッション",
+        "AIコーディングエージェント履歴",
+        "エージェントセッション検索",
+        "コーディングエージェントセッション復元",
+        "全文検索"
       ]
     },
     "markdownViewer": {
-      "metaTitle": "A better markdown viewer in cmux",
-      "metaDescription": "Open README.md with cmux open or drag markdown files from the right sidebar into the improved cmux markdown viewer.",
+      "metaTitle": "cmuxの改善されたMarkdownビューア",
+      "metaDescription": "cmux openでREADME.mdを開くか、右サイドバーからMarkdownファイルをドラッグして改善されたcmux Markdownビューアで表示できます。",
       "metaKeywords": [
-        "cmux markdown viewer",
+        "cmux Markdownビューア",
         "cmux open README.md",
-        "markdown preview",
-        "README viewer",
-        "terminal markdown viewer",
-        "developer docs preview"
+        "Markdownプレビュー",
+        "READMEビューア",
+        "ターミナルMarkdownビューア",
+        "開発者ドキュメントプレビュー"
       ]
     },
     "unreadShortcuts": {
-      "metaTitle": "Unread workspace shortcuts in cmux",
-      "metaDescription": "Use Cmd+Control+U and Cmd+Option+U to cycle through unread cmux workspaces without clearing unread state before you respond.",
+      "metaTitle": "cmuxの未読ワークスペースショートカット",
+      "metaDescription": "Cmd+Control+UとCmd+Option+Uで、返信前に未読状態を消さずにcmuxの未読ワークスペースを巡回できます。",
       "metaKeywords": [
-        "cmux unread shortcuts",
+        "cmux 未読ショートカット",
         "Cmd+Control+U",
         "Cmd+Option+U",
         "Cmd+Shift+U",
-        "coding agent notifications",
-        "terminal notifications",
-        "AI coding agents",
-        "workspace unread"
+        "コーディングエージェント通知",
+        "ターミナル通知",
+        "AIコーディングエージェント",
+        "ワークスペース未読"
       ]
     }
   },

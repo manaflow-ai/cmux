@@ -185,45 +185,63 @@
       "sessionRestore": {
         "seoP": "터미널 충돌 후 Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder 또는 Hermes Agent 세션을 복원하는 방법을 찾고 있다면 cmux hooks를 설치하고 에이전트 재개를 켜 두세요.",
         "summary": "cmux가 레이아웃을 복원하고 Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI 및 다른 에이전트 세션을 재개하는 방식입니다.",
-        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, Qoder는 cmux가 네이티브 세션 ID를 가지고 있을 때 재개할 수 있습니다. 대부분의 에이전트는 <code>cmux hooks setup</code>으로 통합을 설치하세요."
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, Qoder는 cmux가 네이티브 세션 ID를 가지고 있을 때 재개할 수 있습니다. 대부분의 에이전트는 <code>cmux hooks setup</code>으로 통합을 설치하세요.",
+        "title": "cmux의 세션 복원",
+        "date": "2026년 5월 13일",
+        "p1": "앱이 작업의 형태를 다시 만들 수 있으면 터미널 워크플로는 중단에 더 강해집니다. cmux는 이제 워크스페이스 레이아웃을 하나의 앱 프로세스에 묶인 임시 상태가 아니라 지속 상태로 다룹니다.",
+        "p2": "중요한 경계는 실행 중인 프로세스 상태입니다. cmux는 자신이 소유한 것과 지원 도구가 자체 resume API로 노출하는 것을 복원합니다. 임의의 터미널 프로세스를 체크포인트로 저장하지는 않습니다.",
+        "baselineTitle": "항상 돌아오는 것",
+        "baselineP": "일반적인 재시작 후 cmux는 앱 수준 세션 스냅샷을 복원합니다.",
+        "baselineItemLayout": "창, 워크스페이스, 패널 레이아웃",
+        "baselineItemCwd": "작업 디렉터리",
+        "baselineItemScrollback": "터미널 스크롤백, 최선 노력 방식",
+        "baselineItemBrowser": "브라우저 URL과 탐색 기록",
+        "agentTitle": "에이전트 세션에는 hooks가 필요합니다",
+        "agentP2": "setup 명령은 PATH에서 찾을 수 있는 지원 에이전트를 설치하고 나머지는 건너뜁니다. Claude Code는 Settings에서 Claude 통합이 켜져 있으면 cmux Claude 래퍼가 처리합니다.",
+        "implementationTitle": "작동 방식",
+        "implementationP1": "cmux는 Application Support 아래에 창 트리, 워크스페이스 메타데이터, 패널 레이아웃, 터미널 cwd, 스크롤백 재생 데이터, 브라우저 탐색 상태를 담은 JSON 세션 스냅샷을 씁니다.",
+        "implementationP2": "에이전트 hooks는 세션 매핑을 ~/.cmuxterm에 씁니다. 복원할 때 cmux는 먼저 UI를 다시 만듭니다. 자동 에이전트 resume이 켜져 있으면 저장된 세션 ID로 각 지원 에이전트의 기본 resume 명령을 실행합니다.",
+        "limitsTitle": "범위 밖의 것",
+        "limitsP": "tmux, vim, 셸, 지원되지 않는 도구는 안전한 기본 resume 명령을 기록하는 cmux 통합이 없는 한 일반 터미널로 다시 열립니다. 이렇게 하면 복원이 예측 가능하고 오래된 프롬프트나 비밀값을 재생하지 않습니다.",
+        "docsCta": "설정 명령, 지원 에이전트, 문제 해결은 <link>세션 복원 문서</link>를 읽어보세요."
       },
       "cmuxFinder": {
-        "title": "Introducing cmux Finder",
-        "summary": "cmux now has a file explorer that previews videos, images, PDFs, and markdown files.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a Finder-style file explorer in the sidebar.",
-        "p2": "It previews videos, images, PDFs, and markdown files inside cmux, so you can inspect generated artifacts without leaving the workspace.",
-        "p3": "I use it most for demo videos and screenshots that Codex records while it is testing changes.",
-        "p4": "Toggle file previews from Cmd+Shift+P, then choose Enable Cmd-click File Previews or Disable Cmd-click File Previews.",
-        "p5": "Requires cmux v0.64+."
+        "title": "cmux Finder 소개",
+        "summary": "cmux에 동영상, 이미지, PDF, Markdown 파일을 미리 보는 파일 탐색기가 생겼습니다.",
+        "date": "2026년 5월 22일",
+        "p1": "cmux 사이드바에 Finder 스타일 파일 탐색기가 추가되었습니다.",
+        "p2": "동영상, 이미지, PDF, Markdown 파일을 cmux 안에서 미리 볼 수 있어 워크스페이스를 떠나지 않고 생성된 결과물을 확인할 수 있습니다.",
+        "p3": "저는 Codex가 변경 사항을 테스트하며 녹화한 데모 동영상과 스크린샷을 확인할 때 가장 자주 씁니다.",
+        "p4": "Cmd+Shift+P에서 파일 미리보기를 전환한 다음 Enable Cmd-click File Previews 또는 Disable Cmd-click File Previews를 선택합니다.",
+        "p5": "cmux v0.64+가 필요합니다."
       },
       "cmuxVault": {
-        "title": "cmux Vault",
-        "summary": "Search Codex, Claude Code, OpenCode, and Pi sessions from the Vault pane and drag them into your workspace.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a Vault pane in the right sidebar for old agent sessions.",
-        "p2": "It indexes Codex, Claude Code, OpenCode, and Pi sessions, with full-text search across transcripts.",
-        "p3": "Drag a session from Vault into a workspace to reopen it where you are working.",
-        "p4": "Requires cmux v0.64+."
+        "title": "cmux Vault 소개",
+        "summary": "Vault 패널에서 Codex, Claude Code, OpenCode, Pi 세션을 검색하고 워크스페이스로 끌어올 수 있습니다.",
+        "date": "2026년 5월 22일",
+        "p1": "cmux 오른쪽 사이드바에 오래된 에이전트 세션을 위한 Vault 패널이 추가되었습니다.",
+        "p2": "Codex, Claude Code, OpenCode, Pi 세션을 인덱싱하고 대화 기록 전체를 검색할 수 있습니다.",
+        "p3": "Vault에서 세션을 워크스페이스로 끌어오면 현재 작업 중인 곳에서 다시 열 수 있습니다.",
+        "p4": "cmux v0.64+가 필요합니다."
       },
       "markdownViewer": {
-        "title": "A better markdown viewer in cmux",
-        "summary": "Open README.md with cmux open or drag markdown files from the right sidebar.",
-        "date": "May 22, 2026",
-        "p1": "cmux has a better markdown viewer for README files, docs, and generated reports.",
-        "p2": "Open a file from the CLI:",
-        "p3": "You can also drag a markdown file from the right sidebar into the workspace.",
-        "p4": "Thank you <tobiLink>@tobi</tobiLink> for the contribution."
+        "title": "cmux의 개선된 Markdown 뷰어",
+        "summary": "cmux open으로 README.md를 열거나 오른쪽 사이드바에서 Markdown 파일을 끌 수 있습니다.",
+        "date": "2026년 5월 22일",
+        "p1": "cmux에는 README 파일, 문서, 생성된 보고서를 위한 더 나은 Markdown 뷰어가 있습니다.",
+        "p2": "CLI에서 파일을 열려면:",
+        "p3": "오른쪽 사이드바에서 Markdown 파일을 워크스페이스로 끌어올 수도 있습니다.",
+        "p4": "기여해 주신 <tobiLink>@tobi</tobiLink> 님 감사합니다."
       },
       "unreadShortcuts": {
-        "title": "Unread workspace shortcuts in cmux",
-        "summary": "Cmd+Control+U cycles through unread workspaces while keeping them unread, and Cmd+Option+U toggles read state.",
-        "date": "May 22, 2026",
-        "p1": "cmux has two more shortcuts for managing unread workspaces when agents finish at the same time.",
-        "p2": "Cmd+Control+U marks the current workspace as the oldest unread workspace, then jumps to the most recent unread workspace.",
-        "p3": "That sends the current workspace to the back of the unread cycle, so you can keep cycling through unread work without clearing it.",
-        "p4": "Cmd+Option+U toggles the current workspace read or unread.",
-        "p5": "This is useful when you jump to a new unread workspace with Cmd+Shift+U but need to context switch away before responding."
+        "title": "cmux의 읽지 않은 워크스페이스 단축키",
+        "summary": "Cmd+Control+U는 읽지 않음 상태를 유지한 채 워크스페이스를 순환하고, Cmd+Option+U는 읽음 상태를 전환합니다.",
+        "date": "2026년 5월 22일",
+        "p1": "여러 에이전트가 동시에 끝났을 때 읽지 않은 워크스페이스를 관리하기 위해 cmux에 두 가지 단축키가 추가되었습니다.",
+        "p2": "Cmd+Control+U는 현재 워크스페이스를 가장 오래된 읽지 않은 워크스페이스로 표시한 뒤 가장 최근의 읽지 않은 워크스페이스로 이동합니다.",
+        "p3": "이렇게 하면 현재 워크스페이스가 읽지 않음 순환의 뒤로 가므로 상태를 지우지 않고 계속 순환할 수 있습니다.",
+        "p4": "Cmd+Option+U는 현재 워크스페이스의 읽음 또는 읽지 않음 상태를 전환합니다.",
+        "p5": "Cmd+Shift+U로 새 읽지 않은 워크스페이스에 갔지만 답하기 전에 다른 작업으로 전환해야 할 때 유용합니다."
       }
     },
     "zenOfCmux": {
@@ -291,62 +309,63 @@
         "Antigravity CLI",
         "Grok Build CLI",
         "AI 코딩 에이전트"
-      ]
+      ],
+      "metaTitle": "cmux의 세션 복원"
     },
     "cmuxFinder": {
-      "metaTitle": "Introducing cmux Finder",
-      "metaDescription": "cmux v0.64+ includes a Finder-style file explorer that previews videos, images, PDFs, and markdown files inside your workspace.",
+      "metaTitle": "cmux Finder 소개",
+      "metaDescription": "cmux v0.64+에는 워크스페이스 안에서 동영상, 이미지, PDF, Markdown 파일을 미리 볼 수 있는 Finder 스타일 파일 탐색기가 포함됩니다.",
       "metaKeywords": [
         "cmux Finder",
-        "cmux file explorer",
-        "terminal file explorer",
-        "preview video in terminal",
-        "preview screenshots in terminal",
-        "PDF preview",
-        "markdown preview",
-        "AI coding agents",
-        "Codex demo videos"
+        "cmux 파일 탐색기",
+        "터미널 파일 탐색기",
+        "터미널에서 동영상 미리보기",
+        "터미널에서 스크린샷 미리보기",
+        "PDF 미리보기",
+        "Markdown 미리보기",
+        "AI 코딩 에이전트",
+        "Codex 데모 동영상"
       ]
     },
     "cmuxVault": {
-      "metaTitle": "cmux Vault",
-      "metaDescription": "cmux v0.64+ adds a Vault pane for searching Codex, Claude Code, OpenCode, and Pi sessions, then dragging them into your workspace.",
+      "metaTitle": "cmux Vault 소개",
+      "metaDescription": "cmux v0.64+는 Codex, Claude Code, OpenCode, Pi 세션을 검색하고 워크스페이스로 끌어올 수 있는 Vault 패널을 추가합니다.",
       "metaKeywords": [
         "cmux Vault",
-        "Codex sessions",
-        "Claude Code sessions",
-        "OpenCode sessions",
-        "Pi sessions",
-        "AI coding agent history",
-        "agent session search",
-        "restore coding agent session",
-        "full-text search"
+        "Codex 세션",
+        "Claude Code 세션",
+        "OpenCode 세션",
+        "Pi 세션",
+        "AI 코딩 에이전트 기록",
+        "에이전트 세션 검색",
+        "코딩 에이전트 세션 복원",
+        "전체 텍스트 검색"
       ]
     },
     "markdownViewer": {
-      "metaTitle": "A better markdown viewer in cmux",
-      "metaDescription": "Open README.md with cmux open or drag markdown files from the right sidebar into the improved cmux markdown viewer.",
+      "metaTitle": "cmux의 개선된 Markdown 뷰어",
+      "metaDescription": "cmux open으로 README.md를 열거나 오른쪽 사이드바에서 Markdown 파일을 끌어 개선된 cmux Markdown 뷰어로 볼 수 있습니다.",
       "metaKeywords": [
-        "cmux markdown viewer",
+        "cmux Markdown 뷰어",
         "cmux open README.md",
-        "markdown preview",
-        "README viewer",
-        "terminal markdown viewer",
-        "developer docs preview"
+        "Markdown 미리보기",
+        "README 뷰어",
+        "터미널 Markdown 뷰어",
+        "개발자 문서 미리보기"
       ]
     },
     "unreadShortcuts": {
-      "metaTitle": "Unread workspace shortcuts in cmux",
-      "metaDescription": "Use Cmd+Control+U and Cmd+Option+U to cycle through unread cmux workspaces without clearing unread state before you respond.",
+      "metaTitle": "cmux의 읽지 않은 워크스페이스 단축키",
+      "metaDescription": "Cmd+Control+U와 Cmd+Option+U로 답하기 전에 읽지 않음 상태를 지우지 않고 cmux의 읽지 않은 워크스페이스를 순환할 수 있습니다.",
       "metaKeywords": [
-        "cmux unread shortcuts",
+        "cmux 읽지 않음 단축키",
         "Cmd+Control+U",
         "Cmd+Option+U",
         "Cmd+Shift+U",
-        "coding agent notifications",
-        "terminal notifications",
-        "AI coding agents",
-        "workspace unread"
+        "코딩 에이전트 알림",
+        "터미널 알림",
+        "AI 코딩 에이전트",
+        "워크스페이스 읽지 않음"
       ]
     }
   },

@@ -201,45 +201,63 @@
       "sessionRestore": {
         "seoP": "Якщо ви шукаєте, як відновити сеанси Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder або Hermes Agent після збою термінала, встановіть cmux hooks і залиште продовження агентів увімкненим.",
         "summary": "Як cmux відновлює розкладки та продовжує сеанси Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI та інших агентів.",
-        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory і Qoder можуть продовжитися, коли cmux має нативний ID сеансу. Для більшості агентів встановіть інтеграцію за допомогою <code>cmux hooks setup</code>."
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory і Qoder можуть продовжитися, коли cmux має нативний ID сеансу. Для більшості агентів встановіть інтеграцію за допомогою <code>cmux hooks setup</code>.",
+        "title": "Відновлення сеансів у cmux",
+        "date": "13 травня 2026 р.",
+        "p1": "Термінальні робочі процеси краще переживають переривання, коли застосунок може відтворити форму вашої роботи. cmux тепер вважає layout workspace довготривалим станом, а не чимось прив’язаним до одного процесу застосунку.",
+        "p2": "Важлива межа це стан живого процесу. cmux відновлює те, чим володіє, і те, що підтримувані інструменти відкривають через власні resume API. Він не створює checkpoints для довільних термінальних процесів.",
+        "baselineTitle": "Що завжди повертається",
+        "baselineP": "Після звичайного перезапуску cmux відновлює знімок сеансу на рівні застосунку:",
+        "baselineItemLayout": "Layout вікон, workspace і панелей",
+        "baselineItemCwd": "Робочі каталоги",
+        "baselineItemScrollback": "Scrollback термінала, наскільки можливо",
+        "baselineItemBrowser": "URL браузера й історія навігації",
+        "agentTitle": "Сеансам агентів потрібні hooks",
+        "agentP2": "Команда setup встановлює підтримуваних агентів, чиї бінарні файли є на PATH, і пропускає решту. Claude Code обробляє wrapper cmux Claude, коли інтеграцію Claude увімкнено в Settings.",
+        "implementationTitle": "Як це працює",
+        "implementationP1": "cmux записує JSON-знімок сеансу в Application Support із деревом вікон, metadata workspace, layout панелей, cwd термінала, даними replay scrollback і станом навігації браузера.",
+        "implementationP2": "Agent hooks записують мапінги сеансів у ~/.cmuxterm. Під час відновлення cmux спершу перебудовує UI. Якщо автоматичне resume агентів увімкнено, він запускає кожного підтримуваного агента його native resume command зі збереженим session ID.",
+        "limitsTitle": "Що поза межами",
+        "limitsP": "tmux, vim, shells і непідтримувані інструменти відкриваються знову як звичайні термінали, якщо не мають інтеграції cmux, що записує безпечну native resume command. Це робить відновлення передбачуваним і уникає replay застарілих prompts або secrets.",
+        "docsCta": "Прочитайте <link>документацію з відновлення сеансів</link> для команд setup, підтримуваних агентів і діагностики."
       },
       "cmuxFinder": {
-        "title": "Introducing cmux Finder",
-        "summary": "cmux now has a file explorer that previews videos, images, PDFs, and markdown files.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a Finder-style file explorer in the sidebar.",
-        "p2": "It previews videos, images, PDFs, and markdown files inside cmux, so you can inspect generated artifacts without leaving the workspace.",
-        "p3": "I use it most for demo videos and screenshots that Codex records while it is testing changes.",
-        "p4": "Toggle file previews from Cmd+Shift+P, then choose Enable Cmd-click File Previews or Disable Cmd-click File Previews.",
-        "p5": "Requires cmux v0.64+."
+        "title": "Представляємо cmux Finder",
+        "summary": "У cmux тепер є файловий оглядач, який показує відео, зображення, PDF і Markdown-файли.",
+        "date": "22 травня 2026 р.",
+        "p1": "У бічній панелі cmux тепер є файловий оглядач у стилі Finder.",
+        "p2": "Він показує відео, зображення, PDF і Markdown-файли всередині cmux, щоб ви могли перевіряти згенеровані артефакти, не виходячи з workspace.",
+        "p3": "Я найчастіше використовую його для демо-відео й скриншотів, які Codex записує під час тестування змін.",
+        "p4": "Перемикайте попередній перегляд файлів через Cmd+Shift+P, потім виберіть Enable Cmd-click File Previews або Disable Cmd-click File Previews.",
+        "p5": "Потрібен cmux v0.64+."
       },
       "cmuxVault": {
-        "title": "cmux Vault",
-        "summary": "Search Codex, Claude Code, OpenCode, and Pi sessions from the Vault pane and drag them into your workspace.",
-        "date": "May 22, 2026",
-        "p1": "cmux now has a Vault pane in the right sidebar for old agent sessions.",
-        "p2": "It indexes Codex, Claude Code, OpenCode, and Pi sessions, with full-text search across transcripts.",
-        "p3": "Drag a session from Vault into a workspace to reopen it where you are working.",
-        "p4": "Requires cmux v0.64+."
+        "title": "Представляємо cmux Vault",
+        "summary": "Шукайте сеанси Codex, Claude Code, OpenCode і Pi в панелі Vault та перетягуйте їх у workspace.",
+        "date": "22 травня 2026 р.",
+        "p1": "У правій бічній панелі cmux тепер є панель Vault для старих сеансів агентів.",
+        "p2": "Вона індексує сеанси Codex, Claude Code, OpenCode і Pi з повнотекстовим пошуком у transcripts.",
+        "p3": "Перетягніть сеанс із Vault у workspace, щоб знову відкрити його там, де ви працюєте.",
+        "p4": "Потрібен cmux v0.64+."
       },
       "markdownViewer": {
-        "title": "A better markdown viewer in cmux",
-        "summary": "Open README.md with cmux open or drag markdown files from the right sidebar.",
-        "date": "May 22, 2026",
-        "p1": "cmux has a better markdown viewer for README files, docs, and generated reports.",
-        "p2": "Open a file from the CLI:",
-        "p3": "You can also drag a markdown file from the right sidebar into the workspace.",
-        "p4": "Thank you <tobiLink>@tobi</tobiLink> for the contribution."
+        "title": "Кращий Markdown-переглядач у cmux",
+        "summary": "Відкрийте README.md через cmux open або перетягніть Markdown-файли з правої бічної панелі.",
+        "date": "22 травня 2026 р.",
+        "p1": "У cmux є кращий Markdown-переглядач для README, документації та згенерованих звітів.",
+        "p2": "Відкрийте файл із CLI:",
+        "p3": "Також можна перетягнути Markdown-файл із правої бічної панелі в workspace.",
+        "p4": "Дякуємо <tobiLink>@tobi</tobiLink> за внесок."
       },
       "unreadShortcuts": {
-        "title": "Unread workspace shortcuts in cmux",
-        "summary": "Cmd+Control+U cycles through unread workspaces while keeping them unread, and Cmd+Option+U toggles read state.",
-        "date": "May 22, 2026",
-        "p1": "cmux has two more shortcuts for managing unread workspaces when agents finish at the same time.",
-        "p2": "Cmd+Control+U marks the current workspace as the oldest unread workspace, then jumps to the most recent unread workspace.",
-        "p3": "That sends the current workspace to the back of the unread cycle, so you can keep cycling through unread work without clearing it.",
-        "p4": "Cmd+Option+U toggles the current workspace read or unread.",
-        "p5": "This is useful when you jump to a new unread workspace with Cmd+Shift+U but need to context switch away before responding."
+        "title": "Гарячі клавіші непрочитаних workspace у cmux",
+        "summary": "Cmd+Control+U циклічно переходить між непрочитаними workspace, залишаючи їх непрочитаними, а Cmd+Option+U перемикає стан читання.",
+        "date": "22 травня 2026 р.",
+        "p1": "cmux отримав ще дві гарячі клавіші для керування непрочитаними workspace, коли кілька агентів завершують роботу одночасно.",
+        "p2": "Cmd+Control+U позначає поточний workspace як найстаріший непрочитаний, а потім переходить до найновішого непрочитаного workspace.",
+        "p3": "Це відправляє поточний workspace у кінець циклу непрочитаних, щоб ви могли продовжувати перегляд без очищення статусу.",
+        "p4": "Cmd+Option+U перемикає поточний workspace між прочитаним і непрочитаним.",
+        "p5": "Це корисно, коли ви переходите до нового непрочитаного workspace через Cmd+Shift+U, але хочете змінити контекст перед відповіддю."
       }
     },
     "passkeyAuth": {
@@ -291,62 +309,63 @@
         "Antigravity CLI",
         "Grok Build CLI",
         "AI-агенти для програмування"
-      ]
+      ],
+      "metaTitle": "Відновлення сеансів у cmux"
     },
     "cmuxFinder": {
-      "metaTitle": "Introducing cmux Finder",
-      "metaDescription": "cmux v0.64+ includes a Finder-style file explorer that previews videos, images, PDFs, and markdown files inside your workspace.",
+      "metaTitle": "Представляємо cmux Finder",
+      "metaDescription": "cmux v0.64+ містить файловий оглядач у стилі Finder, що показує відео, зображення, PDF і Markdown-файли у вашому workspace.",
       "metaKeywords": [
         "cmux Finder",
-        "cmux file explorer",
-        "terminal file explorer",
-        "preview video in terminal",
-        "preview screenshots in terminal",
-        "PDF preview",
-        "markdown preview",
-        "AI coding agents",
-        "Codex demo videos"
+        "файловий оглядач cmux",
+        "файловий оглядач у терміналі",
+        "перегляд відео в терміналі",
+        "перегляд скриншотів у терміналі",
+        "попередній перегляд PDF",
+        "попередній перегляд Markdown",
+        "AI-агенти для кодування",
+        "демо-відео Codex"
       ]
     },
     "cmuxVault": {
-      "metaTitle": "cmux Vault",
-      "metaDescription": "cmux v0.64+ adds a Vault pane for searching Codex, Claude Code, OpenCode, and Pi sessions, then dragging them into your workspace.",
+      "metaTitle": "Представляємо cmux Vault",
+      "metaDescription": "cmux v0.64+ додає панель Vault для пошуку сеансів Codex, Claude Code, OpenCode і Pi та перетягування їх у workspace.",
       "metaKeywords": [
         "cmux Vault",
-        "Codex sessions",
-        "Claude Code sessions",
-        "OpenCode sessions",
-        "Pi sessions",
-        "AI coding agent history",
-        "agent session search",
-        "restore coding agent session",
-        "full-text search"
+        "сеанси Codex",
+        "сеанси Claude Code",
+        "сеанси OpenCode",
+        "сеанси Pi",
+        "історія AI-агентів для кодування",
+        "пошук сеансів агентів",
+        "відновити сеанс coding agent",
+        "повнотекстовий пошук"
       ]
     },
     "markdownViewer": {
-      "metaTitle": "A better markdown viewer in cmux",
-      "metaDescription": "Open README.md with cmux open or drag markdown files from the right sidebar into the improved cmux markdown viewer.",
+      "metaTitle": "Кращий Markdown-переглядач у cmux",
+      "metaDescription": "Відкрийте README.md через cmux open або перетягніть Markdown-файли з правої бічної панелі в покращений Markdown-переглядач cmux.",
       "metaKeywords": [
-        "cmux markdown viewer",
+        "Markdown-переглядач cmux",
         "cmux open README.md",
-        "markdown preview",
-        "README viewer",
-        "terminal markdown viewer",
-        "developer docs preview"
+        "попередній перегляд Markdown",
+        "переглядач README",
+        "Markdown-переглядач у терміналі",
+        "попередній перегляд документації розробника"
       ]
     },
     "unreadShortcuts": {
-      "metaTitle": "Unread workspace shortcuts in cmux",
-      "metaDescription": "Use Cmd+Control+U and Cmd+Option+U to cycle through unread cmux workspaces without clearing unread state before you respond.",
+      "metaTitle": "Гарячі клавіші непрочитаних workspace у cmux",
+      "metaDescription": "Використовуйте Cmd+Control+U і Cmd+Option+U, щоб переходити між непрочитаними workspace cmux, не очищаючи статус перед відповіддю.",
       "metaKeywords": [
-        "cmux unread shortcuts",
+        "гарячі клавіші непрочитаних cmux",
         "Cmd+Control+U",
         "Cmd+Option+U",
         "Cmd+Shift+U",
-        "coding agent notifications",
-        "terminal notifications",
-        "AI coding agents",
-        "workspace unread"
+        "сповіщення coding agent",
+        "сповіщення термінала",
+        "AI-агенти для кодування",
+        "workspace непрочитаний"
       ]
     }
   },
