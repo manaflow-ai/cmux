@@ -342,21 +342,21 @@ struct SessionEntry: Identifiable, Hashable {
             }
             return parts.joined(separator: " ")
         case let .grok(model, permissionMode, sandboxMode, grokHome):
-            var argv = ["grok", "-r", sessionId]
+            var parts = ["grok -r \(Self.shellQuote(sessionId))"]
             if let model, !model.isEmpty {
-                argv.append(contentsOf: ["-m", model])
+                parts.append("-m \(Self.shellQuote(model))")
             }
             if let permissionMode, !permissionMode.isEmpty {
-                argv.append(contentsOf: ["--permission-mode", permissionMode])
+                parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
             }
             if let sandboxMode, !sandboxMode.isEmpty {
-                argv.append(contentsOf: ["--sandbox", sandboxMode])
+                parts.append("--sandbox \(Self.shellQuote(sandboxMode))")
             }
             let environment = grokHome.flatMap { value -> [String: String]? in
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : ["GROK_HOME": trimmed]
             } ?? [:]
-            return Self.singleQuotedShellCommand(environment: environment, argv: argv)
+            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
         case let .opencode(providerModel, agentName):
             var parts = ["opencode --session \(sessionId)"]
             if let providerModel, !providerModel.isEmpty {
@@ -410,29 +410,6 @@ struct SessionEntry: Identifiable, Hashable {
             .map { key, value in "\(key)=\(shellQuote(value))" }
         guard !assignments.isEmpty else { return command }
         return "env \(assignments.joined(separator: " ")) \(command)"
-    }
-
-    private static func singleQuotedShellCommand(
-        environment: [String: String],
-        argv: [String]
-    ) -> String {
-        var parts: [String] = []
-        let assignments = environment
-            .filter { key, _ in
-                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
-            }
-            .sorted { $0.key < $1.key }
-            .map { key, value in "\(key)=\(value)" }
-        if !assignments.isEmpty {
-            parts.append("env")
-            parts.append(contentsOf: assignments)
-        }
-        parts.append(contentsOf: argv)
-        return parts.map(Self.shellSingleQuote).joined(separator: " ")
-    }
-
-    private static func shellSingleQuote(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: #"'\''"#))'"
     }
 
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.

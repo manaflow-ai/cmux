@@ -1613,6 +1613,25 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         XCTAssertEqual(resolve(45, chars: "n", hasSelection: false, state: &searchState), .perform(.searchNext, count: 2))
     }
 
+    func testOnlyViewportScrollMotionsTagScrollbarUpdatesAsKeyboardInitiated() {
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.scrollLines(1).shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.scrollPage(-1).shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.scrollHalfPage(1).shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.scrollToTop.shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.scrollToBottom.shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.jumpToPrompt(1).shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+
+        XCTAssertFalse(TerminalKeyboardCopyModeAction.searchNext.shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertFalse(TerminalKeyboardCopyModeAction.searchPrevious.shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.searchNext.scrollbarUpdateIntent.contains(.explicitSync))
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.searchPrevious.scrollbarUpdateIntent.contains(.explicitSync))
+        XCTAssertFalse(
+            TerminalKeyboardCopyModeAction
+                .adjustSelection(.down)
+                .shouldTreatScrollbarUpdatesAsKeyboardInitiated
+        )
+    }
+
     func testInvalidKeyClearsPendingState() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(18, chars: "2", hasSelection: false, state: &state), .consume)
@@ -1841,28 +1860,6 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
         XCTAssertTrue(appearance.drawsContentBackground)
         XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
-    }
-
-    func testLowContrastPanelForegroundFallsBackToReadableColor() {
-        var config = GhosttyConfig()
-        config.backgroundColor = NSColor(hex: "#FFFFFF")!
-        config.backgroundOpacity = 1.0
-        config.foregroundColor = NSColor(hex: "#FFFFFF")!
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-
-        XCTAssertEqual(appearance.foregroundColor.hexString(), "#000000")
-    }
-
-    func testReadablePanelForegroundPreservesThemeColor() {
-        var config = GhosttyConfig()
-        config.backgroundColor = NSColor(hex: "#000000")!
-        config.backgroundOpacity = 1.0
-        config.foregroundColor = NSColor(hex: "#FDF6E3")!
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-
-        XCTAssertEqual(appearance.foregroundColor.hexString(), "#FDF6E3")
     }
 
     func testGhosttyGlassBackgroundUsesClearContentBackground() {
@@ -3100,6 +3097,154 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             500,
             accuracy: 0.01,
             "A passive bottom packet should not yank the viewport after an explicit wheel scroll into scrollback"
+        )
+    }
+
+    func testKeyboardInitiatedScrollbarUpdateSyncsWithoutTimestampBackfill() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+        XCTAssertEqual(
+            hostedView
+                .debugTimestampVisibleRows(for: makeScrollbar(total: 100, offset: 90, len: 10))
+                .map(\.row),
+            Array(90 ..< 100)
+        )
+
+        surfaceView.debugEnqueueScrollbarUpdateAfterKeyboardScrollIntent(
+            makeScrollbar(total: 100, offset: 40, len: 10)
+        )
+        surfaceView.enqueueScrollbarUpdate(
+            makeScrollbar(total: 100, offset: 40, len: 10),
+            wasKeyboardInitiated: false
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 500, accuracy: 0.01)
+        XCTAssertEqual(
+            hostedView
+                .debugTimestampVisibleRows(for: makeScrollbar(total: 100, offset: 40, len: 10))
+                .map(\.row),
+            [],
+            "Keyboard backscroll should not stamp rows the user manually revealed"
+        )
+
+        surfaceView.debugEnqueueScrollbarUpdateAfterKeyboardScrollIntent(
+            makeScrollbar(total: 100, offset: 30, len: 10)
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            600,
+            accuracy: 0.01,
+            "Keyboard scroll commands should keep syncing while the viewport is already in scrollback"
+        )
+        XCTAssertEqual(
+            hostedView
+                .debugTimestampVisibleRows(for: makeScrollbar(total: 100, offset: 30, len: 10))
+                .map(\.row),
+            []
+        )
+    }
+
+    func testSearchScrollbarUpdateSyncsAfterKeyboardBackscroll() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+
+        surfaceView.debugEnqueueScrollbarUpdateAfterKeyboardScrollIntent(
+            makeScrollbar(total: 100, offset: 40, len: 10)
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 500, accuracy: 0.01)
+
+        surfaceView.enqueueScrollbarUpdate(
+            makeScrollbar(total: 100, offset: 20, len: 10),
+            intent: [.explicitSync]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            700,
+            accuracy: 0.01,
+            "Search navigation should sync the wrapper viewport even after keyboard backscroll disabled passive auto-scroll"
+        )
+        XCTAssertEqual(
+            hostedView
+                .debugTimestampVisibleRows(for: makeScrollbar(total: 100, offset: 20, len: 10))
+                .map(\.row),
+            [],
+            "Search-driven scrollback navigation should not backfill timestamps for manually revealed rows"
         )
     }
 

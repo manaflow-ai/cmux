@@ -22,7 +22,16 @@ private final class FilePreviewQLItem: NSObject, QLPreviewItem {
 
 @MainActor
 final class FilePreviewQuickLookSession {
-    private let liveViews = NSHashTable<NSView>.weakObjects()
+    private let viewSession = PanelOwnedNativeViewSession<NSView>(
+        makeView: FilePreviewQuickLookSession.makeView,
+        closeView: { view in
+            if let previewView = view as? QLPreviewView {
+                previewView.close()
+                previewView.previewItem = nil
+            }
+            view.removeFromSuperview()
+        }
+    )
     private var item: FilePreviewQLItem?
 
     deinit {
@@ -35,16 +44,15 @@ final class FilePreviewQuickLookSession {
         backgroundColor: NSColor,
         drawsBackground: Bool
     ) -> NSView {
-        let view = Self.makeView()
-        liveViews.add(view)
-        configure(
-            view,
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-        return view
+        viewSession.view {
+            configure(
+                $0,
+                panel: panel,
+                isVisibleInUI: isVisibleInUI,
+                backgroundColor: backgroundColor,
+                drawsBackground: drawsBackground
+            )
+        }
     }
 
     func update(
@@ -54,30 +62,19 @@ final class FilePreviewQuickLookSession {
         backgroundColor: NSColor,
         drawsBackground: Bool
     ) {
-        guard liveViews.contains(view) else { return }
-        configure(
-            view,
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    func dismantle(_ view: NSView) {
-        guard liveViews.contains(view) else { return }
-        liveViews.remove(view)
-        Self.releaseView(view)
-        if liveViews.allObjects.isEmpty {
-            item = nil
+        viewSession.update(view) {
+            configure(
+                $0,
+                panel: panel,
+                isVisibleInUI: isVisibleInUI,
+                backgroundColor: backgroundColor,
+                drawsBackground: drawsBackground
+            )
         }
     }
 
     func close() {
-        for view in liveViews.allObjects {
-            Self.releaseView(view)
-        }
-        liveViews.removeAllObjects()
+        viewSession.close()
         item = nil
     }
 
@@ -87,16 +84,6 @@ final class FilePreviewQuickLookSession {
         }
         previewView.autostarts = true
         return previewView
-    }
-
-    private static func releaseView(_ view: NSView) {
-        if let previewView = view as? QLPreviewView {
-            // QLPreviewView.close() asserts when the view is inactive and makes the
-            // view permanently reject future items. Session retirement handles stale
-            // updates; clearing the item releases the active preview.
-            previewView.previewItem = nil
-        }
-        view.removeFromSuperview()
     }
 
     private func configure(

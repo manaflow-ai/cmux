@@ -12,7 +12,7 @@ extension GhosttyApp {
         }
 
         guard let newConfig = ghostty_config_new() else { return }
-        let reloadColorScheme = preferredColorScheme ?? effectiveTerminalColorSchemePreference
+        let reloadColorScheme = preferredColorScheme ?? GhosttyConfig.currentColorSchemePreference()
         _ = loadDefaultConfigFilesWithLegacyFallback(
             newConfig,
             preferredColorScheme: reloadColorScheme

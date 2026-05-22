@@ -109,6 +109,43 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalTimestampsSettings {
+    static let showTimestampsKey = "terminal.showTimestamps"
+    static let defaultShowTimestamps = false
+    static let didChangeNotification = Notification.Name("cmux.terminalTimestampsSettingsDidChange")
+
+    static func isVisible(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showTimestampsKey) == nil {
+            return defaultShowTimestamps
+        }
+        return defaults.bool(forKey: showTimestampsKey)
+    }
+
+    @discardableResult
+    static func setVisible(
+        _ visible: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        guard isVisible(defaults: defaults) != visible else { return visible }
+        defaults.set(visible, forKey: showTimestampsKey)
+        notifyDidChange(notificationCenter: notificationCenter)
+        return visible
+    }
+
+    @discardableResult
+    static func toggle(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        setVisible(!isVisible(defaults: defaults), defaults: defaults, notificationCenter: notificationCenter)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
     static let defaultAutoResumeAgentSessions = true

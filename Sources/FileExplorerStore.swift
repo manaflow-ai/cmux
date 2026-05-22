@@ -437,7 +437,6 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         private let outPipe = Pipe()
         private let errPipe = Pipe()
         private let lock = NSLock()
-        private let terminationGate = ProcessTerminationGate()
         private var cancelled = false
 
         init(connection: SSHFileExplorerConnection, command: String) {
@@ -455,35 +454,18 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 throw CancellationError()
             }
 
-            do {
-                try process.run()
-            } catch {
-                terminationGate.markFinished()
-                throw error
-            }
+            try process.run()
 
             lock.lock()
-            let shouldTerminate = cancelled
+            let shouldTerminate = cancelled && process.isRunning
             lock.unlock()
-            if terminationGate.markLaunched() || shouldTerminate {
-                guard process.isRunning else {
-                    process.waitUntilExit()
-                    terminationGate.markFinished()
-                    throw CancellationError()
-                }
+            if shouldTerminate {
                 process.terminate()
             }
 
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
-            terminationGate.markFinished()
-            lock.lock()
-            let cancelledAfterExit = cancelled
-            lock.unlock()
-            if cancelledAfterExit {
-                throw CancellationError()
-            }
 
             return SSHCommandResult(
                 stdout: String(data: data, encoding: .utf8) ?? "",
@@ -495,15 +477,12 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         func terminate() {
             lock.lock()
             cancelled = true
+            let isRunning = process.isRunning
             lock.unlock()
 
-            guard terminationGate.requestTermination() else {
-                return
+            if isRunning {
+                process.terminate()
             }
-            guard process.isRunning else {
-                return
-            }
-            process.terminate()
         }
     }
 

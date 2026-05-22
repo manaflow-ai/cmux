@@ -5,7 +5,6 @@ import Foundation
 extension Workspace {
     private static let structuredAgentHookStatusKeys: Set<String> = [
         "amp",
-        "antigravity",
         "claude_code",
         "codebuddy",
         "codex",
@@ -20,8 +19,6 @@ extension Workspace {
         "qoder",
         "rovodev",
     ]
-    private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
-    private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
 
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
@@ -127,28 +124,12 @@ extension Workspace {
     }
 
     func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
-        guard let panelId else {
-            return false
+        if let panelId {
+            let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
+            return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
         }
 
-        if AgentSubagentNotificationSettings.suppressNotifications(),
-           terminalPanelHasManagedSubagentStartupEnvironment(panelId: panelId) {
-            return true
-        }
-
-        let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
-        return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
-    }
-
-    private func terminalPanelHasManagedSubagentStartupEnvironment(panelId: UUID) -> Bool {
-        guard let rawValue = terminalPanel(for: panelId)?
-            .surface
-            .startupEnvironmentValue(Self.managedSubagentEnvironmentKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() else {
-            return false
-        }
-        return Self.truthyStartupEnvironmentValues.contains(rawValue)
+        return false
     }
 
     func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {

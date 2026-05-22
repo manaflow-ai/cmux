@@ -4106,7 +4106,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 "--identity", "/Users/test/.ssh/id_ed25519",
                 "--ssh-option", "ControlPath /tmp/cmux-ssh-%C",
                 "--ssh-option", "StrictHostKeyChecking=accept-new",
-                "--window", windowID,
                 "cmux-macmini",
             ],
             environment: environment,
@@ -4130,7 +4129,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
 
         let createParams = try XCTUnwrap(requests[0]["params"] as? [String: Any])
-        XCTAssertEqual(createParams["window_id"] as? String, windowID)
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
         XCTAssertFalse(initialCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 

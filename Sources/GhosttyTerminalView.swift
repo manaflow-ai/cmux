@@ -1363,6 +1363,33 @@ enum TerminalKeyboardCopyModeAction: Equatable {
     case searchNext
     case searchPrevious
     case adjustSelection(TerminalKeyboardCopyModeSelectionMove)
+
+    var shouldTreatScrollbarUpdatesAsKeyboardInitiated: Bool {
+        scrollbarUpdateIntent.contains(.keyboardInitiated)
+    }
+
+    var scrollbarUpdateIntent: GhosttyScrollbarUpdateIntent {
+        switch self {
+        case .scrollLines, .scrollPage, .scrollHalfPage, .scrollToTop, .scrollToBottom, .jumpToPrompt:
+            return [.keyboardInitiated, .explicitSync]
+        case .searchNext, .searchPrevious:
+            return [.explicitSync]
+        case .exit, .startSelection, .clearSelection, .copyAndExit, .copyLineAndExit, .startSearch,
+             .adjustSelection:
+            return []
+        }
+    }
+
+    var shouldCarryScrollbarUpdateIntentAfterBindingAction: Bool {
+        shouldTreatScrollbarUpdatesAsKeyboardInitiated
+    }
+}
+
+struct GhosttyScrollbarUpdateIntent: OptionSet {
+    let rawValue: Int
+
+    static let keyboardInitiated = GhosttyScrollbarUpdateIntent(rawValue: 1 << 0)
+    static let explicitSync = GhosttyScrollbarUpdateIntent(rawValue: 1 << 1)
 }
 
 struct TerminalKeyboardCopyModeInputState: Equatable {
@@ -1696,10 +1723,6 @@ class GhosttyApp {
     private(set) var defaultCursorTextColor: NSColor = GhosttyApp.fallbackAppearanceConfig.cursorTextColor
     private(set) var defaultSelectionBackground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionBackground
     private(set) var defaultSelectionForeground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionForeground
-    private(set) var effectiveTerminalColorSchemePreference: GhosttyConfig.ColorSchemePreference = .dark
-    private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
-    private var runtimeColorSchemeSynchronizationDepth = 0
-    private var reloadConfigurationDepth = 0
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private static func resolveBackgroundLogURL(
@@ -2170,7 +2193,7 @@ class GhosttyApp {
         }
 
         // Notify observers that a usable config is available (initial load).
-        synchronizeGhosttyRuntimeColorScheme(effectiveTerminalColorSchemePreference, source: "initialize")
+        synchronizeGhosttyRuntimeColorScheme(initialColorScheme, source: "initialize")
         lastAppearanceColorScheme = initialColorScheme
         GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
@@ -3013,22 +3036,6 @@ class GhosttyApp {
         }
     }
 
-    enum RuntimeColorSchemeSynchronizationDecision: Equatable {
-        case apply
-        case skipReentrant
-    }
-
-    static func runtimeColorSchemeSynchronizationDecision(
-        applied _: ghostty_color_scheme_e?,
-        requested _: ghostty_color_scheme_e,
-        isSynchronizing: Bool
-    ) -> RuntimeColorSchemeSynchronizationDecision {
-        if isSynchronizing {
-            return .skipReentrant
-        }
-        return .apply
-    }
-
     static func appearanceSynchronizationPlan(
         previousColorScheme: GhosttyConfig.ColorSchemePreference?,
         currentColorScheme: GhosttyConfig.ColorSchemePreference
@@ -3055,27 +3062,6 @@ class GhosttyApp {
         case .dark:
             return GHOSTTY_COLOR_SCHEME_DARK
         }
-    }
-
-    static func terminalRuntimeColorSchemePreference(
-        forBackgroundColor backgroundColor: NSColor
-    ) -> GhosttyConfig.ColorSchemePreference {
-        cmuxReadableColorScheme(for: backgroundColor) == .light ? .light : .dark
-    }
-
-    static func runtimeColorSchemeForConfigLoad(
-        source: String,
-        requestedColorScheme: GhosttyConfig.ColorSchemePreference,
-        effectiveTerminalColorScheme: GhosttyConfig.ColorSchemePreference,
-        cmuxThemeValue: String?
-    ) -> GhosttyConfig.ColorSchemePreference {
-        guard GhosttySurfaceConfigurationRefresh.isCmuxThemeReloadSource(source),
-              let cmuxThemeValue,
-              GhosttyConfig.themeValueUsesSameResolvedThemeInBothColorSchemes(cmuxThemeValue) else {
-            return requestedColorScheme
-        }
-
-        return effectiveTerminalColorScheme
     }
 
     static func shouldCaptureScrollLagEvent(
@@ -3124,33 +3110,7 @@ class GhosttyApp {
         cmuxDebugLog(
             "loaded cmux app support ghostty config from: \(urls.map(\.path).joined(separator: ", "))"
         )
-        #endif
-        #endif
-    }
-
-    private func currentCmuxAppSupportThemeValue() -> String? {
-        #if os(macOS)
-        let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let urls = Self.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: Bundle.main.bundleIdentifier,
-            appSupportDirectory: appSupport,
-            fileManager: fm
-        )
-
-        var lastValue: String?
-        for url in urls {
-            guard let contents = try? String(contentsOf: url, encoding: .utf8),
-                  let value = GhosttyConfig.lastThemeDirective(in: contents) else {
-                continue
-            }
-            lastValue = value
-        }
-        return lastValue
-        #else
-        return nil
+#endif
         #endif
     }
 
@@ -3222,13 +3182,6 @@ class GhosttyApp {
         reloadSettingsFromFile: Bool = true,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
-        guard reloadConfigurationDepth == 0 else {
-            logThemeAction("reload skipped source=\(source) soft=\(soft) reason=reentrant")
-            return
-        }
-        reloadConfigurationDepth += 1
-        defer { reloadConfigurationDepth -= 1 }
-
         if reloadSettingsFromFile {
             KeyboardShortcutSettings.settingsFileStore.reload()
         }
@@ -3246,29 +3199,14 @@ class GhosttyApp {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
         }
-        // Use the appearance preference while loading conditional theme pairs. For cmux
-        // single-theme reloads, keep the resolved terminal scheme stable until the new
-        // background is known so same-scheme theme changes do not flash through app mode.
-        let loadColorScheme = Self.runtimeColorSchemeForConfigLoad(
-            source: source,
-            requestedColorScheme: reloadColorScheme,
-            effectiveTerminalColorScheme: effectiveTerminalColorSchemePreference,
-            cmuxThemeValue: currentCmuxAppSupportThemeValue()
-        )
-        synchronizeGhosttyRuntimeColorScheme(loadColorScheme, source: "reloadConfiguration:\(source):load")
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
-            let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
-            synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-            scheduleSurfaceRefreshAfterConfigurationReload(
-                source: source,
-                preferredColorScheme: effectiveReloadColorScheme
-            )
+            scheduleSurfaceRefreshAfterConfigurationReload(source: source)
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
             return
         }
@@ -3281,15 +3219,13 @@ class GhosttyApp {
             newConfig,
             preferredColorScheme: reloadColorScheme
         )
+        ghostty_app_update_config(app, newConfig)
         updateDefaultBackground(
             from: newConfig,
             source: "reloadConfiguration(source=\(source))",
             scope: .unscoped,
             forceNotify: renderingModeChanged
         )
-        let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
-        synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
-        ghostty_app_update_config(app, newConfig)
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
         }
@@ -3300,22 +3236,13 @@ class GhosttyApp {
         lastAppearanceColorScheme = reloadColorScheme
         GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-        scheduleSurfaceRefreshAfterConfigurationReload(
-            source: source,
-            preferredColorScheme: effectiveReloadColorScheme
-        )
+        scheduleSurfaceRefreshAfterConfigurationReload(source: source)
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
     }
 
-    private func scheduleSurfaceRefreshAfterConfigurationReload(
-        source: String,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference
-    ) {
+    private func scheduleSurfaceRefreshAfterConfigurationReload(source: String) {
         DispatchQueue.main.async {
-            AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(
-                source: source,
-                preferredColorScheme: preferredColorScheme
-            )
+            AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(source: source)
         }
     }
 
@@ -3373,43 +3300,11 @@ class GhosttyApp {
         source: String
     ) {
         guard let app else { return }
-        let decision = Self.runtimeColorSchemeSynchronizationDecision(
-            applied: appliedGhosttyRuntimeColorScheme,
-            requested: runtimeColorScheme,
-            isSynchronizing: runtimeColorSchemeSynchronizationDepth > 0
-        )
-        guard decision == .apply else {
-            if backgroundLogEnabled {
-                let schemeLabel = colorScheme == .dark ? "dark" : "light"
-                let reason: String
-                switch decision {
-                case .apply:
-                    reason = "apply"
-                case .skipReentrant:
-                    reason = "reentrant"
-                }
-                logBackground("app color scheme skipped source=\(source) scheme=\(schemeLabel) reason=\(reason)")
-            }
-            return
-        }
-
-        appliedGhosttyRuntimeColorScheme = runtimeColorScheme
-        runtimeColorSchemeSynchronizationDepth += 1
-        defer { runtimeColorSchemeSynchronizationDepth -= 1 }
         ghostty_app_set_color_scheme(app, runtimeColorScheme)
         if backgroundLogEnabled {
             let schemeLabel = colorScheme == .dark ? "dark" : "light"
             logBackground("app color scheme source=\(source) scheme=\(schemeLabel)")
         }
-    }
-
-    private func shouldProcessGhosttyReloadAction(source: String, soft: Bool) -> Bool {
-        guard reloadConfigurationDepth == 0,
-              runtimeColorSchemeSynchronizationDepth == 0 else {
-            logThemeAction("reload request skipped source=\(source) soft=\(soft) reason=reentrant")
-            return false
-        }
-        return true
     }
 
     func openConfigurationInTextEdit() {
@@ -3627,13 +3522,9 @@ class GhosttyApp {
         let previousCursorTextHex = defaultCursorTextColor.hexString()
         let previousSelectionBackgroundHex = defaultSelectionBackground.hexString()
         let previousSelectionForegroundHex = defaultSelectionForeground.hexString()
-        let previousColorScheme = effectiveTerminalColorSchemePreference
         defaultBackgroundColor = color
         defaultBackgroundOpacity = opacity
         defaultBackgroundBlur = backgroundBlur
-        effectiveTerminalColorSchemePreference = Self.terminalRuntimeColorSchemePreference(
-            forBackgroundColor: color
-        )
         if let foregroundColor {
             defaultForegroundColor = foregroundColor
         }
@@ -3657,14 +3548,13 @@ class GhosttyApp {
             previousCursorHex != defaultCursorColor.hexString() ||
             previousCursorTextHex != defaultCursorTextColor.hexString() ||
             previousSelectionBackgroundHex != defaultSelectionBackground.hexString() ||
-            previousSelectionForegroundHex != defaultSelectionForeground.hexString() ||
-            previousColorScheme != effectiveTerminalColorSchemePreference
+            previousSelectionForegroundHex != defaultSelectionForeground.hexString()
         if hasChanged {
             notifyDefaultBackgroundDidChange(source: source)
         }
         if backgroundLogEnabled {
             logBackground(
-                "default appearance updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousBg=\(previousHex) previousFg=\(previousForegroundHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) previousBlur=\(previousBlur) previousScheme=\(previousColorScheme) bg=\(defaultBackgroundColor.hexString()) fg=\(defaultForegroundColor.hexString()) cursor=\(defaultCursorColor.hexString()) cursorText=\(defaultCursorTextColor.hexString()) selectionBg=\(defaultSelectionBackground.hexString()) selectionFg=\(defaultSelectionForeground.hexString()) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur) scheme=\(effectiveTerminalColorSchemePreference) changed=\(hasChanged) forced=\(forceNotify)"
+                "default appearance updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousBg=\(previousHex) previousFg=\(previousForegroundHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) previousBlur=\(previousBlur) bg=\(defaultBackgroundColor.hexString()) fg=\(defaultForegroundColor.hexString()) cursor=\(defaultCursorColor.hexString()) cursorText=\(defaultCursorTextColor.hexString()) selectionBg=\(defaultSelectionBackground.hexString()) selectionFg=\(defaultSelectionForeground.hexString()) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur) changed=\(hasChanged) forced=\(forceNotify)"
             )
         }
     }
@@ -3989,12 +3879,6 @@ class GhosttyApp {
                 let soft = action.action.reload_config.soft
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
-                    guard self.shouldProcessGhosttyReloadAction(
-                        source: "action.reload_config.app",
-                        soft: soft
-                    ) else {
-                        return
-                    }
                     self.reloadConfiguration(soft: soft, source: "action.reload_config.app")
                 }
                 return true
@@ -4012,10 +3896,6 @@ class GhosttyApp {
                     from: action.action.config_change.config,
                     source: "action.config_change.app",
                     scope: .app
-                )
-                synchronizeGhosttyRuntimeColorScheme(
-                    effectiveTerminalColorSchemePreference,
-                    source: "action.config_change.app:resolved"
                 )
                 DispatchQueue.main.async {
                     self.applyBackgroundToKeyWindow()
@@ -4141,7 +4021,7 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
-            surfaceView.enqueueScrollbarUpdate(scrollbar)
+            surfaceView.enqueueScrollbarActionUpdate(scrollbar)
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
             let cellSize = CGSize(
@@ -4289,17 +4169,6 @@ class GhosttyApp {
                 source: "action.config_change.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
                 scope: .surface
             )
-            let effectiveConfigChangeColorScheme = effectiveTerminalColorSchemePreference
-            synchronizeGhosttyRuntimeColorScheme(
-                effectiveConfigChangeColorScheme,
-                source: "action.config_change.surface:resolved"
-            )
-            DispatchQueue.main.async {
-                surfaceView.applySurfaceColorScheme(
-                    force: true,
-                    preferredColorScheme: effectiveConfigChangeColorScheme
-                )
-            }
             if backgroundLogEnabled {
                 logBackground(
                     "surface config change deferred terminal bg apply tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") override=\(surfaceView.backgroundColor?.hexString() ?? "nil") default=\(defaultBackgroundColor.hexString())"
@@ -4308,24 +4177,11 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_RELOAD_CONFIG:
             let soft = action.action.reload_config.soft
-            let source = "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")"
             logThemeAction(
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
             return performOnMain {
-                guard self.shouldProcessGhosttyReloadAction(source: source, soft: soft) else {
-                    return true
-                }
-                let preferredColorScheme = self.effectiveTerminalColorSchemePreference
-                surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
-                    preferredColorScheme: preferredColorScheme
-                )
-                self.reloadSurfaceConfiguration(
-                    target.target.surface,
-                    soft: soft,
-                    source: source,
-                    preferredColorScheme: preferredColorScheme
-                )
+                self.reloadSurfaceConfiguration(target.target.surface, soft: soft, source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")")
                 surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
                 surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
                 return true
@@ -4919,11 +4775,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var lastSearchNeedle = ""
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
-
-    func startupEnvironmentValue(_ key: String) -> String? {
-        additionalEnvironment[key] ?? initialEnvironmentOverrides[key]
-    }
-
     init(
         tabId: UUID,
         context: ghostty_surface_context_e,
@@ -5710,10 +5561,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
             setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }
-        setManagedEnvironmentValue(
-            AgentSubagentNotificationSettings.environmentKey,
-            AgentSubagentNotificationSettings.suppressNotifications() ? "1" : "0"
-        )
         if !CursorIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_CURSOR_HOOKS_DISABLED", "1")
         }
@@ -5738,11 +5585,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path {
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
-            Self.applyManagedGitWatchEnvironment(
-                watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
-                to: &env,
-                protectedKeys: &protectedStartupEnvironmentKeys
-            )
 
             let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
                 ?? getenv("SHELL").map { String(cString: $0) }
@@ -6800,7 +6642,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Access is guarded by `_scrollbarLock` because the action callback
     /// fires on Ghostty's I/O thread while the flush runs on main.
     private var _pendingScrollbar: GhosttyScrollbar?
+    private var _pendingScrollbarIntent: GhosttyScrollbarUpdateIntent = []
     private var _scrollbarFlushScheduled = false
+    private var _pendingScrollbarActionIntent: GhosttyScrollbarUpdateIntent = []
+    private var _scrollbarActionIntentStack: [GhosttyScrollbarUpdateIntent] = []
     private let _scrollbarLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
@@ -6809,11 +6654,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// dispatch.  The action callback (which may fire thousands of times per
     /// second during bulk output like `seq 1 100000`) stores the latest value
     /// and schedules exactly one async flush.
-    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar) {
+    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar, intent: GhosttyScrollbarUpdateIntent = []) {
         _scrollbarLock.lock()
         defer { _scrollbarLock.unlock() }
         // Store the latest value (always overwrites — only the newest matters).
         _pendingScrollbar = newValue
+        _pendingScrollbarIntent.formUnion(intent)
         let needsSchedule = !_scrollbarFlushScheduled
         if needsSchedule { _scrollbarFlushScheduled = true }
 
@@ -6825,11 +6671,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar, wasKeyboardInitiated: Bool) {
+        enqueueScrollbarUpdate(
+            newValue,
+            intent: wasKeyboardInitiated ? [.keyboardInitiated, .explicitSync] : []
+        )
+    }
+
+    func enqueueScrollbarActionUpdate(_ newValue: GhosttyScrollbar) {
+        enqueueScrollbarUpdate(newValue, intent: consumeScrollbarActionIntent())
+    }
+
     private func flushPendingScrollbar() {
         _scrollbarLock.lock()
         _scrollbarFlushScheduled = false
         let pending = _pendingScrollbar
+        let pendingIntent = _pendingScrollbarIntent
         _pendingScrollbar = nil
+        _pendingScrollbarIntent = []
         _scrollbarLock.unlock()
 
         guard let pending else { return }
@@ -6837,9 +6696,73 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,
-            userInfo: [GhosttyNotificationKey.scrollbar: pending]
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: pending,
+                GhosttyNotificationKey.scrollbarUpdateIntent: pendingIntent,
+                GhosttyNotificationKey.scrollbarWasKeyboardInitiated:
+                    pendingIntent.contains(.keyboardInitiated),
+            ]
         )
     }
+
+    private func beginScrollbarActionIntent(
+        _ intent: GhosttyScrollbarUpdateIntent,
+        carryAcrossAction: Bool
+    ) {
+        _scrollbarLock.lock()
+        _scrollbarActionIntentStack.append(intent)
+        if carryAcrossAction {
+            _pendingScrollbarActionIntent.formUnion(intent)
+        }
+        _scrollbarLock.unlock()
+    }
+
+    private func endScrollbarActionIntent() {
+        _scrollbarLock.lock()
+        if !_scrollbarActionIntentStack.isEmpty {
+            _ = _scrollbarActionIntentStack.removeLast()
+        }
+        _scrollbarLock.unlock()
+    }
+
+    private func beginKeyboardInitiatedScrollAction() {
+        beginScrollbarActionIntent([.keyboardInitiated, .explicitSync], carryAcrossAction: true)
+    }
+
+    private func endKeyboardInitiatedScrollAction() {
+        endScrollbarActionIntent()
+    }
+
+    func consumeScrollbarActionIntent() -> GhosttyScrollbarUpdateIntent {
+        _scrollbarLock.lock()
+        defer { _scrollbarLock.unlock() }
+        var intent = _pendingScrollbarActionIntent
+        for activeIntent in _scrollbarActionIntentStack {
+            intent.formUnion(activeIntent)
+        }
+        if !intent.isEmpty {
+            _pendingScrollbarActionIntent = []
+        }
+        return intent
+    }
+
+    private func withScrollbarActionIntent<T>(
+        _ intent: GhosttyScrollbarUpdateIntent,
+        carryAcrossAction: Bool,
+        _ body: () -> T
+    ) -> T {
+        beginScrollbarActionIntent(intent, carryAcrossAction: carryAcrossAction)
+        defer { endScrollbarActionIntent() }
+        return body()
+    }
+
+#if DEBUG
+    func debugEnqueueScrollbarUpdateAfterKeyboardScrollIntent(_ newValue: GhosttyScrollbar) {
+        beginScrollbarActionIntent([.keyboardInitiated, .explicitSync], carryAcrossAction: true)
+        endScrollbarActionIntent()
+        enqueueScrollbarActionUpdate(newValue)
+    }
+#endif
 
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
@@ -6919,13 +6842,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    // Visibility is used for focus gating. Explicit portal visibility transitions
-    // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
-    // queue a redraw when they become visible again.
-    fileprivate var isVisibleInUI: Bool { visibleInUI }
-    fileprivate func setVisibleInUI(_ visible: Bool) {
-        visibleInUI = visible
-    }
+        // Visibility is used for focus gating. Explicit portal visibility transitions
+        // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
+        // queue a redraw when they become visible again.
+        fileprivate var isVisibleInUI: Bool { visibleInUI }
+        fileprivate func setVisibleInUI(_ visible: Bool) {
+            visibleInUI = visible
+        }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -7440,20 +7363,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.surface
     }
 
-    fileprivate func applySurfaceColorScheme(
-        force: Bool = false,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
-    ) {
+    private func applySurfaceColorScheme(force: Bool = false) {
         guard let surface else { return }
         let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
-        let preferredColorScheme = preferredColorScheme
-            ?? GhosttyApp.shared.effectiveTerminalColorSchemePreference
-        let scheme = GhosttyApp.ghosttyRuntimeColorScheme(for: preferredColorScheme)
+        let scheme: ghostty_color_scheme_e = bestMatch == .darkAqua
+            ? GHOSTTY_COLOR_SCHEME_DARK
+            : GHOSTTY_COLOR_SCHEME_LIGHT
         if !force, appliedColorScheme == scheme {
             if GhosttyApp.shared.backgroundLogEnabled {
                 let schemeLabel = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
                 GhosttyApp.shared.logBackground(
-                    "surface color scheme tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil") preferred=\(schemeLabel) scheme=\(schemeLabel) force=\(force) applied=false"
+                    "surface color scheme tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil") scheme=\(schemeLabel) force=\(force) applied=false"
                 )
             }
             return
@@ -7463,7 +7383,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if GhosttyApp.shared.backgroundLogEnabled {
             let schemeLabel = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
             GhosttyApp.shared.logBackground(
-                "surface color scheme tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil") preferred=\(schemeLabel) scheme=\(schemeLabel) force=\(force) applied=true"
+                "surface color scheme tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil") scheme=\(schemeLabel) force=\(force) applied=true"
             )
         }
     }
@@ -7506,6 +7426,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    private func performKeyboardInitiatedScrollBindingAction(_ action: String) -> Bool {
+        withScrollbarActionIntent([.keyboardInitiated, .explicitSync], carryAcrossAction: true) {
+            performBindingAction(action)
+        }
+    }
+
     @discardableResult
     func toggleKeyboardCopyMode() -> Bool {
         guard surface != nil else { return false }
@@ -7539,6 +7465,34 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let count = terminalKeyboardCopyModeClampCount(repeatCount)
         for _ in 0 ..< count {
             _ = performBindingAction(action)
+        }
+    }
+
+    private func performKeyboardInitiatedScrollBindingAction(_ action: String, repeatCount: Int) {
+        let count = terminalKeyboardCopyModeClampCount(repeatCount)
+        for _ in 0 ..< count {
+            _ = performKeyboardInitiatedScrollBindingAction(action)
+        }
+    }
+
+    private func performKeyboardCopyModeBindingAction(
+        _ bindingAction: String,
+        copyModeAction: TerminalKeyboardCopyModeAction,
+        repeatCount: Int = 1
+    ) {
+        let intent = copyModeAction.scrollbarUpdateIntent
+        if !intent.isEmpty {
+            let count = terminalKeyboardCopyModeClampCount(repeatCount)
+            for _ in 0 ..< count {
+                _ = withScrollbarActionIntent(
+                    intent,
+                    carryAcrossAction: copyModeAction.shouldCarryScrollbarUpdateIntentAfterBindingAction
+                ) {
+                    performBindingAction(bindingAction)
+                }
+            }
+        } else {
+            performBindingAction(bindingAction, repeatCount: repeatCount)
         }
     }
 
@@ -7680,34 +7634,60 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
-            _ = performBindingAction("scroll_page_lines:\(delta * count)")
+            performKeyboardCopyModeBindingAction(
+                "scroll_page_lines:\(delta * count)",
+                copyModeAction: action
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollPage(delta):
-            performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: count)
+            performKeyboardCopyModeBindingAction(
+                delta > 0 ? "scroll_page_down" : "scroll_page_up",
+                copyModeAction: action,
+                repeatCount: count
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollHalfPage(delta):
             let fraction = delta > 0 ? 0.5 : -0.5
-            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: count)
+            performKeyboardCopyModeBindingAction(
+                "scroll_page_fractional:\(fraction)",
+                copyModeAction: action,
+                repeatCount: count
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .scrollToTop:
             keyboardCopyModeViewportRow = 0
-            _ = performBindingAction("scroll_to_top")
+            performKeyboardCopyModeBindingAction("scroll_to_top", copyModeAction: action)
         case .scrollToBottom:
             keyboardCopyModeViewportRow = max(Int(ghostty_surface_size(surface).rows) - 1, 0)
-            _ = performBindingAction("scroll_to_bottom")
+            performKeyboardCopyModeBindingAction("scroll_to_bottom", copyModeAction: action)
         case let .jumpToPrompt(delta):
-            _ = performBindingAction("jump_to_prompt:\(delta * count)")
+            performKeyboardCopyModeBindingAction(
+                "jump_to_prompt:\(delta * count)",
+                copyModeAction: action
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
-            performBindingAction("navigate_search:next", repeatCount: count)
+            performKeyboardCopyModeBindingAction(
+                "navigate_search:next",
+                copyModeAction: action,
+                repeatCount: count
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .searchPrevious:
-            performBindingAction("navigate_search:previous", repeatCount: count)
+            performKeyboardCopyModeBindingAction(
+                "navigate_search:previous",
+                copyModeAction: action,
+                repeatCount: count
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .adjustSelection(direction):
-            performBindingAction("adjust_selection:\(direction.rawValue)", repeatCount: count)
+            performKeyboardCopyModeBindingAction(
+                "adjust_selection:\(direction.rawValue)",
+                copyModeAction: action,
+                repeatCount: count
+            )
         }
         return true
     }
@@ -8052,6 +8032,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         performKeyEquivalent(with: event, shouldRetryMainMenu: false)
     }
 
+    private func keyEventMayTriggerKeyboardScrollAction(_ event: NSEvent) -> Bool {
+        let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        guard flags.isDisjoint(with: [.command, .control, .option]) else { return false }
+        switch Int(event.keyCode) {
+        case kVK_PageUp, kVK_PageDown:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func performKeyEquivalent(with event: NSEvent, shouldRetryMainMenu: Bool) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -8299,6 +8290,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
 
+        let shouldTrackKeyboardScrollAction = keyEventMayTriggerKeyboardScrollAction(event)
+        if shouldTrackKeyboardScrollAction {
+            beginKeyboardInitiatedScrollAction()
+        }
+        defer {
+            if shouldTrackKeyboardScrollAction {
+                endKeyboardInitiatedScrollAction()
+            }
+        }
+
         // Fast path for control-modified terminal input (for example Ctrl+D).
         //
         // These keys are terminal control input, not text composition, so we bypass
@@ -8406,10 +8407,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyCode: event.keyCode
             ) ?? event
         }
-        let textInputEvent = textInputInterpretationEvent(
-            original: event,
-            translated: translationEvent
-        )
 
         // Set up text accumulator for interpretKeyEvents
         keyTextAccumulator = []
@@ -8427,7 +8424,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-        interpretKeyEvents([textInputEvent])
+        interpretKeyEvents([translationEvent])
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -8465,7 +8462,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             before: markedStateBefore,
             after: (markedText.string, markedSelectedRange),
             accumulatedText: accumulatedText,
-            event: textInputEvent,
+            event: event,
             inputSourceId: keyboardIdBefore
         ) {
             imeConsumedKeyUps.insert(event.keyCode)
@@ -8545,7 +8542,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
 
             if shouldSendCommittedIMEConfirmKey(
-                event: textInputEvent,
+                event: translationEvent,
                 markedTextBefore: markedTextBefore
             ) {
                 keyEvent.consumed_mods = GHOSTTY_MODS_NONE
@@ -10398,6 +10395,112 @@ private final class GhosttyFlashOverlayView: NSView {
     }
 }
 
+private final class TerminalTimestampGutterView: NSView {
+    private struct DrawStyle {
+        let fontSize: CGFloat
+        let attributes: [NSAttributedString.Key: Any]
+        let lineHeight: CGFloat
+        let separatorColor: NSColor
+    }
+
+    private let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .medium
+        return formatter
+    }()
+
+    var onMouseDown: (() -> Void)?
+    private var rows: [TerminalTimestampVisibleRow] = []
+    private var visibleTopRow: CGFloat = 0
+    private var cellHeight: CGFloat = 0
+    private var cachedDrawStyle: DrawStyle?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.isOpaque = false
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(
+            String(localized: "terminal.timestamps.gutter.accessibility", defaultValue: "Terminal timestamps")
+        )
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+
+    override var acceptsFirstResponder: Bool { false }
+    override var isOpaque: Bool { false }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        cachedDrawStyle = nil
+        needsDisplay = true
+    }
+
+    func update(
+        rows: [TerminalTimestampVisibleRow],
+        visibleTopRow: CGFloat,
+        cellHeight: CGFloat
+    ) {
+        self.rows = rows
+        self.visibleTopRow = visibleTopRow
+        self.cellHeight = cellHeight
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onMouseDown?()
+    }
+
+    private func drawStyle(for cellHeight: CGFloat) -> DrawStyle {
+        let fontSize = min(11, max(9, cellHeight * 0.58))
+        if let cachedDrawStyle, cachedDrawStyle.fontSize == fontSize {
+            return cachedDrawStyle
+        }
+
+        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .right
+        paragraph.lineBreakMode = .byClipping
+        let style = DrawStyle(
+            fontSize: fontSize,
+            attributes: [
+                .font: font,
+                .foregroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.72),
+                .paragraphStyle: paragraph,
+            ],
+            lineHeight: font.ascender - font.descender + font.leading,
+            separatorColor: NSColor.separatorColor.withAlphaComponent(0.35)
+        )
+        cachedDrawStyle = style
+        return style
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let style = drawStyle(for: cellHeight)
+        style.separatorColor.setFill()
+        NSRect(x: bounds.maxX - 1, y: 0, width: 1, height: bounds.height).fill()
+
+        guard cellHeight > 0, !rows.isEmpty else { return }
+
+        let textWidth = max(0, bounds.width - 12)
+
+        for row in rows {
+            let rowOffset = CGFloat(row.row) - visibleTopRow
+            let rowTopFromBottom = bounds.height - ((rowOffset + 1) * cellHeight)
+            let textY = floor(rowTopFromBottom + ((cellHeight - style.lineHeight) / 2))
+            let textRect = NSRect(x: 4, y: textY, width: textWidth, height: style.lineHeight)
+            guard textRect.intersects(dirtyRect) else { continue }
+            formatter.string(from: row.timestamp).draw(in: textRect, withAttributes: style.attributes)
+        }
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -10408,7 +10511,7 @@ final class GhosttySurfaceScrollView: NSView {
         switch reason {
         case .navigation:
             return .navigation
-        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
             return .notification
         }
     }
@@ -10422,6 +10525,8 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    private static let timestampGutterWidth: CGFloat = 88
+
     private enum NotificationRingMetrics {
         static let inset = PanelOverlayRingMetrics.inset
         static let cornerRadius = PanelOverlayRingMetrics.cornerRadius
@@ -10429,6 +10534,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private let backgroundView: NSView
+    private let timestampGutterView: TerminalTimestampGutterView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
@@ -10468,6 +10574,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
+    private let timestampStore = TerminalTimestampStore()
     private var lastSearchOverlayStateID: ObjectIdentifier?
     private weak var cachedOwningWorkspace: Workspace?
     private weak var observedWorkspaceTerminalScrollBar: Workspace?
@@ -10683,6 +10790,7 @@ final class GhosttySurfaceScrollView: NSView {
 
         self.surfaceView = surfaceView
         backgroundView = NSView(frame: .zero)
+        timestampGutterView = TerminalTimestampGutterView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -10723,6 +10831,11 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         addSubview(backgroundView)
         addSubview(scrollView)
+        timestampGutterView.isHidden = !TerminalTimestampsSettings.isVisible()
+        timestampGutterView.onMouseDown = { [weak self] in
+            self?.moveFocus()
+        }
+        addSubview(timestampGutterView)
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
@@ -10982,6 +11095,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.synchronizeScrollView()
+            self?.refreshTimestampGutter()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -11000,6 +11114,14 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.handleTerminalScrollBarPreferenceChange()
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: TerminalTimestampsSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleTerminalTimestampsPreferenceChange()
         })
 
     }
@@ -11115,8 +11237,20 @@ final class GhosttySurfaceScrollView: NSView {
 
         let didScrollbarAppearanceChange = synchronizeScrollbarAppearance()
         let previousSurfaceSize = surfaceView.frame.size
+        let timestampGutterWidth = terminalTimestampGutterWidth()
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        _ = setFrameIfNeeded(scrollView, to: bounds)
+        _ = setFrameIfNeeded(
+            timestampGutterView,
+            to: CGRect(x: 0, y: 0, width: timestampGutterWidth, height: bounds.height)
+        )
+        timestampGutterView.isHidden = timestampGutterWidth <= 0
+        let scrollFrame = CGRect(
+            x: timestampGutterWidth,
+            y: 0,
+            width: max(0, bounds.width - timestampGutterWidth),
+            height: bounds.height
+        )
+        _ = setFrameIfNeeded(scrollView, to: scrollFrame)
         let targetSize = scrollView.bounds.size
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
@@ -11167,6 +11301,7 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollView()
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
+        refreshTimestampGutter()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
     }
 
@@ -11788,15 +11923,6 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.applyWindowBackgroundIfActive()
     }
 
-    func reapplySurfaceColorSchemeAfterGhosttyConfigReload(
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference
-    ) {
-        surfaceView.applySurfaceColorScheme(
-            force: true,
-            preferredColorScheme: preferredColorScheme
-        )
-    }
-
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
         let localFrame = PaneDropRouting.compactOverlayFrame(for: zone, in: size)
 
@@ -12172,6 +12298,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugRegisteredDropTypes() -> [String] {
         surfaceView.debugRegisteredDropTypes()
+    }
+
+    func debugTimestampVisibleRows(for scrollbar: GhosttyScrollbar) -> [TerminalTimestampVisibleRow] {
+        timestampStore.visibleRows(for: TerminalTimestampScrollbarState(scrollbar))
     }
 
     func debugInactiveOverlayState() -> (isHidden: Bool, alpha: CGFloat) {
@@ -13271,6 +13401,40 @@ final class GhosttySurfaceScrollView: NSView {
         // Intentionally no-op (no retry loops).
     }
 
+    private func terminalTimestampGutterWidth() -> CGFloat {
+        TerminalTimestampsSettings.isVisible() ? Self.timestampGutterWidth : 0
+    }
+
+    private func currentVisibleTopRow(cellHeight: CGFloat) -> CGFloat {
+        guard cellHeight > 0 else { return 0 }
+        let visibleRect = scrollView.contentView.documentVisibleRect
+        let scrollOffset = documentView.frame.height - visibleRect.origin.y - visibleRect.height
+        return max(0, scrollOffset / cellHeight)
+    }
+
+    private func refreshTimestampGutter() {
+        guard TerminalTimestampsSettings.isVisible(),
+              let scrollbar = surfaceView.scrollbar,
+              surfaceView.cellSize.height > 0 else {
+            timestampGutterView.update(rows: [], visibleTopRow: 0, cellHeight: 0)
+            return
+        }
+
+        let visibleTopRow = currentVisibleTopRow(cellHeight: surfaceView.cellSize.height)
+        let state = TerminalTimestampScrollbarState.visibleWindow(
+            total: Int(clamping: scrollbar.total),
+            fallbackLen: Int(clamping: scrollbar.len),
+            visibleTopRow: visibleTopRow,
+            viewportHeight: scrollView.contentView.documentVisibleRect.height,
+            cellHeight: surfaceView.cellSize.height
+        )
+        timestampGutterView.update(
+            rows: timestampStore.visibleRows(for: state),
+            visibleTopRow: visibleTopRow,
+            cellHeight: surfaceView.cellSize.height
+        )
+    }
+
     private func synchronizeSurfaceView() {
         let visibleRect = scrollView.contentView.documentVisibleRect
         guard !pointApproximatelyEqual(surfaceView.frame.origin, visibleRect.origin) else { return }
@@ -13388,6 +13552,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollChange() {
         synchronizeSurfaceView()
+        refreshTimestampGutter()
     }
 
     private func handleLiveScroll() {
@@ -13417,7 +13582,23 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         let wasVisible = scrollView.hasVerticalScroller
-        if pendingExplicitWheelScroll {
+        let legacyKeyboardInitiated =
+            notification.userInfo?[GhosttyNotificationKey.scrollbarWasKeyboardInitiated] as? Bool ?? false
+        var scrollbarIntent =
+            notification.userInfo?[GhosttyNotificationKey.scrollbarUpdateIntent] as? GhosttyScrollbarUpdateIntent
+            ?? []
+        if legacyKeyboardInitiated {
+            scrollbarIntent.formUnion([.keyboardInitiated, .explicitSync])
+        }
+        let shouldExplicitlySyncScrollbar = pendingExplicitWheelScroll || scrollbarIntent.contains(.explicitSync)
+        let isUserInitiatedScroll = shouldExplicitlySyncScrollbar || isLiveScrolling
+        let shouldMarkVisibleTimestampRows = !isUserInitiatedScroll && !userScrolledAwayFromBottom
+        timestampStore.record(
+            scrollbar: TerminalTimestampScrollbarState(scrollbar),
+            at: .now,
+            markVisibleRows: shouldMarkVisibleTimestampRows
+        )
+        if shouldExplicitlySyncScrollbar {
             userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
             allowExplicitScrollbarSync = true
             pendingExplicitWheelScroll = false
@@ -13429,6 +13610,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         synchronizeScrollView()
+        refreshTimestampGutter()
     }
 
     @discardableResult
@@ -13472,6 +13654,17 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        _ = synchronizeGeometryAndContent()
+    }
+
+    private func handleTerminalTimestampsPreferenceChange() {
+        if TerminalTimestampsSettings.isVisible(), let scrollbar = surfaceView.scrollbar {
+            timestampStore.record(
+                scrollbar: TerminalTimestampScrollbarState(scrollbar),
+                at: .now,
+                markVisibleRows: true
+            )
+        }
         _ = synchronizeGeometryAndContent()
     }
 

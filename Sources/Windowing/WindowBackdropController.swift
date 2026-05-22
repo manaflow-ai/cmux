@@ -170,7 +170,7 @@ extension WindowAppearanceSnapshot {
             )
         }
 
-        if terminalBackgroundOpacity < 0.999 {
+        if compositedTerminalBackgroundColor.alphaComponent < 0.999 {
             return WindowBackdropPlan(
                 hostingPhase: .transparentRootBackdrop,
                 windowBackgroundColor: cmuxTransparentWindowBaseColor(),
@@ -184,7 +184,7 @@ extension WindowAppearanceSnapshot {
         return WindowBackdropPlan(
             hostingPhase: .opaqueWindowFill,
             windowBackgroundColor: compositedTerminalBackgroundColor,
-            windowIsOpaque: true,
+            windowIsOpaque: compositedTerminalBackgroundColor.alphaComponent >= 0.999,
             rootPolicy: rootPolicy,
             glass: nil,
             shouldApplyGhosttyCompositorBlur: false

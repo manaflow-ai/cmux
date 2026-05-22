@@ -201,7 +201,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
-    func testManagedAppearanceReplayUpdatesDefaultWithoutLiveAppearanceApplication() throws {
+    func testManagedAppearanceInitialLoadDoesNotSynchronizeTerminalThemeUntilReload() throws {
         let defaults = UserDefaults.standard
         let key = AppearanceSettings.appearanceModeKey
 
@@ -227,37 +227,31 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
             var appliedAppearanceNames: [NSAppearance.Name?] = []
             var synchronizedAppearanceNames: [(appearance: NSAppearance.Name?, source: String)] = []
-            AppearanceSettings.setLiveEnvironmentProviderForTesting {
-                AppearanceSettings.LiveApplyEnvironment(
-                    setApplicationAppearance: { appearance in
-                        appliedAppearanceNames.append(appearance?.bestMatch(from: [.darkAqua, .aqua]))
-                    },
-                    synchronizeTerminalThemeWithAppearance: { appearance, source in
-                        synchronizedAppearanceNames.append((
-                            appearance: appearance?.bestMatch(from: [.darkAqua, .aqua]),
-                            source: source
-                        ))
-                    },
-                    systemAppearance: {
-                        NSAppearance(named: .aqua)
-                    }
-                )
-            }
+            let environment = AppearanceSettings.LiveApplyEnvironment(
+                setApplicationAppearance: { appearance in
+                    appliedAppearanceNames.append(appearance?.bestMatch(from: [.darkAqua, .aqua]))
+                },
+                synchronizeTerminalThemeWithAppearance: { appearance, source in
+                    synchronizedAppearanceNames.append((
+                        appearance: appearance?.bestMatch(from: [.darkAqua, .aqua]),
+                        source: source
+                    ))
+                },
+                systemAppearance: {
+                    NSAppearance(named: .aqua)
+                }
+            )
 
             let store = KeyboardShortcutSettingsFileStore(
                 primaryPath: settingsFileURL.path,
                 fallbackPath: nil,
                 additionalFallbackPaths: [],
+                appearanceEnvironment: environment,
                 startWatching: false
             )
 
             XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.dark.rawValue)
-            XCTAssertTrue(appliedAppearanceNames.isEmpty)
-            XCTAssertTrue(synchronizedAppearanceNames.isEmpty)
-
-            store.applyDeferredManagedDefaultSideEffects()
-
-            XCTAssertTrue(appliedAppearanceNames.isEmpty)
+            XCTAssertEqual(appliedAppearanceNames, [.darkAqua])
             XCTAssertTrue(synchronizedAppearanceNames.isEmpty)
 
             try withExtendedLifetime(store) {
@@ -275,81 +269,10 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             }
 
             XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.light.rawValue)
-            XCTAssertTrue(appliedAppearanceNames.isEmpty)
-            XCTAssertTrue(synchronizedAppearanceNames.isEmpty)
-        }
-    }
-
-    func testSettingsFileStoreDoesNotReachTerminalReloadThroughManagedAppearanceReplay() throws {
-        let defaults = UserDefaults.standard
-        let key = AppearanceSettings.appearanceModeKey
-
-        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
-            defaults.removeObject(forKey: key)
-            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            defaults.removeObject(forKey: importedManagedDefaultsKey)
-
-            let directoryURL = try makeTemporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-            try writeSettingsFile(
-                """
-                {
-                  "app": {
-                    "appearance": "dark"
-                  }
-                }
-                """,
-                to: settingsFileURL
-            )
-
-            var storeInitInProgress = true
-            var reachedTerminalReloadDuringInit = false
-            var terminalReloadSources: [String] = []
-            AppearanceSettings.setLiveEnvironmentProviderForTesting {
-                AppearanceSettings.LiveApplyEnvironment(
-                    setApplicationAppearance: { _ in },
-                    synchronizeTerminalThemeWithAppearance: { _, source in
-                        if storeInitInProgress {
-                            reachedTerminalReloadDuringInit = true
-                        }
-                        terminalReloadSources.append(source)
-                    },
-                    systemAppearance: {
-                        NSAppearance(named: .aqua)
-                    }
-                )
-            }
-
-            let store = KeyboardShortcutSettingsFileStore(
-                primaryPath: settingsFileURL.path,
-                fallbackPath: nil,
-                additionalFallbackPaths: [],
-                startWatching: false
-            )
-            storeInitInProgress = false
-
-            XCTAssertFalse(reachedTerminalReloadDuringInit)
-            XCTAssertTrue(terminalReloadSources.isEmpty)
-
-            try writeSettingsFile(
-                """
-                {
-                  "app": {
-                    "appearance": "light"
-                  }
-                }
-                """,
-                to: settingsFileURL
-            )
-            store.reload()
-
-            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.light.rawValue)
-            XCTAssertTrue(
-                terminalReloadSources.isEmpty,
-                "CmuxSettingsFileStore must not synchronously route managed appearance replay into Ghostty reloadConfiguration"
-            )
+            XCTAssertEqual(appliedAppearanceNames, [.darkAqua, .aqua])
+            XCTAssertEqual(synchronizedAppearanceNames.count, 1)
+            XCTAssertEqual(synchronizedAppearanceNames.first?.appearance, .aqua)
+            XCTAssertEqual(synchronizedAppearanceNames.first?.source, "cmuxConfig.applyManagedDefault")
         }
     }
 
@@ -499,7 +422,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     }
 
     @MainActor
-    func testSettingsFileStoreInitialAppearanceImportDoesNotApplyLiveAppearance() throws {
+    func testSettingsFileStoreInitialAppearanceReplayDoesNotSynchronizeTerminalTheme() throws {
         let defaults = UserDefaults.standard
         let key = AppearanceSettings.appearanceModeKey
 
@@ -555,7 +478,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
             store.applyDeferredManagedDefaultSideEffects()
 
-            XCTAssertNil(appliedAppearanceName)
+            XCTAssertEqual(appliedAppearanceName, .darkAqua)
             XCTAssertNil(synchronizedAppearanceName)
             XCTAssertTrue(synchronizedSources.isEmpty)
 
@@ -572,9 +495,9 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             store.reload()
 
             XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.light.rawValue)
-            XCTAssertNil(appliedAppearanceName)
-            XCTAssertNil(synchronizedAppearanceName)
-            XCTAssertTrue(synchronizedSources.isEmpty)
+            XCTAssertEqual(appliedAppearanceName, .aqua)
+            XCTAssertEqual(synchronizedAppearanceName, .aqua)
+            XCTAssertEqual(synchronizedSources, ["cmuxConfig.applyManagedDefault"])
         }
     }
 
@@ -767,6 +690,41 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         )
 
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
+    }
+
+    func testSettingsFileStoreAppliesTerminalTimestampSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = TerminalTimestampsSettings.showTimestampsKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "showTimestamps": true
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
+        }
     }
 
     func testSettingsFileStoreAppliesAutomationRipgrepBinaryPath() throws {

@@ -1543,10 +1543,6 @@ final class BrowserHistoryStore: ObservableObject {
     private let maxEntries: Int = 5000
     private let saveDebounceNanoseconds: UInt64 = 120_000_000
 
-    var isLoaded: Bool {
-        didLoad
-    }
-
     private struct SuggestionCandidate {
         let entry: Entry
         let urlLower: String
@@ -2777,7 +2773,6 @@ final class BrowserPanel: Panel, ObservableObject {
     private var restoredBackHistoryStack: [URL] = []
     private var restoredForwardHistoryStack: [URL] = []
     private var restoredHistoryCurrentURL: URL?
-    private var isMainFrameProvisionalNavigationActive: Bool = false
 
     /// Published estimated progress (0.0 - 1.0)
     @Published private(set) var estimatedProgress: Double = 0.0
@@ -3104,7 +3099,6 @@ final class BrowserPanel: Panel, ObservableObject {
         closeBackgroundPreloadHost(reason: "discardHiddenWebView")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
-        isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView {
@@ -3459,38 +3453,20 @@ final class BrowserPanel: Panel, ObservableObject {
         let boundWebViewInstanceID = webViewInstanceID
         let boundHistoryStore = historyStore
 
-        navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.isMainFrameProvisionalNavigationActive = true
-            }
-        }
-        navigationDelegate.didCommit = { [weak self] webView in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.isMainFrameProvisionalNavigationActive = false
-                self.publishCommittedURL(from: webView)
-            }
-        }
         navigationDelegate.didFinish = { [weak self] webView in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.isMainFrameProvisionalNavigationActive = false
-                self.publishCommittedURL(from: webView)
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
                 boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                 self.refreshFavicon(from: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
+                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
-                self.isMainFrameProvisionalNavigationActive = false
-                if let url = URL(string: failedURL) {
-                    self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
-                }
                 // Clear stale title/favicon from the previous page so the tab
                 // shows the failed URL instead of the old page's branding.
                 self.pageTitle = failedURL.isEmpty ? "" : failedURL
@@ -3500,17 +3476,6 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.restoreFindStateAfterNavigation(replaySearch: false)
             }
         }
-        navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.isMainFrameProvisionalNavigationActive = false
-            }
-        }
-    }
-
-    private func publishCommittedURL(from webView: WKWebView) {
-        currentURL = Self.remoteProxyDisplayURL(for: webView.url)
-        GlobalSearchCoordinator.shared.captureBrowserPanel(self)
     }
 
     private func isCurrentWebView(_ candidate: WKWebView, instanceID: UUID? = nil) -> Bool {
@@ -3977,7 +3942,6 @@ final class BrowserPanel: Panel, ObservableObject {
         closeBackgroundPreloadHost(reason: "profileSwitch")
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
         previousWebView.stopLoading()
-        isMainFrameProvisionalNavigationActive = false
         previousWebView.navigationDelegate = nil
         previousWebView.uiDelegate = nil
         if let previousCmuxWebView = previousWebView as? CmuxWebView {
@@ -4200,12 +4164,10 @@ final class BrowserPanel: Panel, ObservableObject {
         let observedWebViewInstanceID = webViewInstanceID
 
         // URL changes
-        let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, change in
-            let observedURL = change.newValue ?? webView.url
-            MainActor.assumeIsolated {
+        let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
+            Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                guard !self.isMainFrameProvisionalNavigationActive else { return }
-                self.currentURL = Self.remoteProxyDisplayURL(for: observedURL)
+                self.currentURL = Self.remoteProxyDisplayURL(for: webView.url)
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
@@ -4346,7 +4308,6 @@ final class BrowserPanel: Panel, ObservableObject {
         closeBackgroundPreloadHost(reason: reason)
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
-        isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView {
@@ -4498,7 +4459,6 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         webView.stopLoading()
-        isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         navigationDelegate = nil
@@ -5300,7 +5260,6 @@ extension BrowserPanel {
         closeBackgroundPreloadHost(reason: "contextReset")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
-        isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView {
@@ -5373,17 +5332,11 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 }
 
 extension BrowserPanel {
-    private func cancelInFlightNavigationBeforeHistoryTraversal() {
-        guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
-        webView.stopLoading()
-        isMainFrameProvisionalNavigationActive = false
-    }
 
     /// Go back in history
     func goBack() {
         guard canGoBack else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
-        cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
@@ -5418,7 +5371,6 @@ extension BrowserPanel {
     func goForward() {
         guard canGoForward else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
-        cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
@@ -5551,7 +5503,6 @@ extension BrowserPanel {
     /// Stop loading
     func stopLoading() {
         webView.stopLoading()
-        isMainFrameProvisionalNavigationActive = false
     }
 
     private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
@@ -7535,11 +7486,8 @@ func browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
 }
 
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
-    var didStartProvisionalNavigation: ((WKWebView) -> Void)?
-    var didCommit: ((WKWebView) -> Void)?
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
-    var didCancelProvisionalNavigation: ((WKWebView) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
@@ -7554,11 +7502,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         lastAttemptedURL = webView.url
-        didStartProvisionalNavigation?(webView)
-    }
-
-    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        didCommit?(webView)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -7579,7 +7522,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
         // Cancelled navigations (e.g. rapid typing) are not real errors.
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
-            didCancelProvisionalNavigation?(webView)
             return
         }
 
@@ -7587,7 +7529,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         // navigation response is converted into a download via .download policy.
         // This is expected and should not show an error page.
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
-            didCancelProvisionalNavigation?(webView)
             return
         }
 
@@ -8205,13 +8146,13 @@ enum BrowserImportScope: String, CaseIterable, Identifiable {
     }
 }
 
-enum BrowserImportEngineFamily: String, Hashable, Sendable {
+enum BrowserImportEngineFamily: String, Hashable {
     case chromium
     case firefox
     case webkit
 }
 
-struct InstalledBrowserProfile: Identifiable, Hashable, Sendable {
+struct InstalledBrowserProfile: Identifiable, Hashable {
     let displayName: String
     let rootURL: URL
     let isDefault: Bool
@@ -8221,7 +8162,7 @@ struct InstalledBrowserProfile: Identifiable, Hashable, Sendable {
     }
 }
 
-struct BrowserImportBrowserDescriptor: Hashable, Sendable {
+struct BrowserImportBrowserDescriptor: Hashable {
     let id: String
     let displayName: String
     let family: BrowserImportEngineFamily
@@ -8233,7 +8174,7 @@ struct BrowserImportBrowserDescriptor: Hashable, Sendable {
     let supportsDataOnlyDetection: Bool
 }
 
-struct InstalledBrowserCandidate: Identifiable, Hashable, Sendable {
+struct InstalledBrowserCandidate: Identifiable, Hashable {
     let descriptor: BrowserImportBrowserDescriptor
     let resolvedFamily: BrowserImportEngineFamily
     let homeDirectoryURL: URL
@@ -8588,17 +8529,6 @@ enum InstalledBrowserDetector {
             }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }
-    }
-
-    @MainActor
-    static func applicationBundleLookupSnapshot() -> [String: URL] {
-        var result: [String: URL] = [:]
-        for descriptor in allBrowserDescriptors {
-            for bundleIdentifier in descriptor.bundleIdentifiers where result[bundleIdentifier] == nil {
-                result[bundleIdentifier] = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
-            }
-        }
-        return result
     }
 
     static func summaryText(for browsers: [InstalledBrowserCandidate], limit: Int = 4) -> String {

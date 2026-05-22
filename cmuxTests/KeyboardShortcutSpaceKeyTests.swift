@@ -45,9 +45,6 @@ final class KeyboardShortcutSpaceKeyTests: XCTestCase {
         XCTAssertEqual(StoredShortcut.parseConfig("cmd+shift+spacebar")?.configIdentifier, "cmd+shift+space")
         XCTAssertEqual(StoredShortcut.parseConfig("cmd+shift+ ")?.configIdentifier, "cmd+shift+space")
         XCTAssertEqual(StoredShortcut.parseConfig(" ")?.configIdentifier, "space")
-        XCTAssertEqual(StoredShortcut.parseConfig("   "), .unbound)
-        XCTAssertEqual(StoredShortcut.parseConfig("\t"), .unbound)
-        XCTAssertNil(StoredShortcut.parseConfig("cmd+shift+   "))
     }
 
     func testSettingsFileStoreParsesSpaceShortcutBinding() throws {

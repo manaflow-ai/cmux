@@ -7,7 +7,6 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
     override var safeAreaRect: NSRect { bounds }
     override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
-    override var mouseDownCanMoveWindow: Bool { false }
 
     required init(rootView: Content) {
         super.init(rootView: rootView)
@@ -26,12 +25,6 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-}
-
-@MainActor
-func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
-    window.isMovableByWindowBackground = false
-    window.isMovable = false
 }
 
 @MainActor

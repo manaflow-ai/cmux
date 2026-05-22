@@ -106,6 +106,7 @@ enum KeyboardShortcutSettings {
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
+        case toggleTerminalTimestamps
 
         // Panes / splits
         case focusLeft
@@ -189,6 +190,7 @@ enum KeyboardShortcutSettings {
             case .reopenClosedBrowserPanel: return String(localized: "menu.file.reopenClosedBrowserPanel", defaultValue: "Reopen Closed Browser Panel")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
+            case .toggleTerminalTimestamps: return String(localized: "shortcut.toggleTerminalTimestamps.label", defaultValue: "Toggle Terminal Timestamps")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
@@ -343,6 +345,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
+            case .toggleTerminalTimestamps:
+                return StoredShortcut(key: "e", command: true, shift: true, option: true, control: false)
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .toggleRightSidebar:
@@ -456,13 +460,7 @@ enum KeyboardShortcutSettings {
                 return normalized
             }
 
-            // Preserve invalid settings-file values for the show/hide hotkey so managed
-            // configuration remains visible instead of silently falling back to defaults.
-            // Runtime registration still rejects unsupported Carbon hotkey shapes.
-            if usesNumberedDigitMatching || self == .globalSearch {
-                return nil
-            }
-            return shortcut
+            return usesNumberedDigitMatching || self == .showHideAllWindows || self == .globalSearch ? nil : shortcut
         }
 
         func resolvedRecordedShortcutIgnoringConflicts(_ shortcut: StoredShortcut, checkingSystemWideConflicts: Bool = true) -> RecordedShortcutResolution {
@@ -2180,7 +2178,7 @@ extension ShortcutStroke {
     private static func parseConfigKeyToken(_ rawValue: String) -> String? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            return rawValue == " " ? "space" : nil
+            return !rawValue.isEmpty && rawValue.allSatisfy { $0 == " " } ? "space" : nil
         }
 
         let lowered = trimmed.lowercased()
@@ -2281,10 +2279,8 @@ extension StoredShortcut {
 
     private static func isUnboundConfigToken(_ rawValue: String) -> Bool {
         if rawValue.isEmpty { return true }
-        if rawValue == " " { return false }
         let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else { return true }
-        return normalized == "none" || normalized == "clear" || normalized == "unbound" || normalized == "disabled"
+        return normalized.isEmpty || normalized == "none" || normalized == "clear" || normalized == "unbound" || normalized == "disabled"
     }
 }
 
@@ -2315,25 +2311,8 @@ enum KeyboardShortcutRecorderActivity {
     }
 
     static func stopAllRecording(center: NotificationCenter = .default) {
-        let wasActive = isAnyRecorderActive
         center.post(name: stopAllNotification, object: nil)
-        guard activeRecorderCount > 0 else { return }
-        activeRecorderCount = 0
-        if wasActive {
-            center.post(name: didChangeNotification, object: nil)
-        }
     }
-
-#if DEBUG
-    static func resetForTesting(center: NotificationCenter = .default) {
-        // Keep test isolation from broadcasting stop-all UI notifications into unrelated live windows.
-        let wasActive = isAnyRecorderActive
-        activeRecorderCount = 0
-        if wasActive {
-            center.post(name: didChangeNotification, object: nil)
-        }
-    }
-#endif
 }
 
 struct ShortcutRecorderRejectedAttempt: Equatable {

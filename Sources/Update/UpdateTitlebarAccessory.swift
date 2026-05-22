@@ -349,7 +349,6 @@ func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig)
 
 struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
-    let foregroundColor: Color
     let accessibilityIdentifier: String
     let accessibilityLabel: String
     let action: () -> Void
@@ -387,7 +386,7 @@ struct TitlebarControlButton<Content: View>: View {
     private var hoverBackground: some View {
         if config.hoverBackground && isHovering {
             RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                .fill(foregroundColor.opacity(0.10))
+                .fill(Color.primary.opacity(0.08))
         }
     }
 }
@@ -434,7 +433,6 @@ struct TitlebarControlsView: View {
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @State private var shortcutRefreshTick = 0
-    @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var hostWindowNumber: Int?
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
@@ -487,13 +485,9 @@ struct TitlebarControlsView: View {
         // Force the `.safeHelp(...)` tooltips to re-evaluate when shortcuts are changed in settings.
         // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
         let _ = shortcutRefreshTick
-        let _ = appearanceRefreshTick
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
-        let foregroundColor = Color(nsColor: titlebarControlForegroundNSColor(opacity: 0.78))
-        controlsGroup(config: config, foregroundColor: foregroundColor)
-            .padding(.top, -1)
-            .padding(.bottom, 1)
+        controlsGroup(config: config)
             .padding(.leading, 4)
             .padding(.trailing, titlebarHintTrailingInset)
             .contentShape(Rectangle())
@@ -520,12 +514,6 @@ struct TitlebarControlsView: View {
             .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
                 shortcutRefreshTick &+= 1
             }
-            .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-                appearanceRefreshTick &+= 1
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-                appearanceRefreshTick &+= 1
-            }
             .onAppear {
                 modifierKeyMonitor.start()
             }
@@ -545,12 +533,11 @@ struct TitlebarControlsView: View {
     }
 
     @ViewBuilder
-    private func controlsGroup(config: TitlebarControlsStyleConfig, foregroundColor: Color) -> some View {
+    private func controlsGroup(config: TitlebarControlsStyleConfig) -> some View {
         let hintLayoutItems = titlebarHintLayoutItems(config: config)
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(
                 config: config,
-                foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.toggleSidebar",
                 accessibilityLabel: String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"),
                 action: {
@@ -559,13 +546,12 @@ struct TitlebarControlsView: View {
                 #endif
                 onToggleSidebar()
             }) {
-                iconLabel(systemName: "sidebar.left", config: config, foregroundColor: foregroundColor)
+                iconLabel(systemName: "sidebar.left", config: config)
             }
             .safeHelp(KeyboardShortcutSettings.Action.toggleSidebar.tooltip(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")))
 
             TitlebarControlButton(
                 config: config,
-                foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.showNotifications",
                 accessibilityLabel: String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"),
                 action: {
@@ -575,7 +561,7 @@ struct TitlebarControlsView: View {
                 onToggleNotifications()
             }) {
                 ZStack(alignment: .topTrailing) {
-                    iconLabel(systemName: "bell", config: config, foregroundColor: foregroundColor)
+                    iconLabel(systemName: "bell", config: config)
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
@@ -595,7 +581,6 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(
                 config: config,
-                foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.newTab",
                 accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
                 action: {
@@ -607,7 +592,7 @@ struct TitlebarControlsView: View {
                 rightClickAction: { anchorView, event in
                     _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
                 }) {
-                iconLabel(systemName: "plus", config: config, foregroundColor: foregroundColor)
+                iconLabel(systemName: "plus", config: config)
             }
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
 
@@ -726,10 +711,9 @@ struct TitlebarControlsView: View {
     }
 
     @ViewBuilder
-    private func iconLabel(systemName: String, config: TitlebarControlsStyleConfig, foregroundColor: Color) -> some View {
+    private func iconLabel(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
         let icon = Image(systemName: systemName)
             .font(.system(size: config.iconSize, weight: .semibold))
-            .foregroundColor(foregroundColor)
             .frame(width: config.buttonSize, height: config.buttonSize)
 
         if config.buttonBackground {
@@ -1845,8 +1829,7 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self, weak window] in
-                guard let window else { return }
+            Task { @MainActor [weak self] in
                 self?.attachIfNeeded(to: window)
             }
         })
@@ -1857,8 +1840,7 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self, weak window] in
-                guard let window else { return }
+            Task { @MainActor [weak self] in
                 self?.attachIfNeeded(to: window)
             }
         })
@@ -1924,10 +1906,6 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func attachIfNeeded(to window: NSWindow) {
-        guard NSApp.windows.contains(where: { $0 === window }) else {
-            pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
-            return
-        }
         guard !isSettingsWindow(window) else { return }
 
         // Window identifiers are assigned by SwiftUI via WindowAccessor, which can run
