@@ -34,7 +34,7 @@ final class FakeOrphanTests: XCTestCase {
 SWIFT
 
 cat > "$SANDBOX/cmux.xcodeproj/project.pbxproj" <<'PBX'
-// pretend-pbxproj with no reference to FakeOrphanTests.swift
+// pretend-pbxproj with no test references
 PBX
 
 if "$LINT" --repo-root "$SANDBOX" >"$SANDBOX/out" 2>&1; then
@@ -42,7 +42,15 @@ if "$LINT" --repo-root "$SANDBOX" >"$SANDBOX/out" 2>&1; then
   cat "$SANDBOX/out" >&2
   exit 1
 fi
-grep -q "FakeOrphanTests.swift" "$SANDBOX/out"
-grep -q "hits=0" "$SANDBOX/out"
+if ! grep -q "FakeOrphanTests.swift" "$SANDBOX/out"; then
+  echo "test_ci_pbxproj_test_wiring: lint output missing FakeOrphanTests.swift" >&2
+  cat "$SANDBOX/out" >&2
+  exit 1
+fi
+if ! grep -q "hits=0" "$SANDBOX/out"; then
+  echo "test_ci_pbxproj_test_wiring: lint output missing hits=0" >&2
+  cat "$SANDBOX/out" >&2
+  exit 1
+fi
 
 echo "test_ci_pbxproj_test_wiring: ok"
