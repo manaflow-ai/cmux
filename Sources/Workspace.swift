@@ -10575,6 +10575,7 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let usesRemoteStartupCommand = explicitInitialCommand == nil && remoteTerminalStartupCommand != nil
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         // Hold the pane open after the remote session ends so the user can read the
         // "ssh exited …" message the startup script prints. Otherwise Ghostty silently
@@ -10598,7 +10599,7 @@ final class Workspace: Identifiable, ObservableObject {
         // then its requested startup cwd if shell integration has not reported
         // back yet, and finally fall back to the workspace's current directory.
         let splitWorkingDirectory: String? = {
-            guard remoteTerminalStartupCommand == nil else { return nil }
+            guard !usesRemoteStartupCommand else { return nil }
             if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !workingDirectory.isEmpty {
                 return workingDirectory
@@ -10744,6 +10745,7 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let usesRemoteStartupCommand = explicitInitialCommand == nil && remoteTerminalStartupCommand != nil
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         // See the comment at the other call site: hold the PTY open after the remote
         // command exits so the user sees the error rather than a silently-respawned
@@ -10755,7 +10757,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         // Create new terminal panel
-        let localWorkingDirectory = remoteTerminalStartupCommand == nil ? workingDirectory : nil
+        let localWorkingDirectory = usesRemoteStartupCommand ? nil : workingDirectory
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
