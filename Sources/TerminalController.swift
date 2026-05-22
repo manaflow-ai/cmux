@@ -902,14 +902,6 @@ class TerminalController {
         return !isRunning && activeGeneration == 0
     }
 
-    nonisolated static func shouldUnlinkSocketPathAfterListenerStop(
-        currentIdentity: SocketPathIdentity?,
-        boundIdentity: SocketPathIdentity?
-    ) -> Bool {
-        guard let currentIdentity, let boundIdentity else { return false }
-        return currentIdentity == boundIdentity
-    }
-
     private nonisolated static func unixSocketAddress(path: String) -> sockaddr_un? {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
