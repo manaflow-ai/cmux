@@ -4806,6 +4806,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return window === headlessStartupWindow
     }
     let id: UUID
+    let terminalSessionId: UUID
     private(set) var tabId: UUID
     /// Port ordinal for CMUX_PORT range assignment. Captured at construction so
     /// every runtime startup path uses the same immutable workspace port range.
@@ -4925,6 +4926,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     init(
+        id: UUID = UUID(),
+        terminalSessionId: UUID? = nil,
         tabId: UUID,
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
@@ -4941,7 +4944,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
 
-        self.id = UUID()
+        self.id = id
+        self.terminalSessionId = terminalSessionId ?? id
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
@@ -5677,6 +5681,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         setManagedEnvironmentValue("CMUX_SURFACE_ID", id.uuidString)
         setManagedEnvironmentValue("CMUX_WORKSPACE_ID", tabId.uuidString)
+        Self.applyManagedTerminalSessionEnvironment(
+            to: &env,
+            protectedKeys: &protectedStartupEnvironmentKeys,
+            terminalSessionId: terminalSessionId
+        )
         // Backward-compatible shell integration keys used by existing scripts/tests.
         setManagedEnvironmentValue("CMUX_PANEL_ID", id.uuidString)
         setManagedEnvironmentValue("CMUX_TAB_ID", tabId.uuidString)

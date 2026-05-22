@@ -1231,6 +1231,7 @@ private enum SurfaceResumeBindingScriptStore {
 
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
+    var terminalSessionId: UUID? = nil
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
@@ -1241,6 +1242,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
 
     init(
         workingDirectory: String? = nil,
+        terminalSessionId: UUID? = nil,
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
@@ -1248,6 +1250,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         wasAgentRunning: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
+        self.terminalSessionId = terminalSessionId
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand

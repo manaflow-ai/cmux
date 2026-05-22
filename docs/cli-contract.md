@@ -52,6 +52,9 @@ Environment:
 | `CMUX_SOCKET_PASSWORD` | Socket password fallback when `--password` is absent. |
 | `CMUX_WORKSPACE_ID` | Default workspace context inside cmux terminals. |
 | `CMUX_SURFACE_ID` | Default surface context inside cmux terminals. |
+| `TERM_SESSION_ID` | Stable terminal-session identifier injected before shell startup. Restored terminals keep the same value across app restarts for tools such as Atuin. |
+| `CMUX_TERMINAL_SESSION_ID` | cmux-specific alias for `TERM_SESSION_ID`; stable across app restarts for the restored terminal pane. |
+| `CMUX_PANEL_ID` | Live surface routing alias for `CMUX_SURFACE_ID`; changes on app restart. Use for socket/API commands that target the current pane. |
 | `CMUX_TAB_ID` | Default tab context for tab commands. |
 
 ## Top-Level Commands

@@ -14,6 +14,36 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalSessionIdentifierPersistsAcrossWorkspaceRestore() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourcePanel = try XCTUnwrap(source.terminalPanel(for: sourcePanelId))
+        let sourceTerminalSessionId = sourcePanel.surface.terminalSessionId
+
+        let splitPanel = try XCTUnwrap(
+            source.newTerminalSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        XCTAssertNotEqual(splitPanel.surface.terminalSessionId, sourceTerminalSessionId)
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let sourcePanelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == sourcePanelId })
+        XCTAssertEqual(sourcePanelSnapshot.terminal?.terminalSessionId, sourceTerminalSessionId)
+        let sourceTerminalSessionIds = snapshot.panels.compactMap(\.terminal?.terminalSessionId)
+        XCTAssertEqual(Set(sourceTerminalSessionIds).count, 2)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        let restoredTerminalSessionIds = restoredSnapshot.panels.compactMap(\.terminal?.terminalSessionId)
+        XCTAssertEqual(Set(restoredTerminalSessionIds), Set(sourceTerminalSessionIds))
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-markdown-\(UUID().uuidString)", isDirectory: true)

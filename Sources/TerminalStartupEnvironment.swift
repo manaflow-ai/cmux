@@ -26,6 +26,18 @@ extension TerminalSurface {
         protectedKeys.insert("TERM_PROGRAM")
     }
 
+    static func applyManagedTerminalSessionEnvironment(
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>,
+        terminalSessionId: UUID
+    ) {
+        let value = terminalSessionId.uuidString
+        environment["TERM_SESSION_ID"] = value
+        protectedKeys.insert("TERM_SESSION_ID")
+        environment["CMUX_TERMINAL_SESSION_ID"] = value
+        protectedKeys.insert("CMUX_TERMINAL_SESSION_ID")
+    }
+
     static func applyManagedGitWatchEnvironment(
         watchGitStatusEnabled: Bool,
         to environment: inout [String: String],
