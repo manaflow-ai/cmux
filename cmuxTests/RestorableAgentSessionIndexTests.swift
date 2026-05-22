@@ -105,7 +105,8 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
-            fileManager: fm
+            fileManager: fm,
+            environment: [:]
         )
 
         XCTAssertEqual(
@@ -186,7 +187,8 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
-            fileManager: fm
+            fileManager: fm,
+            environment: [:]
         )
 
         XCTAssertEqual(
@@ -247,7 +249,11 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys])
             .write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
 
-        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": stateDir.path]
+        )
 
         XCTAssertEqual(
             index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId,
@@ -304,7 +310,11 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys])
             .write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
 
-        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": stateDir.path]
+        )
 
         XCTAssertEqual(
             index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId,

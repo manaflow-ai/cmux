@@ -582,15 +582,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let childCommands = Array(context.state.commands.dropFirst(childStartIndex))
         XCTAssertFalse(
-            childCommands.contains {
-                guard let payload = self.jsonObject($0),
-                      payload["method"] as? String == "surface.resume.set",
-                      let params = payload["params"] as? [String: Any] else {
-                    return false
-                }
-                return params["checkpoint_id"] as? String == childSessionId
-            },
-            "Spawned Codex subagent should not replace the parent resume binding, saw \(childCommands)"
+            childCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Spawned Codex subagent should not publish or modify any resume binding, saw \(childCommands)"
         )
         XCTAssertFalse(
             childCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
