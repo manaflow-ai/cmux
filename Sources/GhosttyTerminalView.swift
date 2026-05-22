@@ -4093,7 +4093,7 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_RING_BELL:
             performOnMain {
-                guard self.surfaceView.isVisibleInUI else { return }
+                guard surfaceView.isVisibleInUI else { return }
                 self.ringBell()
             }
             return true
