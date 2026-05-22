@@ -314,11 +314,13 @@ private enum TextBoxDraftAttachmentStorage {
             return fallbackSnapshot(for: attachment)
         }
 
-        guard let durableURL = copiedDraftURL(forOriginalURL: standardizedLocalURL)
-                ?? durableStorageURL(for: standardizedLocalURL) else {
+        // Regular autosaves should not block the main thread on file copies.
+        // Termination/update relaunch saves flush pending draft copies before
+        // building the session snapshot so this lookup is already durable there.
+        prepareDurableCopy(forTemporaryFileAtPath: standardizedLocalURL.path)
+        guard let durableURL = copiedDraftURL(forOriginalURL: standardizedLocalURL) else {
             return fallbackSnapshot(for: attachment)
         }
-        prepareDurableCopy(forTemporaryFileAtPath: standardizedLocalURL.path)
         let submissionFields = copiedSubmissionFields(
             for: attachment,
             originalLocalURL: standardizedLocalURL,
@@ -362,8 +364,11 @@ private enum TextBoxDraftAttachmentStorage {
     static func removeCopiedDraftForOriginalTemporaryFile(_ fileURL: URL) {
         let originalPath = fileURL.standardizedFileURL.path
         let copiedPath = draftCopyState.withLock { state in
-            state.pendingOriginalPaths.remove(originalPath)
-            state.cancelledOriginalPaths.insert(originalPath)
+            if state.pendingOriginalPaths.contains(originalPath) || state.cancelledOriginalPaths.contains(originalPath) {
+                state.cancelledOriginalPaths.insert(originalPath)
+            } else {
+                state.cancelledOriginalPaths.remove(originalPath)
+            }
             return state.copiedDraftPathByOriginalPath.removeValue(forKey: originalPath)
         }
         guard let copiedPath else { return }
@@ -400,11 +405,47 @@ private enum TextBoxDraftAttachmentStorage {
         }
         guard shouldStart else { return }
 
+        let originalURL = URL(fileURLWithPath: originalPath).standardizedFileURL
+        if let durableURL = linkToDurableStorageIfPossible(originalURL) {
+            draftCopyState.withLock { state in
+                state.pendingOriginalPaths.remove(originalPath)
+                state.cancelledOriginalPaths.remove(originalPath)
+                state.copiedDraftPathByOriginalPath[originalPath] = durableURL.path
+            }
+            return
+        }
+
         Task.detached(priority: .utility) {
-            let originalURL = URL(fileURLWithPath: originalPath).standardizedFileURL
             let durableURL = copyToDurableStorage(originalURL)
             let copiedPathToRemove = draftCopyState.withLock { state -> String? in
-                state.pendingOriginalPaths.remove(originalPath)
+                guard state.pendingOriginalPaths.remove(originalPath) != nil else {
+                    return nil
+                }
+                guard let durableURL else { return nil }
+                if state.cancelledOriginalPaths.remove(originalPath) != nil {
+                    return durableURL.path
+                }
+                state.copiedDraftPathByOriginalPath[originalPath] = durableURL.path
+                return nil
+            }
+            if let copiedPathToRemove {
+                try? FileManager.default.removeItem(atPath: copiedPathToRemove)
+            }
+        }
+    }
+
+    static func flushPendingCopiesSynchronously() {
+        let pendingOriginalPaths = draftCopyState.withLock { state in
+            Array(state.pendingOriginalPaths)
+        }
+        for originalPath in pendingOriginalPaths {
+            let originalURL = URL(fileURLWithPath: originalPath).standardizedFileURL
+            let durableURL = linkToDurableStorageIfPossible(originalURL)
+                ?? copyToDurableStorage(originalURL)
+            let copiedPathToRemove = draftCopyState.withLock { state -> String? in
+                guard state.pendingOriginalPaths.remove(originalPath) != nil else {
+                    return nil
+                }
                 guard let durableURL else { return nil }
                 if state.cancelledOriginalPaths.remove(originalPath) != nil {
                     return durableURL.path
@@ -442,6 +483,26 @@ private enum TextBoxDraftAttachmentStorage {
             try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
             return destinationURL.standardizedFileURL
         } catch {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                return destinationURL.standardizedFileURL
+            }
+            return nil
+        }
+    }
+
+    private static func linkToDurableStorageIfPossible(_ sourceURL: URL) -> URL? {
+        let sourceURL = sourceURL.standardizedFileURL
+        guard let destinationURL = durableStorageURL(for: sourceURL) else { return nil }
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            return destinationURL
+        }
+        do {
+            try FileManager.default.linkItem(at: sourceURL, to: destinationURL)
+            return destinationURL
+        } catch {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                return destinationURL
+            }
             return nil
         }
     }
@@ -524,6 +585,12 @@ extension TextBoxAttachment {
     }
 }
 #endif
+
+extension TextBoxInputTextView {
+    static func flushPendingSessionDraftAttachmentCopies() {
+        TextBoxDraftAttachmentStorage.flushPendingCopiesSynchronously()
+    }
+}
 
 enum TextBoxSubmissionPart {
     case text(String)
