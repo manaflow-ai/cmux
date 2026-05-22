@@ -425,8 +425,11 @@ extension Workspace {
             if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
                 clearRestoredAgentSnapshot(panelId: panelId)
             } else {
+                let previousFingerprint = restoredAgentSnapshotsByPanelId[panelId].map {
+                    TabManager.restorableAgentSnapshotFingerprint($0)
+                }
                 restoredAgentSnapshotsByPanelId[panelId] = restorableAgent
-                if restoredAgentResumeStatesByPanelId[panelId] == nil {
+                if previousFingerprint != fingerprint || restoredAgentResumeStatesByPanelId[panelId] == nil {
                     restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
                         panelId: panelId
                     )
@@ -434,10 +437,6 @@ extension Workspace {
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
             }
         } else if restorableAgentIndexWasScanned {
-            if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
-                clearRestoredAgentResumeBinding(panelId: panelId, restoredAgent: restoredAgent)
-            }
-            clearRestoredAgentSnapshot(panelId: panelId)
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         let effectiveRestorableAgent = restoredAgentSnapshotsByPanelId[panelId]

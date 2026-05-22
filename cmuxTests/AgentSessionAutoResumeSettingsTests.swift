@@ -316,6 +316,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
 
             XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+            let restoredSnapshot = restored.sessionSnapshot(includeScrollback: false)
+            XCTAssertNil(restoredSnapshot.panels.first?.terminal?.agent)
+            XCTAssertNil(restoredSnapshot.panels.first?.terminal?.resumeBinding)
         }
     }
 
