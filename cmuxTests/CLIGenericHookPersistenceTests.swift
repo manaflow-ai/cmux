@@ -2566,6 +2566,95 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    func testCapturedAgentNetworkSessionsReplayThroughHARFixture() throws {
+        let fixture = try loadAgentNetworkCaptureFixture()
+        var replayResponses: [AgentNetworkReplayResponse] = []
+        var webSocketTranscriptCount = 0
+
+        for capture in fixture.captures {
+            for entry in capture.har.log.entries {
+                if let requestBody = entry.request.postData?.text,
+                   let responseBody = entry.response.content.text,
+                   !requestBody.isEmpty,
+                   !responseBody.isEmpty {
+                    guard let url = URL(string: entry.request.url) else {
+                        XCTFail("\(capture.name) has invalid replay URL: \(entry.request.url)")
+                        continue
+                    }
+                    replayResponses.append(AgentNetworkReplayResponse(
+                        captureName: capture.name,
+                        method: entry.request.method,
+                        url: url,
+                        requestHeaders: replayableRequestHeaders(entry.request.headers),
+                        requestBody: requestBody,
+                        status: entry.response.status,
+                        responseHeaders: replayHeaderFields(entry.response.headers),
+                        responseBody: responseBody
+                    ))
+                }
+
+                let webSocketMessages = entry.webSocketMessages ?? []
+                if !webSocketMessages.isEmpty {
+                    webSocketTranscriptCount += 1
+                    XCTAssertTrue(
+                        webSocketMessages.contains { $0.type == "send" },
+                        "\(capture.name) \(entry.request.url) missing outbound WebSocket frame"
+                    )
+                    XCTAssertTrue(
+                        webSocketMessages.contains { $0.type == "receive" },
+                        "\(capture.name) \(entry.request.url) missing inbound WebSocket frame"
+                    )
+                    XCTAssertTrue(
+                        webSocketMessages.contains { $0.data.contains("cmux-network-capture-ok") },
+                        "\(capture.name) \(entry.request.url) missing replay marker in WebSocket transcript"
+                    )
+                }
+            }
+        }
+
+        XCTAssertFalse(replayResponses.isEmpty)
+        XCTAssertGreaterThan(webSocketTranscriptCount, 0)
+
+        AgentNetworkReplayURLProtocol.install(responses: replayResponses)
+        defer { AgentNetworkReplayURLProtocol.reset() }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AgentNetworkReplayURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+
+        for replay in replayResponses {
+            var request = URLRequest(url: replay.url)
+            request.httpMethod = replay.method
+            for (name, value) in replay.requestHeaders {
+                request.setValue(value, forHTTPHeaderField: name)
+            }
+            request.httpBody = Data(replay.requestBody.utf8)
+
+            let (data, response) = try performAgentNetworkReplay(request: request, session: session)
+            XCTAssertEqual(response.statusCode, replay.status, replay.captureName)
+            XCTAssertEqual(String(data: data, encoding: .utf8), replay.responseBody, replay.captureName)
+            assertReplayHeaders(
+                response.allHeaderFields,
+                contain: replay.responseHeaders,
+                context: "response \(replay.captureName) \(replay.url.absoluteString)"
+            )
+        }
+
+        let observed = AgentNetworkReplayURLProtocol.observedRequests()
+        XCTAssertEqual(observed.count, replayResponses.count)
+        for (replay, observedRequest) in zip(replayResponses, observed) {
+            XCTAssertEqual(observedRequest.method, replay.method.uppercased(), replay.captureName)
+            XCTAssertEqual(observedRequest.url, replay.url.absoluteString, replay.captureName)
+            XCTAssertEqual(observedRequest.body, replay.requestBody, replay.captureName)
+            assertReplayHeaders(
+                observedRequest.headers,
+                contain: replay.requestHeaders,
+                context: "request \(replay.captureName) \(replay.url.absoluteString)"
+            )
+        }
+    }
+
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook-\(scenario.agent)")
@@ -2746,6 +2835,207 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let time: Double
         let opcode: Int
         let data: String
+    }
+
+    private struct AgentNetworkReplayResponse {
+        let captureName: String
+        let method: String
+        let url: URL
+        let requestHeaders: [String: String]
+        let requestBody: String
+        let status: Int
+        let responseHeaders: [String: String]
+        let responseBody: String
+    }
+
+    private struct AgentNetworkObservedRequest {
+        let method: String
+        let url: String
+        let headers: [String: String]
+        let body: String
+    }
+
+    private final class AgentNetworkReplayURLProtocol: URLProtocol {
+        private static let lock = NSLock()
+        private static var responses: [AgentNetworkReplayResponse] = []
+        private static var observed: [AgentNetworkObservedRequest] = []
+
+        static func install(responses newResponses: [AgentNetworkReplayResponse]) {
+            lock.lock()
+            responses = newResponses
+            observed = []
+            lock.unlock()
+        }
+
+        static func reset() {
+            lock.lock()
+            responses = []
+            observed = []
+            lock.unlock()
+        }
+
+        static func observedRequests() -> [AgentNetworkObservedRequest] {
+            lock.lock()
+            defer { lock.unlock() }
+            return observed
+        }
+
+        override class func canInit(with request: URLRequest) -> Bool {
+            request.url != nil
+        }
+
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+            request
+        }
+
+        override func startLoading() {
+            guard let url = request.url else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+
+            let method = (request.httpMethod ?? "GET").uppercased()
+            let body = Self.bodyText(from: request)
+            let observedRequest = AgentNetworkObservedRequest(
+                method: method,
+                url: url.absoluteString,
+                headers: request.allHTTPHeaderFields ?? [:],
+                body: body
+            )
+
+            let replay: AgentNetworkReplayResponse
+            Self.lock.lock()
+            Self.observed.append(observedRequest)
+            guard let index = Self.responses.firstIndex(where: {
+                $0.method.uppercased() == method && $0.url.absoluteString == url.absoluteString
+            }) else {
+                Self.lock.unlock()
+                client?.urlProtocol(self, didFailWithError: URLError(.resourceUnavailable))
+                return
+            }
+            replay = Self.responses.remove(at: index)
+            Self.lock.unlock()
+
+            guard let response = HTTPURLResponse(
+                url: url,
+                statusCode: replay.status,
+                httpVersion: "HTTP/1.1",
+                headerFields: replay.responseHeaders
+            ) else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+                return
+            }
+
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(replay.responseBody.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+
+        override func stopLoading() {}
+
+        private static func bodyText(from request: URLRequest) -> String {
+            if let body = request.httpBody {
+                return String(data: body, encoding: .utf8) ?? ""
+            }
+            guard let stream = request.httpBodyStream else { return "" }
+
+            stream.open()
+            defer { stream.close() }
+
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count > 0 {
+                    data.append(buffer, count: count)
+                } else {
+                    break
+                }
+            }
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+    }
+
+    private func performAgentNetworkReplay(
+        request: URLRequest,
+        session: URLSession
+    ) throws -> (Data, HTTPURLResponse) {
+        let semaphore = DispatchSemaphore(value: 0)
+        var callbackData: Data?
+        var callbackResponse: URLResponse?
+        var callbackError: Error?
+
+        let task = session.dataTask(with: request) { data, response, error in
+            callbackData = data
+            callbackResponse = response
+            callbackError = error
+            semaphore.signal()
+        }
+        task.resume()
+
+        guard semaphore.wait(timeout: .now() + 5) == .success else {
+            throw NSError(
+                domain: "AgentNetworkReplay",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for replay response"]
+            )
+        }
+        if let callbackError {
+            throw callbackError
+        }
+        guard let http = callbackResponse as? HTTPURLResponse else {
+            throw NSError(
+                domain: "AgentNetworkReplay",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Replay response was not HTTP"]
+            )
+        }
+        return (callbackData ?? Data(), http)
+    }
+
+    private func replayHeaderFields(_ headers: [AgentNetworkHARHeader]) -> [String: String] {
+        var fields: [String: String] = [:]
+        for header in headers where !header.name.isEmpty {
+            fields[header.name] = header.value
+        }
+        return fields
+    }
+
+    private func replayableRequestHeaders(_ headers: [AgentNetworkHARHeader]) -> [String: String] {
+        let skippedHopHeaders: Set<String> = [
+            "accept-encoding",
+            "connection",
+            "content-length",
+            "host",
+            "transfer-encoding",
+        ]
+        return replayHeaderFields(headers).filter { name, _ in
+            !skippedHopHeaders.contains(name.lowercased())
+        }
+    }
+
+    private func assertReplayHeaders(
+        _ actual: [AnyHashable: Any],
+        contain expected: [String: String],
+        context: String
+    ) {
+        let normalized = Dictionary(actual.map {
+            (String(describing: $0.key).lowercased(), String(describing: $0.value))
+        }, uniquingKeysWith: { _, new in new })
+        assertReplayHeaders(normalized, contain: expected, context: context)
+    }
+
+    private func assertReplayHeaders(
+        _ actual: [String: String],
+        contain expected: [String: String],
+        context: String
+    ) {
+        let normalized = Dictionary(actual.map {
+            ($0.key.lowercased(), $0.value)
+        }, uniquingKeysWith: { _, new in new })
+        for (name, value) in expected {
+            XCTAssertEqual(normalized[name.lowercased()], value, "\(context) header \(name)")
+        }
     }
 
     private struct AgentHookTrajectory: Decodable {
