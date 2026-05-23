@@ -3016,6 +3016,25 @@ class GhosttyApp {
         return newConfigFileSize == 0
     }
 
+    static func shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+        appSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
+    ) -> Bool {
+        guard let appSupportDirectory else { return false }
+        let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+        let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
+        let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        guard let legacyConfigSize = configFileSize(at: nativeLegacyConfig), legacyConfigSize > 0 else {
+            return false
+        }
+        guard let nativeConfigSize = configFileSize(at: nativeConfig), nativeConfigSize > 0 else {
+            return false
+        }
+        return true
+    }
+
     static func cmuxAppSupportConfigURLs(
         currentBundleIdentifier: String?,
         appSupportDirectory: URL,
@@ -3620,15 +3639,18 @@ class GhosttyApp {
             return
         }
         let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
+        let fallbackForUnparsed = Self.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
+            ? defaultBackgroundValues(from: nil)
+            : baseline
         applyDefaultBackground(
-            color: resolved.hasParsedBackgroundColor ? resolved.backgroundColor : baseline.backgroundColor,
-            opacity: resolved.hasParsedBackgroundOpacity ? resolved.backgroundOpacity : baseline.backgroundOpacity,
-            backgroundBlur: resolved.hasParsedBackgroundBlur ? resolved.backgroundBlur : baseline.backgroundBlur,
-            foregroundColor: resolved.hasParsedForegroundColor ? resolved.foregroundColor : baseline.foregroundColor,
-            cursorColor: resolved.hasParsedCursorColor ? resolved.cursorColor : baseline.cursorColor,
-            cursorTextColor: resolved.hasParsedCursorTextColor ? resolved.cursorTextColor : baseline.cursorTextColor,
-            selectionBackground: resolved.hasParsedSelectionBackground ? resolved.selectionBackground : baseline.selectionBackground,
-            selectionForeground: resolved.hasParsedSelectionForeground ? resolved.selectionForeground : baseline.selectionForeground,
+            color: resolved.hasParsedBackgroundColor ? resolved.backgroundColor : fallbackForUnparsed.backgroundColor,
+            opacity: resolved.hasParsedBackgroundOpacity ? resolved.backgroundOpacity : fallbackForUnparsed.backgroundOpacity,
+            backgroundBlur: resolved.hasParsedBackgroundBlur ? resolved.backgroundBlur : fallbackForUnparsed.backgroundBlur,
+            foregroundColor: resolved.hasParsedForegroundColor ? resolved.foregroundColor : fallbackForUnparsed.foregroundColor,
+            cursorColor: resolved.hasParsedCursorColor ? resolved.cursorColor : fallbackForUnparsed.cursorColor,
+            cursorTextColor: resolved.hasParsedCursorTextColor ? resolved.cursorTextColor : fallbackForUnparsed.cursorTextColor,
+            selectionBackground: resolved.hasParsedSelectionBackground ? resolved.selectionBackground : fallbackForUnparsed.selectionBackground,
+            selectionForeground: resolved.hasParsedSelectionForeground ? resolved.selectionForeground : fallbackForUnparsed.selectionForeground,
             source: "\(source).resolvedGhosttyConfig",
             scope: scope,
             forceNotify: forceNotify

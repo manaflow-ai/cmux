@@ -770,6 +770,53 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testUnparsedAppearanceFallbackIgnoresNativeLegacyBaselineWhenCurrentConfigExists() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-native-legacy-baseline-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appSupport) }
+
+        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+        try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
+        try "background = #112233\n"
+            .write(to: ghosttyDir.appendingPathComponent("config", isDirectory: false), atomically: true, encoding: .utf8)
+        try "background = black\n"
+            .write(to: ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false), atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(
+            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+                appSupportDirectory: appSupport
+            )
+        )
+    }
+
+    func testUnparsedAppearanceFallbackKeepsNativeLegacyBaselineWhenCurrentConfigIsMissingOrEmpty() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-native-legacy-baseline-empty-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appSupport) }
+
+        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+        try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
+        let currentConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        try "background = #112233\n"
+            .write(to: ghosttyDir.appendingPathComponent("config", isDirectory: false), atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+                appSupportDirectory: appSupport
+            )
+        )
+
+        try "".write(to: currentConfig, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+                appSupportDirectory: appSupport
+            )
+        )
+    }
+
     func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
         let cases: [(GhosttyDefaultBackgroundUpdateScope, GhosttyDefaultBackgroundUpdateScope, Bool)] = [
             (.unscoped, .app, true),
