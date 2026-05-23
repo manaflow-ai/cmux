@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+python3 scripts/swift_file_length_budget.py \
+  --budget .github/swift-file-length-budget.tsv \
+  --staged

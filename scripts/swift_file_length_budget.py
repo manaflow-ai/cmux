@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
+import subprocess
 import sys
 
 
@@ -27,9 +29,38 @@ def is_ignored_path(path: pathlib.Path) -> bool:
     return any(part in normalized for part in IGNORED_PATH_PARTS)
 
 
+def is_scanned_path(path: pathlib.Path, roots: tuple[str, ...]) -> bool:
+    normalized = path.as_posix()
+    return any(normalized == root or normalized.startswith(f"{root}/") for root in roots)
+
+
 def count_lines(path: pathlib.Path) -> int:
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        return sum(1 for _ in handle)
+    count = 0
+    saw_content = False
+    last_byte = b""
+
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            saw_content = True
+            count += chunk.count(b"\n")
+            last_byte = chunk[-1:]
+
+    if not saw_content:
+        return 0
+    if last_byte != b"\n":
+        count += 1
+    return count
+
+
+def count_lines_in_bytes(content: bytes) -> int:
+    count = 0
+    if not content:
+        return 0
+    for offset in range(0, len(content), 1024 * 1024):
+        count += content[offset : offset + 1024 * 1024].count(b"\n")
+    if content[-1:] != b"\n":
+        count += 1
+    return count
 
 
 def collect_file_lengths(repo_root: pathlib.Path, roots: tuple[str, ...]) -> FileLengthBudget:
@@ -39,11 +70,86 @@ def collect_file_lengths(repo_root: pathlib.Path, roots: tuple[str, ...]) -> Fil
         if not root_path.exists():
             continue
 
-        for path in sorted(root_path.rglob("*.swift")):
-            rel_path = path.relative_to(repo_root)
-            if is_ignored_path(rel_path):
+        for dirpath, dirnames, filenames in os.walk(root_path):
+            dirnames[:] = sorted(
+                dirname
+                for dirname in dirnames
+                if not is_ignored_path(pathlib.Path(dirpath, dirname).relative_to(repo_root))
+            )
+            for filename in sorted(filenames):
+                if not filename.endswith(".swift"):
+                    continue
+                path = pathlib.Path(dirpath) / filename
+                rel_path = path.relative_to(repo_root)
+                if is_ignored_path(rel_path):
+                    continue
+                budget[rel_path.as_posix()] = count_lines(path)
+    return budget
+
+
+def collect_file_lengths_for_paths(
+    repo_root: pathlib.Path,
+    roots: tuple[str, ...],
+    paths: list[str],
+) -> FileLengthBudget:
+    budget: FileLengthBudget = {}
+    for raw_path in paths:
+        path = pathlib.Path(raw_path)
+        if path.is_absolute():
+            try:
+                rel_path = path.resolve(strict=False).relative_to(repo_root)
+            except ValueError:
                 continue
-            budget[rel_path.as_posix()] = count_lines(path)
+        else:
+            rel_path = pathlib.Path(os.path.normpath(raw_path))
+            if rel_path.is_absolute() or rel_path.parts[:1] == ("..",):
+                continue
+            path = repo_root / rel_path
+
+        if rel_path.suffix != ".swift":
+            continue
+        if not is_scanned_path(rel_path, roots) or is_ignored_path(rel_path):
+            continue
+        if not path.is_file():
+            continue
+
+        budget[rel_path.as_posix()] = count_lines(path)
+    return budget
+
+
+def collect_staged_file_lengths(repo_root: pathlib.Path, roots: tuple[str, ...]) -> FileLengthBudget:
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "diff",
+            "--cached",
+            "--name-only",
+            "--diff-filter=ACMR",
+            "-z",
+            "--",
+            "*.swift",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+
+    budget: FileLengthBudget = {}
+    paths = [path for path in result.stdout.decode("utf-8", errors="surrogateescape").split("\0") if path]
+    for raw_path in paths:
+        rel_path = pathlib.Path(os.path.normpath(raw_path))
+        if rel_path.suffix != ".swift":
+            continue
+        if not is_scanned_path(rel_path, roots) or is_ignored_path(rel_path):
+            continue
+
+        blob = subprocess.run(
+            ["git", "-C", str(repo_root), "show", f":{rel_path.as_posix()}"],
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        budget[rel_path.as_posix()] = count_lines_in_bytes(blob)
     return budget
 
 
@@ -101,11 +207,16 @@ def compare_budget(
     allowed: FileLengthBudget,
     threshold: int,
     all_file_lengths: FileLengthBudget,
+    checked_paths: set[str] | None = None,
 ) -> int:
     failures: list[tuple[str, int, int | None]] = []
     reductions: list[tuple[str, int, int]] = []
 
-    for rel_path in sorted(set(actual) | set(allowed)):
+    compared_paths = set(actual) | set(allowed)
+    if checked_paths is not None:
+        compared_paths &= checked_paths
+
+    for rel_path in sorted(compared_paths):
         actual_count = actual.get(rel_path, all_file_lengths.get(rel_path, 0))
         allowed_count = allowed.get(rel_path)
         if allowed_count is None and actual_count >= threshold:
@@ -183,15 +294,47 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="write the current file lengths as the budget instead of checking",
     )
+    parser.add_argument(
+        "--paths",
+        nargs="*",
+        help="optional repo-relative or absolute paths to check instead of scanning every root",
+    )
+    parser.add_argument(
+        "--staged",
+        action="store_true",
+        help="check staged Swift files from the git index instead of scanning every root",
+    )
     args = parser.parse_args(argv)
 
     if args.threshold < 1:
         print("--threshold must be at least 1", file=sys.stderr)
         return 2
+    if args.write_budget and args.paths is not None:
+        print("--write-budget cannot be combined with --paths", file=sys.stderr)
+        return 2
+    if args.write_budget and args.staged:
+        print("--write-budget cannot be combined with --staged", file=sys.stderr)
+        return 2
+    if args.paths is not None and args.staged:
+        print("--paths cannot be combined with --staged", file=sys.stderr)
+        return 2
 
     repo_root = args.repo_root.resolve(strict=False)
     budget_path = args.budget if args.budget.is_absolute() else repo_root / args.budget
-    file_lengths = collect_file_lengths(repo_root, tuple(args.roots))
+    roots = tuple(args.roots)
+    checked_paths: set[str] | None = None
+    if args.staged:
+        try:
+            file_lengths = collect_staged_file_lengths(repo_root, roots)
+        except subprocess.CalledProcessError as exc:
+            print(f"Error reading staged Swift files: {exc}", file=sys.stderr)
+            return 2
+        checked_paths = set(file_lengths)
+    elif args.paths is None:
+        file_lengths = collect_file_lengths(repo_root, roots)
+    else:
+        file_lengths = collect_file_lengths_for_paths(repo_root, roots, args.paths)
+        checked_paths = set(file_lengths)
     actual = tracked_file_lengths(file_lengths, args.threshold)
     print_file_summary("All scanned cmux-owned Swift files", file_lengths)
     print_file_summary(f"Tracked Swift files >= {args.threshold} lines", actual)
@@ -211,7 +354,7 @@ def main(argv: list[str]) -> int:
         print(f"Error reading Swift file length budget: {exc}", file=sys.stderr)
         return 2
     print_file_summary("Allowed Swift file length budget", allowed)
-    return compare_budget(actual, allowed, args.threshold, file_lengths)
+    return compare_budget(actual, allowed, args.threshold, file_lengths, checked_paths)
 
 
 if __name__ == "__main__":
