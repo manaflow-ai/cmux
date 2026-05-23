@@ -8,7 +8,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     private let stateTimeoutDuration: TimeInterval
     private var lastCheckStart: Date?
     private var pendingCheckTransition: DispatchWorkItem?
-    private var stateTimeoutWorkItem: DispatchWorkItem?
+    private var stateTimeoutTimer: Timer?
     private var currentOperationGeneration: Int = 0
     private var timedOutOperationGeneration: Int?
     private var lastFeedURLString: String?
@@ -355,18 +355,16 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     private func cancelStateTimeout() {
-        stateTimeoutWorkItem?.cancel()
-        stateTimeoutWorkItem = nil
+        stateTimeoutTimer?.invalidate()
+        stateTimeoutTimer = nil
     }
 
     private func scheduleStateTimeout(stage: TimeoutStage, cancellation: (() -> Void)? = nil) {
         let generation = currentOperationGeneration
-        let workItem = DispatchWorkItem { [weak self] in
+        stateTimeoutTimer = Timer.scheduledTimer(withTimeInterval: stateTimeoutDuration, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.failOperationIfStillCurrent(stage: stage, generation: generation, cancellation: cancellation)
         }
-        stateTimeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + stateTimeoutDuration, execute: workItem)
     }
 
     private func failOperationIfStillCurrent(stage: TimeoutStage,
@@ -387,7 +385,8 @@ class UpdateDriver: NSObject, SPUUserDriver {
         timedOutOperationGeneration = generation
         pendingCheckTransition?.cancel()
         pendingCheckTransition = nil
-        stateTimeoutWorkItem = nil
+        stateTimeoutTimer?.invalidate()
+        stateTimeoutTimer = nil
         lastCheckStart = nil
         cancellation?()
         applyState(.error(.init(

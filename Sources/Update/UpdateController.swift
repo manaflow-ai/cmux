@@ -180,21 +180,17 @@ class UpdateController {
         stopAttemptUpdateMonitoring()
         didObserveAttemptUpdateProgress = false
 
-        var isFirstStateEmission = true
+        if case .updateAvailable = viewModel.state {
+            UpdateLogStore.shared.append("attemptUpdate auto-confirming visible update")
+            viewModel.state.confirm()
+            return
+        }
+
         attemptInstallCancellable = viewModel.$state
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 guard let self else { return }
-
-                if isFirstStateEmission {
-                    isFirstStateEmission = false
-                    switch state {
-                    case .error, .notFound:
-                        return
-                    default:
-                        break
-                    }
-                }
 
                 if state.isInstallable || !state.isIdle {
                     self.didObserveAttemptUpdateProgress = true
