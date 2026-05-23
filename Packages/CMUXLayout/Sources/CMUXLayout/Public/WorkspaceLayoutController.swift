@@ -661,6 +661,7 @@ public final class WorkspaceLayoutController {
         internalController.focusPane(PaneID(id: paneId.id))
         if let item = canvasItem(forPane: paneId) {
             focusedCanvasItemID = item.id
+            scrollCanvasItemIntoViewIfNeeded(item)
         }
         delegate?.splitTabBar(self, didFocusPane: paneId)
     }
@@ -791,10 +792,12 @@ public final class WorkspaceLayoutController {
 
         if let itemID, canvasDocument.items.contains(where: { $0.id == itemID }) {
             focusedCanvasItemID = itemID
+            scrollFocusedCanvasItemIntoViewIfNeeded()
             return
         }
 
         focusCanvasItemForFocusedPaneOrFirst()
+        scrollFocusedCanvasItemIntoViewIfNeeded()
     }
 
     public func exitCanvasOverview() {
@@ -838,11 +841,20 @@ public final class WorkspaceLayoutController {
         guard let currentItem else { return nil }
         guard let nextItem = bestCanvasNeighbor(from: currentItem, direction: direction) else {
             focusedCanvasItemID = currentItem.id
+            scrollCanvasItemIntoViewIfNeeded(currentItem)
             return currentItem.id
         }
 
         focusedCanvasItemID = nextItem.id
+        scrollCanvasItemIntoViewIfNeeded(nextItem)
         return nextItem.id
+    }
+
+    @discardableResult
+    public func scrollCanvasItemIntoView(_ itemID: LayoutItemID) -> Bool {
+        syncCanvasDocumentWithCurrentLayout()
+        guard let item = canvasItem(id: itemID) else { return false }
+        return scrollCanvasItemIntoViewIfNeeded(item)
     }
 
     public func moveCanvasItem(_ itemID: LayoutItemID, to frame: PixelRect) {
@@ -881,6 +893,7 @@ public final class WorkspaceLayoutController {
             guard let (pane, _) = findTabInternal(surfaceID) else { return nil }
             focusedCanvasItemID = itemID
             selectSurface(surfaceID)
+            scrollCanvasItemIntoViewIfNeeded(item)
             return pane.id
         case .group:
             return nil
@@ -1235,6 +1248,49 @@ public final class WorkspaceLayoutController {
         focusedCanvasItemID = canvasDocument.items.first?.id
     }
 
+    private func scrollFocusedCanvasItemIntoViewIfNeeded() {
+        guard let focusedCanvasItemID,
+              let item = canvasItem(id: focusedCanvasItemID) else {
+            return
+        }
+        scrollCanvasItemIntoViewIfNeeded(item)
+    }
+
+    @discardableResult
+    private func scrollCanvasItemIntoViewIfNeeded(_ item: CanvasItem) -> Bool {
+        guard isCanvasOverviewActive else { return false }
+
+        var viewport = canvasDocument.viewport
+        let visible = viewport.visibleRect.cgRect
+        let itemRect = item.frame.cgRect
+        guard !visible.isNull,
+              !itemRect.isNull,
+              visible.width > 1,
+              visible.height > 1,
+              itemRect.width > 1,
+              itemRect.height > 1 else {
+            return false
+        }
+
+        let intersection = visible.intersection(itemRect)
+        let requiredVisibleWidth = min(visible.width, itemRect.width) * 0.72
+        let requiredVisibleHeight = min(visible.height, itemRect.height) * 0.72
+        if !intersection.isNull,
+           intersection.width >= requiredVisibleWidth,
+           intersection.height >= requiredVisibleHeight {
+            return false
+        }
+
+        viewport.setVisibleRect(PixelRect(
+            x: Double(itemRect.midX - (visible.width / 2)),
+            y: Double(itemRect.midY - (visible.height / 2)),
+            width: Double(visible.width),
+            height: Double(visible.height)
+        ))
+        canvasDocument.viewport = viewport
+        return true
+    }
+
     private func bestCanvasNeighbor(from currentItem: CanvasItem, direction: NavigationDirection) -> CanvasItem? {
         let epsilon = 0.001
         let candidates = canvasDocument.items.filter { item in
@@ -1305,6 +1361,7 @@ public final class WorkspaceLayoutController {
 }
 
 private extension PixelRect {
+    var cgRect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
     var minX: Double { x }
     var maxX: Double { x + width }
     var minY: Double { y }

@@ -3742,6 +3742,53 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(controller.focusedCanvasItemID, nextID)
     }
 
+    @MainActor
+    func testCanvasOverviewFocusScrollsFocusedPaneIntoView() throws {
+        let controller = WorkspaceLayoutController()
+        controller.setContainerFrame(CGRect(x: 0, y: 0, width: 1_200, height: 800))
+        _ = controller.createTab(title: "Base")
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        let secondPaneId = try XCTUnwrap(controller.splitPane(sourcePaneId, orientation: .horizontal))
+
+        controller.enterCanvasOverview(policy: .freeform, scale: 1)
+
+        let focusedItem = try XCTUnwrap(controller.canvasItem(forPane: secondPaneId))
+        let visibleRect = CGRect(
+            x: controller.canvasViewport.visibleRect.x,
+            y: controller.canvasViewport.visibleRect.y,
+            width: controller.canvasViewport.visibleRect.width,
+            height: controller.canvasViewport.visibleRect.height
+        )
+        let itemRect = CGRect(
+            x: focusedItem.frame.x,
+            y: focusedItem.frame.y,
+            width: focusedItem.frame.width,
+            height: focusedItem.frame.height
+        )
+
+        XCTAssertTrue(
+            visibleRect.intersection(itemRect).width >= itemRect.width * 0.72,
+            "Focused canvas pane should be scrolled into view after split focus"
+        )
+    }
+
+    @MainActor
+    func testCanvasPointerFocusDoesNotPanViewport() throws {
+        let controller = WorkspaceLayoutController()
+        controller.setContainerFrame(CGRect(x: 0, y: 0, width: 1_200, height: 800))
+        _ = controller.createTab(title: "Base")
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        let secondPaneId = try XCTUnwrap(controller.splitPane(sourcePaneId, orientation: .horizontal))
+        controller.enterCanvasOverview(policy: .freeform, scale: 1)
+        controller.setCanvasViewport(CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800)))
+        let secondItem = try XCTUnwrap(controller.canvasItem(forPane: secondPaneId))
+
+        XCTAssertTrue(controller.focusCanvasItem(secondItem.id))
+
+        XCTAssertEqual(controller.canvasViewport.visibleRect.x, 0)
+        XCTAssertEqual(controller.canvasViewport.visibleRect.y, 0)
+    }
+
     func testCanvasResizeHitAreaUsesPackageOwnedCornersAndEdges() {
         let hitArea = CanvasResizeHitArea(
             cardSize: CGSize(width: 320, height: 220),
