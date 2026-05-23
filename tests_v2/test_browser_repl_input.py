@@ -74,8 +74,11 @@ def _run_cli_repl(cli: str, url: str) -> dict:
     _must(CLIENT_PATH.is_file(), f"Missing browser REPL client at {CLIENT_PATH}")
 
     script = f"""
+import assert from "node:assert/strict";
+assert.equal(typeof browser.tabs.new, "function");
 const tab = await browser.tabs.new();
-await tab.playwright.goto({json.dumps(url)});
+await tab.playwright.goto({json.dumps(url)}, {{ waitUntil: "load" }});
+await tab.playwright.waitForLoadState("domcontentloaded");
 await tab.playwright.locator("#name").fill("cmux");
 await tab.playwright.locator("#go").click();
 const clickedStatus = await tab.playwright.locator("#status").textContent();

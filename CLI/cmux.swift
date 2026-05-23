@@ -11417,11 +11417,11 @@ struct CMUXCLI {
         let moduleURL = clientURL.absoluteString
         let evalBlock = evalScript.map {
             """
-            try {
+            const __cmuxBrowserReplClose = () => globalThis.cmuxBrowserClient?.close?.();
+            process.once("beforeExit", __cmuxBrowserReplClose);
+            process.once("exit", __cmuxBrowserReplClose);
             \($0)
-            } finally {
-              globalThis.cmuxBrowserClient?.close?.();
-            }
+            __cmuxBrowserReplClose();
             """
         } ?? ""
         return """

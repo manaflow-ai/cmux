@@ -53,6 +53,19 @@ function maybeUnwrapValue(payload) {
   return payload;
 }
 
+function normalizePlaywrightLoadState(state = "load") {
+  const normalized = String(state || "load").toLowerCase();
+  switch (normalized) {
+    case "load":
+    case "networkidle":
+      return "complete";
+    case "domcontentloaded":
+      return "interactive";
+    default:
+      return normalized;
+  }
+}
+
 class CmuxSocketClient {
   constructor({ socketPath = defaultSocketPath(), password = process.env.CMUX_SOCKET_PASSWORD } = {}) {
     this.socketPath = socketPath;
@@ -362,8 +375,9 @@ class CmuxPlaywrightPage {
       url,
       snapshot_after: false,
     });
-    if (options.waitUntil !== false && options.waitUntil !== "commit") {
-      await this.waitForLoadState(options.waitUntil || "complete", { timeout: options.timeout });
+    const waitUntil = normalizePlaywrightLoadState(options.waitUntil || "load");
+    if (options.waitUntil !== false && waitUntil !== "commit") {
+      await this.waitForLoadState(waitUntil, { timeout: options.timeout });
     }
     return result;
   }
@@ -389,7 +403,7 @@ class CmuxPlaywrightPage {
   async waitForLoadState(state = "complete", options = {}) {
     return await this.client.call("browser.wait", {
       surface_id: this.surfaceId,
-      load_state: state,
+      load_state: normalizePlaywrightLoadState(state),
       timeout_ms: options.timeout,
     });
   }
