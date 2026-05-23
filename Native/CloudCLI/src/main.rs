@@ -5,6 +5,7 @@ use std::fs;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::thread;
@@ -125,7 +126,7 @@ impl SocketClient {
         };
         let response = self.send_line(&format!("auth {password}"), response_timeout())?;
         if response.starts_with("ERROR:") && !response.contains("Unknown command 'auth'") {
-            return Err(CliError::new(response));
+            return Err(CliError::new(sanitized_auth_error(&response, password)));
         }
         Ok(())
     }
@@ -580,19 +581,34 @@ fn run_delegated_interactive(
 
 fn exec_parent_vm(ctx: &CloudContext, vm_args: &[String]) -> CliResult<()> {
     let mut command = Command::new(&ctx.parent_cli);
-    command.arg("--socket").arg(&ctx.socket_path);
-    if let Some(password) = &ctx.socket_password {
-        command.arg("--password").arg(password);
+    command.args(parent_vm_args(ctx, vm_args));
+    for (key, value) in parent_vm_env(ctx) {
+        command.env(key, value);
     }
+    let error = command.exec();
+    Err(CliError::new(format!(
+        "Failed to launch cmux vm helper: {error}"
+    )))
+}
+
+fn parent_vm_args(ctx: &CloudContext, vm_args: &[String]) -> Vec<String> {
+    let mut args = vec!["--socket".to_string(), ctx.socket_path.clone()];
     if ctx.json_output {
-        command.arg("--json");
+        args.push("--json".to_string());
     }
-    command.arg("vm");
-    command.args(vm_args);
-    let status = command
-        .status()
-        .map_err(|error| CliError::new(format!("Failed to launch cmux vm helper: {error}")))?;
-    process::exit(status.code().unwrap_or(1));
+    args.push("vm".to_string());
+    args.extend(vm_args.iter().cloned());
+    args
+}
+
+fn parent_vm_env(ctx: &CloudContext) -> Vec<(&'static str, String)> {
+    let Some(password) = &ctx.socket_password else {
+        return Vec::new();
+    };
+    vec![
+        ("CMUX_SOCKET_PASSWORD", password.clone()),
+        ("CMUX_CLOUD_SOCKET_PASSWORD", password.clone()),
+    ]
 }
 
 fn validate_window_handle(client: &mut SocketClient, raw: &str) -> CliResult<Option<String>> {
@@ -711,6 +727,11 @@ fn should_retry_connect(error: &CliError) -> bool {
     error.message.contains("Connection refused")
         || error.message.contains("Resource temporarily unavailable")
         || error.message.contains("would block")
+}
+
+fn sanitized_auth_error(response: &str, password: &str) -> String {
+    let redacted = response.replace(password, "<redacted>");
+    format!("Socket authentication failed: {redacted}")
 }
 
 fn normalized_env(name: &str) -> Option<String> {
@@ -1126,5 +1147,53 @@ mod tests {
     fn usage_mentions_cloud_entrypoint() {
         assert!(usage().contains("Usage: cmux cloud"));
         assert!(usage().contains("cmux cloud new"));
+    }
+
+    #[test]
+    fn parent_vm_delegation_keeps_password_out_of_argv() {
+        let ctx = CloudContext {
+            socket_path: "/tmp/cmux.sock".to_string(),
+            socket_password: Some("secret-password".to_string()),
+            json_output: true,
+            window_override: None,
+            parent_cli: "cmux".to_string(),
+        };
+        let args = parent_vm_args(&ctx, &["ssh".to_string(), "vm_123".to_string()]);
+        assert_eq!(
+            args,
+            vec![
+                "--socket",
+                "/tmp/cmux.sock",
+                "--json",
+                "vm",
+                "ssh",
+                "vm_123"
+            ]
+        );
+        assert!(!args.iter().any(|arg| arg == "--password"));
+        assert!(!args.iter().any(|arg| arg == "secret-password"));
+
+        let env = parent_vm_env(&ctx);
+        assert!(env.contains(&("CMUX_SOCKET_PASSWORD", "secret-password".to_string())));
+        assert!(env.contains(&("CMUX_CLOUD_SOCKET_PASSWORD", "secret-password".to_string())));
+    }
+
+    #[test]
+    fn auth_errors_redact_password() {
+        let message = sanitized_auth_error("ERROR: auth secret-password failed", "secret-password");
+        assert!(message.contains("<redacted>"));
+        assert!(!message.contains("secret-password"));
+    }
+
+    #[test]
+    fn retryable_connect_errors_are_bounded_to_transient_failures() {
+        assert!(should_retry_connect(&CliError::new("Connection refused")));
+        assert!(should_retry_connect(&CliError::new(
+            "Resource temporarily unavailable"
+        )));
+        assert!(should_retry_connect(&CliError::new(
+            "operation would block"
+        )));
+        assert!(!should_retry_connect(&CliError::new("Socket not found")));
     }
 }

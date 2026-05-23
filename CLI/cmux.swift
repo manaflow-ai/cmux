@@ -2675,7 +2675,11 @@ struct CMUXCLI {
         }
         for candidate in candidates {
             let path = candidate.path
-            if fileManager.isExecutableFile(atPath: path) {
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+                !isDirectory.boolValue,
+                fileManager.isExecutableFile(atPath: path)
+            {
                 return path
             }
         }
@@ -2691,7 +2695,7 @@ struct CMUXCLI {
         windowId: String?
     ) throws -> Never {
         guard let helperPath = Self.cloudCLIExecutablePath() else {
-            throw CLIError(message: "cmux cloud helper is missing. Reload cmux so Contents/Resources/bin/cmux-cloud is bundled.")
+            throw CLIError(message: "cmux cloud helper is missing. Reload cmux and retry.")
         }
 
         let resolvedPassword = SocketPasswordResolver.resolve(
@@ -2728,8 +2732,7 @@ struct CMUXCLI {
         }
         argv.append(nil)
         execv(helperPath, &argv)
-        let reason = String(cString: strerror(errno))
-        throw CLIError(message: "Failed to launch cmux cloud helper at \(helperPath): \(reason)")
+        throw CLIError(message: "Could not start the cmux cloud helper. Reload cmux and retry.")
     }
 
     private static func shouldFocusWindowBeforeDispatch(command: String, commandArgs: [String]) -> Bool {
