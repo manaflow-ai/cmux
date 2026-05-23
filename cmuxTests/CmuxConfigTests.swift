@@ -25,7 +25,8 @@ final class CmuxConfigDecodingTests: XCTestCase {
                 CmuxResolvedConfigAction.fromDefinition(
                     id: id,
                     definition: definition,
-                    sourcePath: sourcePath
+                    actionSourcePath: sourcePath,
+                    iconSourcePath: sourcePath
                 ).map { (id, $0) }
             }
         )
@@ -1568,6 +1569,144 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(action.terminalCommand, "echo local")
         XCTAssertEqual(action.actionSourcePath, configURL.path)
         XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testGlobalPackUsesGlobalTrustSourceAndPackIconSource() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let packDirectory = globalDirectory.appendingPathComponent("packs/personal", isDirectory: true)
+        try FileManager.default.createDirectory(at: packDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let packURL = packDirectory.appendingPathComponent("cmux.pack.json")
+        try """
+        {
+          "packs": ["./packs/personal"]
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "personal.tests": {
+              "type": "command",
+              "title": "Personal Tests",
+              "command": "npm test",
+              "icon": { "type": "image", "path": "icons/tests.svg" }
+            }
+          },
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                {
+                  "id": "personal.inline",
+                  "command": "npm run inline",
+                  "icon": { "type": "image", "path": "icons/inline.svg" }
+                },
+                { "action": "personal.tests" }
+              ]
+            }
+          },
+          "commands": [
+            { "name": "Personal Shell", "command": "echo personal" }
+          ]
+        }
+        """.write(to: packURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: nil,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let action = try XCTUnwrap(store.resolvedAction(id: "personal.tests"))
+        XCTAssertEqual(action.actionSourcePath, globalConfigURL.path)
+        XCTAssertEqual(action.iconSourcePath, packURL.path)
+        XCTAssertEqual(store.commandSourcePaths[store.loadedCommands[0].id], globalConfigURL.path)
+        XCTAssertEqual(store.surfaceTabBarButtonSourcePath, globalConfigURL.path)
+        let inlineButton = try XCTUnwrap(store.surfaceTabBarButtons.first { $0.id == "personal.inline" })
+        XCTAssertEqual(inlineButton.actionSourcePath, globalConfigURL.path)
+        XCTAssertEqual(inlineButton.iconSourcePath, packURL.path)
+        let actionButton = try XCTUnwrap(store.surfaceTabBarButtons.first { $0.id == "personal.tests" })
+        XCTAssertEqual(actionButton.actionSourcePath, globalConfigURL.path)
+        XCTAssertEqual(actionButton.iconSourcePath, packURL.path)
+        XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["personal.tests"], globalConfigURL.path)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testPackWatcherReloadsAfterInvalidPackIsFixed() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let cmuxDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        let packDirectory = cmuxDirectory.appendingPathComponent("packs/team", isDirectory: true)
+        try FileManager.default.createDirectory(at: packDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = cmuxDirectory.appendingPathComponent("cmux.json")
+        let packURL = packDirectory.appendingPathComponent("cmux.pack.json")
+        try """
+        {
+          "packs": ["./packs/team"]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "team.tests": { "type": "command", "command": "npm test" }
+          }
+        }
+        """.write(to: packURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: true
+        )
+        store.loadAll()
+        XCTAssertNotNil(store.resolvedAction(id: "team.tests"))
+
+        let invalidLoaded = expectation(description: "invalid pack is reported")
+        invalidLoaded.assertForOverFulfill = false
+        var issueCancellable: AnyCancellable?
+        issueCancellable = store.$configurationIssues.dropFirst().sink { issues in
+            if issues.contains(where: { $0.kind == .schemaError && $0.sourcePath == packURL.path }) {
+                invalidLoaded.fulfill()
+            }
+        }
+
+        try "{".write(to: packURL, atomically: true, encoding: .utf8)
+        await fulfillment(of: [invalidLoaded], timeout: 3)
+        issueCancellable?.cancel()
+        XCTAssertNil(store.resolvedAction(id: "team.tests"))
+
+        let fixedLoaded = expectation(description: "fixed pack is reloaded")
+        fixedLoaded.assertForOverFulfill = false
+        var actionCancellable: AnyCancellable?
+        actionCancellable = store.$loadedActions.dropFirst().sink { actions in
+            if actions.contains(where: { $0.id == "team.tests" && $0.terminalCommand == "npm run fixed" }) {
+                fixedLoaded.fulfill()
+            }
+        }
+
+        try """
+        {
+          "actions": {
+            "team.tests": { "type": "command", "command": "npm run fixed" }
+          }
+        }
+        """.write(to: packURL, atomically: true, encoding: .utf8)
+        await fulfillment(of: [fixedLoaded], timeout: 3)
+        actionCancellable?.cancel()
+        XCTAssertEqual(store.resolvedAction(id: "team.tests")?.terminalCommand, "npm run fixed")
     }
 
     func testDecodeEmptyCommandsArray() throws {
