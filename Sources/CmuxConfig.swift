@@ -2549,6 +2549,9 @@ final class CmuxConfigStore: ObservableObject {
             }
             guard FileManager.default.fileExists(atPath: path) else {
                 issues.append(schemaIssue(path: path, message: "pack file does not exist"))
+                if let recoveryWatchPath = packRecoveryWatchPath(for: path) {
+                    watchPaths.append(recoveryWatchPath)
+                }
                 continue
             }
             watchPaths.append(path)
@@ -2575,6 +2578,21 @@ final class CmuxConfigStore: ObservableObject {
             ))
         }
         return entries
+    }
+
+    private func packRecoveryWatchPath(for path: String) -> String? {
+        var candidate = (path as NSString).deletingLastPathComponent
+        while !candidate.isEmpty {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                return candidate
+            }
+            let parent = (candidate as NSString).deletingLastPathComponent
+            if parent == candidate { return nil }
+            candidate = parent
+        }
+        return nil
     }
 
     private func resolvedPackPath(_ rawPath: String, relativeToConfig configPath: String) -> String {

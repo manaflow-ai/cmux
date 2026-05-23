@@ -1709,6 +1709,57 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.resolvedAction(id: "team.tests")?.terminalCommand, "npm run fixed")
     }
 
+    @MainActor
+    func testPackWatcherReloadsWhenMissingPackFileIsCreated() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let cmuxDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        let packDirectory = cmuxDirectory.appendingPathComponent("packs/team", isDirectory: true)
+        try FileManager.default.createDirectory(at: packDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = cmuxDirectory.appendingPathComponent("cmux.json")
+        let packURL = packDirectory.appendingPathComponent("cmux.pack.json")
+        try """
+        {
+          "packs": ["./packs/team"]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: true
+        )
+        store.loadAll()
+        XCTAssertNil(store.resolvedAction(id: "team.tests"))
+        XCTAssertEqual(store.configurationIssues.first?.sourcePath, packURL.path)
+
+        let loaded = expectation(description: "created pack file is loaded")
+        loaded.assertForOverFulfill = false
+        var cancellable: AnyCancellable?
+        cancellable = store.$loadedActions.dropFirst().sink { actions in
+            if actions.contains(where: { $0.id == "team.tests" }) {
+                loaded.fulfill()
+            }
+        }
+
+        try """
+        {
+          "actions": {
+            "team.tests": { "type": "command", "command": "npm test" }
+          }
+        }
+        """.write(to: packURL, atomically: true, encoding: .utf8)
+
+        await fulfillment(of: [loaded], timeout: 3)
+        cancellable?.cancel()
+        XCTAssertEqual(store.resolvedAction(id: "team.tests")?.terminalCommand, "npm test")
+    }
+
     func testDecodeEmptyCommandsArray() throws {
         let json = """
         { "commands": [] }
