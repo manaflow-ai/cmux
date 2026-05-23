@@ -5288,6 +5288,7 @@ final class WorkspaceRemoteSessionController {
     // after disconnect teardown; production/debug app code leaves it nil. The
     // override closure owns synchronization for any captured test-only state.
     nonisolated(unsafe) static var runProcessOverrideForTesting: ((String, [String], Data?, TimeInterval) throws -> (status: Int32, stdout: String, stderr: String))?
+    nonisolated(unsafe) static var runProcessReadHandlesDidInstallForTesting: ((FileHandle, FileHandle) -> Void)?
 #endif
 
     enum PortScanKickReason: String {
@@ -6635,25 +6636,61 @@ final class WorkspaceRemoteSessionController {
         let exitSemaphore = DispatchSemaphore(value: 0)
         var stdoutData = Data()
         var stderrData = Data()
+        var stdoutReadError: Error?
+        var stderrReadError: Error?
         let captureGroup = DispatchGroup()
         process.terminationHandler = { _ in
             exitSemaphore.signal()
         }
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            let data = stdoutHandle.readDataToEndOfFile()
+            defer { captureGroup.leave() }
+            let result = Self.readProcessPipeToEnd(stdoutHandle)
             captureQueue.sync {
-                stdoutData = data
+                switch result {
+                case .success(let data):
+                    stdoutData = data
+                case .failure(let error):
+                    stdoutReadError = error
+                }
             }
-            captureGroup.leave()
         }
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            let data = stderrHandle.readDataToEndOfFile()
+            defer { captureGroup.leave() }
+            let result = Self.readProcessPipeToEnd(stderrHandle)
             captureQueue.sync {
-                stderrData = data
+                switch result {
+                case .success(let data):
+                    stderrData = data
+                case .failure(let error):
+                    stderrReadError = error
+                }
             }
-            captureGroup.leave()
+        }
+#if DEBUG
+        Self.runProcessReadHandlesDidInstallForTesting?(stdoutHandle, stderrHandle)
+#endif
+
+        var didFinishCapture = false
+        func finishCaptureAndCloseReadHandles() {
+            guard !didFinishCapture else { return }
+            didFinishCapture = true
+            captureGroup.wait()
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+            if let stdoutReadError {
+                debugLog(
+                    "remote.proc.stdoutReadError exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
+                    "error=\(stdoutReadError.localizedDescription)"
+                )
+            }
+            if let stderrReadError {
+                debugLog(
+                    "remote.proc.stderrReadError exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
+                    "error=\(stderrReadError.localizedDescription)"
+                )
+            }
         }
 
         do {
@@ -6662,6 +6699,7 @@ final class WorkspaceRemoteSessionController {
         } catch {
             try? stdoutPipe.fileHandleForWriting.close()
             try? stderrPipe.fileHandleForWriting.close()
+            finishCaptureAndCloseReadHandles()
             debugLog(
                 "remote.proc.launchFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                 "error=\(error.localizedDescription)"
@@ -6697,9 +6735,11 @@ final class WorkspaceRemoteSessionController {
         if !didExitBeforeTimeout, process.isRunning {
             if operation?.isCancelled == true {
                 terminateProcessAndWait()
+                finishCaptureAndCloseReadHandles()
                 throw TerminalImageTransferExecutionError.cancelled
             }
             terminateProcessAndWait()
+            finishCaptureAndCloseReadHandles()
             debugLog(
                 "remote.proc.timeout exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                 "timeout=\(Int(timeout)) args=\(debugShellCommand(executable: executable, arguments: arguments))"
@@ -6709,9 +6749,7 @@ final class WorkspaceRemoteSessionController {
             ])
         }
 
-        _ = captureGroup.wait(timeout: .now() + 2.0)
-        try? stdoutHandle.close()
-        try? stderrHandle.close()
+        finishCaptureAndCloseReadHandles()
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         if operation?.isCancelled == true {
@@ -6724,6 +6762,37 @@ final class WorkspaceRemoteSessionController {
         )
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
+
+    private static func readProcessPipeToEnd(_ fileHandle: FileHandle) -> Result<Data, Error> {
+        var data = Data()
+        do {
+            while true {
+                guard let chunk = try fileHandle.read(upToCount: 64 * 1024), !chunk.isEmpty else {
+                    return .success(data)
+                }
+                data.append(chunk)
+            }
+        } catch {
+            return .failure(error)
+        }
+    }
+
+#if DEBUG
+    func runProcessForTesting(
+        executable: String,
+        arguments: [String],
+        stdin: Data? = nil,
+        timeout: TimeInterval
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        let result = try runProcess(
+            executable: executable,
+            arguments: arguments,
+            stdin: stdin,
+            timeout: timeout
+        )
+        return (result.status, result.stdout, result.stderr)
+    }
+#endif
 
     private func bootstrapDaemonLocked(requiredCapabilities: [String]) throws -> DaemonHello {
         debugLog("remote.bootstrap.begin \(debugConfigSummary())")
