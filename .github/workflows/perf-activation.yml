@@ -11,13 +11,14 @@ on:
       runner:
         description: macOS runner
         required: false
-        default: blacksmith-6vcpu-macos-15
+        default: depot-macos-latest
         type: choice
-        # Depot stays available only for manual fallback and provider comparison
-        # runs. Pull requests use the Blacksmith fallback below.
+        # The Cmd-Tab benchmark needs a runner session that can surface visible
+        # app windows. Blacksmith is kept as a manual provider comparison option,
+        # while pull requests stay on Depot until that benchmark works there.
         options:
-          - blacksmith-6vcpu-macos-15
           - depot-macos-latest
+          - blacksmith-6vcpu-macos-15
       workspace_count:
         description: Fixture workspace count
         required: false
@@ -37,7 +38,7 @@ concurrency:
 
 jobs:
   activation-session:
-    runs-on: ${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
     timeout-minutes: 45
     env:
       PERF_TAG: perfci
@@ -87,6 +88,7 @@ jobs:
         run: ./scripts/reload.sh --tag "$PERF_TAG"
 
       - name: Create virtual display
+        if: ${{ startsWith(inputs.runner || 'depot-macos-latest', 'blacksmith-') }}
         run: |
           set -euo pipefail
           READY_PATH="/tmp/cmux-virtual-display-ready"
