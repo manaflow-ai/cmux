@@ -10084,6 +10084,7 @@ struct VerticalTabsSidebar: View {
         let tabs: [Workspace]
         let workspaceCount: Int
         let pinnedWorkspaceCount: Int
+        let pinnedWorkspaceIds: Set<UUID>
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
         let tabItemSettings: SidebarTabItemSettingsSnapshot
@@ -10103,11 +10104,8 @@ struct VerticalTabsSidebar: View {
         let _ = terminalScrollBarVisibilityGeneration
         let tabs = tabManager.tabs
         let workspaceCount = tabs.count
-        let pinnedWorkspaceCount = tabs.reduce(into: 0) { count, tab in
-            if tab.isPinned {
-                count += 1
-            }
-        }
+        let pinnedWorkspaceIds = Set(tabs.filter(\.isPinned).map(\.id))
+        let pinnedWorkspaceCount = pinnedWorkspaceIds.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
@@ -10135,6 +10133,7 @@ struct VerticalTabsSidebar: View {
             tabs: tabs,
             workspaceCount: workspaceCount,
             pinnedWorkspaceCount: pinnedWorkspaceCount,
+            pinnedWorkspaceIds: pinnedWorkspaceIds,
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
@@ -11153,17 +11152,32 @@ struct VerticalTabsSidebar: View {
         .frame(minHeight: minHeight, alignment: .top)
     }
 
+    private func workspaceRowSnapshots(
+        renderContext: WorkspaceListRenderContext
+    ) -> [SidebarWorkspaceRowSnapshot] {
+        renderContext.tabs.enumerated().map { index, tab in
+            workspaceRowSnapshot(
+                for: tab,
+                index: index,
+                renderContext: renderContext
+            )
+        }
+    }
+
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
+        let rowSnapshots = workspaceRowSnapshots(renderContext: renderContext)
         // Keep row observers and drag handlers scoped to the visible lazy
         // subtree so large workspaces lists scale with mounted rows.
         // Drag updates stay out of the lazy layout contract: row metrics are
         // fixed, indicators render as overlays, and drop insertion planning uses
         // global tab indices instead of the current mounted child count.
-        LazyVStack(spacing: tabRowSpacing) {
-            ForEach(renderContext.tabs, id: \.id) { tab in
-                workspaceRow(tab, renderContext: renderContext)
+        let lazyRows = LazyVStack(spacing: tabRowSpacing) {
+            ForEach(rowSnapshots, id: \.workspaceId) { snapshot in
+                workspaceRow(snapshot)
             }
         }
+
+        return lazyRows
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
@@ -11173,7 +11187,7 @@ struct VerticalTabsSidebar: View {
                         tabManager.selectedTabId
                     },
                     sidebarIndexForTabId: { workspaceId in
-                        tabManager.tabs.firstIndex { $0.id == workspaceId }
+                        renderContext.tabIndexById[workspaceId]
                     },
                     moveToExistingWorkspace: { workspaceId, transfer in
                         guard let app = AppDelegate.shared else {
@@ -11209,12 +11223,12 @@ struct VerticalTabsSidebar: View {
                     updateAutoscroll: {
                         dragAutoScrollController.updateFromDragLocation()
                     },
-                    targets: renderContext.tabs.enumerated().compactMap { index, tab in
-                        guard let anchor = anchors[tab.id] else { return nil }
+                    targets: rowSnapshots.compactMap { snapshot in
+                        guard let anchor = anchors[snapshot.workspaceId] else { return nil }
                         return SidebarDropPlanner.WorkspaceDropTarget(
-                            workspaceId: tab.id,
-                            index: index,
-                            isPinned: tab.isPinned,
+                            workspaceId: snapshot.workspaceId,
+                            index: snapshot.index,
+                            isPinned: snapshot.workspaceSnapshot.isPinned,
                             frame: proxy[anchor]
                         )
                     },
@@ -11225,11 +11239,11 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    private func workspaceRow(
-        _ tab: Workspace,
+    private func workspaceRowSnapshot(
+        for tab: Workspace,
+        index: Int,
         renderContext: WorkspaceListRenderContext
-    ) -> some View {
-        let index = renderContext.tabIndexById[tab.id] ?? 0
+    ) -> SidebarWorkspaceRowSnapshot {
         let _ = workspaceRowSnapshotRefreshTokensById[tab.id]
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
         let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
@@ -11287,7 +11301,7 @@ struct VerticalTabsSidebar: View {
             for: tab,
             settings: renderContext.tabItemSettings
         )
-        let rowSnapshot = SidebarWorkspaceRowSnapshot(
+        return SidebarWorkspaceRowSnapshot(
             workspaceId: tab.id,
             index: index,
             isActive: tabManager.selectedTabId == tab.id,
@@ -11295,7 +11309,7 @@ struct VerticalTabsSidebar: View {
             isBeingDragged: draggedTabId == tab.id,
             draggedWorkspaceId: draggedTabId,
             workspaceIds: renderContext.workspaceIds,
-            pinnedWorkspaceIds: Set(renderContext.tabs.filter(\.isPinned).map(\.id)),
+            pinnedWorkspaceIds: renderContext.pinnedWorkspaceIds,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
                 workspaceCount: renderContext.workspaceCount
@@ -11327,16 +11341,18 @@ struct VerticalTabsSidebar: View {
             livePresentation: livePresentation,
             workspaceSnapshot: workspaceSnapshot
         )
+    }
 
+    private func workspaceRow(_ rowSnapshot: SidebarWorkspaceRowSnapshot) -> some View {
         return TabItemView(
             snapshot: rowSnapshot,
             actions: workspaceRowActions
         )
         .equatable()
-        .id(tab.id)
-        .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
+        .id(rowSnapshot.workspaceId)
+        .accessibilityIdentifier("sidebarWorkspace.\(rowSnapshot.workspaceId.uuidString)")
         .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
-            [tab.id: anchor]
+            [rowSnapshot.workspaceId: anchor]
         }
     }
 
