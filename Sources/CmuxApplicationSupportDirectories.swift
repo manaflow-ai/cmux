@@ -94,7 +94,7 @@ enum CmuxGhosttyConfigPathResolver {
             return currentURLs
         }
         if allowsReleaseFallback(currentBundleIdentifier) {
-            try? removeStaleReleaseManagedThemeOverrideIfNeeded(
+            _ = try? removeStaleReleaseManagedThemeOverrideIfNeeded(
                 currentBundleIdentifier: currentBundleIdentifier,
                 appSupportDirectory: appSupportDirectory,
                 fileManager: fileManager
