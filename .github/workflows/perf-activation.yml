@@ -11,12 +11,13 @@ on:
       runner:
         description: macOS runner
         required: false
-        default: depot-macos-latest
+        default: warp-macos-15-arm64-6x
         type: choice
-        # The Cmd-Tab benchmark needs a runner session that can surface visible
-        # app windows. Blacksmith is kept as a manual provider comparison option,
-        # while pull requests stay on Depot until that benchmark works there.
+        # This benchmark intentionally stays on WarpBuild because it asserts
+        # real Cmd-Tab visible-window behavior. Blacksmith and Depot comparison
+        # runs are manual until they can surface the benchmark app window.
         options:
+          - warp-macos-15-arm64-6x
           - depot-macos-latest
           - blacksmith-6vcpu-macos-15
       workspace_count:
@@ -38,7 +39,7 @@ concurrency:
 
 jobs:
   activation-session:
-    runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
+    runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 45
     env:
       PERF_TAG: perfci
@@ -88,7 +89,7 @@ jobs:
         run: ./scripts/reload.sh --tag "$PERF_TAG"
 
       - name: Create virtual display
-        if: ${{ startsWith(inputs.runner || 'depot-macos-latest', 'blacksmith-') }}
+        if: ${{ startsWith(inputs.runner || 'warp-macos-15-arm64-6x', 'blacksmith-') }}
         run: |
           set -euo pipefail
           READY_PATH="/tmp/cmux-virtual-display-ready"

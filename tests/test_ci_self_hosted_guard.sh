@@ -43,6 +43,20 @@ check_no_warp_runner() {
   echo "PASS: $job WarpBuild runner is absent"
 }
 
+check_warp_exception() {
+  local file="$1" job="$2"
+  if ! awk -v job="$job" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]]/ { in_job=0 }
+    in_job && /runs-on:.*warp-macos-/ { saw_warp=1 }
+    END { exit !(saw_warp) }
+  ' "$file"; then
+    echo "FAIL: $job in $(basename "$file") must keep the GUI-capable WarpBuild runner exception"
+    exit 1
+  fi
+  echo "PASS: $job WarpBuild runner exception is present"
+}
+
 # ci.yml jobs
 check_blacksmith_runner "$CI_FILE" "tests"
 check_blacksmith_runner "$CI_FILE" "tests-build-and-lag"
@@ -59,4 +73,4 @@ check_blacksmith_runner "$COMPAT_FILE" "compat-tests"
 check_blacksmith_runner "$NIGHTLY_FILE" "build-sign-notarize-nightly"
 check_blacksmith_runner "$RELEASE_FILE" "build-sign-notarize"
 check_blacksmith_runner "$TEST_BLACKSMITH_FILE" "tests"
-check_no_warp_runner "$PERF_FILE" "activation-session"
+check_warp_exception "$PERF_FILE" "activation-session"
