@@ -8075,6 +8075,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         performKeyEquivalent(with: event, shouldRetryMainMenu: false)
     }
 
+    func shouldBypassKeyEquivalentForActiveIMEComposition(_ event: NSEvent) -> Bool {
+        guard !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) else {
+            return false
+        }
+        return hasMarkedText() || nonInlineIMECompositionActive
+    }
+
     private func performKeyEquivalent(with event: NSEvent, shouldRetryMainMenu: Bool) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -8092,7 +8099,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
         // Let non-Cmd keys flow to keyDown while IME is composing; Cmd shortcuts still work.
-        if hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+        if shouldBypassKeyEquivalentForActiveIMEComposition(event) {
             return false
         }
 

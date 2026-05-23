@@ -11878,7 +11878,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // work during composition since Cmd is never part of IME input sequences.
         if !normalizedFlags.contains(.command),
            let ghosttyView = cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder),
-           ghosttyView.hasMarkedText() {
+           ghosttyView.shouldBypassKeyEquivalentForActiveIMEComposition(event) {
             return false
         }
 
@@ -15710,7 +15710,7 @@ private extension NSWindow {
             // let it flow through normal AppKit event dispatch so the input method can
             // process it. Cmd-based shortcuts should still work during composition since
             // Cmd is never part of IME input sequences.
-            if ghosttyView.hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            if ghosttyView.shouldBypassKeyEquivalentForActiveIMEComposition(event) {
                 return false
             }
 

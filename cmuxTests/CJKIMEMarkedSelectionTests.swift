@@ -234,6 +234,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         }
 
         KeyboardLayout.debugInputSourceIdOverride = "im.rime.inputmethod.Squirrel"
+        AppDelegate.installWindowResponderSwizzlesForTesting()
         installCJKIMEInterpretKeyEventsSwizzle()
         cjkIMEInterpretKeyEventsHook = { candidateView, events in
             guard candidateView === surfaceView,
@@ -270,8 +271,8 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
         window.makeFirstResponder(surfaceView)
         withExtendedLifetime(terminalSurface) {
-            surfaceView.keyDown(with: composeEvent)
-            surfaceView.keyDown(with: candidateDownEvent)
+            window.sendEvent(composeEvent)
+            window.sendEvent(candidateDownEvent)
         }
 
         XCTAssertEqual(
@@ -301,6 +302,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
         window.contentView?.addSubview(focusProbe)
         KeyboardLayout.debugInputSourceIdOverride = "im.rime.inputmethod.Squirrel"
+        AppDelegate.installWindowResponderSwizzlesForTesting()
         installCJKIMEInterpretKeyEventsSwizzle()
         cjkIMEInterpretKeyEventsHook = { candidateView, events in
             guard candidateView === surfaceView,
@@ -330,7 +332,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
         window.makeFirstResponder(surfaceView)
         withExtendedLifetime(terminalSurface) {
-            surfaceView.keyDown(with: composeEvent)
+            window.sendEvent(composeEvent)
             XCTAssertEqual(
                 forwardedPresses,
                 [],
@@ -340,7 +342,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             XCTAssertTrue(window.makeFirstResponder(focusProbe))
             XCTAssertTrue(window.makeFirstResponder(surfaceView))
 
-            surfaceView.keyDown(with: idleDownEvent)
+            window.sendEvent(idleDownEvent)
         }
 
         XCTAssertEqual(
