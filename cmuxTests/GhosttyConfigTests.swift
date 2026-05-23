@@ -242,10 +242,10 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(namedColorConfig.foregroundColor.hexString(), "#DDEEFF")
 
         var hexColorConfig = GhosttyConfig()
-        hexColorConfig.parse("background = #334455\n")
+        hexColorConfig.parse("background = #aabbcc\n")
 
         XCTAssertTrue(hexColorConfig.hasParsedBackgroundColor)
-        XCTAssertEqual(hexColorConfig.backgroundColor.hexString(), "#334455")
+        XCTAssertEqual(hexColorConfig.backgroundColor.hexString(), "#AABBCC")
 
         var namedOverrideConfig = GhosttyConfig()
         namedOverrideConfig.parse("background = #334455\nbackground = black\nforeground = #ddeeff\nforeground = white\n")

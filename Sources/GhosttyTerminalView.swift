@@ -2164,6 +2164,7 @@ class GhosttyApp {
                 source: "initialize.fallbackConfig",
                 preferredColorScheme: initialColorScheme,
                 baselineConfig: fallbackConfig,
+                useOnDiskResolvedConfig: false,
                 forceNotify: fallbackRenderingModeChanged
             )
 
@@ -3591,9 +3592,26 @@ class GhosttyApp {
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
         baselineConfig: ghostty_config_t?,
         scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
+        useOnDiskResolvedConfig: Bool = true,
         forceNotify: Bool = false
     ) {
         let baseline = defaultBackgroundValues(from: baselineConfig)
+        guard useOnDiskResolvedConfig else {
+            applyDefaultBackground(
+                color: baseline.backgroundColor,
+                opacity: baseline.backgroundOpacity,
+                backgroundBlur: baseline.backgroundBlur,
+                foregroundColor: baseline.foregroundColor,
+                cursorColor: baseline.cursorColor,
+                cursorTextColor: baseline.cursorTextColor,
+                selectionBackground: baseline.selectionBackground,
+                selectionForeground: baseline.selectionForeground,
+                source: source,
+                scope: scope,
+                forceNotify: forceNotify
+            )
+            return
+        }
         let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
         applyDefaultBackground(
             color: resolved.hasParsedBackgroundColor ? resolved.backgroundColor : baseline.backgroundColor,
