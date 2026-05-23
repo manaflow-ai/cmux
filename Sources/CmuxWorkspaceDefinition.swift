@@ -34,3 +34,21 @@ struct CmuxWorkspaceDefinition: Codable, Sendable {
         }
     }
 }
+
+struct CmuxWorkspacePresetDefinition: Codable, Sendable {
+    static let currentSchema = "cmux.workspacePreset.v1"
+
+    var schema: String
+    var name: String
+    var workspace: CmuxWorkspaceDefinition
+
+    init(
+        schema: String = Self.currentSchema,
+        name: String,
+        workspace: CmuxWorkspaceDefinition
+    ) {
+        self.schema = schema
+        self.name = name
+        self.workspace = workspace
+    }
+}
