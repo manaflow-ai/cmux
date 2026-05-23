@@ -795,8 +795,12 @@ final class CmuxSettingsFileStore {
             bindings[key] = rawValue
         }
 
+        let hasSearchAllPanelsBinding = bindings["searchAllPanels"] != nil
         for (rawAction, rawBinding) in bindings {
-            guard let action = KeyboardShortcutSettings.Action(rawValue: rawAction) else {
+            if rawAction == "globalSearch", hasSearchAllPanelsBinding {
+                continue
+            }
+            guard let action = shortcutAction(for: rawAction) else {
                 NSLog("[CmuxSettingsFileStore] ignoring unknown shortcut action '%@' in %@", rawAction, sourcePath)
                 continue
             }
@@ -810,6 +814,13 @@ final class CmuxSettingsFileStore {
             }
             snapshot.shortcuts[action] = shortcut
         }
+    }
+
+    private func shortcutAction(for rawAction: String) -> KeyboardShortcutSettings.Action? {
+        if rawAction == "globalSearch" {
+            return .searchAllPanels
+        }
+        return KeyboardShortcutSettings.Action(rawValue: rawAction)
     }
 
     private func parseShortcutBindingValue(

@@ -31,12 +31,6 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Show/hide all cmux windows", ja: "すべてのcmuxウインドウを表示/非表示" },
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
       },
-      {
-        id: "globalSearch",
-        combos: [["⌥", "⌘", "F"]],
-        description: { en: "Global search", ja: "グローバル検索" },
-        note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
-      },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },
       {
         id: "commandPaletteNext",
@@ -173,7 +167,7 @@ export const shortcutCategories: ShortcutCategory[] = [
     titleKey: "find",
     shortcuts: [
       { id: "find", combos: [["⌘", "F"]], description: { en: "Find", ja: "検索" } },
-      { id: "findInDirectory", combos: [["⌘", "⇧", "F"]], description: { en: "Find in directory", ja: "ディレクトリ内を検索" } },
+      { id: "searchAllPanels", combos: [["⌘", "⇧", "F"]], description: { en: "Search all panels", ja: "すべてのパネルを検索" } },
       { id: "findNext", combos: [["⌘", "G"]], description: { en: "Find next", ja: "次を検索" } },
       { id: "findPrevious", combos: [["⌥", "⌘", "G"]], description: { en: "Find previous", ja: "前を検索" } },
       { id: "hideFind", combos: [["⌥", "⌘", "⇧", "F"]], description: { en: "Hide find bar", ja: "検索バーを隠す" } },

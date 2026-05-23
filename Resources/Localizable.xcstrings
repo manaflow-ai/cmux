@@ -43960,6 +43960,23 @@
         }
       }
     },
+    "menu.find.searchAllPanels": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search All…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて検索…"
+          }
+        }
+      }
+    },
     "menu.find.findPrevious": {
       "extractionState": "manual",
       "localizations": {
@@ -112288,20 +112305,6 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Process" } },
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
-      }
-    },
-    "shortcut.globalSearch.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Global Search" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グローバル検索" } }
-      }
-    },
-    "statusMenu.searchAllWindows": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Search All Windows..." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウを検索..." } }
       }
     },
     "globalSearch.palette.placeholder": {

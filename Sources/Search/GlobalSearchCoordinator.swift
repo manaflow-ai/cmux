@@ -18,7 +18,6 @@ final class GlobalSearchCoordinator {
             self?.cancelPanelPurge(forPanelID: panelID)
         }
     )
-    private lazy var popover = MenubarSearchPopover(coordinator: self)
 
     private init() {}
 
@@ -42,18 +41,6 @@ final class GlobalSearchCoordinator {
         }
     }
 
-    func togglePalette(anchor: NSStatusBarButton, onDismiss: (() -> Void)? = nil) {
-        popover.toggle(relativeTo: anchor, onDismiss: onDismiss)
-    }
-
-    func dismissPalette() {
-        popover.dismiss()
-    }
-
-    func isPaletteVisible() -> Bool {
-        popover.isShown
-    }
-
     func search(query: String) async -> [SearchIndexHit] {
         guard let index = await ensureIndex() else { return [] }
         do {
@@ -75,7 +62,6 @@ final class GlobalSearchCoordinator {
     }
 
     func activate(_ hit: SearchIndexHit, query: String) {
-        popover.dismiss()
         AppDelegate.shared?.openGlobalSearchHit(hit, query: query)
     }
 

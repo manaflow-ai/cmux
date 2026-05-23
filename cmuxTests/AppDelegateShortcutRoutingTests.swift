@@ -4844,7 +4844,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 14
             ),
             (
-                .findInDirectory,
+                .searchAllPanels,
                 [.command, .shift],
                 "f",
                 3
@@ -4884,11 +4884,120 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testCommandShiftFOpensRightSidebarGlobalSearch() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let tabManager = TabManager()
+        let fileExplorerState = FileExplorerState()
+        fileExplorerState.setVisible(false)
+        fileExplorerState.mode = .files
+
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: SidebarState(isVisible: true),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: fileExplorerState
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command, .shift],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+F shortcut event")
+            return
+        }
+
+        #if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(fileExplorerState.isVisible)
+        XCTAssertEqual(fileExplorerState.mode, .search)
+        #else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        #endif
+    }
+
+    func testExplicitLegacyFindInDirectoryCommandShiftFWinsOverSearchAllPanelsDefault() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let tabManager = TabManager()
+        let fileExplorerState = FileExplorerState()
+        fileExplorerState.setVisible(false)
+        fileExplorerState.mode = .files
+
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: SidebarState(isVisible: true),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: fileExplorerState
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command, .shift],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+F shortcut event")
+            return
+        }
+
+        let legacyFindShortcut = StoredShortcut(key: "f", command: true, shift: true, option: false, control: false)
+        withTemporaryShortcut(action: .findInDirectory, shortcut: legacyFindShortcut) {
+            #if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(fileExplorerState.isVisible)
+            XCTAssertEqual(fileExplorerState.mode, .find)
+            #else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            #endif
+        }
+    }
+
     func testBrowserFindCommandPreflightConsultsConfiguredFindFamilyShortcuts() {
         #if DEBUG
         let cases: [(action: KeyboardShortcutSettings.Action, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
             (.find, [.command], "f", 3),
-            (.findInDirectory, [.command, .shift], "f", 3),
+            (.searchAllPanels, [.command, .shift], "f", 3),
             (.findNext, [.command], "g", 5),
             (.findPrevious, [.command, .option], "g", 5),
             (.hideFind, [.command, .option, .shift], "f", 3),
@@ -5398,38 +5507,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(menuProbe.callCount, 0, "Cmd+D must not keep splitting after splitRight is remapped")
     }
 
-    func testCurrentGlobalSearchShortcutIsNotSuppressedAsStaleMenuShortcut() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        guard let event = makeKeyDownEvent(
-            key: "d",
-            modifiers: [.command],
-            keyCode: 2,
-            windowNumber: 0
-        ) else {
-            XCTFail("Failed to construct Cmd+D event")
-            return
-        }
-
-        let remappedGlobalSearch = StoredShortcut(
-            key: "d",
-            command: true,
-            shift: false,
-            option: false,
-            control: false
-        )
-
-        withTemporaryShortcut(action: .globalSearch, shortcut: remappedGlobalSearch) {
-            XCTAssertFalse(
-                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
-                "Current globalSearch remaps must not be treated as stale menu shortcuts"
-            )
-        }
-    }
-
     func testApplicationSendEventSuppressesRemappedCmdDStaleMenuShortcut() {
         let previousMainMenu = NSApp.mainMenu
         let probeWindow = NSWindow(
@@ -5486,6 +5563,65 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         XCTAssertEqual(menuProbe.callCount, 0, "App-level Cmd+D dispatch must not fire a stale split menu item after remap")
+    }
+
+    func testRemappedSearchAllPanelsDefaultIsNotSuppressedAsStaleMenuShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let focusableView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+
+        defer {
+            probeWindow.orderOut(nil)
+        }
+
+        probeWindow.contentView = focusableView
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(focusableView), "Expected probe view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command, .shift],
+            keyCode: 3,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+F event")
+            return
+        }
+
+        let cases: [(name: String, shortcut: StoredShortcut)] = [
+            (
+                "remapped",
+                StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            ),
+            ("unbound", .unbound),
+        ]
+
+        for testCase in cases {
+            withTemporaryShortcut(action: .searchAllPanels, shortcut: testCase.shortcut) {
+                #if DEBUG
+                XCTAssertFalse(
+                    appDelegate.debugHandleCustomShortcut(event: event),
+                    "\(testCase.name) searchAllPanels should not handle its old default shortcut"
+                )
+                #else
+                XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                #endif
+                XCTAssertFalse(
+                    appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                    "\(testCase.name) searchAllPanels has no menu item, so its old default must stay available to responders"
+                )
+            }
+        }
     }
 
     func testApplicationSendEventRoutesCmdDMenuEquivalentToActiveShortcutRecorder() {

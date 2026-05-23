@@ -12,10 +12,11 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.legacyGlobalSearchDefaultsKey)
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
             primaryPath: FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-global-search-shortcuts-\(UUID().uuidString).json")
+                .appendingPathComponent("cmux-search-all-panels-shortcuts-\(UUID().uuidString).json")
                 .path,
             fallbackPath: nil,
             additionalFallbackPaths: [],
@@ -26,50 +27,60 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
 
     override func tearDown() {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.legacyGlobalSearchDefaultsKey)
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }
 
-    func testGlobalSearchDefaultShortcutIsRemappableAndSystemWideSafe() {
-        let defaultShortcut = KeyboardShortcutSettings.shortcut(for: .globalSearch)
+    func testSearchAllPanelsDefaultShortcutIsRightSidebarCommandShiftF() {
+        let defaultShortcut = KeyboardShortcutSettings.shortcut(for: .searchAllPanels)
 
         XCTAssertEqual(
             defaultShortcut,
-            StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
+            StoredShortcut(key: "f", command: true, shift: true, option: false, control: false)
         )
-        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.globalSearch))
-        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.globalSearch))
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .sendFeedback), .unbound)
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.searchAllPanels))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.searchAllPanels))
+        XCTAssertFalse(KeyboardShortcutSettings.Action.allCases.map(\.rawValue).contains("globalSearch"))
         XCTAssertEqual(
-            KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(defaultShortcut),
+            KeyboardShortcutSettings.Action.searchAllPanels.normalizedRecordedShortcutResult(defaultShortcut),
             .accepted(defaultShortcut)
         )
     }
 
-    func testGlobalSearchRejectsBareSystemWideShortcut() {
-        let bareShortcut = StoredShortcut(key: "f", command: false, shift: false, option: false, control: false)
+    func testSearchAllPanelsDefaultDoesNotShadowExplicitLegacyFindInDirectoryShortcut() {
+        let legacyFindShortcut = StoredShortcut(key: "f", command: true, shift: true, option: false, control: false)
+        KeyboardShortcutSettings.setShortcut(legacyFindShortcut, for: .findInDirectory)
 
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(bareShortcut),
-            .rejected(.systemWideHotkeyRequiresModifier)
-        )
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .findInDirectory), legacyFindShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .searchAllPanels), .unbound)
+
+        KeyboardShortcutSettings.setShortcut(legacyFindShortcut, for: .searchAllPanels)
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .searchAllPanels), legacyFindShortcut)
     }
 
-    func testGlobalSearchRejectsConfiguredShowHideHotkeyConflict() {
-        let reservedShortcut = StoredShortcut(key: "g", command: true, shift: false, option: true, control: true)
+    func testLegacyGlobalSearchUserDefaultsShortcutMigratesToSearchAllPanels() throws {
+        let legacyShortcut = StoredShortcut(key: "k", command: true, shift: true, option: false, control: true)
+        let legacyData = try JSONEncoder().encode(legacyShortcut)
+        UserDefaults.standard.set(legacyData, forKey: KeyboardShortcutSettings.legacyGlobalSearchDefaultsKey)
 
-        KeyboardShortcutSettings.setShortcut(.unbound, for: .globalSearch)
-        SystemWideHotkeySettings.setShortcut(reservedShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .searchAllPanels), legacyShortcut)
 
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(reservedShortcut),
-            .rejected(.reservedBySystem)
-        )
+        let newShortcut = StoredShortcut(key: "j", command: true, shift: true, option: false, control: true)
+        KeyboardShortcutSettings.setShortcut(newShortcut, for: .searchAllPanels)
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .searchAllPanels), newShortcut)
+
+        KeyboardShortcutSettings.resetShortcut(for: .searchAllPanels)
+
+        XCTAssertNil(UserDefaults.standard.object(forKey: KeyboardShortcutSettings.legacyGlobalSearchDefaultsKey))
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .searchAllPanels), KeyboardShortcutSettings.Action.searchAllPanels.defaultShortcut)
     }
 
-    func testSettingsFileStoreParsesGlobalSearchShortcut() throws {
+    func testSettingsFileStoreParsesSearchAllPanelsShortcut() throws {
         let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-global-search-settings-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-search-all-panels-settings-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -77,7 +88,7 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
         try """
         {
           "shortcuts": {
-            "globalSearch": "cmd+ctrl+g"
+            "searchAllPanels": "cmd+ctrl+g"
           }
         }
         """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
@@ -89,14 +100,14 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            store.override(for: .globalSearch),
+            store.override(for: .searchAllPanels),
             StoredShortcut(key: "g", command: true, shift: false, option: false, control: true)
         )
     }
 
-    func testSettingsFileStoreRejectsGlobalSearchChordBinding() throws {
+    func testSettingsFileStoreParsesLegacyGlobalSearchShortcutAsSearchAllPanels() throws {
         let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-global-search-invalid-settings-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-legacy-global-search-settings-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -104,7 +115,7 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
         try """
         {
           "shortcuts": {
-            "globalSearch": ["cmd+k", "f"]
+            "globalSearch": "cmd+ctrl+h"
           }
         }
         """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
@@ -115,6 +126,9 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertNil(store.override(for: .globalSearch))
+        XCTAssertEqual(
+            store.override(for: .searchAllPanels),
+            StoredShortcut(key: "h", command: true, shift: false, option: false, control: true)
+        )
     }
 }

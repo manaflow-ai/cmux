@@ -210,7 +210,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 | Shortcut | Action |
 |----------|--------|
 | ⌘ F | Find |
-| ⌘ ⇧ F | Find in directory |
+| ⌘ ⇧ F | Search all panels |
 | ⌘ G / ⌥ ⌘ G | Find next / previous |
 | ⌥ ⌘ ⇧ F | Hide find bar |
 | ⌘ E | Use selection for find |

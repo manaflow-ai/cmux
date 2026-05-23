@@ -6,16 +6,17 @@ extension KeyboardShortcutSettings {
         shortcutLookupObserver?(action)
         #endif
 
-        if let managedShortcut = settingsFileStore.override(for: action) {
-            return managedShortcut.isUnbound ? nil : managedShortcut
+        if let explicitShortcut = explicitShortcutOverride(for: action) {
+            return explicitShortcut.isUnbound ? nil : explicitShortcut
         }
 
-        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            let defaultShortcut = action.defaultShortcut
-            return defaultShortcut.isUnbound ? nil : defaultShortcut
+        if action == .searchAllPanels,
+           shouldSuppressSearchAllPanelsDefaultForExplicitFindInDirectory() {
+            return nil
         }
-        return shortcut.isUnbound ? nil : shortcut
+
+        let defaultShortcut = action.defaultShortcut
+        return defaultShortcut.isUnbound ? nil : defaultShortcut
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {
@@ -42,4 +43,38 @@ extension KeyboardShortcutSettings {
         return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in cmux.json")
     }
 
+    private static func explicitShortcutOverride(for action: Action) -> StoredShortcut? {
+        if let managedShortcut = settingsFileStore.override(for: action) {
+            return managedShortcut
+        }
+
+        if let shortcut = userDefaultsShortcut(forKey: action.defaultsKey) {
+            return shortcut
+        }
+
+        if action == .searchAllPanels,
+           let shortcut = userDefaultsShortcut(forKey: legacyGlobalSearchDefaultsKey) {
+            return shortcut
+        }
+
+        return nil
+    }
+
+    private static func userDefaultsShortcut(forKey key: String) -> StoredShortcut? {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return nil
+        }
+        return shortcut
+    }
+
+    private static func shouldSuppressSearchAllPanelsDefaultForExplicitFindInDirectory() -> Bool {
+        guard explicitShortcutOverride(for: .searchAllPanels) == nil,
+              let findShortcut = explicitShortcutOverride(for: .findInDirectory),
+              !findShortcut.isUnbound else {
+            return false
+        }
+
+        return findShortcut.configIdentifier == Action.searchAllPanels.defaultShortcut.configIdentifier
+    }
 }

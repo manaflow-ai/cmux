@@ -770,6 +770,7 @@
               "openSettings",
               "reloadConfiguration",
               "showHideAllWindows",
+              "searchAllPanels",
               "globalSearch",
               "newWindow",
               "closeWindow",

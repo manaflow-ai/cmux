@@ -704,7 +704,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
-    private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
     private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
@@ -7444,7 +7443,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func setupMenuBarExtra() {
         guard menuBarExtraController == nil else { return }
-        removeTransientGlobalSearchMenuBarExtraController()
         menuBarExtraController = makeMenuBarExtraController()
     }
 
@@ -7452,9 +7450,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let store = TerminalNotificationStore.shared
         return MenuBarExtraController(
             notificationStore: store,
-            onShowGlobalSearch: { button, onDismiss in
-                GlobalSearchCoordinator.shared.togglePalette(anchor: button, onDismiss: onDismiss)
-            },
             onShowMainWindow: { [weak self] in
                 self?.showMainWindowFromMenuBar()
             },
@@ -7486,72 +7481,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    func toggleGlobalSearchPaletteFromGlobalHotkey() {
-        if focusGlobalSearchInActiveMainWindow(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow) {
-            return
-        }
-
-        if menuBarExtraController == nil,
-           MenuBarExtraSettings.shouldInstallMenuBarExtra() {
-            setupMenuBarExtra()
-        }
-
-        if let menuBarExtraController,
-           menuBarExtraController.toggleGlobalSearchPalette() {
-            return
-        }
-
-        if toggleGlobalSearchPaletteFromTransientMenuBarExtra() {
-            return
-        }
-
-        NSSound.beep()
-    }
-
-    private func toggleGlobalSearchPaletteFromTransientMenuBarExtra() -> Bool {
-        if let controller = transientGlobalSearchMenuBarExtraController {
-            if controller.toggleGlobalSearchPalette(
-                onDismiss: transientGlobalSearchDismissalHandler(for: controller)
-            ) {
-                return true
-            }
-            controller.removeFromMenuBar()
-            transientGlobalSearchMenuBarExtraController = nil
-        }
-
-        let controller = makeMenuBarExtraController()
-        transientGlobalSearchMenuBarExtraController = controller
-
-        let onDismiss = transientGlobalSearchDismissalHandler(for: controller)
-
-        guard controller.toggleGlobalSearchPalette(onDismiss: onDismiss) else {
-            controller.removeFromMenuBar()
-            transientGlobalSearchMenuBarExtraController = nil
-            return false
-        }
-
-        return true
-    }
-
-    private func removeTransientGlobalSearchMenuBarExtraController() {
-        transientGlobalSearchMenuBarExtraController?.removeFromMenuBar()
-        transientGlobalSearchMenuBarExtraController = nil
-    }
-
-    private func transientGlobalSearchDismissalHandler(
-        for controller: MenuBarExtraController
-    ) -> () -> Void {
-        return { [weak self, weak controller] in
-            guard let self,
-                  let controller,
-                  self.transientGlobalSearchMenuBarExtraController === controller else {
-                return
-            }
-            controller.removeFromMenuBar()
-            self.transientGlobalSearchMenuBarExtraController = nil
-        }
-    }
-
     private func installMenuBarVisibilityObserver() {
         guard menuBarVisibilityObserver == nil else { return }
         menuBarVisibilityObserver = NotificationCenter.default.addObserver(
@@ -7576,7 +7505,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func syncMenuBarExtraVisibility(defaults: UserDefaults = .standard) {
         let shouldInstall = MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults)
-        let previousShouldInstall = lastMenuBarExtraShouldInstall
         lastMenuBarExtraShouldInstall = shouldInstall
 
         if shouldInstall {
@@ -7584,12 +7512,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        let hadPersistentController = menuBarExtraController != nil
         menuBarExtraController?.removeFromMenuBar()
         menuBarExtraController = nil
-        if previousShouldInstall == true || hadPersistentController {
-            removeTransientGlobalSearchMenuBarExtraController()
-        }
     }
 
     @MainActor
@@ -10830,7 +10754,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // here would swallow the first stroke and leave the second one
             // orphaned, breaking that keystroke for the focused terminal/browser
             // input.
-            guard action != .showHideAllWindows && action != .globalSearch else { return false }
+            guard action != .showHideAllWindows else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
     }
@@ -12044,6 +11968,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return shortcutEventBrowserPanel(event)?.resetZoom() ?? false
         }
 
+        if matchConfiguredShortcut(event: event, action: .searchAllPanels) {
+            return focusGlobalSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
+        }
+
         if matchConfiguredShortcut(event: event, action: .findInDirectory) {
             return focusFileSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
         }
@@ -12799,6 +12727,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shortcutWindow = resolvedShortcutEventWindow(event)
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
         }
+        if matchConfiguredShortcut(event: event, action: .searchAllPanels) {
+            return focusGlobalSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
+        }
         if matchConfiguredShortcut(event: event, action: .findInDirectory) {
             return focusFileSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
         }
@@ -13231,7 +13162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .showHideAllWindows && action != .globalSearch
+        action != .showHideAllWindows && action != .searchAllPanels
     }
 
     private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {

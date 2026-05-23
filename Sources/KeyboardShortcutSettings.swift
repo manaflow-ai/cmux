@@ -5,6 +5,8 @@ import SwiftUI
 
 /// Stores customizable keyboard shortcuts (definitions + persistence).
 enum KeyboardShortcutSettings {
+    static let legacyGlobalSearchDefaultsKey = "shortcut.globalSearch"
+
     static let didChangeNotification = Notification.Name("cmux.keyboardShortcutSettingsDidChange")
     static let actionUserInfoKey = "action"
     static let settingsFileDisplayPath = "~/.config/cmux/cmux.json"
@@ -29,6 +31,7 @@ enum KeyboardShortcutSettings {
         let colocatedSidebarActions = [
             .focusRightSidebar,
             .toggleRightSidebar,
+            .searchAllPanels,
             .findInDirectory,
         ].filter(actions.contains)
         let actionSet = Set(colocatedSidebarActions)
@@ -62,7 +65,7 @@ enum KeyboardShortcutSettings {
         case openSettings
         case reloadConfiguration
         case showHideAllWindows
-        case globalSearch
+        case searchAllPanels
         case newWindow
         case closeWindow
         case toggleFullScreen
@@ -148,7 +151,7 @@ enum KeyboardShortcutSettings {
             case .openSettings: return String(localized: "menu.app.settings", defaultValue: "Settings…")
             case .reloadConfiguration: return String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration")
             case .showHideAllWindows: return String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows")
-            case .globalSearch: return String(localized: "shortcut.globalSearch.label", defaultValue: "Global Search")
+            case .searchAllPanels: return String(localized: "menu.find.searchAllPanels", defaultValue: "Search All…")
             case .newWindow: return String(localized: "shortcut.newWindow.label", defaultValue: "New Window")
             case .closeWindow: return String(localized: "shortcut.closeWindow.label", defaultValue: "Close Window")
             case .toggleFullScreen: return String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")
@@ -249,8 +252,8 @@ enum KeyboardShortcutSettings {
                 // does not collide with the standard cancel keystroke that
                 // NSAlert/NSOpenPanel use.
                 return StoredShortcut(key: ".", command: true, shift: false, option: true, control: true)
-            case .globalSearch:
-                return StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
+            case .searchAllPanels:
+                return StoredShortcut(key: "f", command: true, shift: true, option: false, control: false)
             case .newWindow:
                 return StoredShortcut(key: "n", command: true, shift: true, option: false, control: false)
             case .closeWindow:
@@ -369,7 +372,7 @@ enum KeyboardShortcutSettings {
             case .find:
                 return StoredShortcut(key: "f", command: true, shift: false, option: false, control: false)
             case .findInDirectory:
-                return StoredShortcut(key: "f", command: true, shift: true, option: false, control: false)
+                return .unbound
             case .findNext:
                 return StoredShortcut(key: "g", command: true, shift: false, option: false, control: false)
             case .findPrevious:
@@ -457,7 +460,7 @@ enum KeyboardShortcutSettings {
                 return normalized
             }
 
-            return usesNumberedDigitMatching || self == .showHideAllWindows || self == .globalSearch ? nil : shortcut
+            return usesNumberedDigitMatching || self == .showHideAllWindows ? nil : shortcut
         }
 
         func resolvedRecordedShortcutIgnoringConflicts(_ shortcut: StoredShortcut, checkingSystemWideConflicts: Bool = true) -> RecordedShortcutResolution {
@@ -466,7 +469,7 @@ enum KeyboardShortcutSettings {
             }
 
             switch self {
-            case .showHideAllWindows, .globalSearch:
+            case .showHideAllWindows:
                 return KeyboardShortcutSettings.normalizedSystemWideHotkeyShortcutResult(
                     shortcut,
                     for: self,
@@ -730,7 +733,7 @@ enum KeyboardShortcutSettings {
         case let .accepted(normalizedShortcut):
             return normalizedShortcut
         case .rejected:
-            if action.usesNumberedDigitMatching || action == .showHideAllWindows || action == .globalSearch {
+            if action.usesNumberedDigitMatching || action == .showHideAllWindows {
                 return nil
             }
             return shortcut
@@ -801,6 +804,9 @@ enum KeyboardShortcutSettings {
 
     static func resetShortcut(for action: Action) {
         UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+        if action == .searchAllPanels {
+            UserDefaults.standard.removeObject(forKey: legacyGlobalSearchDefaultsKey)
+        }
         postDidChangeNotification(action: action)
     }
 
@@ -810,6 +816,7 @@ enum KeyboardShortcutSettings {
         for action in Action.allCases {
             UserDefaults.standard.removeObject(forKey: action.defaultsKey)
         }
+        UserDefaults.standard.removeObject(forKey: legacyGlobalSearchDefaultsKey)
         postDidChangeNotification()
     }
 
@@ -956,11 +963,9 @@ final class SystemWideHotkeyController {
     private static let hotKeySignature: OSType = 0x434D484B // "CMHK"
     private static let hotKeyIDs: [KeyboardShortcutSettings.Action: UInt32] = [
         .showHideAllWindows: 1,
-        .globalSearch: 2,
     ]
     private static let systemWideActions: [KeyboardShortcutSettings.Action] = [
         .showHideAllWindows,
-        .globalSearch,
     ]
 
     private var hotKeyRefs: [KeyboardShortcutSettings.Action: EventHotKeyRef] = [:]
@@ -1106,8 +1111,6 @@ final class SystemWideHotkeyController {
         switch action {
         case .showHideAllWindows:
             return SystemWideHotkeySettings.isEnabled()
-        case .globalSearch:
-            return true
         default:
             assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
             return false
@@ -1197,8 +1200,6 @@ final class SystemWideHotkeyController {
         switch action {
         case .showHideAllWindows:
             AppDelegate.shared?.toggleApplicationVisibilityFromGlobalHotkey()
-        case .globalSearch:
-            AppDelegate.shared?.toggleGlobalSearchPaletteFromGlobalHotkey()
         default:
             assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
             break

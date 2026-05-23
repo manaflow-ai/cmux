@@ -354,12 +354,14 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(focusRightSidebar.option)
         XCTAssertFalse(focusRightSidebar.control)
 
-        let findInDirectory = KeyboardShortcutSettings.Action.findInDirectory.defaultShortcut
-        XCTAssertEqual(findInDirectory.key, "f")
-        XCTAssertTrue(findInDirectory.command)
-        XCTAssertTrue(findInDirectory.shift)
-        XCTAssertFalse(findInDirectory.option)
-        XCTAssertFalse(findInDirectory.control)
+        let searchAllPanels = KeyboardShortcutSettings.Action.searchAllPanels.defaultShortcut
+        XCTAssertEqual(searchAllPanels.key, "f")
+        XCTAssertTrue(searchAllPanels.command)
+        XCTAssertTrue(searchAllPanels.shift)
+        XCTAssertFalse(searchAllPanels.option)
+        XCTAssertFalse(searchAllPanels.control)
+
+        XCTAssertEqual(KeyboardShortcutSettings.Action.findInDirectory.defaultShortcut, .unbound)
     }
 
     func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() {
@@ -389,6 +391,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
 
         XCTAssertTrue(visibleActions.contains(.toggleRightSidebar))
         XCTAssertTrue(visibleActions.contains(.focusRightSidebar))
+        XCTAssertTrue(visibleActions.contains(.searchAllPanels))
         XCTAssertTrue(visibleActions.contains(.findInDirectory))
         XCTAssertTrue(visibleActions.contains(.markOldestUnreadAndJumpNext))
         XCTAssertFalse(visibleActions.contains(.showHideAllWindows))
@@ -411,6 +414,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         let expectedActions: [KeyboardShortcutSettings.Action] = [
             .focusRightSidebar,
             .toggleRightSidebar,
+            .searchAllPanels,
             .findInDirectory,
         ]
 
