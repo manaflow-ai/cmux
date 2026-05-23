@@ -322,6 +322,7 @@
         "copyOnSelect": {
           "type": "boolean",
           "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
           "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
         },
         "autoResumeAgentSessions": {
