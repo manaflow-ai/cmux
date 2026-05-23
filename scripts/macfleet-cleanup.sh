@@ -55,17 +55,17 @@ lock_pid() {
   awk -F= '$1 == "pid" { print $2; exit }' "$lock" 2>/dev/null || true
 }
 
-pid_file_has_live_pid() {
+pid_file_has_live_macfleet_pid() {
   local file="$1"
   local pid
   [ -f "$file" ] || return 1
   while IFS= read -r pid; do
-    live_pid "$pid" && return 0
+    live_macfleet_run_pid "$pid" && return 0
   done < "$file"
   return 1
 }
 
-pgid_file_has_live_member() {
+pgid_file_has_live_macfleet_member() {
   local file="$1"
   local pgid
   [ -f "$file" ] || return 1
@@ -75,7 +75,17 @@ pgid_file_has_live_member() {
         continue
         ;;
     esac
-    ps -axo pgid= | awk -v pgid="$pgid" '$1 == pgid { found = 1; exit } END { exit found ? 0 : 1 }' && return 0
+    ps -axo pid=,pgid=,command= | awk -v pgid="$pgid" '
+      $2 == pgid {
+        command = $0
+        sub(/^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]*/, "", command)
+        if (command ~ /(macfleet-ci-run|run-ci)\.sh/ && command !~ /(macfleet-ci-run|run-ci)\.sh.* cleanup([[:space:]]|$)/) {
+          found = 1
+          exit
+        }
+      }
+      END { exit found ? 0 : 1 }
+    ' && return 0
   done < "$file"
   return 1
 }
@@ -90,8 +100,8 @@ has_active_macfleet_runs() {
         pid="$(lock_pid "$run_dir/run.lock")"
         live_macfleet_run_pid "$pid" && return 0
       fi
-      pid_file_has_live_pid "$run_dir/pids" && return 0
-      pgid_file_has_live_member "$run_dir/pgids" && return 0
+      pid_file_has_live_macfleet_pid "$run_dir/pids" && return 0
+      pgid_file_has_live_macfleet_member "$run_dir/pgids" && return 0
     done
   done
 
