@@ -328,6 +328,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "warnBeforeClosingTabXButton",
+                settingsKey: "app.warnBeforeClosingTabXButton",
+                title: {
+                    String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before X-Button Tab Close")
+                },
+                sectionTitle: app,
+                keywords: ["app.warnBeforeClosingTabXButton", "warn", "close", "tab", "confirmation", "x", "button"],
+                defaultValue: CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton,
+                defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "renameSelectsExistingName",
                 settingsKey: "app.renameSelectsExistingName",
                 title: {

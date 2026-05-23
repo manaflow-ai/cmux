@@ -4727,7 +4727,9 @@ nonisolated enum BuildFlavor: String, Sendable {
 
 enum CloseTabWarningSettings {
     static let warnBeforeClosingTabKey = "warnBeforeClosingTabShortcut"
+    static let warnBeforeClosingTabXButtonKey = "warnBeforeClosingTabXButton"
     static let defaultWarnBeforeClosingTab = true
+    static let defaultWarnBeforeClosingTabXButton = false
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: warnBeforeClosingTabKey) == nil {
@@ -4736,9 +4738,21 @@ enum CloseTabWarningSettings {
         return defaults.bool(forKey: warnBeforeClosingTabKey)
     }
 
+    static func isXButtonWarningEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: warnBeforeClosingTabXButtonKey) == nil {
+            return defaultWarnBeforeClosingTabXButton
+        }
+        return defaults.bool(forKey: warnBeforeClosingTabXButtonKey)
+    }
+
     static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
         defaults.set(isEnabled, forKey: warnBeforeClosingTabKey)
     }
+}
+
+enum CloseTabConfirmationTrigger {
+    case shortcut
+    case tabCloseButton
 }
 
 enum CloseTabConfirmationPolicy {
@@ -4749,20 +4763,29 @@ enum CloseTabConfirmationPolicy {
 
     static func decision(
         requiresConfirmation: Bool,
+        trigger: CloseTabConfirmationTrigger = .shortcut,
         defaults: UserDefaults = .standard
     ) -> Decision {
-        guard requiresConfirmation,
-              CloseTabWarningSettings.isEnabled(defaults: defaults) else {
+        guard requiresConfirmation else {
             return .closeImmediately
         }
+        let warningsEnabled: Bool
+        switch trigger {
+        case .shortcut:
+            warningsEnabled = CloseTabWarningSettings.isEnabled(defaults: defaults)
+        case .tabCloseButton:
+            warningsEnabled = CloseTabWarningSettings.isXButtonWarningEnabled(defaults: defaults)
+        }
+        guard warningsEnabled else { return .closeImmediately }
         return .confirmBeforeClosing
     }
 
     static func shouldConfirm(
         requiresConfirmation: Bool,
+        trigger: CloseTabConfirmationTrigger = .shortcut,
         defaults: UserDefaults = .standard
     ) -> Bool {
-        decision(requiresConfirmation: requiresConfirmation, defaults: defaults) == .confirmBeforeClosing
+        decision(requiresConfirmation: requiresConfirmation, trigger: trigger, defaults: defaults) == .confirmBeforeClosing
     }
 }
 
@@ -5201,6 +5224,8 @@ struct SettingsView: View {
     private var confirmQuitModeRaw = QuitWarningSettings.defaultConfirmQuitMode.rawValue
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabKey) private var warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
+    @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
+    private var warnBeforeClosingTabXButton = CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
@@ -6523,6 +6548,20 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .json("app.warnBeforeClosingTabXButton"),
+                            String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before X-Button Tab Close"),
+                            subtitle: warnBeforeClosingTabXButton
+                                ? String(localized: "settings.app.warnBeforeClosingTabXButton.subtitleOn", defaultValue: "Show the same confirmation before closing a tab with its X button.")
+                                : String(localized: "settings.app.warnBeforeClosingTabXButton.subtitleOff", defaultValue: "The tab X button closes tabs immediately.")
+                        ) {
+                            Toggle("", isOn: $warnBeforeClosingTabXButton)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("app.renameSelectsExistingName"),
                             String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"),
                             subtitle: commandPaletteRenameSelectAllOnFocus
@@ -7808,6 +7847,7 @@ struct SettingsView: View {
         confirmQuitModeRaw = QuitWarningSettings.defaultConfirmQuitMode.rawValue
         warnBeforeQuitShortcut = QuitWarningSettings.defaultConfirmQuitMode != .never
         warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
+        warnBeforeClosingTabXButton = CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue

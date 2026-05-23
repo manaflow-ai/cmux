@@ -73,6 +73,7 @@ extension CmuxSettingsFileStore {
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
                     "confirmQuit": QuitWarningSettings.defaultConfirmQuitMode.rawValue,
                     "warnBeforeClosingTab": CloseTabWarningSettings.defaultWarnBeforeClosingTab,
+                    "warnBeforeClosingTabXButton": CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
                     "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
                 ],

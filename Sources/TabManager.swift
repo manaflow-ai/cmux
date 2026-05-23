@@ -5872,13 +5872,24 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
+    func closeWorkspaceFromCloseTabGesture(
+        _ workspace: Workspace,
+        trigger: CloseTabConfirmationTrigger = .shortcut
+    ) -> Bool {
+        let source: CloseConfirmationSource
+        switch trigger {
+        case .shortcut:
+            source = .shortcutTabClose
+        case .tabCloseButton:
+            source = .tabCloseButton
+        }
+
         if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .tabClose) else { return false }
+            guard confirmPinnedWorkspaceClose(source: source) else { return false }
             closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
             return true
         }
-        closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
+        closeWorkspaceIfRunningProcess(workspace, source: source)
         return true
     }
 
@@ -5902,7 +5913,7 @@ class TabManager: ObservableObject {
         }
 
         let plan = closeWorkspacesPlan(for: workspaces)
-        if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
+        if shouldConfirmClose(requiresConfirmation: true, source: .shortcutTabClose) {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,
@@ -6043,7 +6054,8 @@ class TabManager: ObservableObject {
 
     private enum CloseConfirmationSource {
         case workspace
-        case tabClose
+        case shortcutTabClose
+        case tabCloseButton
     }
 
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
@@ -6161,8 +6173,10 @@ class TabManager: ObservableObject {
         switch source {
         case .workspace:
             return requiresConfirmation
-        case .tabClose:
-            return CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation)
+        case .shortcutTabClose:
+            return CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation, trigger: .shortcut)
+        case .tabCloseButton:
+            return CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation, trigger: .tabCloseButton)
         }
     }
 
@@ -6219,7 +6233,7 @@ class TabManager: ObservableObject {
         // closes the last surface.
         if closesWorkspaceOnLastSurfaceShortcut,
            let surfaceId = tab.surfaceIdFromPanelId(panelId) {
-            tab.markExplicitClose(surfaceId: surfaceId)
+            tab.markExplicitClose(surfaceId: surfaceId, trigger: .shortcut)
         }
         let closed = tab.closePanel(panelId)
 #if DEBUG

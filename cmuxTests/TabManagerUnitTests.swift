@@ -1280,6 +1280,30 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         )
     }
 
+    func testTabCloseButtonHonorsWarnBeforeClosingTabXButtonEnabledFromCmuxJSON() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTabXButton: true,
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
+        )
+    }
+
+    func testTabCloseButtonHonorsWarnBeforeClosingTabXButtonDisabledFromCmuxJSON() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTabXButton: false,
+            expectedPromptCount: 0,
+            expectedPanelClosed: true
+        )
+    }
+
+    func testTabCloseButtonWarnBeforeClosingTabXButtonDefaultsToDisabledWhenUnset() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTabXButton: nil,
+            expectedPromptCount: 0,
+            expectedPanelClosed: true
+        )
+    }
+
     func testRuntimeCloseSkipsConfirmationWhenShellReportsPromptIdle() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -1600,6 +1624,51 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
     }
 
+    private func assertTabCloseButtonConfirmation(
+        warnBeforeClosingTabXButton: Bool?,
+        expectedPromptCount: Int,
+        expectedPanelClosed: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try withCloseTabWarningConfig(
+            warnBeforeClosingTab: true,
+            warnBeforeClosingTabXButton: warnBeforeClosingTabXButton
+        ) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId,
+                  let initialPanelId = workspace.focusedPanelId,
+                  let initialSurfaceId = workspace.surfaceIdFromPanelId(initialPanelId),
+                  let initialTerminalPanel = workspace.terminalPanel(for: initialPanelId),
+                  workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+                XCTFail("Expected workspace with two terminal surfaces", file: file, line: line)
+                return
+            }
+            workspace.focusPanel(initialPanelId)
+            initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+
+            var promptCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return false
+            }
+
+            workspace.markExplicitClose(surfaceId: initialSurfaceId, trigger: .tabCloseButton)
+            _ = workspace.closePanel(initialPanelId)
+            drainMainQueue()
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertEqual(promptCount, expectedPromptCount, file: file, line: line)
+            if expectedPanelClosed {
+                XCTAssertNil(workspace.panels[initialPanelId], file: file, line: line)
+            } else {
+                XCTAssertNotNil(workspace.panels[initialPanelId], file: file, line: line)
+            }
+        }
+    }
+
     private func assertCloseCurrentPanelConfirmation(
         warnBeforeClosingTab: Bool?,
         expectedPromptCount: Int,
@@ -1685,11 +1754,25 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         _ warnBeforeClosingTab: Bool?,
         run: () throws -> Void
     ) throws {
+        try withCloseTabWarningConfig(
+            warnBeforeClosingTab: warnBeforeClosingTab,
+            warnBeforeClosingTabXButton: nil,
+            run: run
+        )
+    }
+
+    private func withCloseTabWarningConfig(
+        warnBeforeClosingTab: Bool?,
+        warnBeforeClosingTabXButton: Bool?,
+        run: () throws -> Void
+    ) throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let defaults = UserDefaults.standard
         let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
         let originalBackups = defaults.object(forKey: settingsFileBackupsDefaultsKey)
         defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
         defer {
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
@@ -1697,6 +1780,11 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
                 defaults.set(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
             } else {
                 defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+            }
+            if let originalWarnBeforeClosingTabXButton {
+                defaults.set(originalWarnBeforeClosingTabXButton, forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
+            } else {
+                defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
             }
             if let originalBackups {
                 defaults.set(originalBackups, forKey: settingsFileBackupsDefaultsKey)
@@ -1713,8 +1801,14 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
         let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        let settingLine = warnBeforeClosingTab.map { #"    "warnBeforeClosingTab": \#($0)"# } ?? ""
-        let appBody = settingLine.isEmpty ? "" : "\n\(settingLine)\n  "
+        var settingLines: [String] = []
+        if let warnBeforeClosingTab {
+            settingLines.append(#"    "warnBeforeClosingTab": \#(warnBeforeClosingTab)"#)
+        }
+        if let warnBeforeClosingTabXButton {
+            settingLines.append(#"    "warnBeforeClosingTabXButton": \#(warnBeforeClosingTabXButton)"#)
+        }
+        let appBody = settingLines.isEmpty ? "" : "\n\(settingLines.joined(separator: ",\n"))\n  "
         try """
         {
           "app": {\(appBody)}

@@ -9618,7 +9618,7 @@ final class Workspace: Identifiable, ObservableObject {
             self?.bonsplitTabMoveDestinations(for: tabId) ?? []
         }
         bonsplitController.onTabCloseRequest = { [weak self] tabId, _ in
-            self?.markExplicitClose(surfaceId: tabId)
+            self?.markExplicitClose(surfaceId: tabId, trigger: .tabCloseButton)
         }
         bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, _ in
             guard let self,
@@ -9763,11 +9763,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
     private var pendingCloseConfirmTabIds: Set<TabID> = []
 
-    /// Tab IDs whose next close attempt should be treated as an explicit
-    /// workspace-close gesture from the user (the tab-strip X button, or the Close Tab
-    /// shortcut when the shortcut preference is set to close the workspace on the last surface),
-    /// rather than an internal close/move flow.
-    private var explicitUserCloseTabIds: Set<TabID> = []
+    /// Tab IDs whose next close attempt should be treated as an explicit close gesture
+    /// from the user rather than an internal close/move flow, keyed by the source that
+    /// determines which confirmation preference applies.
+    private var explicitUserCloseTabSources: [TabID: CloseTabConfirmationTrigger] = [:]
 
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
@@ -9841,8 +9840,8 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceIdToPanelId[surfaceId]
     }
 
-    func markExplicitClose(surfaceId: TabID) {
-        explicitUserCloseTabIds.insert(surfaceId)
+    func markExplicitClose(surfaceId: TabID, trigger: CloseTabConfirmationTrigger = .tabCloseButton) {
+        explicitUserCloseTabSources[surfaceId] = trigger
     }
 
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
@@ -15985,7 +15984,9 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil
+        let explicitCloseTrigger = explicitUserCloseTabSources.removeValue(forKey: tab.id)
+        let explicitUserClose = explicitCloseTrigger != nil
+        let closeConfirmationTrigger = explicitCloseTrigger ?? .shortcut
 
         if forceCloseTabIds.contains(tab.id) {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
@@ -16010,7 +16011,7 @@ extension Workspace: BonsplitDelegate {
 
         if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            owningTabManager?.closeWorkspaceFromCloseTabGesture(self)
+            owningTabManager?.closeWorkspaceFromCloseTabGesture(self, trigger: closeConfirmationTrigger)
             return false
         }
 
@@ -16025,7 +16026,8 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         if CloseTabConfirmationPolicy.shouldConfirm(
-            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId)
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+            trigger: closeConfirmationTrigger
         ) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
