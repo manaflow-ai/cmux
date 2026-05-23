@@ -29,6 +29,51 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertTrue(response.contains("Unsupported agent lifecycle key"))
     }
 
+    @MainActor
+    func testSocketLifecycleAcceptsRegisteredCustomAgentKey() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-custom-lifecycle-\(UUID().uuidString)", isDirectory: true)
+        let configDirectory = root.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try """
+        {
+          "vault": {
+            "agents": [
+              {
+                "id": "local-agent",
+                "name": "Local Agent",
+                "detect": { "processName": "local-agent" },
+                "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
+                "resumeCommand": "local-agent --session {{sessionId}}",
+                "cwd": "preserve"
+              }
+            ]
+          }
+        }
+        """.write(to: configDirectory.appendingPathComponent("cmux.json"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            TerminalMutationBus.shared.drainForTesting()
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.panelDirectories[panelId] = root.path
+
+        let response = TerminalController.shared.handleSocketLine(
+            "set_agent_lifecycle local-agent idle --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+        )
+        XCTAssertEqual(response, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertEqual(workspace.agentLifecycleStatesByPanelId[panelId]?["local-agent"], .idle)
+    }
+
     func testSettingsDefaultToOptInAndNotifyOnChanges() throws {
         let suiteName = "cmux-agent-hibernation-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

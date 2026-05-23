@@ -25578,6 +25578,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return nil
             }
         }
+        func agentLifecycle(for notificationStatus: AgentHookNotificationStatus?) -> AgentHibernationLifecycleState? {
+            switch notificationStatus {
+            case .idle?:
+                return .idle
+            case .needsInput?, .error?:
+                return .needsInput
+            case nil:
+                return nil
+            }
+        }
         func hasNewerRunningSession(workspaceId: String, surfaceId: String) -> Bool {
             (try? store.hasRunningSession(
                 workspaceId: workspaceId,
@@ -26313,6 +26323,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
+                let lifecycle = agentLifecycle(for: summary.status)
                 try? store.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -26321,6 +26332,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand,
+                    agentLifecycle: lifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body,
                     lastNotificationStatus: summary.status,
@@ -26372,6 +26384,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             switch summary.status {
             case .needsInput?:
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .needsInput,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
                     def.displayName
@@ -26381,6 +26400,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             case .error?:
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .needsInput,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                     def.displayName
@@ -26390,6 +26416,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             case .idle?:
+                if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+                    setAgentLifecycle(
+                        client: client,
+                        key: def.statusKey,
+                        lifecycle: .idle,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                }
                 setIdleStatusUnlessNewerSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             case nil:
                 break

@@ -508,6 +508,63 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testGenericAgentNotificationUpdatesLifecycleForNeedsInput() throws {
+        let context = try makeClaudeHookContext(name: "codex-notification-lifecycle")
+        defer { context.cleanup() }
+
+        let sessionId = "notification-lifecycle-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        var state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        var record = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
+
+        let notificationStart = context.state.commands.count
+        let notification = runCodexHook(
+            context: context,
+            subcommand: "notification",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"permission approval required"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+
+        let notificationCommands = Array(context.state.commands.dropFirst(notificationStart))
+        XCTAssertTrue(
+            notificationCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle codex needsInput --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Notification requiring user input must correct the visible lifecycle, saw \(notificationCommands)"
+        )
+
+        state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        record = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
+    }
+
     func testCodexLegacyStopWithoutTurnIdPopsStoredTurnStack() throws {
         let context = try makeClaudeHookContext(name: "codex-legacy-stop-turn-stack")
         defer { context.cleanup() }

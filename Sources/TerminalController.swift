@@ -18696,9 +18696,6 @@ class TerminalController {
             return "ERROR: Usage: \(usage)"
         }
         let key = parsed.positional[0]
-        guard AgentHibernationLifecycleStatusKeys.isAllowed(key) else {
-            return "ERROR: Unsupported agent lifecycle key '\(key)'"
-        }
         let rawLifecycle = parsed.positional[1]
         guard let lifecycle = AgentHibernationLifecycleState.parseCLIValue(rawLifecycle) else {
             return "ERROR: Invalid agent lifecycle '\(parsed.positional[1])' — usage: \(usage)"
@@ -18711,6 +18708,13 @@ class TerminalController {
         if let error = panelResolution.error {
             return error
         }
+        guard isAllowedAgentLifecycleKey(
+            key,
+            target: target,
+            panelId: panelResolution.panelId
+        ) else {
+            return "ERROR: Unsupported agent lifecycle key '\(key)'"
+        }
         scheduleSidebarMutation(target: target) { _, tab in
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
                 return
@@ -18718,6 +18722,33 @@ class TerminalController {
             tab.setAgentLifecycle(key: key, panelId: panelResolution.panelId, lifecycle: lifecycle)
         }
         return "OK"
+    }
+
+    private func isAllowedAgentLifecycleKey(
+        _ key: String,
+        target: SidebarMutationTabTarget,
+        panelId: UUID?
+    ) -> Bool {
+        if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
+            return true
+        }
+        guard let tab = resolveSidebarMutationTab(target),
+              CmuxVaultAgentRegistration.isValidID(key) else {
+            return false
+        }
+        let registry = CmuxVaultAgentRegistry.load(
+            workingDirectory: agentLifecycleRegistryWorkingDirectory(tab: tab, panelId: panelId)
+        )
+        return registry.registration(id: key) != nil
+    }
+
+    private func agentLifecycleRegistryWorkingDirectory(tab: Tab, panelId: UUID?) -> String? {
+        let candidates = [
+            panelId.flatMap { tab.panelDirectories[$0] },
+            tab.focusedPanelId.flatMap { tab.panelDirectories[$0] },
+            tab.currentDirectory,
+        ]
+        return candidates.compactMap(normalizedOptionValue).first
     }
 
     private func agentHibernation(_ args: String) -> String {
