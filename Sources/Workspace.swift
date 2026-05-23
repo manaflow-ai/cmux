@@ -1519,7 +1519,7 @@ extension Workspace {
                 selected: isSelected ? true : nil,
                 focus: isFocused ? true : nil
             )
-        case .markdown, .filePreview:
+        case .markdown, .filePreview, .rightSidebarTool:
             return nil
         }
     }
