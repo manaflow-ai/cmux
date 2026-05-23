@@ -164,6 +164,84 @@
         "featureSocketApiDesc": "ការគ្រប់គ្រងដោយកម្មវិធីសម្រាប់បង្កើតផ្ទាំងនិងផ្ញើការបញ្ចូល",
         "featureGpuLabel": "បង្កើនល្បឿនដោយ GPU",
         "featureGpuDesc": "ដំណើរការដោយ libghostty សម្រាប់ការបង្ហាញរលូន"
+      },
+      "passkeyAuth": {
+        "title": "ការផ្ទៀងផ្ទាត់ Passkey ក្នុងកម្មវិធីរុករក cmux",
+        "summary": "កម្មវិធីរុករកដែលមានស្រាប់ក្នុង cmux គាំទ្រការផ្ទៀងផ្ទាត់ passkey ហើយអាចនាំចូល cookie ពីកម្មវិធីរុករកផ្សេងទៀតដោយប្រើ cmux browser import។",
+        "date": "ថ្ងៃទី 22 ខែឧសភា ឆ្នាំ 2026",
+        "p1": "កម្មវិធីរុករករបស់ cmux ឥឡូវគាំទ្រការផ្ទៀងផ្ទាត់ passkey។ លំហូរចូលប្រើដែលពឹងផ្អែកលើ passkey, WebAuthn, Touch ID ឬសោសុវត្ថិភាពផ្នែករឹង អាចបញ្ចប់នៅក្នុងផ្ទាំងកម្មវិធីរុករក cmux។",
+        "p2": "បើអ្នកប្រើកម្មវិធីរុករកផ្សេងសម្រាប់គេហទំព័រដូចគ្នា សូមនាំចូល cookie ដែលឆបគ្នាម្តងប៉ុណ្ណោះ៖",
+        "p3": "ត្រូវការ cmux v0.64+។ វាជួយនៅពេល Claude Code, Codex, OpenCode, Gemini CLI ឬ agent ផ្សេងទៀតត្រូវការសាកល្បងកម្មវិធី local ដែលបានចូលប្រើ ដោយមិនចាកចេញពី cmux។"
+      },
+      "taskManager": {
+        "title": "Task Manager ក្នុង cmux",
+        "summary": "ប្រើ cmux top ឬ Task Manager ពី command palette ដើម្បីមើលការប្រើ CPU និង RAM របស់ coding agents របស់អ្នក។",
+        "date": "ថ្ងៃទី 22 ខែឧសភា ឆ្នាំ 2026",
+        "p1": "cmux ឥឡូវមាន task manager សម្រាប់ពិនិត្យថា coding agents និងដំណើរការ terminal របស់អ្នកប្រើ CPU និង RAM ប៉ុន្មាន។",
+        "p2": "បើកវាពី CLI៖",
+        "p3": "ឬចុច Cmd+Shift+P ហើយជ្រើស Task Manager ពី command palette។",
+        "p4": "ត្រូវការ cmux v0.64.4+។"
+      },
+      "sessionRestore": {
+        "seoP": "បើអ្នកកំពុងរករបៀបស្តារ session របស់ Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder ឬ Hermes Agent បន្ទាប់ពី terminal គាំង សូមដំឡើង cmux hooks ហើយរក្សាការបន្ត agent ឱ្យបើក។",
+        "summary": "របៀបដែល cmux ស្តារប្លង់ និងបន្ត session របស់ Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI និង agent ផ្សេងទៀត។",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory និង Qoder អាចបន្តបាននៅពេល cmux មាន native session ID។ សម្រាប់ agent ភាគច្រើន សូមដំឡើង integration ដោយប្រើ <code>cmux hooks setup</code>។",
+        "title": "ការស្ដារសម័យក្នុង cmux",
+        "date": "13 ឧសភា 2026",
+        "p1": "លំហូរការងារតាម terminal អាចទ្រាំការរំខានបានល្អជាងមុន នៅពេល app អាចបង្កើតរូបរាងការងាររបស់អ្នកឡើងវិញ។ cmux ឥឡូវចាត់ទុក layout របស់ workspace ជាស្ថានភាពថេរ មិនមែនជាអ្វីដែលភ្ជាប់នឹង process app តែមួយទេ។",
+        "p2": "ព្រំដែនសំខាន់គឺស្ថានភាព live process។ cmux ស្ដារអ្វីដែលវាគ្រប់គ្រង និងអ្វីដែល tool ដែលគាំទ្របង្ហាញតាម resume API របស់ខ្លួន។ វាមិន checkpoint process terminal ណាមួយទេ។",
+        "baselineTitle": "អ្វីដែលតែងត្រឡប់មកវិញ",
+        "baselineP": "បន្ទាប់ពីបើកឡើងវិញធម្មតា cmux ស្ដារ snapshot សម័យកម្រិត app:",
+        "baselineItemLayout": "layout បង្អួច workspace និង pane",
+        "baselineItemCwd": "ថតការងារ",
+        "baselineItemScrollback": "terminal scrollback តាមការខិតខំល្អបំផុត",
+        "baselineItemBrowser": "URL browser និងប្រវត្តិ navigation",
+        "agentTitle": "សម័យ agent ត្រូវការ hooks",
+        "agentP2": "ពាក្យបញ្ជា setup ដំឡើង agent ដែលគាំទ្រ ហើយ binary មានលើ PATH និងរំលងផ្សេងទៀត។ Claude Code ត្រូវបានគ្រប់គ្រងដោយ cmux Claude wrapper នៅពេលបើក Claude integration ក្នុង Settings។",
+        "implementationTitle": "របៀបដំណើរការ",
+        "implementationP1": "cmux សរសេរ snapshot សម័យ JSON នៅក្រោម Application Support មាន window tree, workspace metadata, pane layout, terminal cwd, scrollback replay data និង browser navigation state។",
+        "implementationP2": "Agent hooks សរសេរ session mappings នៅក្រោម ~/.cmuxterm។ ពេលស្ដារ cmux បង្កើត UI ឡើងវិញជាមុន។ ប្រសិនបើបើក automatic agent resume វាបើក agent ដែលគាំទ្រដោយ native resume command និង session ID ដែលបានរក្សាទុក។",
+        "limitsTitle": "អ្វីដែលនៅក្រៅវិសាលភាព",
+        "limitsP": "tmux, vim, shells និង tools មិនគាំទ្រ នឹងបើកឡើងវិញជាតេមីណាល់ធម្មតា លុះត្រាតែមាន cmux integration ដែលកត់ native resume command សុវត្ថិភាព។ វាធ្វើឱ្យការស្ដារអាចទស្សន៍ទាយបាន និងជៀសវាងការចាក់ឡើងវិញនូវ prompts ឬ secrets ចាស់ៗ។",
+        "docsCta": "អាន<link>ឯកសារស្ដារសម័យ</link>សម្រាប់ពាក្យបញ្ជា setup, agent ដែលគាំទ្រ និងការដោះស្រាយបញ្ហា។"
+      },
+      "cmuxFinder": {
+        "title": "cmux Finder",
+        "summary": "cmux ឥឡូវមាន file explorer ដែល preview វីដេអូ រូបភាព PDF និងឯកសារ Markdown។",
+        "date": "22 ឧសភា 2026",
+        "p1": "cmux ឥឡូវមាន file explorer រចនាប័ទ្ម Finder ក្នុង sidebar។",
+        "p2": "វា preview វីដេអូ រូបភាព PDF និងឯកសារ Markdown ក្នុង cmux ដូច្នេះអ្នកអាចពិនិត្យ artefact ដែលបានបង្កើតដោយមិនចាកចេញពី workspace។",
+        "p3": "ខ្ញុំប្រើវាច្រើនបំផុតសម្រាប់ preview វីដេអូ demo និង screenshot ដែល Codex ថតពេលវាកំពុង test ការផ្លាស់ប្តូរ។",
+        "p4": "ប្ដូរ file previews ពី Cmd+Shift+P បន្ទាប់មកជ្រើស Enable Cmd-click File Previews ឬ Disable Cmd-click File Previews។",
+        "p5": "ត្រូវការ cmux v0.64+។"
+      },
+      "cmuxVault": {
+        "title": "ណែនាំ cmux Vault",
+        "summary": "ស្វែងរក session Codex, Claude Code, OpenCode និង Pi ពី pane Vault ហើយអូសទៅ workspace របស់អ្នក។",
+        "date": "22 ឧសភា 2026",
+        "p1": "cmux ឥឡូវមាន pane Vault ក្នុង sidebar ស្តាំសម្រាប់ session agent ចាស់ៗ។",
+        "p2": "វា index session Codex, Claude Code, OpenCode និង Pi ជាមួយ full-text search នៅលើ transcript។",
+        "p3": "អូស session ពី Vault ទៅ workspace ដើម្បីបើកវាឡើងវិញកន្លែងដែលអ្នកកំពុងធ្វើការ។",
+        "p4": "ត្រូវការ cmux v0.64+។"
+      },
+      "markdownViewer": {
+        "title": "Markdown viewer ប្រសើរជាងមុនក្នុង cmux",
+        "summary": "បើក README.md ដោយ cmux open ឬអូសឯកសារ Markdown ពី sidebar ស្តាំ។",
+        "date": "22 ឧសភា 2026",
+        "p1": "cmux មាន Markdown viewer ប្រសើរជាងមុនសម្រាប់ README ឯកសារ និងរបាយការណ៍ដែលបានបង្កើត។",
+        "p2": "បើកឯកសារពី CLI:",
+        "p3": "អ្នកក៏អាចអូសឯកសារ Markdown ពី sidebar ស្តាំទៅ workspace បានដែរ។",
+        "p4": "សូមអរគុណ <tobiLink>@tobi</tobiLink> សម្រាប់ការរួមចំណែក។"
+      },
+      "unreadShortcuts": {
+        "title": "Shortcut សម្រាប់ workspace មិនទាន់អានក្នុង cmux",
+        "summary": "Cmd+Control+U បង្វិលតាម workspace មិនទាន់អាន ដោយរក្សាវាមិនទាន់អាន ហើយ Cmd+Option+U ប្ដូរស្ថានភាពអាន។",
+        "date": "22 ឧសភា 2026",
+        "p1": "cmux មាន shortcut ពីរបន្ថែមសម្រាប់គ្រប់គ្រង workspace មិនទាន់អានពេល agent ចប់ការងារព្រមគ្នា។",
+        "p2": "Cmd+Control+U សម្គាល់ workspace បច្ចុប្បន្នជ workspace មិនទាន់អានចាស់បំផុត បន្ទាប់មកលោតទៅ workspace មិនទាន់អានថ្មីបំផុត។",
+        "p3": "វាផ្ញើ workspace បច្ចុប្បន្នទៅខាងក្រោយវដ្តមិនទាន់អាន ដូច្នេះអ្នកអាចបន្តបង្វិលដោយមិនលុបស្ថានភាព។",
+        "p4": "Cmd+Option+U ប្ដូរ workspace បច្ចុប្បន្នរវាងបានអាន និងមិនទាន់អាន។",
+        "p5": "វាមានប្រយោជន៍នៅពេលអ្នកលោតទៅ workspace មិនទាន់អានថ្មីដោយ Cmd+Shift+U ប៉ុន្តែត្រូវប្ដូរបរិបទមុនឆ្លើយ។"
       }
     },
     "zenOfCmux": {
@@ -181,6 +259,114 @@
     "introducingCmux": {
       "metaTitle": "ណែនាំ cmux",
       "metaDescription": "ហេតុអ្វីយើងបង្កើត cmux ស្ថានីយថ្មីសម្រាប់ macOS។"
+    },
+    "passkeyAuth": {
+      "metaTitle": "ការផ្ទៀងផ្ទាត់ Passkey ក្នុងកម្មវិធីរុករក cmux",
+      "metaDescription": "cmux v0.64+ គាំទ្រការផ្ទៀងផ្ទាត់ passkey នៅក្នុងផ្ទាំងកម្មវិធីរុករក ហើយអាចនាំចូល cookie ពីកម្មវិធីរុករកផ្សេងទៀតដោយប្រើ cmux browser import។",
+      "metaKeywords": [
+        "ការផ្ទៀងផ្ទាត់ passkey ក្នុងកម្មវិធីរុករក cmux",
+        "ការផ្ទៀងផ្ទាត់ passkey",
+        "WebAuthn",
+        "Touch ID",
+        "នាំចូល cookie",
+        "cookie កម្មវិធីរុករក",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI coding agents"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "Task Manager ក្នុង cmux",
+      "metaDescription": "cmux v0.64.4+ មាន task manager សម្រាប់ពិនិត្យការប្រើ CPU និង RAM របស់ coding agents ដោយប្រើ cmux top ឬ command palette។",
+      "metaKeywords": [
+        "cmux task manager",
+        "cmux top",
+        "ការប្រើ CPU របស់ coding agents",
+        "ការប្រើ RAM របស់ coding agents",
+        "កម្មវិធីតាមដានដំណើរការ terminal",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AI coding agents"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "របៀបស្តារ session របស់ Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI និង coding agents ផ្សេងទៀតបន្ទាប់ពីបើកឡើងវិញ ឬ terminal គាំងដោយប្រើ cmux។",
+      "metaKeywords": [
+        "cmux",
+        "ស្តារ session",
+        "ស្តារ terminal បន្ទាប់ពីគាំង",
+        "ការសង្គ្រោះ terminal គាំង",
+        "terminal",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI coding agents"
+      ],
+      "metaTitle": "ការស្ដារសម័យក្នុង cmux"
+    },
+    "cmuxFinder": {
+      "metaTitle": "cmux Finder",
+      "metaDescription": "cmux v0.64+ មាន file explorer រចនាប័ទ្ម Finder ដែល preview វីដេអូ រូបភាព PDF និងឯកសារ Markdown ក្នុង workspace របស់អ្នក។",
+      "metaKeywords": [
+        "cmux Finder",
+        "cmux file explorer",
+        "file explorer ក្នុង terminal",
+        "preview វីដេអូក្នុង terminal",
+        "preview screenshot ក្នុង terminal",
+        "PDF preview",
+        "Markdown preview",
+        "AI coding agents",
+        "វីដេអូ demo Codex"
+      ]
+    },
+    "cmuxVault": {
+      "metaTitle": "ណែនាំ cmux Vault",
+      "metaDescription": "cmux v0.64+ បន្ថែម pane Vault សម្រាប់ស្វែងរក session Codex, Claude Code, OpenCode និង Pi ហើយអូសទៅ workspace។",
+      "metaKeywords": [
+        "cmux Vault",
+        "Codex sessions",
+        "Claude Code sessions",
+        "OpenCode sessions",
+        "Pi sessions",
+        "ប្រវត្តិ AI coding agent",
+        "ស្វែងរក session agent",
+        "ស្ដារ coding agent session",
+        "ស្វែងរក full-text"
+      ]
+    },
+    "markdownViewer": {
+      "metaTitle": "Markdown viewer ប្រសើរជាងមុនក្នុង cmux",
+      "metaDescription": "បើក README.md ដោយ cmux open ឬអូសឯកសារ Markdown ពី sidebar ស្តាំទៅ Markdown viewer ដែលបានកែលម្អក្នុង cmux។",
+      "metaKeywords": [
+        "cmux Markdown viewer",
+        "cmux open README.md",
+        "Markdown preview",
+        "README viewer",
+        "terminal Markdown viewer",
+        "developer docs preview"
+      ]
+    },
+    "unreadShortcuts": {
+      "metaTitle": "Shortcut សម្រាប់ workspace មិនទាន់អានក្នុង cmux",
+      "metaDescription": "ប្រើ Cmd+Control+U និង Cmd+Option+U ដើម្បីប្ដូរឆ្លងកាត់ cmux workspace មិនទាន់អាន ដោយមិនលុបស្ថានភាពមុនឆ្លើយ។",
+      "metaKeywords": [
+        "cmux unread shortcuts",
+        "Cmd+Control+U",
+        "Cmd+Option+U",
+        "Cmd+Shift+U",
+        "coding agent notifications",
+        "terminal notifications",
+        "AI coding agents",
+        "workspace មិនទាន់អាន"
+      ]
     }
   },
   "docs": {
@@ -304,6 +490,15 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។"
+        },
+        "app": {
+          "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
+          "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
+          "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
+          "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។"
+        },
+        "terminal": {
+          "copyOnSelect": "ចម្លងអត្ថបទ terminal ដែលបានជ្រើសទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់ រួមទាំងការជ្រើសពាក្យ និងបន្ទាត់ដោយចុចពីរដង និងចុចបីដង។"
         }
       }
     },
@@ -782,7 +977,7 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "គ្មាន",
-      "supportedNote": "Claude Code ត្រូវបានគ្រប់គ្រងដោយ cmux Claude wrapper នៅពេលបើក Claude integration ក្នុង Settings។ Rovo Dev ក៏ទទួល rovo ជា setup alias ផងដែរ។",
+      "supportedNote": "Claude Code ត្រូវបានគ្រប់គ្រងដោយ cmux Claude wrapper នៅពេលបើក Claude integration ក្នុង Settings។ Antigravity ក៏ទទួល agy ជា setup alias ហើយ Rovo Dev ទទួល rovo។",
       "manualTitle": "ស្ដារដោយដៃ",
       "manualDesc": "cmux ស្ដារ snapshot ចុងក្រោយដែលបានរក្សាទុក ពេលបើកធម្មតា។ អ្នកក៏អាច apply snapshot មុនដោយដៃបាន៖",
       "manualItemMenu": "File > Reopen Previous Session",
@@ -794,7 +989,9 @@
       "underHoodItemScrollback": "Terminal scrollback ត្រូវបានរក្សាទុកជាអត្ថបទមានដែនកំណត់ ហើយ replay តាម temporary file ពេលស្ដារ។ វាជា best effort ព្រោះ terminal app អាច redraw ឬ clear អេក្រង់បាន។",
       "underHoodItemHooks": "Agent hooks សរសេរ ~/.cmuxterm/<agent>-hook-sessions.json ជាមួយ agent session ID, cmux workspace ID, surface ID, cwd, process ID បើមាន និង sanitized launch command។",
       "underHoodItemResume": "ពេលស្ដារ cmux សាងសង់ window និង pane មុន។ បើ automatic agent resume បើក វាបើក one-shot shell command ដែលរត់ native resume command របស់ agent ជាមួយ session ID ដែលបានរក្សាទុក។",
-      "underHoodMore": "<configLink>ឯកសារ configuration</configLink> ធម្មតាគ្របដណ្តប់ cmux.json។ Session restore រក្សា app layout ផ្សេងពី Ghostty terminal rendering settings។"
+      "underHoodMore": "<configLink>ឯកសារ configuration</configLink> ធម្មតាគ្របដណ្តប់ cmux.json។ Session restore រក្សា app layout ផ្សេងពី Ghostty terminal rendering settings។",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     }
   },
   "legal": {

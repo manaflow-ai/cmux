@@ -1479,66 +1479,6 @@ final class BrowserPanelPopupContextTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelWebViewLifecycleTests: XCTestCase {
-    private static var hasHiddenDiscardEnabledEnvironmentOverride: Bool {
-        ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] != nil
-    }
-
-    private static var hiddenDiscardEnvironmentOverrideDisablesPolicy: Bool {
-        guard let value = ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() else {
-            return false
-        }
-        return ["0", "false", "no", "off"].contains(value)
-    }
-
-    private func withHiddenWebViewDiscardDefaults(
-        enabled: Bool?,
-        delay: TimeInterval? = nil,
-        _ body: () throws -> Void
-    ) rethrows {
-        let defaults = UserDefaults.standard
-        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
-        defer {
-            if let previousEnabled {
-                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-            } else {
-                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-            }
-            if let previousDelay {
-                defaults.set(previousDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
-            } else {
-                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
-            }
-        }
-
-        if let enabled {
-            defaults.set(enabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        }
-        if let delay {
-            defaults.set(delay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
-        }
-
-        try body()
-    }
-
-    private func waitForBrowserPanelWebViewToFinishLoading(
-        _ panel: BrowserPanel,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for browser panel WebView to finish loading", file: file, line: line)
-    }
-
     func testHiddenDiscardPolicyReadsUserDefaults() throws {
         let suiteName = "cmux.browserHiddenDiscardPolicyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1587,48 +1527,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         }
     }
 
-    func testDefaultWorkspaceVisibilityHidePreservesWebViewIdentityPastDiscardDelay() throws {
-        try XCTSkipIf(
-            Self.hasHiddenDiscardEnabledEnvironmentOverride,
-            "Environment override makes the default hidden-discard policy unobservable."
-        )
-
-        try withHiddenWebViewDiscardDefaults(enabled: nil, delay: 0) {
-            XCTAssertFalse(BrowserHiddenWebViewDiscardPolicy.isEnabled)
-
-            let hiddenAt = Date().addingTimeInterval(-1)
-            let panel = BrowserPanel(
-                workspaceId: UUID(),
-                initialURL: URL(string: "about:blank")!,
-                isRemoteWorkspace: false
-            )
-            defer { panel.close() }
-            waitForBrowserPanelWebViewToFinishLoading(panel)
-
-            panel.noteWebViewVisibility(true, reason: "test.workspace.visible")
-            XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
-            let originalWebView = panel.webView
-
-            panel.noteWebViewVisibility(false, reason: "test.workspace.hidden", now: hiddenAt)
-
-            XCTAssertTrue(
-                panel.webView === originalWebView,
-                "Workspace visibility hides must preserve the live WKWebView unless Browser Memory Saver is explicitly enabled"
-            )
-            XCTAssertTrue(panel.shouldRenderWebView)
-            XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
-
-            panel.noteWebViewVisibility(true, reason: "test.workspace.revisible")
-
-            XCTAssertTrue(
-                panel.webView === originalWebView,
-                "Re-showing a workspace-hidden browser should rebind the same WKWebView instead of navigating a replacement"
-            )
-            XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
-        }
-    }
-
-    func testLifecycleStartsAsNewTabUntilRenderable() {
+    func testLifecycleDistinguishesDeferredURLFromNewTab() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: URL(string: "https://example.test/")!,
@@ -1637,11 +1536,11 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        XCTAssertEqual(panel.webViewLifecycleState, .newTab)
+        XCTAssertEqual(panel.webViewLifecycleState, .deferredURL)
 
         panel.noteWebViewVisibility(true, reason: "test.visible")
 
-        XCTAssertEqual(panel.webViewLifecycleState, .newTab)
+        XCTAssertEqual(panel.webViewLifecycleState, .deferredURL)
     }
 
     func testBackgroundInitialNavigationOwnsHeadlessWebKitHostBeforeViewAppears() {
@@ -1767,93 +1666,87 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .closing)
     }
 
-    func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() throws {
-        try XCTSkipIf(
-            Self.hiddenDiscardEnvironmentOverrideDisablesPolicy,
-            "Environment override disables Browser Memory Saver."
+    func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() {
+        let discardedAt = Date(timeIntervalSince1970: 200)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
         )
+        defer { panel.close() }
 
-        try withHiddenWebViewDiscardDefaults(enabled: true) {
-            let discardedAt = Date(timeIntervalSince1970: 200)
-            let panel = BrowserPanel(
-                workspaceId: UUID(),
-                initialURL: URL(string: "about:blank")!,
-                isRemoteWorkspace: false
-            )
-            defer { panel.close() }
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
-            waitForBrowserPanelWebViewToFinishLoading(panel)
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        let originalWebView = panel.webView
 
-            panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-            let originalWebView = panel.webView
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
-            XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
-            XCTAssertFalse(panel.webView === originalWebView)
-            XCTAssertFalse(panel.shouldRenderWebView)
-            XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+        let discardedPayload = panel.webViewLifecycleTopPayload(now: discardedAt)
+        XCTAssertEqual(discardedPayload["state"] as? String, "discarded")
+        XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "test.discard")
+        XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
 
-            let discardedPayload = panel.webViewLifecycleTopPayload(now: discardedAt)
-            XCTAssertEqual(discardedPayload["state"] as? String, "discarded")
-            XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "test.discard")
-            XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
-
-            var observedStates: [BrowserWebViewLifecycleState] = []
-            var cancellable: AnyCancellable?
-            cancellable = panel.$webViewLifecycleState.sink { state in
-                observedStates.append(state)
-            }
-            defer { cancellable?.cancel() }
-
-            XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
-            XCTAssertTrue(panel.shouldRenderWebView)
-            XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
-            XCTAssertFalse(observedStates.contains(.newTab), "Restore emitted unexpected states: \(observedStates)")
-
-            panel.noteWebViewVisibility(true, reason: "test.visible")
-            XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+        var observedStates: [BrowserWebViewLifecycleState] = []
+        var cancellable: AnyCancellable?
+        cancellable = panel.$webViewLifecycleState.sink { state in
+            observedStates.append(state)
         }
+        defer { cancellable?.cancel() }
+
+        XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+        XCTAssertTrue(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        XCTAssertFalse(observedStates.contains(.newTab), "Restore emitted unexpected states: \(observedStates)")
+
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
     }
 
-    func testRestoredHistoryBackDoesNotEmitNewTabLifecycleState() throws {
-        try XCTSkipIf(
-            Self.hiddenDiscardEnvironmentOverrideDisablesPolicy,
-            "Environment override disables Browser Memory Saver."
+    func testRestoredHistoryBackDoesNotEmitNewTabLifecycleState() {
+        let discardedAt = Date(timeIntervalSince1970: 300)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
         )
+        defer { panel.close() }
 
-        try withHiddenWebViewDiscardDefaults(enabled: true) {
-            let discardedAt = Date(timeIntervalSince1970: 300)
-            let panel = BrowserPanel(
-                workspaceId: UUID(),
-                initialURL: URL(string: "about:blank")!,
-                isRemoteWorkspace: false
-            )
-            defer { panel.close() }
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
-            waitForBrowserPanelWebViewToFinishLoading(panel)
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: ["https://example.test/back"],
+            forwardHistoryURLStrings: [],
+            currentURLString: "https://example.test/current"
+        )
+        XCTAssertTrue(panel.canGoBack)
 
-            panel.restoreSessionNavigationHistory(
-                backHistoryURLStrings: ["https://example.test/back"],
-                forwardHistoryURLStrings: [],
-                currentURLString: "https://example.test/current"
-            )
-            XCTAssertTrue(panel.canGoBack)
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
-            panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-            XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
-            XCTAssertEqual(panel.webViewLifecycleState, .discarded)
-
-            var observedStates: [BrowserWebViewLifecycleState] = []
-            var cancellable: AnyCancellable?
-            cancellable = panel.$webViewLifecycleState.sink { state in
-                observedStates.append(state)
-            }
-            defer { cancellable?.cancel() }
-
-            panel.goBack()
-
-            XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
-            XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        var observedStates: [BrowserWebViewLifecycleState] = []
+        var cancellable: AnyCancellable?
+        cancellable = panel.$webViewLifecycleState.sink { state in
+            observedStates.append(state)
         }
+        defer { cancellable?.cancel() }
+
+        panel.goBack()
+
+        XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
     }
 }
 
@@ -2649,6 +2542,144 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, "/tmp/cmux-nightly.sock")
     }
 
+    func testTaggedDebugBundleRefusesStableSocketOverrideEvenWithOptInFlag() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": SocketControlSettings.stableDefaultSocketPath,
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
+    }
+
+    func testTaggedDebugBundleRefusesUserScopedStableSocketOverrideEvenWithOptInFlag() {
+        let aliases = [
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
+            SocketControlSettings.legacyUserScopedStableSocketPath(currentUserID: 501),
+            "/private/tmp/cmux-501.sock",
+        ]
+
+        for alias in aliases {
+            let path = SocketControlSettings.socketPath(
+                environment: [
+                    "CMUX_SOCKET_PATH": alias,
+                    "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+                ],
+                bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+                isDebugBuild: false,
+                currentUserID: 501
+            )
+
+            XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock", alias)
+        }
+    }
+
+    func testTaggedDebugBundleRefusesCanonicalLegacyStableSocketAliasEvenWithOptInFlag() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/private/tmp/cmux.sock",
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
+    }
+
+    func testSocketPathMatchingTreatsPrivateTmpLegacyStableAliasAsSamePath() {
+        XCTAssertTrue(
+            SocketControlSettings.pathsMatch(
+                SocketControlSettings.legacyStableDefaultSocketPath,
+                "/private/tmp/cmux.sock"
+            )
+        )
+    }
+
+    func testTaggedDebugBundleRefusesCaseVariantStableSocketAliasesEvenWithOptInFlag() {
+        let aliases = [
+            "/tmp/CMUX.sock",
+            "/private/tmp/CMUX.sock",
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+                .replacingOccurrences(of: "cmux-501.sock", with: "CMUX-501.sock"),
+            SocketControlSettings.legacyUserScopedStableSocketPath(currentUserID: 501)
+                .replacingOccurrences(of: "cmux-501.sock", with: "CMUX-501.sock"),
+        ]
+
+        for alias in aliases {
+            let path = SocketControlSettings.socketPath(
+                environment: [
+                    "CMUX_SOCKET_PATH": alias,
+                    "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+                ],
+                bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+                isDebugBuild: false,
+                currentUserID: 501
+            )
+
+            XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock", alias)
+        }
+    }
+
+    func testTaggedDebugBundleRefusesLeafSymlinkToStableSocketEvenWithOptInFlag() throws {
+        let alias = "/tmp/cmux-stable-alias-\(UUID().uuidString).sock"
+        try? FileManager.default.removeItem(atPath: alias)
+        try FileManager.default.createSymbolicLink(
+            atPath: alias,
+            withDestinationPath: SocketControlSettings.stableDefaultSocketPath
+        )
+        defer { try? FileManager.default.removeItem(atPath: alias) }
+
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": alias,
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
+    }
+
+    func testTaggedDebugBundleRefusesExcessiveSymlinkChainEvenWithOptInFlag() throws {
+        let root = "/tmp/cmux-stable-chain-\(UUID().uuidString)"
+        let aliases = (0...64).map { "\(root)-\($0).sock" }
+        for alias in aliases {
+            try? FileManager.default.removeItem(atPath: alias)
+        }
+        defer {
+            for alias in aliases {
+                try? FileManager.default.removeItem(atPath: alias)
+            }
+        }
+
+        try FileManager.default.createSymbolicLink(
+            atPath: aliases[64],
+            withDestinationPath: SocketControlSettings.stableDefaultSocketPath
+        )
+        for index in stride(from: 63, through: 0, by: -1) {
+            try FileManager.default.createSymbolicLink(
+                atPath: aliases[index],
+                withDestinationPath: aliases[index + 1]
+            )
+        }
+
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": aliases[0],
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
+    }
+
     func testStagingBundleHonorsSocketOverrideWithoutOptInFlag() {
         let path = SocketControlSettings.socketPath(
             environment: [
@@ -2727,6 +2758,117 @@ final class SocketControlSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathExists() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchTreatsPrivateTmpLegacyStableAliasAsStablePath() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: "/private/tmp/cmux.sock",
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { socketPath in
+                XCTAssertEqual(socketPath, "/private/tmp/cmux.sock")
+                return .socket(ownerUserID: 501)
+            }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchDoesNotProbeSameUserStableSocketLiveness() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
+            stableDefaultSocketCanBeReclaimed: { _ in
+                XCTFail("Existing startup sockets should fall back without liveness probing on the main thread")
+                return true
+            }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchDoesNotProbeSameUserStableSocketReclaimability() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
+            stableDefaultSocketCanBeReclaimed: { socketPath in
+                XCTFail("Existing startup sockets should fall back without reclaimability probing: \(socketPath)")
+                return false
+            }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchKeepsUserScopedPreferredPathWithoutProbing() {
+        let userScopedPath = SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: userScopedPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { socketPath in
+                XCTFail("User-scoped startup path should not be re-inspected: \(socketPath)")
+                return .socket(ownerUserID: 501)
+            },
+            stableDefaultSocketCanBeReclaimed: { socketPath in
+                XCTFail("User-scoped startup path should not be reclaimed: \(socketPath)")
+                return false
+            }
+        )
+
+        XCTAssertEqual(path, userScopedPath)
+    }
+
+    func testInitialStableLaunchFallsBackToUserScopedSocketWhenMissingStablePathCannotBeReserved() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .missing },
+            stableDefaultSocketCanBeReclaimed: { socketPath in
+                XCTAssertEqual(socketPath, SocketControlSettings.stableDefaultSocketPath)
+                return false
+            }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialSocketPathDoesNotProbeForTaggedDebugBuild() {
+        let debugPath = "/tmp/cmux-debug-tag.sock"
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: debugPath,
+            bundleIdentifier: "com.cmuxterm.app.debug.tag",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in
+                XCTFail("Tagged debug builds must not inspect the stable socket")
+                return .socket(ownerUserID: 501)
+            }
+        )
+
+        XCTAssertEqual(path, debugPath)
     }
 
     func testStableReleaseFallsBackToUserScopedSocketWhenStablePathIsBlockedByNonSocketEntry() {

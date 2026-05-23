@@ -87,6 +87,11 @@ extension WorkstreamEvent {
 }
 
 extension TabManager {
+    private enum ConversationMessageKind {
+        case promptSubmission
+        case assistantFinal
+    }
+
     @discardableResult
     func handlePromptSubmit(
         workspaceId: UUID,
@@ -97,6 +102,7 @@ extension TabManager {
             workspaceId: workspaceId,
             message: message,
             iMessageModeEnabled: iMessageModeEnabled,
+            kind: .promptSubmission,
             reorderWithoutMessage: true
         )
     }
@@ -111,6 +117,7 @@ extension TabManager {
             workspaceId: workspaceId,
             message: message,
             iMessageModeEnabled: iMessageModeEnabled,
+            kind: .assistantFinal,
             reorderWithoutMessage: false
         )
     }
@@ -119,18 +126,35 @@ extension TabManager {
         workspaceId: UUID,
         message: String?,
         iMessageModeEnabled: Bool,
+        kind: ConversationMessageKind,
         reorderWithoutMessage: Bool
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         guard let originalIndex = tabs.firstIndex(where: { $0.id == workspaceId }) else {
             return nil
         }
-        guard iMessageModeEnabled else {
-            return (false, false, originalIndex)
-        }
 
         let workspace = tabs[originalIndex]
         let hasMessage = Workspace.conversationMessagePreview(from: message) != nil
-        let messageRecorded = workspace.recordConversationMessage(message)
+        let messageRecorded: Bool
+        switch kind {
+        case .promptSubmission:
+            messageRecorded = workspace.recordSubmittedMessage(message)
+            if messageRecorded {
+                CmuxEventBus.shared.publishWorkspacePromptSubmitted(
+                    workspaceId: workspaceId,
+                    message: message,
+                    preview: Workspace.conversationMessagePreview(from: message)
+                )
+            }
+        case .assistantFinal:
+            guard iMessageModeEnabled else {
+                return (false, false, originalIndex)
+            }
+            messageRecorded = workspace.recordConversationMessage(message)
+        }
+        guard iMessageModeEnabled else {
+            return (messageRecorded, false, originalIndex)
+        }
         guard messageRecorded || reorderWithoutMessage || hasMessage else {
             return (messageRecorded, false, originalIndex)
         }
