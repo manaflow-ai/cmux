@@ -6366,8 +6366,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let defaults = UserDefaults.standard
         let originalLastSurfaceCloseSetting = defaults.object(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
+        let previousTabManager = appDelegate.tabManager
         defaults.set(true, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
         defer {
+            appDelegate.tabManager = previousTabManager
             restoreDefaultsValue(
                 originalLastSurfaceCloseSetting,
                 forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey,
@@ -6402,8 +6404,25 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             closeRegisteredShortcutRoutingWindow(focusedWindow, id: focusedWindowId)
         }
 
-        originalManager.addWorkspace(title: "original target", select: true, autoWelcomeIfNeeded: false)
-        focusedManager.addWorkspace(title: "focused target", select: true, autoWelcomeIfNeeded: false)
+        let originalWorkspace = originalManager.addWorkspace(title: "original target", select: true, autoWelcomeIfNeeded: false)
+        let focusedWorkspace = focusedManager.addWorkspace(title: "focused target", select: true, autoWelcomeIfNeeded: false)
+
+        switch expectedAction {
+        case .closeTab:
+            guard let originalPanelId = originalWorkspace.focusedPanelId,
+                  originalWorkspace.newTerminalSplit(from: originalPanelId, orientation: .horizontal) != nil,
+                  let focusedPanelId = focusedWorkspace.focusedPanelId,
+                  focusedWorkspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal) != nil else {
+                XCTFail("Expected split panels for \(actionName)", file: file, line: line)
+                return
+            }
+        case .closeWorkspace:
+            originalManager.addWorkspace(title: "original survivor", select: false, autoWelcomeIfNeeded: false)
+            focusedManager.addWorkspace(title: "focused survivor", select: false, autoWelcomeIfNeeded: false)
+        default:
+            XCTFail("Unexpected close shortcut action \(expectedAction)", file: file, line: line)
+            return
+        }
 
         originalWindow.orderFront(nil)
         focusedWindow.makeKeyAndOrderFront(nil)
@@ -6413,8 +6432,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // but the key event still carries the original window number.
         appDelegate.tabManager = originalManager
 
-        let originalCountBefore = originalManager.tabs.count
-        let focusedCountBefore = focusedManager.tabs.count
+        let originalTabCountBefore = originalManager.tabs.count
+        let focusedTabCountBefore = focusedManager.tabs.count
+        let originalPanelCountBefore = originalWorkspace.panels.count
+        let focusedPanelCountBefore = focusedWorkspace.panels.count
 
         guard let event = makeKeyDownEvent(
             key: "w",
@@ -6443,18 +6464,52 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(
             originalManager.tabs.count,
-            originalCountBefore,
+            originalTabCountBefore,
             "\(actionName) must not close a workspace in the original window when another window is focused",
             file: file,
             line: line
         )
-        XCTAssertEqual(
-            focusedManager.tabs.count,
-            focusedCountBefore - 1,
-            "\(actionName) should close the selected workspace in the focused window",
-            file: file,
-            line: line
-        )
+
+        switch expectedAction {
+        case .closeTab:
+            XCTAssertEqual(
+                originalWorkspace.panels.count,
+                originalPanelCountBefore,
+                "\(actionName) must not close a panel in the original window when another window is focused",
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(
+                focusedManager.tabs.count,
+                focusedTabCountBefore,
+                "\(actionName) should keep the focused workspace open when closing one of multiple panels",
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(
+                focusedWorkspace.panels.count,
+                focusedPanelCountBefore - 1,
+                "\(actionName) should close the selected panel in the focused window",
+                file: file,
+                line: line
+            )
+        case .closeWorkspace:
+            XCTAssertEqual(
+                focusedManager.tabs.count,
+                focusedTabCountBefore - 1,
+                "\(actionName) should close the selected workspace in the focused window",
+                file: file,
+                line: line
+            )
+            XCTAssertFalse(
+                focusedManager.tabs.contains { $0.id == focusedWorkspace.id },
+                "\(actionName) should remove the selected workspace in the focused window",
+                file: file,
+                line: line
+            )
+        default:
+            break
+        }
     }
 
     @discardableResult
