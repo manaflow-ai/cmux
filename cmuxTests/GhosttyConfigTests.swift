@@ -258,6 +258,18 @@ final class GhosttyConfigTests: XCTestCase {
 
         XCTAssertFalse(invalidScalarOverrideConfig.hasParsedBackgroundOpacity)
         XCTAssertFalse(invalidScalarOverrideConfig.hasParsedBackgroundBlur)
+
+        var highOpacityConfig = GhosttyConfig()
+        highOpacityConfig.parse("background-opacity = 2\n")
+
+        XCTAssertTrue(highOpacityConfig.hasParsedBackgroundOpacity)
+        XCTAssertEqual(highOpacityConfig.backgroundOpacity, 1.0, accuracy: 0.0001)
+
+        var lowOpacityConfig = GhosttyConfig()
+        lowOpacityConfig.parse("background-opacity = -1\n")
+
+        XCTAssertTrue(lowOpacityConfig.hasParsedBackgroundOpacity)
+        XCTAssertEqual(lowOpacityConfig.backgroundOpacity, 0.0, accuracy: 0.0001)
     }
 
     func testLoadReadsBackgroundFromRecursiveConfigFile() throws {
@@ -369,6 +381,81 @@ final class GhosttyConfigTests: XCTestCase {
 
         XCTAssertEqual(loaded.backgroundColor.hexString(), "#334455")
         XCTAssertEqual(loaded.foregroundColor.hexString(), "#DDEEFF")
+    }
+
+    func testLoadIgnoresLegacyAppSupportConfigWhenConfigGhosttyIsNonEmpty() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-app-support-legacy-skip-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let ghosttyConfigDir = root
+            .appendingPathComponent("Library/Application Support/com.mitchellh.ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
+        try "background = #112233\n".write(
+            to: ghosttyConfigDir.appendingPathComponent("config", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "font-size = 13\n".write(
+            to: ghosttyConfigDir.appendingPathComponent("config.ghostty", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
+
+        XCTAssertEqual(loaded.fontSize, CGFloat(13), accuracy: 0.0001)
+        XCTAssertNotEqual(loaded.backgroundColor.hexString(), "#112233")
+    }
+
+    func testLoadUsesLegacyAppSupportConfigWhenConfigGhosttyIsEmpty() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-app-support-legacy-fallback-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let ghosttyConfigDir = root
+            .appendingPathComponent("Library/Application Support/com.mitchellh.ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
+        try "background = #112233\n".write(
+            to: ghosttyConfigDir.appendingPathComponent("config", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "".write(
+            to: ghosttyConfigDir.appendingPathComponent("config.ghostty", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
+
+        XCTAssertEqual(loaded.backgroundColor.hexString(), "#112233")
     }
 
     func testLoadAppliesThemeBeforeLaterCursorColorOverride() throws {

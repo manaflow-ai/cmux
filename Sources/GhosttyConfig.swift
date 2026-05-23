@@ -176,12 +176,25 @@ struct GhosttyConfig {
         var config = GhosttyConfig()
 
         // Match Ghostty's default load order on macOS.
-        let configPaths = [
+        let appSupportGhosttyDirectory = NSString(
+            string: "~/Library/Application Support/com.mitchellh.ghostty"
+        ).expandingTildeInPath
+        let appSupportConfigGhostty = (appSupportGhosttyDirectory as NSString)
+            .appendingPathComponent("config.ghostty")
+        let appSupportLegacyConfig = (appSupportGhosttyDirectory as NSString)
+            .appendingPathComponent("config")
+        var configPaths = [
             "~/.config/ghostty/config",
             "~/.config/ghostty/config.ghostty",
-            "~/Library/Application Support/com.mitchellh.ghostty/config",
-            "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
-        ].map { NSString(string: $0).expandingTildeInPath } + cmuxConfigPaths()
+        ].map { NSString(string: $0).expandingTildeInPath }
+        configPaths.append(appSupportConfigGhostty)
+        if shouldLoadLegacyGhosttyConfig(
+            newConfigFileSize: configFileSize(at: appSupportConfigGhostty),
+            legacyConfigFileSize: configFileSize(at: appSupportLegacyConfig)
+        ) {
+            configPaths.append(appSupportLegacyConfig)
+        }
+        configPaths.append(contentsOf: cmuxConfigPaths())
 
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
@@ -398,7 +411,7 @@ struct GhosttyConfig {
                     }
                 case "background-opacity":
                     if let opacity = Double(value) {
-                        backgroundOpacity = opacity
+                        backgroundOpacity = min(1.0, max(0.0, opacity))
                         hasParsedBackgroundOpacity = true
                     } else {
                         hasParsedBackgroundOpacity = false
@@ -913,6 +926,23 @@ struct GhosttyConfig {
         }
 
         return try? String(contentsOfFile: path, encoding: .utf8)
+    }
+
+    private static func configFileSize(at path: String) -> Int? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attributes[.size] as? NSNumber else {
+            return nil
+        }
+        return size.intValue
+    }
+
+    private static func shouldLoadLegacyGhosttyConfig(
+        newConfigFileSize: Int?,
+        legacyConfigFileSize: Int?
+    ) -> Bool {
+        guard let newConfigFileSize, newConfigFileSize == 0 else { return false }
+        guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
+        return true
     }
 }
 
