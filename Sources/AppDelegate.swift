@@ -1609,22 +1609,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Show the same confirmation dialog used by the Cmd+Q shortcut path,
         // then reply asynchronously so we can return .terminateLater now.
         DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
-            alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
-            alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
-            alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-            alert.showsSuppressionButton = true
-            alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
+            let result = self.runQuitConfirmationDialog()
 
-            let response = alert.runModal()
-            if alert.suppressionButton?.state == .on {
-                QuitWarningSettings.setEnabled(false)
-            }
-
-            let shouldQuit = response == .alertFirstButtonReturn
-            if shouldQuit {
+            if result.shouldQuit {
+                self.applyConfirmedQuitDialogChoices(result.choices)
                 self.isQuitWarningConfirmed = true
                 self.closeAllWebInspectorsBeforeAppTeardown()
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
@@ -1633,7 +1621,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.isTerminatingApp = false
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
             }
-            NSApp.reply(toApplicationShouldTerminate: shouldQuit)
+            NSApp.reply(toApplicationShouldTerminate: result.shouldQuit)
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
@@ -11481,12 +11469,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        let result = runQuitConfirmationDialog()
+
+        if result.shouldQuit {
+            applyConfirmedQuitDialogChoices(result.choices)
+            // Mark as confirmed so applicationShouldTerminate does not show a
+            // second alert when NSApp.terminate re-enters the delegate callback.
+            isQuitWarningConfirmed = true
+            NSApp.terminate(nil)
+        }
+        return true
+    }
+
+    private struct QuitDialogChoices {
+        var suppressFutureQuitWarnings: Bool
+        var restoreLayoutOnNextLaunch: Bool
+        var autoResumeAgentSessions: Bool
+    }
+
+    private struct QuitDialogResult {
+        var shouldQuit: Bool
+        var choices: QuitDialogChoices
+    }
+
+    private func runQuitConfirmationDialog() -> QuitDialogResult {
+        let restoreLayoutButton = NSButton(
+            checkboxWithTitle: String(
+                localized: "dialog.quitCmux.restoreLayoutOnNextLaunch",
+                defaultValue: "Restore layout on next launch"
+            ),
+            target: nil,
+            action: nil
+        )
+        restoreLayoutButton.state = SessionRestorePolicy.shouldRestoreLayoutOnNextLaunch() ? .on : .off
+        restoreLayoutButton.setAccessibilityIdentifier("QuitDialogRestoreLayoutOnNextLaunchCheckbox")
+
+        let autoResumeButton = NSButton(
+            checkboxWithTitle: String(
+                localized: "dialog.quitCmux.restoreAgentSessionsOnNextLaunch",
+                defaultValue: "Restore coding agent sessions on next launch"
+            ),
+            target: nil,
+            action: nil
+        )
+        autoResumeButton.state = AgentSessionAutoResumeSettings.isEnabled() ? .on : .off
+        autoResumeButton.setAccessibilityIdentifier("QuitDialogRestoreAgentSessionsOnNextLaunchCheckbox")
+
+        let optionsStack = NSStackView(views: [restoreLayoutButton, autoResumeButton])
+        optionsStack.orientation = .vertical
+        optionsStack.alignment = .leading
+        optionsStack.spacing = 8
+
+        let docsButton = NSButton(
+            title: String(localized: "dialog.quitCmux.sessionDocs", defaultValue: "Session restore docs"),
+            target: self,
+            action: #selector(openSessionRestoreDocs)
+        )
+        docsButton.isBordered = false
+        docsButton.contentTintColor = .linkColor
+        docsButton.setButtonType(.momentaryPushIn)
+        docsButton.alignment = .left
+        docsButton.setAccessibilityIdentifier("QuitDialogSessionRestoreDocsButton")
+        optionsStack.addArrangedSubview(docsButton)
+
+        if !AgentHookSetupStatus.hasConfiguredAgentHooks() {
+            let warning = NSTextField(labelWithString: String(
+                localized: "dialog.quitCmux.hooksNotConfiguredWarning",
+                defaultValue: "Agent session restore needs hooks. Run `cmux hooks setup` for Codex, Grok, OpenCode, and other supported agents."
+            ))
+            warning.lineBreakMode = .byWordWrapping
+            warning.maximumNumberOfLines = 0
+            warning.textColor = .secondaryLabelColor
+            warning.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            warning.setAccessibilityIdentifier("QuitDialogHooksNotConfiguredWarning")
+            optionsStack.addArrangedSubview(warning)
+        }
+
+        optionsStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            optionsStack.widthAnchor.constraint(equalToConstant: 360)
+        ])
+
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
         alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
         alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        alert.accessoryView = optionsStack
         alert.showsSuppressionButton = true
         alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
 
@@ -11494,14 +11564,87 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if alert.suppressionButton?.state == .on {
             QuitWarningSettings.setEnabled(false)
         }
+        let choices = QuitDialogChoices(
+            suppressFutureQuitWarnings: alert.suppressionButton?.state == .on,
+            restoreLayoutOnNextLaunch: restoreLayoutButton.state == .on,
+            autoResumeAgentSessions: autoResumeButton.state == .on
+        )
+        return QuitDialogResult(shouldQuit: response == .alertFirstButtonReturn, choices: choices)
+    }
 
-        if response == .alertFirstButtonReturn {
-            // Mark as confirmed so applicationShouldTerminate does not show a
-            // second alert when NSApp.terminate re-enters the delegate callback.
-            isQuitWarningConfirmed = true
-            NSApp.terminate(nil)
+    private func applyConfirmedQuitDialogChoices(_ choices: QuitDialogChoices) {
+        if choices.suppressFutureQuitWarnings {
+            QuitWarningSettings.setEnabled(false)
         }
-        return true
+        SessionRestorePolicy.setRestoreLayoutOnNextLaunch(choices.restoreLayoutOnNextLaunch)
+        AgentSessionAutoResumeSettings.setEnabled(choices.autoResumeAgentSessions)
+    }
+
+    @objc private func openSessionRestoreDocs() {
+        guard let url = URL(string: "https://github.com/manaflow-ai/cmux/blob/main/docs/agent-hooks.md#disable-automatic-resume") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private enum AgentHookSetupStatus {
+        static func hasConfiguredAgentHooks(
+            homeDirectory: String = NSHomeDirectory(),
+            environment: [String: String] = ProcessInfo.processInfo.environment,
+            fileManager: FileManager = .default
+        ) -> Bool {
+            let homeURL = URL(fileURLWithPath: homeDirectory, isDirectory: true)
+            let candidateFiles = [
+                homeURL.appendingPathComponent(".codex/hooks.json"),
+                homeURL.appendingPathComponent(".codex/config.toml"),
+                homeURL.appendingPathComponent(".grok/hooks/cmux-session.json"),
+                homeURL.appendingPathComponent(".config/opencode/plugins/cmux-session.js"),
+                homeURL.appendingPathComponent(".config/opencode/plugins/cmux-feed.js"),
+                homeURL.appendingPathComponent(".pi/agent/extensions/cmux-session.ts"),
+                homeURL.appendingPathComponent(".config/amp/plugins/cmux-session.ts"),
+                homeURL.appendingPathComponent(".cursor/hooks.json"),
+                homeURL.appendingPathComponent(".gemini/settings.json"),
+                homeURL.appendingPathComponent(".rovodev/config.yml"),
+                homeURL.appendingPathComponent(".copilot/config.json"),
+                homeURL.appendingPathComponent(".codebuddy/settings.json"),
+                homeURL.appendingPathComponent(".factory/settings.json"),
+                homeURL.appendingPathComponent(".qoder/settings.json")
+            ]
+
+            let environmentFiles = [
+                environment["CODEX_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("hooks.json") },
+                environment["GROK_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("hooks/cmux-session.json") },
+                environment["OPENCODE_CONFIG_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("plugins/cmux-session.js") },
+                environment["PI_CODING_AGENT_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("extensions/cmux-session.ts") },
+                environment["COPILOT_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("config.json") },
+                environment["CODEBUDDY_CONFIG_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("settings.json") },
+                environment["QODER_CONFIG_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("settings.json") }
+            ].compactMap { $0 }
+
+            let markerSubstrings = [
+                "cmux hooks ",
+                "cmux-session",
+                "cmux-feed-plugin-marker"
+            ]
+            for fileURL in candidateFiles + environmentFiles {
+                guard fileManager.fileExists(atPath: fileURL.path),
+                      let text = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                    continue
+                }
+                if markerSubstrings.contains(where: { text.contains($0) }) {
+                    return true
+                }
+            }
+
+            let storeDirectory = homeURL.appendingPathComponent(".cmuxterm", isDirectory: true)
+            guard let contents = try? fileManager.contentsOfDirectory(
+                at: storeDirectory,
+                includingPropertiesForKeys: nil
+            ) else {
+                return false
+            }
+            return contents.contains { $0.lastPathComponent.hasSuffix("-hook-sessions.json") }
+        }
     }
 
     func promptRenameSelectedWorkspace() -> Bool {

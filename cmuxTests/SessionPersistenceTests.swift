@@ -297,6 +297,53 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(shouldRestore)
     }
 
+    func testRestorePolicySkipsAndConsumesDisabledNextLaunchLayoutRestore() {
+        let suiteName = "SessionRestorePolicyTests.NextLaunch.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        SessionRestorePolicy.setRestoreLayoutOnNextLaunch(false, defaults: defaults)
+
+        XCTAssertFalse(
+            SessionRestorePolicy.shouldAttemptRestore(
+                arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
+                environment: [:],
+                defaults: defaults
+            )
+        )
+        XCTAssertNil(defaults.object(forKey: SessionRestorePolicy.restoreLayoutOnNextLaunchKey))
+        XCTAssertTrue(
+            SessionRestorePolicy.shouldAttemptRestore(
+                arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
+                environment: [:],
+                defaults: defaults
+            )
+        )
+    }
+
+    func testRestorePolicyAllowsExplicitEnabledNextLaunchLayoutRestore() {
+        let suiteName = "SessionRestorePolicyTests.EnabledNextLaunch.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        SessionRestorePolicy.setRestoreLayoutOnNextLaunch(true, defaults: defaults)
+
+        XCTAssertTrue(
+            SessionRestorePolicy.shouldAttemptRestore(
+                arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
+                environment: [:],
+                defaults: defaults
+            )
+        )
+        XCTAssertEqual(defaults.object(forKey: SessionRestorePolicy.restoreLayoutOnNextLaunchKey) as? Bool, true)
+    }
+
     func testRestorePolicySkipsWhenRunningUnderXCTest() {
         let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],

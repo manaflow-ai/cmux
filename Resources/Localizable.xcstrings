@@ -41424,6 +41424,23 @@
         }
       }
     },
+    "dialog.quitCmux.hooksNotConfiguredWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent session restore needs hooks. Run `cmux hooks setup` for Codex, Grok, OpenCode, and other supported agents."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションの復元には hooks が必要です。Codex、Grok、OpenCode、その他の対応エージェントでは `cmux hooks setup` を実行してください。"
+          }
+        }
+      }
+    },
     "dialog.quitCmux.quit": {
       "extractionState": "manual",
       "localizations": {
@@ -41539,6 +41556,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Завершити"
+          }
+        }
+      }
+    },
+    "dialog.quitCmux.restoreAgentSessionsOnNextLaunch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore coding agent sessions on next launch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次回起動時にコーディングエージェントセッションを復元"
+          }
+        }
+      }
+    },
+    "dialog.quitCmux.restoreLayoutOnNextLaunch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore layout on next launch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次回起動時にレイアウトを復元"
+          }
+        }
+      }
+    },
+    "dialog.quitCmux.sessionDocs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session restore docs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション復元ドキュメント"
           }
         }
       }
