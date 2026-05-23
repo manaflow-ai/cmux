@@ -744,6 +744,20 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(harness.state.buffer, "foo+bar")
         XCTAssertEqual(harness.editor.string, "foo+bar")
     }
+
+    @MainActor
+    func testOptionBackspaceBeforePlainWordInSearchWithURLLaterFallsThrough() throws {
+        let harness = OmnibarPlainDeletionHarness(
+            text: "foo bar.com",
+            selectedLocation: "foo".utf16.count
+        )
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(harness.state.buffer, "foo bar.com")
+        XCTAssertEqual(harness.editor.string, "foo bar.com")
+    }
 }
 
 @MainActor
