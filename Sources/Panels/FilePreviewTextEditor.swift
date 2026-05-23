@@ -165,34 +165,35 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
         // properties and methods without crossing the actor at compile time.
         let token = NSEvent.addLocalMonitorForEvents(matching: [.magnify, .scrollWheel, .smartMagnify]) {
             [weak self] event -> NSEvent? in
-            MainActor.assumeIsolated {
+            let handled = MainActor.assumeIsolated {
                 guard let self,
                       let sv = self.innerScrollView,
                       !sv.isHiddenOrHasHiddenAncestor,
                       let window = sv.window,
-                      event.window === window else { return event }
+                      event.window === window else { return false }
                 let loc = sv.convert(event.locationInWindow, from: nil)
-                guard sv.bounds.contains(loc) else { return event }
+                guard sv.bounds.contains(loc) else { return false }
                 switch event.type {
                 case .magnify:
                     let factor = 1.0 + event.magnification
                     if factor.isFinite && factor > 0 { self.adjustFontSize(by: factor) }
-                    return nil
+                    return true
                 case .scrollWheel:
-                    guard FilePreviewInteraction.hasZoomModifier(event) else { return event }
+                    guard FilePreviewInteraction.hasZoomModifier(event) else { return false }
                     self.adjustFontSize(by: FilePreviewInteraction.zoomFactor(forScroll: event))
-                    return nil
+                    return true
                 case .smartMagnify:
                     if self.fontSize == HighlightedEditorBridge.defaultFontSize {
                         self.setFontSize(18)
                     } else {
                         self.setFontSize(HighlightedEditorBridge.defaultFontSize)
                     }
-                    return nil
+                    return true
                 default:
-                    return event
+                    return false
                 }
             }
+            return handled ? nil : event
         }
         zoomMonitorLock.lock()
         if zoomEventMonitor == nil {
