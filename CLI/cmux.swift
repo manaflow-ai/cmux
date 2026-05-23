@@ -19116,7 +19116,7 @@ struct CMUXCLI {
                 ) else {
                     telemetry.breadcrumb("claude-hook.permission-request.pending-cleared")
                     if let sessionId = parsedInput.sessionId {
-                        try? sessionStore.clearPendingNotification(
+                        try? sessionStore.discardPendingNotification(
                             sessionId: sessionId,
                             fingerprint: notificationFingerprint,
                             clearSummary: true

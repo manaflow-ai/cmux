@@ -956,6 +956,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(sessionAfterPermission["lastEmittedNotificationFingerprint"])
         XCTAssertNil(sessionAfterPermission["lastSubtitle"])
         XCTAssertNil(sessionAfterPermission["lastBody"])
+        XCTAssertNil(sessionAfterPermission["resolvedPendingNotificationAt"])
 
         let genericNotificationStart = context.state.commands.count
         let genericNotification = runClaudeHook(
