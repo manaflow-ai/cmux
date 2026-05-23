@@ -4688,10 +4688,10 @@ struct CMUXCLI {
         let trailingArgs = Array(args.dropFirst())
 
         // Build the routing params shared by all socket-backed subcommands.
-        func buildRoutingParams() throws -> [String: Any] {
+        func buildRoutingParams(includeDefaultSurface: Bool = false) throws -> [String: Any] {
             var params: [String: Any] = [:]
             let surfaceRaw = surfaceOpt
-                ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+                ?? (includeDefaultSurface && windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             if let surfaceRaw {
                 if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                     params["surface_id"] = surface
@@ -4801,6 +4801,14 @@ struct CMUXCLI {
             }
 
             let positional = Array(remaining.dropFirst())
+            if let unknownFlag = positional.first(where: { $0.hasPrefix("-") }) {
+                throw CLIError(message: unknownFlagMessage(verb: verb, flag: unknownFlag))
+            }
+            if textOpt != nil || readFromStdin {
+                if let extraArg = positional.first {
+                    throw CLIError(message: unexpectedArgumentMessage(verb: verb, argument: extraArg))
+                }
+            }
             let content: String
             if let textOpt {
                 content = textOpt
@@ -4855,7 +4863,7 @@ struct CMUXCLI {
                 }
                 throw CLIError(message: unexpectedArgumentMessage(verb: "new", argument: extraArg))
             }
-            var params = try buildRoutingParams()
+            var params = try buildRoutingParams(includeDefaultSurface: true)
             if let slugOpt, !slugOpt.isEmpty {
                 params["slug"] = slugOpt
             }
@@ -4885,7 +4893,7 @@ struct CMUXCLI {
 
         case "open":
             let slugArg = try slugArgument(for: "open", usage: "cmux note open <slug>")
-            var params = try buildRoutingParams()
+            var params = try buildRoutingParams(includeDefaultSurface: true)
             params["slug"] = slugArg
             params["direction"] = directionOpt ?? "right"
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
