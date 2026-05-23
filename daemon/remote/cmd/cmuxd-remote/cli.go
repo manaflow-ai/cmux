@@ -91,6 +91,17 @@ var browserCommands = map[string]browserCommandSpec{
 
 var commandIndex map[string]*commandSpec
 
+var callerTTYFDLinkPaths = []string{
+	"/proc/self/fd/0",
+	"/proc/self/fd/1",
+	"/proc/self/fd/2",
+	"/dev/fd/0",
+	"/dev/fd/1",
+	"/dev/fd/2",
+}
+
+var callerTTYCommand = func() string { return "" }
+
 func init() {
 	// Apply per-command overrides from cli_overrides.go onto the generated specs.
 	for i := range commands {
@@ -924,7 +935,7 @@ func resolveCallerTTYName() string {
 			return ttyName
 		}
 	}
-	for _, path := range []string{"/proc/self/fd/0", "/proc/self/fd/1", "/proc/self/fd/2", "/dev/fd/0", "/dev/fd/1", "/dev/fd/2"} {
+	for _, path := range callerTTYFDLinkPaths {
 		if target, err := os.Readlink(path); err == nil {
 			if ttyName := normalizedTTYName(target); ttyName != "" {
 				return ttyName
