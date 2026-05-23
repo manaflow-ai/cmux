@@ -1009,7 +1009,8 @@ private final class ClaudeHookSessionStore {
             } else {
                 summaryMatches = false
             }
-            guard pendingMatches || summaryMatches else { return }
+            let clearedMatches = record.pendingNotificationClearedFingerprint == normalizedFingerprint
+            guard pendingMatches || summaryMatches || clearedMatches else { return }
             let now = Date().timeIntervalSince1970
             if pendingMatches {
                 record.pendingNotificationFingerprint = nil
@@ -1018,6 +1019,10 @@ private final class ClaudeHookSessionStore {
             if summaryMatches {
                 record.lastSubtitle = nil
                 record.lastBody = nil
+            }
+            if clearedMatches {
+                record.pendingNotificationClearedFingerprint = nil
+                record.pendingNotificationClearedAt = nil
             }
             record.updatedAt = now
             state.sessions[normalized] = record
@@ -19076,6 +19081,13 @@ struct CMUXCLI {
                 )) == true
             }
             func clearPermissionRequestNotificationAndRestoreRunning() {
+                if let sessionId = parsedInput.sessionId {
+                    try? sessionStore.discardPendingNotification(
+                        sessionId: sessionId,
+                        fingerprint: notificationFingerprint,
+                        clearSummary: true
+                    )
+                }
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                 _ = try? setClaudeStatus(
                     client: client,

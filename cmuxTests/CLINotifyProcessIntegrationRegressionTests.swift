@@ -975,6 +975,96 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(genericCommand.contains("Allow Bash to inspect grep error.log?"), genericCommand)
     }
 
+    func testClaudePermissionRequestConsumesResolvedMarkerWhenClearedBeforeSend() throws {
+        let context = try makeClaudeHookContext(name: "claude-permission-resolved-before-send")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-permission-resolved-before-send-session"
+        let permissionBody = "Allow Bash to inspect grep error.log?"
+        let fingerprint = "Permission request\n\(permissionBody)"
+        let permissionPayload = #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"grep error.log","allowed_prompts":[{"prompt":"\#(permissionBody)"}]}}"#
+
+        let commandStart = context.state.commands.count
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: permissionPayload,
+            responseOverride: { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      payload["method"] as? String == "workspace.list" else {
+                    return nil
+                }
+                try? self.markClaudeHookPendingNotificationCleared(
+                    sessionId,
+                    context: context,
+                    fingerprint: fingerprint
+                )
+                return self.workspaceListResponse(id: id, workspaceId: context.workspaceId)
+            }
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let commands = Array(context.state.commands.dropFirst(commandStart))
+        let notifyCommands = commands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertTrue(
+            notifyCommands.isEmpty,
+            "Expected resolved pending permission prompt to suppress notification, saw \(notifyCommands)"
+        )
+        XCTAssertFalse(commands.contains { $0.contains("set_status claude_code Needs input") }, commands.joined(separator: "\n"))
+
+        let sessionAfterPermission = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(sessionAfterPermission["pendingNotificationFingerprint"])
+        XCTAssertNil(sessionAfterPermission["pendingNotificationClearedFingerprint"])
+        XCTAssertNil(sessionAfterPermission["pendingNotificationClearedAt"])
+        XCTAssertNil(sessionAfterPermission["lastSubtitle"])
+        XCTAssertNil(sessionAfterPermission["lastBody"])
+        XCTAssertNotNil(sessionAfterPermission["resolvedPendingNotificationAt"])
+
+        let genericNotificationStart = context.state.commands.count
+        let genericNotification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#
+        )
+        XCTAssertFalse(genericNotification.timedOut, genericNotification.stderr)
+        XCTAssertEqual(genericNotification.status, 0, genericNotification.stderr)
+
+        let genericCommands = Array(context.state.commands.dropFirst(genericNotificationStart))
+        let genericNotifyCommands = genericCommands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertTrue(
+            genericNotifyCommands.isEmpty,
+            "Expected resolved prompt marker to suppress only generic fallback notification, saw \(genericNotifyCommands)"
+        )
+
+        let repeatedPermissionStart = context.state.commands.count
+        let repeatedPermission = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: permissionPayload
+        )
+        XCTAssertFalse(repeatedPermission.timedOut, repeatedPermission.stderr)
+        XCTAssertEqual(repeatedPermission.status, 0, repeatedPermission.stderr)
+
+        let repeatedCommands = Array(context.state.commands.dropFirst(repeatedPermissionStart))
+        let repeatedNotifyCommands = repeatedCommands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let repeatedNotifyCommand = try XCTUnwrap(
+            repeatedNotifyCommands.last,
+            "Expected the next real identical permission prompt to notify after the stale marker was consumed"
+        )
+        XCTAssertTrue(repeatedNotifyCommand.contains("Claude Workspace - Claude waiting|Permission request|"), repeatedNotifyCommand)
+        XCTAssertTrue(repeatedNotifyCommand.contains(permissionBody), repeatedNotifyCommand)
+        XCTAssertTrue(
+            repeatedCommands.contains { $0.contains("set_status claude_code Needs input") },
+            "Expected next real permission prompt to mark Claude waiting, saw \(repeatedCommands)"
+        )
+    }
+
     func testClaudePermissionRequestSkipsNotificationWhenPromptWasClearedBeforePendingWrite() throws {
         let context = try makeClaudeHookContext(name: "claude-permission-cleared-before-pending")
         defer { context.cleanup() }
