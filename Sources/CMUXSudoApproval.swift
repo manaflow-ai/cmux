@@ -146,7 +146,7 @@ enum CMUXSudoApprovalPresenter {
             cwdLabel.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
 
             let cwdField = NSTextField(labelWithString: cwd)
-            cwdField.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize)
+            cwdField.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
             cwdField.textColor = .secondaryLabelColor
             cwdField.lineBreakMode = .byTruncatingMiddle
             cwdField.maximumNumberOfLines = 1
