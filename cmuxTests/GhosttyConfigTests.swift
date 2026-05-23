@@ -233,6 +233,44 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(loaded.fontSize, CGFloat(15), accuracy: 0.0001)
     }
 
+    func testLoadReadsBackgroundFromRecursiveConfigFile() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-config-recursive-background-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
+
+        try "background = #123456\nforeground = #abcdef\n".write(
+            to: ghosttyConfigDir.appendingPathComponent("appearance.conf", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "config-file = appearance.conf\n".write(
+            to: ghosttyConfigDir.appendingPathComponent("config.ghostty", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
+
+        XCTAssertEqual(loaded.backgroundColor.hexString(), "#123456")
+        XCTAssertEqual(loaded.foregroundColor.hexString(), "#ABCDEF")
+    }
+
     func testLoadAppliesThemeBeforeLaterCursorColorOverride() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
