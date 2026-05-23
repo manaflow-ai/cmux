@@ -6148,6 +6148,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         guard let pending else { return }
         scrollbar = pending
+        if let panelID = terminalSurface?.id {
+            GlobalSearchCoordinator.shared.captureTerminalPanel(id: panelID)
+        }
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,

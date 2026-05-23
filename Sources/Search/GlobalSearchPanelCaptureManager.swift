@@ -4,6 +4,7 @@ import Foundation
 final class GlobalSearchPanelCaptureManager {
     private let browserCaptureDebounceMilliseconds = 250
     private let markdownCaptureDebounceMilliseconds = 250
+    private let terminalCaptureDebounceMilliseconds = 300
     private let indexProvider: () async -> SearchIndex?
     private let cancelPanelPurge: (UUID) -> Void
 
@@ -13,6 +14,9 @@ final class GlobalSearchPanelCaptureManager {
     private var markdownCaptureTimers: [UUID: DispatchSourceTimer] = [:]
     private var markdownCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var markdownCaptureTaskIDs: [UUID: UUID] = [:]
+    private var terminalCaptureTimers: [UUID: DispatchSourceTimer] = [:]
+    private var terminalCaptureTasks: [UUID: Task<Void, Never>] = [:]
+    private var terminalCaptureTaskIDs: [UUID: UUID] = [:]
 
     init(
         indexProvider: @escaping () async -> SearchIndex?,
@@ -161,9 +165,54 @@ final class GlobalSearchPanelCaptureManager {
         timer.resume()
     }
 
+    func captureTerminalPanel(id panelID: UUID) {
+        let taskID = UUID()
+        cancelPanelPurge(panelID)
+        cancelTerminalCapture(forPanelID: panelID)
+        terminalCaptureTaskIDs[panelID] = taskID
+
+        let timer = makeDebounceTimer(milliseconds: terminalCaptureDebounceMilliseconds) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.terminalCaptureTaskIDs[panelID] == taskID else {
+                    return
+                }
+                self.terminalCaptureTimers[panelID]?.cancel()
+                self.terminalCaptureTimers[panelID] = nil
+
+                let task = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    defer {
+                        if self.terminalCaptureTaskIDs[panelID] == taskID {
+                            self.terminalCaptureTasks[panelID] = nil
+                            self.terminalCaptureTaskIDs[panelID] = nil
+                        }
+                    }
+
+                    guard !Task.isCancelled,
+                          self.terminalCaptureTaskIDs[panelID] == taskID,
+                          let context = AppDelegate.shared?.globalSearchContext(
+                              forPanelID: panelID,
+                              preferredWorkspaceID: nil
+                          ),
+                          let terminalPanel = context.panel as? TerminalPanel,
+                          let index = await self.indexProvider() else {
+                        return
+                    }
+
+                    await self.indexTerminalPanel(terminalPanel, context: context, index: index)
+                }
+                self.terminalCaptureTasks[panelID] = task
+            }
+        }
+        terminalCaptureTimers[panelID] = timer
+        timer.resume()
+    }
+
     func cancelCaptures(forPanelID panelID: UUID) {
         cancelBrowserCapture(forPanelID: panelID)
         cancelMarkdownCapture(forPanelID: panelID)
+        cancelTerminalCapture(forPanelID: panelID)
     }
 
     private func cancelBrowserCapture(forPanelID panelID: UUID) {
@@ -180,6 +229,14 @@ final class GlobalSearchPanelCaptureManager {
         markdownCaptureTasks[panelID]?.cancel()
         markdownCaptureTasks[panelID] = nil
         markdownCaptureTaskIDs[panelID] = nil
+    }
+
+    private func cancelTerminalCapture(forPanelID panelID: UUID) {
+        terminalCaptureTimers[panelID]?.cancel()
+        terminalCaptureTimers[panelID] = nil
+        terminalCaptureTasks[panelID]?.cancel()
+        terminalCaptureTasks[panelID] = nil
+        terminalCaptureTaskIDs[panelID] = nil
     }
 
     private func makeDebounceTimer(

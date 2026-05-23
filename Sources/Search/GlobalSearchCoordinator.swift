@@ -95,6 +95,10 @@ final class GlobalSearchCoordinator {
         captureManager.captureMarkdownPanel(panel)
     }
 
+    func captureTerminalPanel(id panelID: UUID) {
+        captureManager.captureTerminalPanel(id: panelID)
+    }
+
     func purgePanel(id panelID: UUID) {
         captureManager.cancelCaptures(forPanelID: panelID)
         panelPurgeTasks[panelID]?.cancel()
