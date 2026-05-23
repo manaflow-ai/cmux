@@ -49,7 +49,7 @@ final class BrowserEngineAdapterTests: XCTestCase {
         XCTAssertTrue(descriptor.capabilities.supports(.focus))
         XCTAssertTrue(descriptor.capabilities.supports(.resize))
         XCTAssertTrue(descriptor.capabilities.supports(.contextMenus))
-        XCTAssertTrue(descriptor.capabilities.supports(.profiles))
+        XCTAssertFalse(descriptor.capabilities.supports(.profiles))
         XCTAssertFalse(descriptor.capabilities.supports(.devTools))
         XCTAssertFalse(descriptor.capabilities.supports(.downloads))
         XCTAssertFalse(descriptor.capabilities.supports(.passkeys))
@@ -70,6 +70,14 @@ final class BrowserEngineAdapterTests: XCTestCase {
             XCTAssertEqual(
                 error as? BrowserEngineUnsupportedCapabilityError,
                 BrowserEngineUnsupportedCapabilityError(engineKind: .owlChromium, capability: .downloads)
+            )
+        }
+        XCTAssertThrowsError(
+            try descriptor.capabilities.require(.profiles, engineKind: descriptor.kind)
+        ) { error in
+            XCTAssertEqual(
+                error as? BrowserEngineUnsupportedCapabilityError,
+                BrowserEngineUnsupportedCapabilityError(engineKind: .owlChromium, capability: .profiles)
             )
         }
 

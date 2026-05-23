@@ -629,7 +629,9 @@ public final class BrowserEngine {
     }
 
     public func captureSurfacePNG(tabID: BrowserTab.ID, to url: URL) throws -> OwlBrowserSurfaceCapture {
-        let session = try ensureSession(tabID: tabID, initialURL: "about:blank")
+        guard let session = existingInputSession(tabID: tabID) else {
+            throw BrowserEngineError.notStarted
+        }
         return try runtime?.captureSurfacePNG(session.session, to: url)
             ?? {
                 throw BrowserEngineError.notStarted
@@ -637,7 +639,9 @@ public final class BrowserEngine {
     }
 
     public func captureSurfacePNG(tabID: BrowserTab.ID, label: String, to url: URL) throws -> OwlBrowserSurfaceCapture {
-        let session = try ensureSession(tabID: tabID, initialURL: "about:blank")
+        guard let session = existingInputSession(tabID: tabID) else {
+            throw BrowserEngineError.notStarted
+        }
         return try runtime?.captureSurfacePNG(session.session, label: label, to: url)
             ?? {
                 throw BrowserEngineError.notStarted

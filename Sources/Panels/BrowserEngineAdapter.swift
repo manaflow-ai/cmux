@@ -152,8 +152,7 @@ extension BrowserEngineCapabilities {
         .contextMenus,
         .filePicker,
         .permissionPrompts,
-        .authPrompts,
-        .profiles
+        .authPrompts
     ])
 }
 
@@ -379,8 +378,11 @@ final class BrowserOwlChromiumEngineAdapter: BrowserEngineAdapter {
             .appendingPathComponent("cmux-owl-\(UUID().uuidString).png", isDirectory: false)
         do {
             _ = try engine.captureSurfacePNG(tabID: tabID, to: url)
-            completion(NSImage(contentsOf: url))
+            let imageData = try? Data(contentsOf: url)
+            try? FileManager.default.removeItem(at: url)
+            completion(imageData.flatMap(NSImage.init(data:)))
         } catch {
+            try? FileManager.default.removeItem(at: url)
             browserEngineAdapterLogger.error("BrowserPanel Owl snapshot error: \(String(describing: error), privacy: .public)")
             completion(nil)
         }
