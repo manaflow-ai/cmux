@@ -1571,7 +1571,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(frame.payload, payload)
     }
 
-    func testVNCPanelConnectionPublishesFramesInReadOrder() async {
+    func testVNCPanelConnectionComposesPartialFramesBeforePublish() async {
         let session = MacfleetVNCSession(
             name: "mac3-1",
             hostName: "mac3",
@@ -1586,9 +1586,9 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             password: "password",
             source: .defaultPassword
         )
-        let deliveredFrames = expectation(description: "VNC frames delivered")
-        deliveredFrames.expectedFulfillmentCount = 2
+        let deliveredFrames = expectation(description: "VNC frame delivered")
         var deliveredSequences: [UInt64] = []
+        var deliveredHeaders: [VNCFrameHeader] = []
         var deliveredPayloads: [Data] = []
         let connection = VNCPanelConnection(
             session: session,
@@ -1596,6 +1596,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             onControl: { _ in },
             onFrame: { header, payload in
                 deliveredSequences.append(header.sequence)
+                deliveredHeaders.append(header)
                 deliveredPayloads.append(payload)
                 deliveredFrames.fulfill()
             },
@@ -1632,11 +1633,27 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         connection.publishForTesting(.frame(partialHeader, partialPayload))
 
         await fulfillment(of: [deliveredFrames], timeout: 1.0)
-        XCTAssertEqual(deliveredSequences, [1, 2])
-        XCTAssertEqual(deliveredPayloads, [fullPayload, partialPayload])
+        XCTAssertEqual(deliveredSequences, [2])
+        XCTAssertEqual(
+            deliveredHeaders,
+            [
+                VNCFrameHeader(
+                    sequence: 2,
+                    x: 0,
+                    y: 0,
+                    width: 2,
+                    height: 1,
+                    framebufferWidth: 2,
+                    framebufferHeight: 1,
+                    stride: 8,
+                    pixelFormat: .bgra8
+                )
+            ]
+        )
+        XCTAssertEqual(deliveredPayloads, [Data([1, 2, 3, 4, 9, 10, 11, 12])])
     }
 
-    func testVNCPanelConnectionCoalescesPendingFramesWhenMainActorIsBehind() async {
+    func testVNCPanelConnectionCoalescesComposedFramesWhenMainActorIsBehind() async {
         let session = MacfleetVNCSession(
             name: "mac3-1",
             hostName: "mac3",
@@ -1654,12 +1671,14 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let lastFrameDelivered = expectation(description: "latest VNC frame delivered")
         let frameCount = VNCPanelConnection.maxPendingFramesForTesting + 5
         var deliveredSequences: [UInt64] = []
+        var deliveredPayloads: [Data] = []
         let connection = VNCPanelConnection(
             session: session,
             credential: credential,
             onControl: { _ in },
-            onFrame: { header, _ in
+            onFrame: { header, payload in
                 deliveredSequences.append(header.sequence)
+                deliveredPayloads.append(payload)
                 if header.sequence == UInt64(frameCount) {
                     lastFrameDelivered.fulfill()
                 }
@@ -1668,14 +1687,28 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
         defer { connection.close() }
 
-        for sequence in 1...frameCount {
+        let initialHeader = VNCFrameHeader(
+            sequence: 1,
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 1,
+            stride: 8,
+            pixelFormat: .bgra8
+        )
+        connection.publishForTesting(.frame(initialHeader, Data([0, 0, 0, 255, 0, 0, 0, 255])))
+
+        for sequence in 2...frameCount {
+            let x = sequence % 2 == 0 ? 0 : 1
             let header = VNCFrameHeader(
                 sequence: UInt64(sequence),
-                x: 0,
+                x: x,
                 y: 0,
                 width: 1,
                 height: 1,
-                framebufferWidth: 1,
+                framebufferWidth: 2,
                 framebufferHeight: 1,
                 stride: 4,
                 pixelFormat: .bgra8
@@ -1684,8 +1717,13 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         }
 
         await fulfillment(of: [lastFrameDelivered], timeout: 1.0)
-        let expectedFirstSequence = UInt64(frameCount - VNCPanelConnection.maxPendingFramesForTesting + 1)
-        XCTAssertEqual(deliveredSequences, Array(expectedFirstSequence...UInt64(frameCount)))
+        let latestEvenSequence = stride(from: frameCount, through: 2, by: -1).first { $0 % 2 == 0 } ?? 0
+        let latestOddSequence = stride(from: frameCount, through: 3, by: -1).first { $0 % 2 != 0 } ?? 0
+        XCTAssertEqual(deliveredSequences, [UInt64(frameCount)])
+        XCTAssertEqual(
+            deliveredPayloads,
+            [Data([UInt8(latestEvenSequence), 0, 0, 255, UInt8(latestOddSequence), 0, 0, 255])]
+        )
     }
 
     func testVNCNamedKeyParserPreservesSocketModifiers() throws {

@@ -21,7 +21,7 @@ final class VNCPanelConnection {
         helperInputQueueFullExitStatus
     ]
     private static let maxPendingControlMessages = 256
-    private static let maxPendingFrames = 3
+    private static let maxPendingFrames = 1
 
     #if DEBUG
     static var maxPendingFramesForTesting: Int { maxPendingFrames }
@@ -46,6 +46,7 @@ final class VNCPanelConnection {
     private var clientFileDescriptor: Int32 = -1
     private var pendingControlMessages = VNCControlMessageQueue(maxMessages: maxPendingControlMessages)
     private var pendingFrames: [PendingFrame] = []
+    private var frameComposer = VNCFramebufferComposer()
     private var frameDrainScheduled = false
     private var helperReportedFailureReason: String?
     private var isClosed = false
@@ -148,6 +149,7 @@ final class VNCPanelConnection {
             clientFileDescriptor = -1
             pendingControlMessages.removeAll(keepingCapacity: false)
             pendingFrames.removeAll(keepingCapacity: false)
+            frameComposer.reset()
             frameDrainScheduled = false
             self.process = nil
             return state
@@ -300,7 +302,12 @@ final class VNCPanelConnection {
     private func enqueueFrameForPublish(_ frame: PendingFrame) {
         let shouldScheduleDrain = stateLock.withLock { () -> Bool in
             guard !isClosed else { return false }
-            pendingFrames.append(frame)
+            guard let composedFrame = frameComposer.apply(header: frame.header, payload: frame.payload) else {
+                return false
+            }
+            // Compose dirty rectangles before coalescing. Every pending item is a
+            // full framebuffer snapshot, so dropping stale snapshots preserves correctness.
+            pendingFrames.append((composedFrame.header, composedFrame.payload))
             if pendingFrames.count > Self.maxPendingFrames {
                 pendingFrames.removeFirst(pendingFrames.count - Self.maxPendingFrames)
             }
