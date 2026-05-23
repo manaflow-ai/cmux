@@ -1572,11 +1572,11 @@ final class CmuxWebView: WKWebView {
         let title = state.isActive
             ? String(localized: "browser.focusMode.context.exit", defaultValue: "Exit Browser Focus Mode")
             : String(localized: "browser.focusMode.context.enter", defaultValue: "Enter Browser Focus Mode")
-        if let item = menu.item(withIdentifier: Self.browserFocusModeContextMenuItemIdentifier) {
+        if let item = menu.items.first(where: { $0.identifier == Self.browserFocusModeContextMenuItemIdentifier }) {
             item.title = title
             item.target = self
             item.action = #selector(contextMenuToggleBrowserFocusMode(_:))
-            item.state = state.isActive ? .on : .off
+            item.state = state.isActive ? NSControl.StateValue.on : NSControl.StateValue.off
             return
         }
 
@@ -1590,7 +1590,7 @@ final class CmuxWebView: WKWebView {
         )
         item.identifier = Self.browserFocusModeContextMenuItemIdentifier
         item.target = self
-        item.state = state.isActive ? .on : .off
+        item.state = state.isActive ? NSControl.StateValue.on : NSControl.StateValue.off
         menu.addItem(item)
     }
 
