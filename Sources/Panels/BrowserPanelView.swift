@@ -3174,7 +3174,15 @@ func omnibarTextAfterDeletingURLWordBackward(
     }
 
     guard deletionStart < caret else { return nil }
-    let deletionRange = NSRange(location: deletionStart, length: caret - deletionStart)
+
+    var deletionEnd = caret
+    if caret < textLength,
+       omnibarURLWordBoundaryCharacter(in: nsText, at: caret),
+       (deletionStart == 0 || omnibarURLWordBoundaryCharacter(in: nsText, at: deletionStart - 1)) {
+        deletionEnd += 1
+    }
+
+    let deletionRange = NSRange(location: deletionStart, length: deletionEnd - deletionStart)
     let updated = nsText.replacingCharacters(in: deletionRange, with: "")
     return OmnibarURLWordDeletion(
         text: updated,
