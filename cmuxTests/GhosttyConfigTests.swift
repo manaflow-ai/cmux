@@ -673,6 +673,24 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testCmuxThemePairReloadResolvesAgainstAppearance() {
+        XCTAssertTrue(
+            GhosttyApp.shouldResolveCmuxThemePairAgainstAppearance(
+                "light:3024 Day,dark:3024 Night"
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldResolveCmuxThemePairAgainstAppearance(
+                "light:3024 Day,dark:3024 Day"
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldResolveCmuxThemePairAgainstAppearance(
+                "3024 Day"
+            )
+        )
+    }
+
     func testScrollLagCaptureRequiresSustainedLag() {
         let cases: [(samples: Int, averageMs: Double, maxMs: Double, expected: Bool)] = [
             (4, 18, 85, false),

@@ -2000,11 +2000,22 @@ class GhosttyApp {
             primaryConfig,
             preferredColorScheme: initialColorScheme
         )
-        updateDefaultBackground(
-            from: primaryConfig,
-            source: "initialize.primaryConfig",
-            forceNotify: primaryRenderingModeChanged
-        )
+        let initialCmuxThemeValue = currentCmuxAppSupportThemeValue()
+        if Self.shouldResolveCmuxThemePairAgainstAppearance(initialCmuxThemeValue) {
+            let resolvedConfig = GhosttyConfig.load(preferredColorScheme: initialColorScheme, useCache: false)
+            updateDefaultBackground(
+                from: resolvedConfig,
+                source: "initialize.primaryConfig",
+                forceNotify: primaryRenderingModeChanged,
+                resolvedColorScheme: initialColorScheme
+            )
+        } else {
+            updateDefaultBackground(
+                from: primaryConfig,
+                source: "initialize.primaryConfig",
+                forceNotify: primaryRenderingModeChanged
+            )
+        }
 
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
@@ -3090,12 +3101,19 @@ class GhosttyApp {
         cmuxThemeValue: String?
     ) -> GhosttyConfig.ColorSchemePreference {
         guard GhosttySurfaceConfigurationRefresh.isCmuxThemeReloadSource(source),
-              let cmuxThemeValue,
-              GhosttyConfig.themeValueUsesSameResolvedThemeInBothColorSchemes(cmuxThemeValue) else {
+              shouldResolveCmuxThemePairAgainstAppearance(cmuxThemeValue) == false else {
             return requestedColorScheme
         }
 
         return effectiveTerminalColorScheme
+    }
+
+    static func shouldResolveCmuxThemePairAgainstAppearance(_ cmuxThemeValue: String?) -> Bool {
+        guard let cmuxThemeValue,
+              !cmuxThemeValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return !GhosttyConfig.themeValueUsesSameResolvedThemeInBothColorSchemes(cmuxThemeValue)
     }
 
     static func shouldCaptureScrollLagEvent(
@@ -3266,6 +3284,9 @@ class GhosttyApp {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
         }
+        let cmuxThemeValue = currentCmuxAppSupportThemeValue()
+        let shouldResolveCmuxThemePairAgainstAppearance =
+            Self.shouldResolveCmuxThemePairAgainstAppearance(cmuxThemeValue)
         // Use the appearance preference while loading conditional theme pairs. For cmux
         // single-theme reloads, keep the resolved terminal scheme stable until the new
         // background is known so same-scheme theme changes do not flash through app mode.
@@ -3273,14 +3294,17 @@ class GhosttyApp {
             source: source,
             requestedColorScheme: reloadColorScheme,
             effectiveTerminalColorScheme: effectiveTerminalColorSchemePreference,
-            cmuxThemeValue: currentCmuxAppSupportThemeValue()
+            cmuxThemeValue: cmuxThemeValue
         )
         synchronizeGhosttyRuntimeColorScheme(loadColorScheme, source: "reloadConfiguration:\(source):load")
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
-            let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
+            let effectiveReloadColorScheme = shouldResolveCmuxThemePairAgainstAppearance
+                ? reloadColorScheme
+                : effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
+            prepareTerminalSurfacesForConfigurationReload(preferredColorScheme: effectiveReloadColorScheme)
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
@@ -3301,14 +3325,26 @@ class GhosttyApp {
             newConfig,
             preferredColorScheme: reloadColorScheme
         )
-        updateDefaultBackground(
-            from: newConfig,
-            source: "reloadConfiguration(source=\(source))",
-            scope: .unscoped,
-            forceNotify: renderingModeChanged
-        )
+        if shouldResolveCmuxThemePairAgainstAppearance {
+            let resolvedConfig = GhosttyConfig.load(preferredColorScheme: reloadColorScheme, useCache: false)
+            updateDefaultBackground(
+                from: resolvedConfig,
+                source: "reloadConfiguration(source=\(source))",
+                scope: .unscoped,
+                forceNotify: renderingModeChanged,
+                resolvedColorScheme: reloadColorScheme
+            )
+        } else {
+            updateDefaultBackground(
+                from: newConfig,
+                source: "reloadConfiguration(source=\(source))",
+                scope: .unscoped,
+                forceNotify: renderingModeChanged
+            )
+        }
         let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
+        prepareTerminalSurfacesForConfigurationReload(preferredColorScheme: effectiveReloadColorScheme)
         ghostty_app_update_config(app, newConfig)
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
@@ -3325,6 +3361,26 @@ class GhosttyApp {
             preferredColorScheme: effectiveReloadColorScheme
         )
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
+    }
+
+    private func prepareTerminalSurfacesForConfigurationReload(
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                AppDelegate.shared?.applyTerminalSurfaceColorSchemeForGhosttyConfigReload(
+                    preferredColorScheme: preferredColorScheme
+                )
+            }
+        } else {
+            DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    AppDelegate.shared?.applyTerminalSurfaceColorSchemeForGhosttyConfigReload(
+                        preferredColorScheme: preferredColorScheme
+                    )
+                }
+            }
+        }
     }
 
     private func scheduleSurfaceRefreshAfterConfigurationReload(
@@ -3492,7 +3548,8 @@ class GhosttyApp {
         from config: ghostty_config_t?,
         source: String,
         scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
-        forceNotify: Bool = false
+        forceNotify: Bool = false,
+        resolvedColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
         guard let config else { return }
 
@@ -3519,7 +3576,31 @@ class GhosttyApp {
             selectionForeground: resolvedSelectionForeground,
             source: source,
             scope: scope,
-            forceNotify: forceNotify
+            forceNotify: forceNotify,
+            resolvedColorScheme: resolvedColorScheme
+        )
+    }
+
+    private func updateDefaultBackground(
+        from config: GhosttyConfig,
+        source: String,
+        scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
+        forceNotify: Bool = false,
+        resolvedColorScheme: GhosttyConfig.ColorSchemePreference? = nil
+    ) {
+        applyDefaultBackground(
+            color: config.backgroundColor,
+            opacity: config.backgroundOpacity,
+            backgroundBlur: config.backgroundBlur,
+            foregroundColor: config.foregroundColor,
+            cursorColor: config.cursorColor,
+            cursorTextColor: config.cursorTextColor,
+            selectionBackground: config.selectionBackground,
+            selectionForeground: config.selectionForeground,
+            source: source,
+            scope: scope,
+            forceNotify: forceNotify,
+            resolvedColorScheme: resolvedColorScheme
         )
     }
 
@@ -3621,7 +3702,8 @@ class GhosttyApp {
         selectionForeground: NSColor? = nil,
         source: String,
         scope: GhosttyDefaultBackgroundUpdateScope,
-        forceNotify: Bool = false
+        forceNotify: Bool = false,
+        resolvedColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
         let previousScope = defaultBackgroundUpdateScope
         let previousScopeSource = defaultBackgroundScopeSource
@@ -3649,9 +3731,8 @@ class GhosttyApp {
         defaultBackgroundColor = color
         defaultBackgroundOpacity = opacity
         defaultBackgroundBlur = backgroundBlur
-        effectiveTerminalColorSchemePreference = Self.terminalRuntimeColorSchemePreference(
-            forBackgroundColor: color
-        )
+        effectiveTerminalColorSchemePreference = resolvedColorScheme
+            ?? Self.terminalRuntimeColorSchemePreference(forBackgroundColor: color)
         if let foregroundColor {
             defaultForegroundColor = foregroundColor
         }

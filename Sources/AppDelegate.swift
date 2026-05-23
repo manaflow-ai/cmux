@@ -5187,6 +5187,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
+    func applyTerminalSurfaceColorSchemeForGhosttyConfigReload(
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        forEachTerminalPanel { terminalPanel in
+            terminalPanel.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
+                preferredColorScheme: preferredColorScheme
+            )
+        }
+    }
+
     private func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
         var seenManagers: Set<ObjectIdentifier> = []
 
