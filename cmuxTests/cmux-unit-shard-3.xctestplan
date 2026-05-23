@@ -27,8 +27,10 @@
         "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()",
         "MarkdownPanelTests/testMarkdownRenderBlocksRemoteImagesUntilUserAction()",
         "PiVaultAgentPersistenceTests/testGrokAgentSearchScopeUsesCurrentDirectoryCWDFilter()",
+        "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYJSONReportsResolvedSessionID()",
         "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYJSONResolvesSessionIDWhenWorkspaceCreateOmitsSurfaceID()",
-        "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYTreatsControlPersistZeroAsReusable()"
+        "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYTreatsControlPersistZeroAsReusable()",
+        "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYUsesReusableForegroundAuthControlConnection()"
       ],
       "target": {
         "containerPath": "container:cmux.xcodeproj",

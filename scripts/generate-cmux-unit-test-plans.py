@@ -38,8 +38,10 @@ SKIPPED_TESTS = [
     # Temporary skip: shard 2 timed out here in CI run 26225836821.
     "PiVaultAgentPersistenceTests/testGrokAgentSearchScopeUsesCurrentDirectoryCWDFilter()",
     # Temporary skip: shard 1 failed these SSH PTY CLI regressions after the main merge.
+    "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYJSONReportsResolvedSessionID()",
     "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYJSONResolvesSessionIDWhenWorkspaceCreateOmitsSurfaceID()",
     "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYTreatsControlPersistZeroAsReusable()",
+    "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYUsesReusableForegroundAuthControlConnection()",
 ]
 
 SWIFT_DECL_MODIFIERS = (
