@@ -4776,7 +4776,7 @@ enum CloseTabConfirmationPolicy {
 
     static func decision(
         requiresConfirmation: Bool,
-        source: Source = .shortcut,
+        source: Source,
         defaults: UserDefaults = .standard
     ) -> Decision {
         let shouldConfirm: Bool
@@ -4796,7 +4796,7 @@ enum CloseTabConfirmationPolicy {
 
     static func shouldConfirm(
         requiresConfirmation: Bool,
-        source: Source = .shortcut,
+        source: Source,
         defaults: UserDefaults = .standard
     ) -> Bool {
         decision(

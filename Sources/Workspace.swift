@@ -16418,7 +16418,8 @@ extension Workspace: BonsplitDelegate {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
                CloseTabConfirmationPolicy.shouldConfirm(
-                   requiresConfirmation: panelNeedsConfirmClose(panelId: panelId)
+                   requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+                   source: .shortcut
                ) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false
