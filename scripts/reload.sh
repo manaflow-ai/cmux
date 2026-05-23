@@ -512,7 +512,12 @@ XCODEBUILD_ARGS+=(build)
 XCODEBUILD_LOCK_DIR="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).locks"
 XCODEBUILD_LOCK_CONCURRENCY="${CMUX_XCODEBUILD_LOCK_CONCURRENCY:-5}"
 if ! is_positive_integer "$XCODEBUILD_LOCK_CONCURRENCY"; then
-  echo "error: CMUX_XCODEBUILD_LOCK_CONCURRENCY must be a positive integer" >&2
+  echo "error: xcodebuild lock concurrency must be a positive integer" >&2
+  exit 1
+fi
+XCODEBUILD_LOCK_WAIT_SECONDS="${CMUX_XCODEBUILD_LOCK_WAIT_SECONDS:-1800}"
+if ! is_positive_integer "$XCODEBUILD_LOCK_WAIT_SECONDS"; then
+  echo "error: xcodebuild lock wait timeout must be a positive integer" >&2
   exit 1
 fi
 # Xcode 26's SWBBuildService is a per-user singleton. Too many concurrent
@@ -521,48 +526,68 @@ fi
 python3 -c '
 import fcntl
 import os
+import signal
 import sys
-import time
 
 lock_dir = sys.argv[1]
 concurrency = int(sys.argv[2])
-command = sys.argv[3:]
+wait_seconds = int(sys.argv[3])
+command = sys.argv[4:]
 
 try:
     os.makedirs(lock_dir, mode=0o700, exist_ok=True)
 except OSError as exc:
     raise SystemExit(f"error: create lock dir: {exc}")
 
-def acquire_slot():
-    for slot in range(1, concurrency + 1):
-        lock_path = os.path.join(lock_dir, f"slot-{slot}.lock")
-        try:
-            fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-        except OSError as exc:
-            raise SystemExit(f"error: open lock slot: {exc}")
+def next_ticket():
+    counter_path = os.path.join(lock_dir, "counter")
+    try:
+        fd = os.open(counter_path, os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError as exc:
+        raise SystemExit(f"error: open lock counter: {exc}")
 
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        raw = os.read(fd, 64).decode().strip()
+        current = int(raw) if raw else 0
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.ftruncate(fd, 0)
+        os.write(fd, f"{current + 1}\n".encode())
+        return current
+    except ValueError:
+        raise SystemExit("error: xcodebuild lock counter is corrupt")
+    except OSError as exc:
+        raise SystemExit(f"error: update lock counter: {exc}")
+    finally:
         try:
-            flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-            fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
-        except OSError as exc:
             os.close(fd)
-            raise SystemExit(f"error: fcntl lock fd: {exc}")
+        except OSError:
+            pass
 
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return fd, lock_path
-        except BlockingIOError:
-            os.close(fd)
-        except OSError as exc:
-            os.close(fd)
-            raise SystemExit(f"error: flock: {exc}")
-    return None, None
+def timeout_handler(signum, frame):
+    raise TimeoutError()
 
-fd, lock_path = acquire_slot()
-if fd is None:
+ticket = next_ticket()
+slot = (ticket % concurrency) + 1
+lock_path = os.path.join(lock_dir, f"slot-{slot}.lock")
+try:
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+except OSError as exc:
+    raise SystemExit(f"error: open lock slot: {exc}")
+
+try:
+    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+    fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
+except OSError as exc:
+    os.close(fd)
+    raise SystemExit(f"error: fcntl lock fd: {exc}")
+
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
     msg = (
         f"==> xcodebuild concurrency limit reached ({concurrency}); "
-        f"waiting for a slot in {lock_dir}...\n"
+        f"waiting for slot {slot}/{concurrency}...\n"
     )
     # reload.sh saves the original stderr on fd 4 before redirecting to the
     # log file. Surface the wait notice to the terminal so the user knows
@@ -573,15 +598,31 @@ if fd is None:
     except OSError:
         sys.stderr.write(msg)
         sys.stderr.flush()
-    while fd is None:
-        time.sleep(0.2)
-        fd, lock_path = acquire_slot()
+    previous_handler = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(wait_seconds)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except TimeoutError:
+        os.close(fd)
+        raise SystemExit(
+            f"error: timed out waiting for xcodebuild slot after {wait_seconds}s "
+            f"(slot {slot}/{concurrency}); check for stuck xcodebuild processes"
+        )
+    except OSError as exc:
+        os.close(fd)
+        raise SystemExit(f"error: flock: {exc}")
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous_handler)
+except OSError as exc:
+    os.close(fd)
+    raise SystemExit(f"error: flock: {exc}")
 
 try:
     os.execvp(command[0], command)
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" xcodebuild "${XCODEBUILD_ARGS[@]}"
+' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" xcodebuild "${XCODEBUILD_ARGS[@]}"
 sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
