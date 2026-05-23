@@ -11,6 +11,16 @@ export const testimonials = [
     platform: "x" as const,
   },
   {
+    key: "steipete",
+    name: "Peter Steinberger",
+    handle: "@steipete",
+    avatar: "/avatars/steipete.png",
+    text: "I'm late to the party, but cmux is great. current split: codex mac app: knowledege work, learning, reading; cmux + codex cli: coding.",
+    lang: "en",
+    url: "https://x.com/steipete/status/2058093406874689770",
+    platform: "x" as const,
+  },
+  {
     key: "schrockn",
     name: "Nick Schrock",
     handle: "@schrockn",
