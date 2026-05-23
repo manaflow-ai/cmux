@@ -542,6 +542,7 @@ XCODEBUILD_ARGS+=(build)
 
 XCODEBUILD_MAX_CONCURRENCY="$(choose_xcodebuild_concurrency)"
 XCODEBUILD_SLOT_DIR="${CMUX_XCODEBUILD_SLOT_DIR:-/tmp/cmux-xcodebuild-$(id -u).slots}"
+XCODEBUILD_EXCLUSIVE_KEY="${DERIVED_DATA:-}"
 # Keep tagged reloads parallel but bounded. Each build gets isolated temp,
 # package, and module-cache roots above, while this slot lease limits aggregate
 # Xcode pressure on the per-user SWBBuildService.
@@ -552,6 +553,7 @@ mkdir -p "$XCODEBUILD_SLOT_DIR"
   fi
   python3 -c '
 import fcntl
+import hashlib
 import os
 import queue
 import sys
@@ -559,7 +561,8 @@ import threading
 
 max_concurrency = int(sys.argv[1])
 slot_dir = sys.argv[2]
-command = sys.argv[3:]
+exclusive_key = sys.argv[3]
+command = sys.argv[4:]
 
 def surface(message):
     data = message.encode()
@@ -593,6 +596,27 @@ def acquire_slot(slot, blocking):
 def make_inheritable(fd):
     flags = fcntl.fcntl(fd, fcntl.F_GETFD)
     fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
+
+exclusive_fd = None
+if exclusive_key:
+    lock_key = os.path.realpath(exclusive_key)
+    lock_digest = hashlib.sha256(lock_key.encode()).hexdigest()[:32]
+    lock_path = os.path.join(slot_dir, f"derived-{lock_digest}.lock")
+    exclusive_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(exclusive_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            surface(f"==> Waiting for xcodebuild lock for {lock_key}...\n")
+            while True:
+                try:
+                    fcntl.flock(exclusive_fd, fcntl.LOCK_EX)
+                    break
+                except InterruptedError:
+                    continue
+    except OSError:
+        os.close(exclusive_fd)
+        raise
 
 errors = []
 for slot in range(1, max_concurrency + 1):
@@ -632,12 +656,14 @@ else:
         if len(errors) == max_concurrency:
             raise SystemExit(f"error: acquire xcodebuild slot: {errors[0]}")
 
+if exclusive_fd is not None:
+    make_inheritable(exclusive_fd)
 make_inheritable(acquired_fd)
 try:
     os.execvp(command[0], command)
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_MAX_CONCURRENCY" "$XCODEBUILD_SLOT_DIR" xcodebuild "${XCODEBUILD_ARGS[@]}"
+' "$XCODEBUILD_MAX_CONCURRENCY" "$XCODEBUILD_SLOT_DIR" "$XCODEBUILD_EXCLUSIVE_KEY" xcodebuild "${XCODEBUILD_ARGS[@]}"
 )
 sleep 0.2
 
