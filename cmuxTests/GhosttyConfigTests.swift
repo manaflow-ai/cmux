@@ -1527,7 +1527,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         }
     }
 
-    func testLifecycleStartsAsNewTabUntilRenderable() {
+    func testLifecycleDistinguishesDeferredURLFromNewTab() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: URL(string: "https://example.test/")!,
@@ -1536,11 +1536,11 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        XCTAssertEqual(panel.webViewLifecycleState, .newTab)
+        XCTAssertEqual(panel.webViewLifecycleState, .deferredURL)
 
         panel.noteWebViewVisibility(true, reason: "test.visible")
 
-        XCTAssertEqual(panel.webViewLifecycleState, .newTab)
+        XCTAssertEqual(panel.webViewLifecycleState, .deferredURL)
     }
 
     func testBackgroundInitialNavigationOwnsHeadlessWebKitHostBeforeViewAppears() {
@@ -2542,6 +2542,144 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, "/tmp/cmux-nightly.sock")
     }
 
+    func testTaggedDebugBundleRefusesStableSocketOverrideEvenWithOptInFlag() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": SocketControlSettings.stableDefaultSocketPath,
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
+    }
+
+    func testTaggedDebugBundleRefusesUserScopedStableSocketOverrideEvenWithOptInFlag() {
+        let aliases = [
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
+            SocketControlSettings.legacyUserScopedStableSocketPath(currentUserID: 501),
+            "/private/tmp/cmux-501.sock",
+        ]
+
+        for alias in aliases {
+            let path = SocketControlSettings.socketPath(
+                environment: [
+                    "CMUX_SOCKET_PATH": alias,
+                    "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+                ],
+                bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+                isDebugBuild: false,
+                currentUserID: 501
+            )
+
+            XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock", alias)
+        }
+    }
+
+    func testTaggedDebugBundleRefusesCanonicalLegacyStableSocketAliasEvenWithOptInFlag() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/private/tmp/cmux.sock",
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
+    }
+
+    func testSocketPathMatchingTreatsPrivateTmpLegacyStableAliasAsSamePath() {
+        XCTAssertTrue(
+            SocketControlSettings.pathsMatch(
+                SocketControlSettings.legacyStableDefaultSocketPath,
+                "/private/tmp/cmux.sock"
+            )
+        )
+    }
+
+    func testTaggedDebugBundleRefusesCaseVariantStableSocketAliasesEvenWithOptInFlag() {
+        let aliases = [
+            "/tmp/CMUX.sock",
+            "/private/tmp/CMUX.sock",
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+                .replacingOccurrences(of: "cmux-501.sock", with: "CMUX-501.sock"),
+            SocketControlSettings.legacyUserScopedStableSocketPath(currentUserID: 501)
+                .replacingOccurrences(of: "cmux-501.sock", with: "CMUX-501.sock"),
+        ]
+
+        for alias in aliases {
+            let path = SocketControlSettings.socketPath(
+                environment: [
+                    "CMUX_SOCKET_PATH": alias,
+                    "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+                ],
+                bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+                isDebugBuild: false,
+                currentUserID: 501
+            )
+
+            XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock", alias)
+        }
+    }
+
+    func testTaggedDebugBundleRefusesLeafSymlinkToStableSocketEvenWithOptInFlag() throws {
+        let alias = "/tmp/cmux-stable-alias-\(UUID().uuidString).sock"
+        try? FileManager.default.removeItem(atPath: alias)
+        try FileManager.default.createSymbolicLink(
+            atPath: alias,
+            withDestinationPath: SocketControlSettings.stableDefaultSocketPath
+        )
+        defer { try? FileManager.default.removeItem(atPath: alias) }
+
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": alias,
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
+    }
+
+    func testTaggedDebugBundleRefusesExcessiveSymlinkChainEvenWithOptInFlag() throws {
+        let root = "/tmp/cmux-stable-chain-\(UUID().uuidString)"
+        let aliases = (0...64).map { "\(root)-\($0).sock" }
+        for alias in aliases {
+            try? FileManager.default.removeItem(atPath: alias)
+        }
+        defer {
+            for alias in aliases {
+                try? FileManager.default.removeItem(atPath: alias)
+            }
+        }
+
+        try FileManager.default.createSymbolicLink(
+            atPath: aliases[64],
+            withDestinationPath: SocketControlSettings.stableDefaultSocketPath
+        )
+        for index in stride(from: 63, through: 0, by: -1) {
+            try FileManager.default.createSymbolicLink(
+                atPath: aliases[index],
+                withDestinationPath: aliases[index + 1]
+            )
+        }
+
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": aliases[0],
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
+    }
+
     func testStagingBundleHonorsSocketOverrideWithoutOptInFlag() {
         let path = SocketControlSettings.socketPath(
             environment: [
@@ -2620,6 +2758,117 @@ final class SocketControlSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathExists() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchTreatsPrivateTmpLegacyStableAliasAsStablePath() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: "/private/tmp/cmux.sock",
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { socketPath in
+                XCTAssertEqual(socketPath, "/private/tmp/cmux.sock")
+                return .socket(ownerUserID: 501)
+            }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchDoesNotProbeSameUserStableSocketLiveness() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
+            stableDefaultSocketCanBeReclaimed: { _ in
+                XCTFail("Existing startup sockets should fall back without liveness probing on the main thread")
+                return true
+            }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchDoesNotProbeSameUserStableSocketReclaimability() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
+            stableDefaultSocketCanBeReclaimed: { socketPath in
+                XCTFail("Existing startup sockets should fall back without reclaimability probing: \(socketPath)")
+                return false
+            }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchKeepsUserScopedPreferredPathWithoutProbing() {
+        let userScopedPath = SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: userScopedPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { socketPath in
+                XCTFail("User-scoped startup path should not be re-inspected: \(socketPath)")
+                return .socket(ownerUserID: 501)
+            },
+            stableDefaultSocketCanBeReclaimed: { socketPath in
+                XCTFail("User-scoped startup path should not be reclaimed: \(socketPath)")
+                return false
+            }
+        )
+
+        XCTAssertEqual(path, userScopedPath)
+    }
+
+    func testInitialStableLaunchFallsBackToUserScopedSocketWhenMissingStablePathCannotBeReserved() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .missing },
+            stableDefaultSocketCanBeReclaimed: { socketPath in
+                XCTAssertEqual(socketPath, SocketControlSettings.stableDefaultSocketPath)
+                return false
+            }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialSocketPathDoesNotProbeForTaggedDebugBuild() {
+        let debugPath = "/tmp/cmux-debug-tag.sock"
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: debugPath,
+            bundleIdentifier: "com.cmuxterm.app.debug.tag",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in
+                XCTFail("Tagged debug builds must not inspect the stable socket")
+                return .socket(ownerUserID: 501)
+            }
+        )
+
+        XCTAssertEqual(path, debugPath)
     }
 
     func testStableReleaseFallsBackToUserScopedSocketWhenStablePathIsBlockedByNonSocketEntry() {

@@ -494,6 +494,9 @@
         "app": {
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen."
+        },
+        "terminal": {
+          "copyOnSelect": "Kopiert ausgewählten Terminaltext in die Systemzwischenablage, sobald die Auswahl bestätigt wird, einschließlich Wort- und Zeilenauswahl per Doppel- und Dreifachklick."
         }
       }
     },
