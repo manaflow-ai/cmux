@@ -4379,12 +4379,15 @@ class GhosttyApp {
                     #if DEBUG
                     cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
                     #endif
+                    let fileURL = URL(fileURLWithPath: resolvedPath)
                     CommandClickFileOpenRouter.deferredOpenFileInCmux(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
                         filePath: resolvedPath
-                    )
+                    ) {
+                        NSWorkspace.shared.open(fileURL)
+                    }
                     return true
                 }
                 if filePathRouted {
