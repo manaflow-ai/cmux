@@ -32,15 +32,16 @@ private extension NSObject {
 private struct BrowserLayerBackedSpinner: NSViewRepresentable {
     let size: CGFloat
     let color: NSColor
+    var opacity: CGFloat = 1
 
     func makeNSView(context: Context) -> SpinnerView {
         let view = SpinnerView(frame: NSRect(x: 0, y: 0, width: size, height: size))
-        view.configure(size: size, color: color)
+        view.configure(size: size, color: color, opacity: opacity)
         return view
     }
 
     func updateNSView(_ nsView: SpinnerView, context: Context) {
-        nsView.configure(size: size, color: color)
+        nsView.configure(size: size, color: color, opacity: opacity)
     }
 
     final class SpinnerView: NSView {
@@ -49,6 +50,7 @@ private struct BrowserLayerBackedSpinner: NSViewRepresentable {
         private let arcLayer = CAShapeLayer()
         private var spinnerSize: CGFloat = 0
         private var spinnerColor: NSColor = .secondaryLabelColor
+        private var spinnerOpacity: CGFloat = 1
 
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
@@ -75,9 +77,10 @@ private struct BrowserLayerBackedSpinner: NSViewRepresentable {
             NSSize(width: spinnerSize, height: spinnerSize)
         }
 
-        func configure(size: CGFloat, color: NSColor) {
+        func configure(size: CGFloat, color: NSColor, opacity: CGFloat) {
             spinnerSize = size
             spinnerColor = color
+            spinnerOpacity = opacity
             invalidateIntrinsicContentSize()
             updateLayerColors()
             needsLayout = true
@@ -129,8 +132,9 @@ private struct BrowserLayerBackedSpinner: NSViewRepresentable {
             effectiveAppearance.performAsCurrentDrawingAppearance {
                 resolvedColor = spinnerColor.usingColorSpace(.deviceRGB) ?? spinnerColor
             }
-            trackLayer.strokeColor = resolvedColor.withAlphaComponent(0.20).cgColor
-            arcLayer.strokeColor = resolvedColor.cgColor
+            let baseAlpha = resolvedColor.alphaComponent
+            trackLayer.strokeColor = resolvedColor.withAlphaComponent(baseAlpha * spinnerOpacity * 0.20).cgColor
+            arcLayer.strokeColor = resolvedColor.withAlphaComponent(baseAlpha * spinnerOpacity).cgColor
         }
 
         private func updateLayerGeometry() {
@@ -1243,7 +1247,8 @@ struct BrowserPanelView: View {
                 HStack(spacing: 4) {
                     BrowserLayerBackedSpinner(
                         size: 12,
-                        color: NSColor.secondaryLabelColor.withAlphaComponent(0.75)
+                        color: .secondaryLabelColor,
+                        opacity: 0.75
                     )
                     .frame(width: 12, height: 12)
                     Text(String(localized: "browser.downloading", defaultValue: "Downloading..."))
@@ -4941,7 +4946,7 @@ struct OmnibarSuggestionsView: View {
             if searchSuggestionsEnabled, isLoadingRemoteSuggestions {
                 BrowserLayerBackedSpinner(
                     size: 13,
-                    color: NSColor.secondaryLabelColor.withAlphaComponent(0.75)
+                    color: .secondaryLabelColor
                 )
                     .frame(width: 13, height: 13)
                     .padding(.top, 7)
