@@ -2908,6 +2908,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var remoteProxyEndpoint: BrowserProxyEndpoint?
     @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
     private var usesRemoteWorkspaceProxy: Bool
+    private var currentWebViewUsesWebExtensionPageConfiguration = false
     private struct PendingRemoteNavigation {
         let request: URLRequest
         let recordTypedNavigation: Bool
@@ -3127,6 +3128,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
+        currentWebViewUsesWebExtensionPageConfiguration = false
         webView = replacement
         hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: now)
         currentURL = restoreURL
@@ -3478,6 +3480,14 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func loadBrowserPage(_ url: URL) {
+        loadBrowserPage(URLRequest(url: url))
+    }
+
+    func loadBrowserPage(
+        _ request: URLRequest,
+        recordTypedNavigation: Bool = false,
+        preserveRestoredSessionHistory: Bool = false
+    ) {
         let configuration = WKWebViewConfiguration()
         Self.configureWebViewConfiguration(
             configuration,
@@ -3485,25 +3495,35 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore
         )
         loadPageAfterReplacingWebView(
-            url,
+            request,
             webViewConfiguration: configuration,
-            reason: "browserPage"
+            usesWebExtensionPageConfiguration: false,
+            reason: "browserPage",
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory
         )
     }
 
     func loadWebExtensionPage(_ url: URL, webViewConfiguration configuration: WKWebViewConfiguration) {
         loadPageAfterReplacingWebView(
-            url,
+            URLRequest(url: url),
             webViewConfiguration: configuration,
-            reason: "webExtensionPage"
+            usesWebExtensionPageConfiguration: true,
+            reason: "webExtensionPage",
+            recordTypedNavigation: false,
+            preserveRestoredSessionHistory: false
         )
     }
 
     private func loadPageAfterReplacingWebView(
-        _ url: URL,
+        _ request: URLRequest,
         webViewConfiguration configuration: WKWebViewConfiguration,
-        reason: String
+        usesWebExtensionPageConfiguration: Bool,
+        reason: String,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool
     ) {
+        guard let url = request.url else { return }
         let previousWebView = webView
         let desiredZoom = max(minPageZoom, min(maxPageZoom, previousWebView.pageZoom))
 
@@ -3534,6 +3554,7 @@ final class BrowserPanel: Panel, ObservableObject {
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         resetWebViewLifecycleMetadata(resetVisibility: false)
+        currentWebViewUsesWebExtensionPageConfiguration = usesWebExtensionPageConfiguration
         webView = replacement
         currentURL = url
         shouldRenderWebView = true
@@ -3543,7 +3564,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
         bindWebView(replacement)
         applyBrowserThemeModeIfNeeded()
-        navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
+        performNavigation(
+            request: request,
+            originalURL: url,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+        )
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -4092,6 +4118,7 @@ final class BrowserPanel: Panel, ObservableObject {
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         resetWebViewLifecycleMetadata(resetVisibility: false)
+        currentWebViewUsesWebExtensionPageConfiguration = false
         webView = replacement
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
@@ -4456,6 +4483,7 @@ final class BrowserPanel: Panel, ObservableObject {
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         resetWebViewLifecycleMetadata(resetVisibility: false)
+        currentWebViewUsesWebExtensionPageConfiguration = false
         webView = replacement
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
@@ -5045,6 +5073,14 @@ final class BrowserPanel: Panel, ObservableObject {
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
+        if shouldReplaceWebExtensionPageConfiguration(forNavigationTo: originalURL) {
+            loadBrowserPage(
+                request,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            )
+            return
+        }
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
@@ -5059,6 +5095,12 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navigationDelegate?.lastAttemptedURL = originalURL
         browserLoadRequest(effectiveRequest, in: webView)
+    }
+
+    private func shouldReplaceWebExtensionPageConfiguration(forNavigationTo url: URL) -> Bool {
+        guard currentWebViewUsesWebExtensionPageConfiguration else { return false }
+        guard #available(macOS 15.4, *) else { return true }
+        return webView.configuration.webExtensionController?.extensionContext(for: url) == nil
     }
 
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
@@ -5413,6 +5455,7 @@ extension BrowserPanel {
             websiteDataStore: websiteDataStore
         )
         webViewInstanceID = UUID()
+        currentWebViewUsesWebExtensionPageConfiguration = false
         webView = replacement
         shouldRenderWebView = false
         refreshWebViewLifecycleState()

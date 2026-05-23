@@ -2016,6 +2016,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         cancelBackgroundLoadTask(recordID: recordID, runtimeKey: runtimeKey)
         try? controllersByRuntimeKey[runtimeKey]?.unload(context)
         contextsByRuntimeKey[runtimeKey]?[recordID] = nil
+        if contextsByRuntimeKey[runtimeKey]?.isEmpty == true {
+            contextsByRuntimeKey[runtimeKey] = nil
+        }
     }
 
     private func loadWebExtension(from source: BrowserWebExtensionInstallSource) async throws -> WKWebExtension {
@@ -2311,13 +2314,44 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     fileprivate func auxiliaryWindowDidClose(_ window: BrowserWebExtensionAuxiliaryWindowAdapter) {
+        let runtimeKey = window.runtimeKey
         auxiliaryWindowAdaptersByID.removeValue(forKey: window.id)
-        controllersByRuntimeKey[window.runtimeKey]?.didCloseTab(window.tabAdapter, windowIsClosing: true)
-        controllersByRuntimeKey[window.runtimeKey]?.didCloseWindow(window)
-        if isSameTab(activeTabsByRuntimeKey[window.runtimeKey], window.tabAdapter) {
-            activeTabsByRuntimeKey[window.runtimeKey] = nil
+        controllersByRuntimeKey[runtimeKey]?.didCloseTab(window.tabAdapter, windowIsClosing: true)
+        controllersByRuntimeKey[runtimeKey]?.didCloseWindow(window)
+        if isSameTab(activeTabsByRuntimeKey[runtimeKey], window.tabAdapter) {
+            activeTabsByRuntimeKey[runtimeKey] = nil
         }
+        cleanupTransientRuntimeIfUnused(runtimeKey)
         postDidChange()
+    }
+
+    private func cleanupTransientRuntimeIfUnused(_ runtimeKey: BrowserWebExtensionRuntimeKey) {
+        guard runtimeKey.isTransient else { return }
+        let hasBrowserTab = tabAdaptersByPanelID.values.contains { adapter in
+            adapter.runtimeKey == runtimeKey && adapter.panel != nil
+        }
+        guard !hasBrowserTab else { return }
+        guard !auxiliaryWindowAdaptersByID.values.contains(where: { $0.runtimeKey == runtimeKey }) else { return }
+
+        if let tasksByRecordID = backgroundLoadTasksByRuntimeKey[runtimeKey] {
+            for task in tasksByRecordID.values {
+                task.cancel()
+            }
+        }
+        if let controller = controllersByRuntimeKey[runtimeKey],
+           let contextsByRecordID = contextsByRuntimeKey[runtimeKey] {
+            for context in contextsByRecordID.values {
+                try? controller.unload(context)
+            }
+        }
+        backgroundLoadTasksByRuntimeKey[runtimeKey] = nil
+        contextsByRuntimeKey[runtimeKey] = nil
+        controllersByRuntimeKey[runtimeKey]?.delegate = nil
+        controllersByRuntimeKey[runtimeKey] = nil
+        websiteDataStoresByRuntimeKey[runtimeKey] = nil
+        windowAdaptersByRuntimeKey[runtimeKey] = nil
+        activeTabsByRuntimeKey[runtimeKey] = nil
+        loadedRuntimeKeys.remove(runtimeKey)
     }
 
     private func closeAllAuxiliaryWindows() {
