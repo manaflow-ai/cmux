@@ -1395,6 +1395,79 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testMobileTerminalSnapshotPendingEchoBypassWindowExpires() {
+        // After every mobile.terminal.input, the controller schedules a short bypass window
+        // during which the snapshot cache must not be reused. Without this, the first
+        // post-input snapshot is built before the PTY echo lands, then the cache hands that
+        // echo-less payload back to every subsequent poll until the TTL expires — making
+        // keystroke echo appear to take ~cacheTTL seconds. The window must end on its own
+        // so steady-state polls still hit the cache once the user stops typing.
+        let surfaceID = UUID()
+        let inputAt = Date(timeIntervalSince1970: 5_000)
+        let deadline = inputAt.addingTimeInterval(0.2)
+        TerminalController.shared.debugSetMobileTerminalSnapshotPendingEchoUntilForTesting(
+            surfaceID: surfaceID,
+            deadline: deadline
+        )
+        XCTAssertTrue(
+            TerminalController.shared.debugMobileTerminalSnapshotPendingEchoForTesting(
+                surfaceID: surfaceID,
+                now: inputAt.addingTimeInterval(0.05)
+            ),
+            "bypass must be active within the post-input window so polls rebuild instead of returning the cached echo-less snapshot"
+        )
+        XCTAssertTrue(
+            TerminalController.shared.debugMobileTerminalSnapshotPendingEchoForTesting(
+                surfaceID: surfaceID,
+                now: inputAt.addingTimeInterval(0.19)
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shared.debugMobileTerminalSnapshotPendingEchoForTesting(
+                surfaceID: surfaceID,
+                now: inputAt.addingTimeInterval(0.21)
+            ),
+            "bypass must end on its own so steady-state polls can reuse the cache"
+        )
+        XCTAssertFalse(
+            TerminalController.shared.debugMobileTerminalSnapshotPendingEchoForTesting(
+                surfaceID: surfaceID,
+                now: inputAt.addingTimeInterval(1.0)
+            )
+        )
+        TerminalController.shared.debugSetMobileTerminalSnapshotPendingEchoUntilForTesting(
+            surfaceID: surfaceID,
+            deadline: nil
+        )
+    }
+
+    func testMobileTerminalInputInvalidationActivatesPendingEchoBypass() {
+        let surfaceID = UUID()
+        TerminalController.shared.debugSetMobileTerminalSnapshotPendingEchoUntilForTesting(
+            surfaceID: surfaceID,
+            deadline: nil
+        )
+        XCTAssertFalse(
+            TerminalController.shared.debugMobileTerminalSnapshotPendingEchoForTesting(
+                surfaceID: surfaceID,
+                now: Date()
+            ),
+            "no bypass should be active before any input"
+        )
+        TerminalController.shared.debugInvalidateMobileTerminalSnapshotAfterInputForTesting(surfaceID: surfaceID)
+        XCTAssertTrue(
+            TerminalController.shared.debugMobileTerminalSnapshotPendingEchoForTesting(
+                surfaceID: surfaceID,
+                now: Date()
+            ),
+            "post-input invalidation must arm the bypass window so the next snapshot rebuilds"
+        )
+        TerminalController.shared.debugSetMobileTerminalSnapshotPendingEchoUntilForTesting(
+            surfaceID: surfaceID,
+            deadline: nil
+        )
+    }
+
     func testMobileTerminalInputInvalidationAllowsImmediateStyledVTExportRetry() {
         let surfaceID = UUID()
         let now = Date(timeIntervalSince1970: 1_000)

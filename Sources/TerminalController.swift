@@ -159,6 +159,13 @@ class TerminalController {
     private static let mobileViewportReportTTL: TimeInterval = 5
     private static let mobileTerminalSnapshotCacheTTL: TimeInterval = 0.35
     private static let mobileTerminalSnapshotViewportChurnCacheTTL: TimeInterval = 1.0
+    /// Window after a `mobile.terminal.input` during which we bypass the snapshot cache so
+    /// callers see fresh grid reads as soon as the PTY echo lands. Without this, the first
+    /// post-input snapshot can be built before the echo arrives, then cached for up to the
+    /// cache TTL, making keystroke echo appear to take ~`cacheTTL` seconds. 200 ms covers
+    /// typical PTY/echo settling on a busy host while still letting steady-state polls hit
+    /// the cache once the user stops typing.
+    private static let mobileTerminalSnapshotPendingEchoTTL: TimeInterval = 0.2
     private static let mobileTerminalVTExportMinimumInterval: TimeInterval = 0.1
     private static let mobileTerminalSnapshotMaximumScrollbackRows = 0
     private static let mobileTerminalSnapshotFrameSafetyBudget = MobileSyncFrameCodec.defaultMaximumFrameByteCount / 2
@@ -167,6 +174,7 @@ class TerminalController {
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
     private var mobileTerminalSnapshotCacheBySurfaceID: [UUID: MobileTerminalSnapshotCacheEntry] = [:]
     private var mobileTerminalVTExportLastAttemptBySurfaceID: [UUID: Date] = [:]
+    private var mobileTerminalSnapshotPendingEchoUntilBySurfaceID: [UUID: Date] = [:]
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
     private nonisolated static let socketCommandSlowThresholdMs: Double = 500
@@ -9106,6 +9114,18 @@ class TerminalController {
 
     func debugShouldAttemptMobileTerminalVTExportForTesting(surfaceID: UUID, now: Date) -> Bool {
         shouldAttemptMobileTerminalVTExport(surfaceID: surfaceID, now: now)
+    }
+
+    func debugSetMobileTerminalSnapshotPendingEchoUntilForTesting(surfaceID: UUID, deadline: Date?) {
+        if let deadline {
+            mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = deadline
+        } else {
+            mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = nil
+        }
+    }
+
+    func debugMobileTerminalSnapshotPendingEchoForTesting(surfaceID: UUID, now: Date) -> Bool {
+        return mobileTerminalSnapshotPendingEcho(surfaceID: surfaceID, now: now)
     }
 #endif
 
@@ -20482,6 +20502,18 @@ class TerminalController {
     private func invalidateMobileTerminalSnapshotAfterInput(surfaceID: UUID) {
         mobileTerminalSnapshotCacheBySurfaceID[surfaceID] = nil
         mobileTerminalVTExportLastAttemptBySurfaceID[surfaceID] = nil
+        mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = Date().addingTimeInterval(Self.mobileTerminalSnapshotPendingEchoTTL)
+    }
+
+    private func mobileTerminalSnapshotPendingEcho(surfaceID: UUID, now: Date) -> Bool {
+        guard let deadline = mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] else {
+            return false
+        }
+        if deadline > now {
+            return true
+        }
+        mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = nil
+        return false
     }
 
     private func applyMobileViewportReport(
@@ -20598,8 +20630,10 @@ class TerminalController {
             visibleRows: rows
         )
         let now = Date()
+        let pendingEcho = mobileTerminalSnapshotPendingEcho(surfaceID: terminalPanel.id, now: now)
 
-        if let cached = mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id],
+        if !pendingEcho,
+           let cached = mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id],
            Self.shouldReuseMobileTerminalSnapshotCache(
                cached: cached,
                columns: columns,
@@ -20677,7 +20711,7 @@ class TerminalController {
             if let viewportFit = mobileViewportFitPayload(params: params, terminalPanel: terminalPanel) {
                 payload["viewport_fit"] = viewportFit
             }
-            if viewportText.fidelity != "plain_text" {
+            if !pendingEcho, viewportText.fidelity != "plain_text" {
                 mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id] = MobileTerminalSnapshotCacheEntry(
                     columns: columns,
                     rows: rows,
@@ -20703,10 +20737,13 @@ class TerminalController {
             return false
         }
         let age = now.timeIntervalSince(cached.createdAt)
-        if cached.columns == columns,
-           cached.rows == rows,
-           age <= mobileTerminalSnapshotCacheTTL {
-            return true
+        // When dimensions match the steady-state grid, the cache must expire at the normal TTL.
+        // The longer "viewport churn" TTL is a fallback for the transient case where columns or
+        // rows actually changed (rotation, sidebar fit, manual resize) so callers don't thrash on
+        // a moving target. Previously this returned `true` for any age <= 1s whenever the
+        // dimensions matched, which kept echo-less snapshots cached for ~1s after every input.
+        if cached.columns == columns, cached.rows == rows {
+            return age <= mobileTerminalSnapshotCacheTTL
         }
         return age <= mobileTerminalSnapshotViewportChurnCacheTTL
     }
