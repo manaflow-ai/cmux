@@ -1252,7 +1252,11 @@ class TerminalController {
             close(fd)
             return (nil, false, (stage: "lock", errnoCode: errnoCode))
         }
-        return (fd, socketPathLockHasReusableMarker(fd), nil)
+        return (
+            fd,
+            socketPathLockHasReusableMarker(fd) || canReplaceUnmarkedRefusedSocket(at: socketPath),
+            nil
+        )
     }
 
     private nonisolated static func validateSocketPathLockFile(_ fd: Int32) -> Int32? {
@@ -1282,6 +1286,19 @@ class TerminalController {
             return pread(fd, baseAddress, rawBuffer.count, 0)
         }
         return readCount == ssize_t(marker.count) && buffer == marker
+    }
+
+    private nonisolated static func canReplaceUnmarkedRefusedSocket(at path: String) -> Bool {
+        let filename = URL(fileURLWithPath: (path as NSString).standardizingPath)
+            .lastPathComponent
+            .lowercased()
+        let recoverablePrefixes = ["cmux-debug-", "cmux-nightly-", "cmux-staging-"]
+        return filename == "cmux-debug.sock" ||
+            filename == "cmux-nightly.sock" ||
+            filename == "cmux-staging.sock" ||
+            recoverablePrefixes.contains { prefix in
+                filename.hasPrefix(prefix) && filename.hasSuffix(".sock")
+            }
     }
 
     private nonisolated static func markSocketPathLockReusable(_ fd: Int32) {

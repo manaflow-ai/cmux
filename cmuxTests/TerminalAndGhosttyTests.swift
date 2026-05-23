@@ -5032,6 +5032,29 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     }
 
     @MainActor
+    func testStartReclaimsTaggedRefusedSocketFileWithoutReusableLockMarker() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = "/tmp/cmux-debug-reclaim-\(UUID().uuidString.lowercased()).sock"
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
+    }
+
+    @MainActor
     func testStartReclaimsRefusedSocketFileWhenReusableLockExists() throws {
         TerminalController.shared.stop()
         defer { TerminalController.shared.stop() }
