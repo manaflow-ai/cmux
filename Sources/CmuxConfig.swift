@@ -2203,11 +2203,13 @@ final class CmuxConfigStore: ObservableObject {
         let globalDirectEntries = globalConfig.map { [ConfigEntry(path: globalConfigPath, config: $0)] } ?? []
         let localConfigEntries = localDirectEntries + Array(localPackEntries.reversed())
         let globalConfigEntries = globalDirectEntries + Array(globalPackEntries.reversed())
+        let packWatchPaths = (globalPackEntries + localPackEntries).map(\.path)
 
         // Local config takes precedence
         for entry in localConfigEntries {
             let localConfig = entry.config
             if configuredNewWorkspaceActionID == nil,
+               configuredNewWorkspaceCommandName == nil,
                let newWorkspaceActionID = localConfig.ui?.newWorkspace?.action {
                 configuredNewWorkspaceActionID = newWorkspaceActionID
                 configuredNewWorkspaceActionSourcePath = entry.path
@@ -2346,7 +2348,7 @@ final class CmuxConfigStore: ObservableObject {
         configurationIssues = issues
         if fileWatchingEnabled {
             updateLocalHookFileWatchers(
-                paths: localHookPaths,
+                paths: localHookPaths + packWatchPaths,
                 primaryLocalPath: localPath
             )
         }
@@ -2432,7 +2434,11 @@ final class CmuxConfigStore: ObservableObject {
         from actions: [String: CmuxConfigActionDefinition],
         sourcePath: String?
     ) -> [String: ActionEntry] {
-        actions.mapValues { ActionEntry(definition: $0, sourcePath: sourcePath) }
+        var entries: [String: ActionEntry] = [:]
+        for (id, definition) in actions {
+            entries[canonicalActionID(id)] = ActionEntry(definition: definition, sourcePath: sourcePath)
+        }
+        return entries
     }
 
     private func actionEntries(from entries: [ConfigEntry]) -> [String: ActionEntry] {

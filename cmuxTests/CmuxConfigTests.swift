@@ -1478,6 +1478,98 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
+    @MainActor
+    func testConfigNewWorkspaceCommandOverridesPackAction() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let packDirectory = root.appendingPathComponent("packs/team", isDirectory: true)
+        try FileManager.default.createDirectory(at: packDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let packURL = packDirectory.appendingPathComponent("cmux.pack.json")
+        try """
+        {
+          "packs": ["./packs/team"],
+          "newWorkspaceCommand": "Local Dev",
+          "commands": [
+            { "name": "Local Dev", "workspace": { "name": "Local" } }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "team.dev": { "type": "workspaceCommand", "commandName": "Pack Dev" }
+          },
+          "ui": {
+            "newWorkspace": { "action": "team.dev" }
+          },
+          "commands": [
+            { "name": "Pack Dev", "workspace": { "name": "Pack" } }
+          ]
+        }
+        """.write(to: packURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let command = try XCTUnwrap(store.resolvedNewWorkspaceCommand())
+        XCTAssertEqual(command.command.name, "Local Dev")
+        XCTAssertEqual(command.sourcePath, configURL.path)
+        XCTAssertEqual(store.newWorkspaceCommandName, "Local Dev")
+        XCTAssertNil(store.newWorkspaceActionID)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testConfigDirectBuiltInActionAliasOverridesPackAlias() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let packDirectory = root.appendingPathComponent("packs/team", isDirectory: true)
+        try FileManager.default.createDirectory(at: packDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let packURL = packDirectory.appendingPathComponent("cmux.pack.json")
+        try """
+        {
+          "packs": ["./packs/team"],
+          "actions": {
+            "cmux.newTerminal": { "type": "command", "command": "echo local" }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "newTerminal": { "type": "command", "command": "echo pack" }
+          }
+        }
+        """.write(to: packURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let action = try XCTUnwrap(store.resolvedAction(id: "newTerminal"))
+        XCTAssertEqual(action.id, "cmux.newTerminal")
+        XCTAssertEqual(action.terminalCommand, "echo local")
+        XCTAssertEqual(action.actionSourcePath, configURL.path)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
     func testDecodeEmptyCommandsArray() throws {
         let json = """
         { "commands": [] }
