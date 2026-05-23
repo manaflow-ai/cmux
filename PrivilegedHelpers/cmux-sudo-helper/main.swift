@@ -398,14 +398,25 @@ enum CMUXSudoHelper {
     }
 
     private static func allowedRootExecutablePath(_ path: String) throws -> String {
-        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-        let executableName = URL(fileURLWithPath: resolved).lastPathComponent.lowercased()
+        let resolvedURL = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
+        let resolved = resolvedURL.path
+        let executableName = resolvedURL.lastPathComponent.lowercased()
         guard !deniedRootExecutableNames.contains(executableName) else {
             throw HelperError(
                 code: "command_rejected",
                 message: String(
                     localized: "sudo.helper.shellRejected",
                     defaultValue: "cmux sudo will not run shell, sudo, su, env, or login executables as root."
+                )
+            )
+        }
+        guard secureSearchPath.contains(resolvedURL.deletingLastPathComponent().path),
+              FileManager.default.isExecutableFile(atPath: resolved) else {
+            throw HelperError(
+                code: "command_rejected",
+                message: String(
+                    localized: "sudo.helper.executableRejected",
+                    defaultValue: "cmux sudo only runs resolved system executables from /usr/bin, /bin, /usr/sbin, or /sbin."
                 )
             )
         }

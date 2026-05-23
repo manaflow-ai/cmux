@@ -10,7 +10,7 @@
 4. The CLI waits through `sudo.result` long-poll calls with that request id until the app returns the terminal result. Result waits and `sudo.cancel` are accepted only from the same socket peer PID and UID that submitted the request.
 5. The app shows the exact command and derived working directory to the user and calls `LAContext.evaluatePolicy(.deviceOwnerAuthentication, localizedReason:)`. Apple documents that this policy uses Touch ID and Apple Watch on macOS when available, then falls back to the user password.
 6. The app registers the bundled LaunchDaemon with `SMAppService.daemon(plistName:)` if needed, then signs the helper payload with a per-app-session P-256 key and sends it to `/var/run/cmux-sudo-helper.sock`.
-7. The privileged helper validates the cmux app signature and Team ID, verifies the signed payload, rejects stale or replayed request ids, resolves the executable without a shell, runs one command with `/dev/null` stdin, then returns captured output and exit status.
+7. The privileged helper validates the cmux app signature and Team ID, verifies the signed payload, rejects stale or replayed request ids, resolves the executable without a shell, limits execution to system executable directories, runs one command with `/dev/null` stdin, then returns captured output and exit status.
 8. The app appends an audit entry whether the request is rejected, denied, or executed.
 
 ## Apple APIs
@@ -35,7 +35,8 @@ Production packaging has to keep the bundled helper and daemon plist signed with
 - The helper must validate the connecting process code signature before reading the request. It accepts only cmux bundle identifiers signed by Manaflow Team ID `7WLXT3NR37`, including tagged debug, nightly, and staging bundle id suffixes.
 - The helper must accept only signed payloads from the cmux app process and must reject malformed payloads.
 - The helper must reject stale or replayed signed payloads. Current payloads expire after five minutes and are tracked by request id while the helper daemon is running. The replay cache evicts entries after that window and fails closed if too many unexpired ids are active.
-- The helper must execute `argv` directly with `Process`, never through `/bin/sh` or a shell string. It also rejects known shell and dispatcher executables (`sh`, `bash`, `zsh`, `fish`, `env`, `sudo`, `su`, and `login`) so the helper itself never starts a root shell.
+- The helper must execute `argv` directly with `Process`, never through `/bin/sh` or a shell string. It resolves symlinks and only runs executables whose final path is in `/usr/bin`, `/bin`, `/usr/sbin`, or `/sbin`. This intentionally rejects mutable user-writable paths such as `/tmp/tool` and `~/bin/tool`.
+- The helper also rejects known shell and dispatcher executables (`sh`, `bash`, `zsh`, `fish`, `env`, `sudo`, `su`, and `login`) so the helper itself never starts a root shell.
 
 ## Audit log
 
@@ -61,7 +62,7 @@ Rotation: the app rotates at 10 MB and keeps five previous files named `sudo-aud
 
 An agent running inside cmux can ask for elevation, but it cannot grant elevation. The app verifies the request came from the socket peer process, from the same UID as the app, from a descendant of cmux, and from a process whose cmux workspace and surface match the request.
 
-A malicious or hallucinating agent can display a request for a dangerous command. The user still sees the exact command and must approve with device-owner authentication. Approval covers only that `argv`. The helper does not start an interactive root shell, rejects known shells and command dispatchers, attaches stdin to `/dev/null`, does not cache approval, and does not allow shell escapes because it never executes a shell string.
+A malicious or hallucinating agent can display a request for a dangerous command. The user still sees the exact command and must approve with device-owner authentication. Approval covers only that `argv`. The helper does not start an interactive root shell, rejects known shells and command dispatchers, attaches stdin to `/dev/null`, does not cache approval, and does not allow shell escapes because it never executes a shell string. It also refuses resolved executables outside the system search path to avoid approving a command whose user-writable target can change before root execution.
 
 A compromised non-cmux process cannot use the app socket path to bypass validation because it will not be a cmux child with matching workspace and surface scope. It also cannot read another request's command output with only a guessed request id because result polling is pinned to the original socket peer. A compromised same-user process that can inject code into the cmux app is out of scope; it can act as the app. Revocation is removing or unregistering the SMAppService daemon, deleting the helper socket, and restarting cmux.
 
