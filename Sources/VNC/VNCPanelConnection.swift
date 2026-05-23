@@ -119,7 +119,7 @@ final class VNCPanelConnection {
             }
         } catch {
             close()
-            notifyMainExit(.failure(reason: VNCPanelText.helperLaunchFailed, shouldRestart: false))
+            notifyMainExit(.failure(reason: Self.launchFailureReason(for: error), shouldRestart: false))
         }
     }
 
@@ -496,6 +496,16 @@ final class VNCPanelConnection {
         disableSIGPIPE(on: fileDescriptors[0])
         disableSIGPIPE(on: fileDescriptors[1])
         return (parent: fileDescriptors[0], child: fileDescriptors[1])
+    }
+
+    static func launchFailureReason(for error: Error) -> String {
+        if let localizedError = error as? LocalizedError,
+           let description = localizedError.errorDescription,
+           !description.isEmpty {
+            return description
+        }
+        let description = (error as NSError).localizedDescription
+        return description.isEmpty ? VNCPanelText.helperLaunchFailed : description
     }
 }
 

@@ -113,7 +113,12 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     private func makeVNCPanel(
         name: String = "docker-vnc-1",
         port: Int = 5900,
-        index: Int = 1
+        index: Int = 1,
+        credential: VNCResolvedCredential? = VNCResolvedCredential(
+            username: "cmux",
+            password: "secret",
+            source: .sessionPassword
+        )
     ) -> VNCPanel {
         VNCPanel(
             workspaceId: UUID(),
@@ -125,11 +130,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 username: "cmux",
                 index: index
             ),
-            credential: VNCResolvedCredential(
-                username: "cmux",
-                password: "secret",
-                source: .sessionPassword
-            )
+            credential: credential
         )
     }
 
@@ -1530,6 +1531,52 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let summary = MacfleetVNCLaunchCredentialSummary(skippedCredentialCount: 2)
 
         XCTAssertEqual(summary.alert, .noCredentials)
+    }
+
+    func testVNCPanelMacfleetReuseReconnectsFailedPanelWithResolvedCredential() {
+        let panel = makeVNCPanel(credential: nil)
+        let credential = VNCResolvedCredential(
+            username: "cmux",
+            password: "new-secret",
+            source: .keychain
+        )
+        defer {
+            panel.close()
+        }
+
+        panel.debugSuppressConnectionStartForTesting = true
+        panel.debugSetConnectionStateForTesting(.failed(VNCPanelText.macfleetNoCredentialsMessage))
+
+        XCTAssertTrue(panel.prepareForMacfleetReuse(resolvedCredential: credential))
+        XCTAssertEqual(panel.debugCredentialForTesting, credential)
+        XCTAssertEqual(panel.connectionState, .connecting)
+        XCTAssertEqual(panel.debugStartConnectionCountForTesting, 1)
+    }
+
+    func testVNCPanelMacfleetReuseRejectsFailedPanelWithoutAnyCredential() {
+        let panel = makeVNCPanel(credential: nil)
+        let failure = VNCPanelText.macfleetNoCredentialsMessage
+        defer {
+            panel.close()
+        }
+
+        panel.debugSetConnectionStateForTesting(.failed(failure))
+
+        XCTAssertFalse(panel.prepareForMacfleetReuse(resolvedCredential: nil))
+        XCTAssertNil(panel.debugCredentialForTesting)
+        XCTAssertEqual(panel.connectionState, .failed(failure))
+        XCTAssertEqual(panel.debugStartConnectionCountForTesting, 0)
+    }
+
+    func testVNCPanelConnectionLaunchFailureReasonPreservesSpecificErrors() {
+        XCTAssertEqual(
+            VNCPanelConnection.launchFailureReason(for: VNCPanelConnectionError.helperMissing),
+            VNCPanelText.helperMissing
+        )
+        XCTAssertEqual(
+            VNCPanelConnection.launchFailureReason(for: VNCPanelConnectionError.socketCreationFailed(EACCES)),
+            VNCPanelText.socketCreationFailed(EACCES)
+        )
     }
 
     func testVNCKeychainInternetLookupsRequireExplicitSessionPort() {

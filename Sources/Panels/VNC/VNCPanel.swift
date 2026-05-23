@@ -54,6 +54,16 @@ final class VNCPanel: Panel, ObservableObject {
     private var desiredVisibility = false
     private var credentialResolutionID: UUID?
 
+    #if DEBUG
+    var debugSuppressConnectionStartForTesting = false
+    private(set) var debugStartConnectionCountForTesting = 0
+    var debugCredentialForTesting: VNCResolvedCredential? { credential }
+
+    func debugSetConnectionStateForTesting(_ state: VNCConnectionState) {
+        connectionState = state
+    }
+    #endif
+
     init(
         workspaceId: UUID,
         session: MacfleetVNCSession,
@@ -117,6 +127,12 @@ final class VNCPanel: Panel, ObservableObject {
     private func startConnection(credential: VNCResolvedCredential) {
         guard connection == nil else { return }
         connectionState = .connecting
+        #if DEBUG
+        debugStartConnectionCountForTesting += 1
+        if debugSuppressConnectionStartForTesting {
+            return
+        }
+        #endif
         let nextConnectionID = UUID()
         connectionID = nextConnectionID
         let nextConnection = VNCPanelConnection(
@@ -150,6 +166,36 @@ final class VNCPanel: Panel, ObservableObject {
         connection = nextConnection
         sendDesiredVisibility()
         nextConnection.start()
+    }
+
+    @discardableResult
+    func prepareForMacfleetReuse(resolvedCredential: VNCResolvedCredential?) -> Bool {
+        if let resolvedCredential {
+            credential = resolvedCredential
+            reconnectIfNeedsNewAttempt()
+            return true
+        }
+
+        if credential != nil {
+            reconnectIfNeedsNewAttempt()
+            return true
+        }
+
+        switch connectionState {
+        case .connected, .connecting:
+            return true
+        case .idle, .disconnected, .failed:
+            return false
+        }
+    }
+
+    private func reconnectIfNeedsNewAttempt() {
+        switch connectionState {
+        case .disconnected, .failed:
+            reconnect()
+        case .idle, .connecting, .connected:
+            break
+        }
     }
 
     func reconnect() {

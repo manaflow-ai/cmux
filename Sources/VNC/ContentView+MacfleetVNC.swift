@@ -79,11 +79,15 @@ extension ContentView {
 
         for launchSession in launchSessions {
             if let existingWorkspace = existingVNCWorkspace(for: launchSession.session) {
-                firstWorkspace = firstWorkspace ?? existingWorkspace
                 if let panel = existingWorkspace.vncPanel(matchingConnectionIdentity: launchSession.session) {
-                    reusedPanels.append((existingWorkspace, panel.id))
+                    if panel.prepareForMacfleetReuse(resolvedCredential: launchSession.credential) {
+                        firstWorkspace = firstWorkspace ?? existingWorkspace
+                        reusedPanels.append((existingWorkspace, panel.id))
+                        credentialSummary.reusedCount += 1
+                    } else {
+                        credentialSummary.skippedCredentialCount += 1
+                    }
                 }
-                credentialSummary.reusedCount += 1
                 continue
             }
 
