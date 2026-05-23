@@ -263,9 +263,16 @@ public struct CMUXMarkdownParser: Sendable {
         guard (1...6).contains(hashes) else { return nil }
         let afterHashes = trimmed.dropFirst(hashes)
         guard afterHashes.first == " " || afterHashes.first == "\t" else { return nil }
-        var text = afterHashes.trimmingCharacters(in: .whitespaces)
-        while text.hasSuffix("#") {
-            text.removeLast()
+        let rawText = afterHashes.trimmingCharacters(in: .whitespaces)
+        let closingFenceRange = rawText.range(
+            of: #"[ \t]+#{1,}[ \t]*$"#,
+            options: .regularExpression
+        )
+        let text: String
+        if let closingFenceRange {
+            text = String(rawText[..<closingFenceRange.lowerBound])
+        } else {
+            text = rawText
         }
         return (hashes, text.trimmingCharacters(in: .whitespaces))
     }

@@ -16117,6 +16117,23 @@
         }
       }
     },
+    "cli.hooks.claudeInstallUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux does not install Claude hooks. Configure Claude Code hooks to call `cmux hooks claude <event>`, or run `cmux hooks setup` for supported agents."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxはClaudeフックをインストールしません。Claude Codeのフックで`cmux hooks claude <event>`を呼び出すよう設定するか、対応エージェントには`cmux hooks setup`を実行してください。"
+          }
+        }
+      }
+    },
     "cli.hooks.error.configDirectoryIsFile": {
       "extractionState": "manual",
       "localizations": {
@@ -22275,6 +22292,23 @@
         }
       }
     },
+    "codexAppServer.event.approvalSent.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The response was sent to Codex."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "応答をCodexに送信しました。"
+          }
+        }
+      }
+    },
     "codexAppServer.event.command": {
       "extractionState": "manual",
       "localizations": {
@@ -22696,6 +22730,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "ツール出力"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.unsupportedItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex項目"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.unsupportedItem.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Received an unsupported Codex item."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未対応のCodex項目を受信しました。"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.unsupportedNotification": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex event"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codexイベント"
+          }
+        }
+      }
+    },
+    "codexAppServer.event.unsupportedNotification.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Received an unsupported Codex event."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未対応のCodexイベントを受信しました。"
           }
         }
       }

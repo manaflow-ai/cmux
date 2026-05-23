@@ -9,6 +9,13 @@ enum CodexAppServerClientError: Error, LocalizedError {
     case requestFailed(String)
     case writeFailed
 
+    var isMissingRolloutResumeError: Bool {
+        guard case .requestFailed(let message) = self else { return false }
+        let normalized = message.lowercased()
+        return normalized.contains("no rollout found for thread id")
+            || normalized.contains("no rollout found")
+    }
+
     var errorDescription: String? {
         switch self {
         case .alreadyRunning:

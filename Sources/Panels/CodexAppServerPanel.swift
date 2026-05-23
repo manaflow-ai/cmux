@@ -1220,9 +1220,10 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     }
 
     nonisolated static func isMissingRolloutResumeError(_ error: Error) -> Bool {
-        let message = error.localizedDescription.lowercased()
-        return message.contains("no rollout found for thread id")
-            || message.contains("no rollout found")
+        guard let clientError = error as? CodexAppServerClientError else {
+            return false
+        }
+        return clientError.isMissingRolloutResumeError
     }
 
     private func refreshCodexMetadata(generation: Int) async {
@@ -1545,7 +1546,10 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             removePendingRequest(id: request.id)
             appendEvent(
                 title: String(localized: "codexAppServer.event.approvalSent", defaultValue: "Approval response sent"),
-                body: request.method
+                body: String(
+                    localized: "codexAppServer.event.approvalSent.body",
+                    defaultValue: "The response was sent to Codex."
+                )
             )
         } catch {
             appendError(error.localizedDescription)
@@ -1727,7 +1731,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             .shouldSuppressTranscript(method: quietMethod):
             break
         default:
-            appendEvent(title: method, body: Self.prettyJSON(params))
+            appendUnsupportedNotificationEvent(method: method, params: params)
         }
     }
 
@@ -1795,8 +1799,40 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         case "error":
             appendCodexErrorEvent(item)
         default:
-            appendEvent(title: type.isEmpty ? "item/completed" : type, body: Self.prettyJSON(item))
+            appendUnsupportedCompletedItem(type: type, item: item)
         }
+    }
+
+    private func appendUnsupportedNotificationEvent(method: String, params: [String: Any]?) {
+#if DEBUG
+        CodexAppServerTiming.log("panel.unsupported.notification", [
+            "method": method,
+            "params": String(Self.prettyJSON(params).prefix(512)),
+        ])
+#endif
+        appendEvent(
+            title: String(localized: "codexAppServer.event.unsupportedNotification", defaultValue: "Codex event"),
+            body: String(
+                localized: "codexAppServer.event.unsupportedNotification.body",
+                defaultValue: "Received an unsupported Codex event."
+            )
+        )
+    }
+
+    private func appendUnsupportedCompletedItem(type: String, item: [String: Any]) {
+#if DEBUG
+        CodexAppServerTiming.log("panel.unsupported.item", [
+            "type": type,
+            "item": String(Self.prettyJSON(item).prefix(512)),
+        ])
+#endif
+        appendEvent(
+            title: String(localized: "codexAppServer.event.unsupportedItem", defaultValue: "Codex item"),
+            body: String(
+                localized: "codexAppServer.event.unsupportedItem.body",
+                defaultValue: "Received an unsupported Codex item."
+            )
+        )
     }
 
     @discardableResult

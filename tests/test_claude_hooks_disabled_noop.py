@@ -54,6 +54,29 @@ def main() -> int:
             print(f"stderr={proc.stderr!r}")
             return 1
 
+    install_proc = subprocess.run(
+        [cli_path, "--socket", missing_socket, "hooks", "claude", "install"],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    if install_proc.returncode == 0:
+        print("FAIL: disabled Claude hooks must not turn install into a no-op success")
+        print(f"stdout={install_proc.stdout!r}")
+        print(f"stderr={install_proc.stderr!r}")
+        return 1
+    if install_proc.stdout.strip() == "{}":
+        print("FAIL: disabled Claude hooks must not hide install errors behind {}")
+        print(f"stdout={install_proc.stdout!r}")
+        print(f"stderr={install_proc.stderr!r}")
+        return 1
+    if "does not install Claude hooks" not in install_proc.stderr:
+        print("FAIL: expected explicit Claude install guidance")
+        print(f"stdout={install_proc.stdout!r}")
+        print(f"stderr={install_proc.stderr!r}")
+        return 1
+
     print("PASS: disabled Claude hooks no-op before socket use")
     return 0
 

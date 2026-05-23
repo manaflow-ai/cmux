@@ -51,6 +51,28 @@ final class LayoutAndRendererTests: XCTestCase {
         XCTAssertEqual(layout.pages.count, 2)
     }
 
+    func testLayoutSplitsPageCharacterLimitByUTF16Units() {
+        let text = String(repeating: "😀", count: 3)
+        let block = CodexTrajectoryBlock(
+            id: "emoji",
+            kind: .commandOutput,
+            text: text
+        )
+
+        let layout = CodexTrajectoryLayoutEngine().layout(
+            block: block,
+            configuration: CodexTrajectoryLayoutConfiguration(
+                width: 320,
+                pageLineLimit: 100,
+                maximumPageCharacters: 4
+            ),
+            theme: .defaultLight()
+        )
+
+        XCTAssertEqual(layout.pages.map(\.textRange.length), [4, 2])
+        XCTAssertEqual(layout.pages.last?.textRange.upperBound, (text as NSString).length)
+    }
+
     func testLayoutUsesRenderedMarkdownTextForAssistantBlocks() throws {
         let theme = CodexTrajectoryTheme.defaultLight(textSize: 14, monospacedSize: 11)
         let block = CodexTrajectoryBlock(

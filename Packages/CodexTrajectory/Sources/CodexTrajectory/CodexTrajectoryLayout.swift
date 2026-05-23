@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreText
 import CMUXMarkdown
+import CryptoKit
 import Foundation
 
 public struct CodexTrajectoryTextRange: Codable, Hashable, Sendable {
@@ -191,22 +192,23 @@ public struct CodexTrajectoryLayoutEngine {
         var start = 0
         var current = 0
         var lines = 1
-        var characters = 0
+        var pageUTF16Units = 0
         let resolvedPageLineLimit = max(1, pageLineLimit)
         let resolvedMaximumPageCharacters = max(1, maximumPageCharacters)
 
         for character in text {
-            current += character.utf16.count
-            characters += 1
+            let characterUTF16Units = character.utf16.count
+            current += characterUTF16Units
+            pageUTF16Units += characterUTF16Units
             if character == "\n" {
                 lines += 1
             }
 
-            if lines > resolvedPageLineLimit || characters >= resolvedMaximumPageCharacters {
+            if lines > resolvedPageLineLimit || pageUTF16Units >= resolvedMaximumPageCharacters {
                 ranges.append(CodexTrajectoryTextRange(location: start, length: current - start))
                 start = current
                 lines = 1
-                characters = 0
+                pageUTF16Units = 0
             }
         }
 
@@ -227,8 +229,8 @@ public func codexTrajectoryRenderedText(
         theme.identifier,
         block.kind.rawValue,
         block.id,
-        "\(block.title.hashValue)",
-        "\(block.text.hashValue)",
+        codexTrajectoryContentDigest(block.title),
+        codexTrajectoryContentDigest(block.text),
         "\(displayText.utf16.count)",
     ].joined(separator: "\u{1f}")
     if let cached = codexTrajectoryRenderedTextCache.value(for: cacheKey) {
@@ -252,6 +254,12 @@ public func codexTrajectoryRenderedText(
     )
     codexTrajectoryRenderedTextCache.insert(value, for: cacheKey, cost: max(1, rendered.plainText.utf16.count * 4))
     return value
+}
+
+private func codexTrajectoryContentDigest(_ text: String) -> String {
+    SHA256.hash(data: Data(text.utf8))
+        .map { String(format: "%02x", $0) }
+        .joined()
 }
 
 public func codexTrajectoryRenderedPage(

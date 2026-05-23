@@ -28782,6 +28782,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         default:
             guard let def = Self.agentDef(named: first) else {
+                if first == "claude",
+                   let action = commandArgs.dropFirst().first?.lowercased(),
+                   action == "install" || action == "uninstall" {
+                    throw CLIError(message: String(
+                        localized: "cli.hooks.claudeInstallUnsupported",
+                        defaultValue: "cmux does not install Claude hooks. Configure Claude Code hooks to call `cmux hooks claude <event>`, or run `cmux hooks setup` for supported agents."
+                    ))
+                }
                 if first == "feed" || first == "claude" {
                     return false
                 }
@@ -28826,7 +28834,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return false
             }
             if first == "claude" {
-                return true
+                let action = commandArgs.dropFirst().first?.lowercased()
+                return action != "install" && action != "uninstall"
             }
             if first == "feed" {
                 return claudeHookSource(in: Array(commandArgs.dropFirst()))
@@ -28850,7 +28859,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
         guard let first = commandArgs.first?.lowercased() else { return false }
-        if first == "feed" || first == "claude" { return true }
+        if first == "feed" { return true }
+        if first == "claude" {
+            let action = commandArgs.dropFirst().first?.lowercased()
+            return action != "install" && action != "uninstall"
+        }
         guard let def = Self.agentDef(named: first) else { return false }
         let action = commandArgs.dropFirst().first?.lowercased()
         if def.name == "grok" {

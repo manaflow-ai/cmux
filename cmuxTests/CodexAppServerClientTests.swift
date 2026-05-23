@@ -665,6 +665,13 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertFalse(CodexAppServerPanel.isMissingRolloutResumeError(
             CodexAppServerClientError.requestFailed("permission denied")
         ))
+        XCTAssertFalse(CodexAppServerPanel.isMissingRolloutResumeError(
+            NSError(
+                domain: "test",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "no rollout found for thread id abc"]
+            )
+        ))
     }
 
     @MainActor
@@ -1558,6 +1565,38 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
 
         XCTAssertTrue(didAppendReasoning, "Expected completed reasoning item to append")
         XCTAssertEqual(panel.transcriptItems.first?.body, "**Option A** is best")
+    }
+
+    @MainActor
+    func testUnsupportedCodexEventsDoNotExposeRawProtocolPayloads() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        client.onEvent?(
+            .notification(CodexAppServerServerNotification(
+                method: "thread/hydration/completed",
+                params: ["internal": "raw-json-value"]
+            ))
+        )
+        client.onEvent?(
+            .notification(CodexAppServerServerNotification(
+                method: "item/completed",
+                params: ["item": ["type": "futureProtocolItem", "internal": "raw-item-value"]]
+            ))
+        )
+
+        let didAppendUnsupportedEvents = await waitForMainActorCondition {
+            panel.transcriptItems.count == 2
+        }
+
+        XCTAssertTrue(didAppendUnsupportedEvents, "Expected unsupported events to append generic transcript items")
+        XCTAssertFalse(panel.transcriptItems.contains { $0.title.contains("thread/hydration") || $0.title.contains("futureProtocolItem") })
+        XCTAssertFalse(panel.transcriptItems.contains { $0.body.contains("raw-json-value") || $0.body.contains("raw-item-value") })
     }
 
     func testLocalCodexHistoryLoaderPreservesInlineBoldInReasoningSummary() throws {

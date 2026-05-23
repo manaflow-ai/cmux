@@ -71,6 +71,9 @@ public struct CodexTrajectoryHeightIndex: Sendable {
         if offset <= 0 {
             return 0
         }
+        if totalHeight <= 0 {
+            return 0
+        }
         if offset >= totalHeight {
             return heights.count - 1
         }

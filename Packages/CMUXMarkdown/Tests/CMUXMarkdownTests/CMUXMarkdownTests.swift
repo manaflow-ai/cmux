@@ -57,6 +57,17 @@ final class CMUXMarkdownTests: XCTestCase {
         XCTAssertEqual(document.blocks[1].text, "After")
     }
 
+    func testHeadingPreservesLiteralTrailingHash() {
+        let document = CMUXMarkdownParser().parse("""
+        # C#
+        ## Release notes ###
+        """)
+
+        XCTAssertEqual(document.blocks.count, 2)
+        XCTAssertEqual(document.blocks[0].text, "C#")
+        XCTAssertEqual(document.blocks[1].text, "Release notes")
+    }
+
     func testRendererProducesCoreTextAttributedString() {
         let rendered = CMUXMarkdownCoreTextRenderer().render("## Hello\n\nUse **bold** and `code`.")
 
