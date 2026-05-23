@@ -2870,6 +2870,19 @@ struct CMUXCLI {
             return
         }
 
+        if command == "use" {
+            let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
+            try runUse(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+            return
+        }
+
         if command == "claude-teams" {
             try runClaudeTeams(
                 commandArgs: commandArgs,
@@ -4802,31 +4815,6 @@ struct CMUXCLI {
             socketPath: socketPath
         )
         return client
-    }
-
-    func authenticateClientIfNeeded(
-        _ client: SocketClient,
-        explicitPassword: String?,
-        socketPath: String
-    ) throws {
-        if let socketPassword = SocketPasswordResolver.resolve(
-            explicit: explicitPassword,
-            socketPath: socketPath
-        ) {
-            let authResponse = try client.send(command: "auth \(socketPassword)")
-            if authResponse.hasPrefix("ERROR:"),
-               !authResponse.contains("Unknown command 'auth'") {
-                throw CLIError(message: authResponse)
-            }
-        }
-    }
-
-    private func launchApp() throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "cmux"]
-        try process.run()
-        process.waitUntilExit()
     }
 
     private func activateApp() throws {
@@ -11764,6 +11752,8 @@ struct CMUXCLI {
               cmux themes set --light "Catppuccin Latte" --dark "Catppuccin Mocha"
               cmux themes clear
             """
+        case "use":
+            return Self.cmuxUseCommandHelp
         case "claude-teams":
             return String(localized: "cli.claude-teams.usage", defaultValue: """
             Usage: cmux claude-teams [claude-args...]
@@ -17368,7 +17358,7 @@ struct CMUXCLI {
     private static let legacyOmoPluginName = "oh-my-opencode"
     private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
 
-    private func resolveExecutableInPath(_ name: String) -> String? {
+    func resolveExecutableInPath(_ name: String) -> String? {
         let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
         for entry in entries where !entry.isEmpty {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
@@ -29426,6 +29416,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]
+          use <owner/repo|github-url> [--command <cmd>] [--no-run]
           claude-teams [claude-args...]
           codex-teams [codex-args...]
           omo [opencode-args...]

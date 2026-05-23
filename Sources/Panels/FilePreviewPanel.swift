@@ -653,9 +653,9 @@ enum FilePreviewKindResolver {
     ]
 
     private static let textExtensions: Set<String> = [
-        "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "env",
+        "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "diff", "env",
         "fish", "go", "h", "hpp", "htm", "html", "ini", "java", "js", "json",
-        "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "plist", "py",
+        "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "patch", "plist", "py",
         "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
         "xml", "yaml", "yml", "zsh"
     ]

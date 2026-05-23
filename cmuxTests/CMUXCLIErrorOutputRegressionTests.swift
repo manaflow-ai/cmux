@@ -27,6 +27,18 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("Usage:"), result.stdout)
     }
 
+    func testUseCommandRejectsNoRunWithCommandOverrideBeforeRepositoryResolution() throws {
+        let cliPath = try bundledCLIPath()
+        let result = runShell(
+            "CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) use not-a-github-repo --command \"./start.sh\" --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("cannot be used with --no-run"), result.stdout)
+    }
+
     func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
         let cliPath = try bundledCLIPath()
         var environment = ProcessInfo.processInfo.environment
@@ -92,6 +104,39 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
+    func testUseCommandHidesRawGitErrorOutput() throws {
+        let cliPath = try bundledCLIPath()
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let fakeBinURL = directory.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
+        try """
+        #!/bin/sh
+        echo "fatal: internal-host.example token secret --ff-only remote get-url origin" >&2
+        exit 42
+        """.write(to: fakeGitURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeGitURL.path)
+
+        let homeURL = directory.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+
+        let result = runShell(
+            "HOME=\(shellSingleQuote(homeURL.path)) PATH=\(shellSingleQuote(fakeBinURL.path)):/usr/bin:/bin CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) use owner/repo --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Failed to download extension repository (exit 42)"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("fatal:"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("internal-host.example"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("token secret"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("--ff-only"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("remote get-url"), result.stdout)
+    }
+
     func testBundledCLISkipsIdentifierlessNestedAppWhenResolvingTaggedSocket() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-nested-\(UUID().uuidString.lowercased())"
@@ -132,6 +177,239 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             "TAGGED",
             result.stdout
         )
+    }
+
+    func testUseCommandRejectsOptionLikeCommandValueBeforeCheckout() throws {
+        let cliPath = try bundledCLIPath()
+        let result = runShell(
+            "CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) use owner/repo --command --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("--command requires a command, not another flag"), result.stdout)
+    }
+
+    func testUseCommandInvalidRepositoryDoesNotEchoRawInput() throws {
+        let cliPath = try bundledCLIPath()
+        let result = runShell(
+            "CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) use \(shellSingleQuote("https://credential-secret@github.com/bad*/repo")) --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Invalid GitHub repository"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("credential-secret"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("bad*/repo"), result.stdout)
+    }
+
+    func testUseCommandRejectsSymlinkedSensitiveInstallPath() throws {
+        let cliPath = try bundledCLIPath()
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let homeURL = directory.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: homeURL.appendingPathComponent(".ssh", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: homeURL.appendingPathComponent("safe-link", isDirectory: true).path,
+            withDestinationPath: ".ssh"
+        )
+
+        let fakeBinURL = directory.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "clone" ]; then
+          mkdir -p "$3/.git"
+          cat > "$3/cmux.extension.json" <<'JSON'
+        {"id":"owner.repo","name":"Repo","publisher":"owner","version":"0.0.1","install":{"path":"~/safe-link"}}
+        JSON
+          exit 0
+        fi
+        exit 1
+        """.write(to: fakeGitURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeGitURL.path)
+
+        let result = runShell(
+            "HOME=\(shellSingleQuote(homeURL.path)) PATH=\(shellSingleQuote(fakeBinURL.path)):/usr/bin:/bin CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) use owner/repo --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("install.path must not target sensitive home directory ~/.ssh"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("OK "), result.stdout)
+    }
+
+    func testUseCommandGeneratedManifestFallsBackFromUnsafePackageVersion() throws {
+        let cliPath = try bundledCLIPath()
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let fakeBinURL = directory.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "clone" ]; then
+          mkdir -p "$3/.git"
+          cat > "$3/package.json" <<'JSON'
+        {"name":"Repo","version":"../../sensitive"}
+        JSON
+          exit 0
+        fi
+        exit 1
+        """.write(to: fakeGitURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeGitURL.path)
+
+        let homeURL = directory.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+
+        let result = runShell(
+            "HOME=\(shellSingleQuote(homeURL.path)) PATH=\(shellSingleQuote(fakeBinURL.path)):/usr/bin:/bin CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) --socket cmux-test.sock use owner/repo --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Failed to connect to cmux socket at cmux-test.sock"), result.stdout)
+
+        let generatedManifestURL = homeURL
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("extension-metadata", isDirectory: true)
+            .appendingPathComponent("github.com", isDirectory: true)
+            .appendingPathComponent("owner", isDirectory: true)
+            .appendingPathComponent("repo", isDirectory: true)
+            .appendingPathComponent("cmux.extension.generated.json", isDirectory: false)
+        let data = try Data(contentsOf: generatedManifestURL)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["version"] as? String, "0.0.0-generated")
+    }
+
+    func testUseCommandGeneratedManifestDetectsLaunchCreatedByInstall() throws {
+        let cliPath = try bundledCLIPath()
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let tempURL = directory.appendingPathComponent("tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
+
+        let fakeBinURL = directory.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "clone" ]; then
+          mkdir -p "$3/.git"
+          cat > "$3/setup.sh" <<'SETUP'
+        #!/bin/sh
+        cat > launch.sh <<'LAUNCH'
+        #!/bin/sh
+        echo launched
+        LAUNCH
+        chmod +x launch.sh
+        SETUP
+          chmod +x "$3/setup.sh"
+          exit 0
+        fi
+        exit 1
+        """.write(to: fakeGitURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeGitURL.path)
+
+        let homeURL = directory.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+
+        let socketPath = "/tmp/cmux-use-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"workspace_id":"workspace:1"}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["HOME"] = homeURL.path
+        environment["TMPDIR"] = tempURL.path + "/"
+        environment["PATH"] = "\(fakeBinURL.path):/usr/bin:/bin"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "--json", "use", "owner/repo"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+
+        let output = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        XCTAssertEqual(output["command"] as? String, "./launch.sh")
+        XCTAssertEqual(output["command_source"] as? String, "launch.sh")
+
+        let workspaceRequest = try XCTUnwrap(
+            responder.receivedRequests
+                .compactMap { Self.v2Payload(from: $0) }
+                .first { $0["method"] as? String == "workspace.create" },
+            responder.receivedRequests.joined(separator: "\n")
+        )
+        let params = try XCTUnwrap(workspaceRequest["params"] as? [String: Any])
+        let initialCommand = try XCTUnwrap(params["initial_command"] as? String)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: initialCommand), initialCommand)
+    }
+
+    func testUseCommandRemovesLaunchScriptWhenSocketConnectionFails() throws {
+        let cliPath = try bundledCLIPath()
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let tempURL = directory.appendingPathComponent("tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
+
+        let fakeBinURL = directory.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "clone" ]; then
+          mkdir -p "$3/.git"
+          cat > "$3/package.json" <<'JSON'
+        {"name":"Repo","version":"1.0.0"}
+        JSON
+          exit 0
+        fi
+        exit 1
+        """.write(to: fakeGitURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeGitURL.path)
+
+        let homeURL = directory.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+
+        let result = runShell(
+            "HOME=\(shellSingleQuote(homeURL.path)) TMPDIR=\(shellSingleQuote(tempURL.path)) PATH=\(shellSingleQuote(fakeBinURL.path)):/usr/bin:/bin CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) --socket cmux-missing.sock use owner/repo --command \"echo hello\" 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Failed to connect to cmux socket at cmux-missing.sock"), result.stdout)
+
+        let leakedScripts = try FileManager.default.contentsOfDirectory(
+            at: tempURL,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix("cmux-use-launch-") }
+        XCTAssertTrue(leakedScripts.isEmpty, leakedScripts.map(\.path).joined(separator: "\n"))
     }
 
     func testThemesSetReloadsRunningAppAfterEveryThemeWrite() throws {
@@ -594,6 +872,13 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
     }
 
+    private func temporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CMUXCLIErrorOutputRegressionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     private func stableSocketURL() throws -> URL {
         let appSupport = try XCTUnwrap(
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -769,6 +1054,11 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
             timedOut: timedOut
         )
+    }
+
+    private static func v2Payload(from line: String) -> [String: Any]? {
+        guard let data = line.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }
 }
 

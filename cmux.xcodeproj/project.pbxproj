@@ -51,6 +51,7 @@
 		C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C0DEF0B30000000000000001 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */; };
+		C5A100080000000000000001 /* CMUXCLI+UsePathSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A100070000000000000001 /* CMUXCLI+UsePathSupport.swift */; };
 		E3337001E3337001E3337001 /* KeyboardShortcutSettingsFileStoreStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3337002E3337002E3337002 /* KeyboardShortcutSettingsFileStoreStartupTests.swift */; };
 		C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */; };
 		C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670020000000000000002 /* KeyboardShortcutContextTests.swift */; };
@@ -107,6 +108,7 @@
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00005A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
+		C5A200030000000000000001 /* CMUXRepoDetection in Frameworks */ = {isa = PBXBuildFile; productRef = C5A200020000000000000001 /* CMUXRepoDetection */; };
 		FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F001 /* FeedCoordinator.swift */; };
 		FEED0000000000000000F005 /* FeedPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F004 /* FeedPanelView.swift */; };
 		FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */; };
@@ -386,6 +388,15 @@
 		C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */; };
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
+		C5A100020000000000000001 /* CMUXCLI+Use.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A100010000000000000001 /* CMUXCLI+Use.swift */; };
+		C5A320020000000000000001 /* CMUXCLI+UseTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A320010000000000000001 /* CMUXCLI+UseTypes.swift */; };
+		C5A320040000000000000001 /* CMUXCLI+UseInstallation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A320030000000000000001 /* CMUXCLI+UseInstallation.swift */; };
+		C5A320060000000000000001 /* CMUXCLI+UseCheckout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A320050000000000000001 /* CMUXCLI+UseCheckout.swift */; };
+		C5A320080000000000000001 /* CMUXCLI+UseSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A320070000000000000001 /* CMUXCLI+UseSocket.swift */; };
+		C5A210040000000000000001 /* CMUXCLI+GeneratedManifestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A210030000000000000001 /* CMUXCLI+GeneratedManifestSupport.swift */; };
+		C5A210020000000000000001 /* CMUXCLI+UseHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A210010000000000000001 /* CMUXCLI+UseHelp.swift */; };
+		C5A100040000000000000001 /* CMUXCLI+UseSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A100030000000000000001 /* CMUXCLI+UseSupport.swift */; };
+		C5A100060000000000000001 /* CMUXCLI+SocketSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A100050000000000000001 /* CMUXCLI+SocketSupport.swift */; };
 		B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */; };
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
 		B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000030A1B2C3D4E5F60719 /* cmux_open.swift */; };
@@ -941,6 +952,16 @@
 		C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteIdentifierClipboardUITests.swift; sourceTree = "<group>"; };
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
 		B9000001A1B2C3D4E5F60719 /* cmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux.swift; sourceTree = "<group>"; };
+		C5A100010000000000000001 /* CMUXCLI+Use.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Use.swift"; sourceTree = "<group>"; };
+		C5A320010000000000000001 /* CMUXCLI+UseTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UseTypes.swift"; sourceTree = "<group>"; };
+		C5A320030000000000000001 /* CMUXCLI+UseInstallation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UseInstallation.swift"; sourceTree = "<group>"; };
+		C5A320050000000000000001 /* CMUXCLI+UseCheckout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UseCheckout.swift"; sourceTree = "<group>"; };
+		C5A320070000000000000001 /* CMUXCLI+UseSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UseSocket.swift"; sourceTree = "<group>"; };
+		C5A210030000000000000001 /* CMUXCLI+GeneratedManifestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+GeneratedManifestSupport.swift"; sourceTree = "<group>"; };
+		C5A210010000000000000001 /* CMUXCLI+UseHelp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UseHelp.swift"; sourceTree = "<group>"; };
+		C5A100030000000000000001 /* CMUXCLI+UseSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UseSupport.swift"; sourceTree = "<group>"; };
+		C5A100070000000000000001 /* CMUXCLI+UsePathSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+UsePathSupport.swift"; sourceTree = "<group>"; };
+		C5A100050000000000000001 /* CMUXCLI+SocketSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SocketSupport.swift"; sourceTree = "<group>"; };
 		B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISocketPathResolver.swift; sourceTree = "<group>"; };
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		B9000030A1B2C3D4E5F60719 /* cmux_open.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux_open.swift; sourceTree = "<group>"; };
@@ -1099,6 +1120,7 @@
 			files = (
 				B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
+				C5A200030000000000000001 /* CMUXRepoDetection in Frameworks */,
 				B900004CA1B2C3D4E5F60719 /* CMUXSocketPathDomain in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1526,6 +1548,16 @@
 			isa = PBXGroup;
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
+				C5A100010000000000000001 /* CMUXCLI+Use.swift */,
+				C5A320010000000000000001 /* CMUXCLI+UseTypes.swift */,
+				C5A320030000000000000001 /* CMUXCLI+UseInstallation.swift */,
+				C5A320050000000000000001 /* CMUXCLI+UseCheckout.swift */,
+				C5A320070000000000000001 /* CMUXCLI+UseSocket.swift */,
+				C5A210030000000000000001 /* CMUXCLI+GeneratedManifestSupport.swift */,
+				C5A210010000000000000001 /* CMUXCLI+UseHelp.swift */,
+				C5A100030000000000000001 /* CMUXCLI+UseSupport.swift */,
+				C5A100070000000000000001 /* CMUXCLI+UsePathSupport.swift */,
+				C5A100050000000000000001 /* CMUXCLI+SocketSupport.swift */,
 				B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
 				B9000030A1B2C3D4E5F60719 /* cmux_open.swift */,
@@ -1745,6 +1777,7 @@
 			packageProductDependencies = (
 				A5001251 /* Sentry */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				C5A200020000000000000001 /* CMUXRepoDetection */,
 				A5354305A5354305A5354305 /* CMUXSocketPathDomain */,
 			);
 			productName = cmux;
@@ -1856,6 +1889,7 @@
 				3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */,
 				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
+				C5A200010000000000000001 /* XCLocalSwiftPackageReference "CMUXRepoDetection" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CMUXSocketPathDomain" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
@@ -2277,7 +2311,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-					B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
+				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
+				C5A100020000000000000001 /* CMUXCLI+Use.swift in Sources */,
+				C5A320020000000000000001 /* CMUXCLI+UseTypes.swift in Sources */,
+				C5A320040000000000000001 /* CMUXCLI+UseInstallation.swift in Sources */,
+				C5A320060000000000000001 /* CMUXCLI+UseCheckout.swift in Sources */,
+				C5A320080000000000000001 /* CMUXCLI+UseSocket.swift in Sources */,
+				C5A210040000000000000001 /* CMUXCLI+GeneratedManifestSupport.swift in Sources */,
+				C5A210020000000000000001 /* CMUXCLI+UseHelp.swift in Sources */,
+				C5A100040000000000000001 /* CMUXCLI+UseSupport.swift in Sources */,
+				C5A100080000000000000001 /* CMUXCLI+UsePathSupport.swift in Sources */,
+				C5A100060000000000000001 /* CMUXCLI+SocketSupport.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
 				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
@@ -2286,8 +2330,8 @@
 					B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */,
 					B9000046A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift in Sources */,
 					B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */,
-					B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */,
-					B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */,
+				B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */,
+				B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */,
 					B9000061A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift in Sources */,
 					B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */,
 					B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */,
@@ -2899,6 +2943,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXAgentLaunch;
 		};
+		C5A200010000000000000001 /* XCLocalSwiftPackageReference "CMUXRepoDetection" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CMUXRepoDetection;
+		};
 		A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXDebugLog;
@@ -2983,6 +3031,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */;
 			productName = CMUXAgentLaunch;
+		};
+		C5A200020000000000000001 /* CMUXRepoDetection */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C5A200010000000000000001 /* XCLocalSwiftPackageReference "CMUXRepoDetection" */;
+			productName = CMUXRepoDetection;
 		};
 		A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -115,6 +115,21 @@ extension CMUXCLI {
                 "python3 -m json.tool .cmux/dock.json",
             ]
         ),
+        DocsReference(
+            topic: "extensions",
+            aliases: ["extension", "cmux-use", "cmux.extension.json", "marketplace", "awesome-cmux"],
+            summary: "Build, install, and share cmux extensions with manifests and viewer contributions.",
+            webURL: "https://cmux.com/docs/extensions",
+            rawResources: [
+                DocsResource(label: "extensions docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/messages/en.json"),
+                DocsResource(label: "cmux customization skill", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-customization/SKILL.md"),
+            ],
+            commands: [
+                "cmux use owner/repo",
+                "cmux use owner/repo --no-run",
+                "cmux docs extensions --json",
+            ]
+        ),
     ]
 
     func runDocsCommand(commandArgs: [String], jsonOutput: Bool) throws {
@@ -137,7 +152,7 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]")
+            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|extensions]")
         }
 
         if topic == "list" || topic == "all" {
@@ -162,7 +177,7 @@ extension CMUXCLI {
 
     func docsUsage() -> String {
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]
+        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|extensions]
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.

@@ -37,6 +37,7 @@ const searchAliases = {
   configuration: ["settings.json", "cmux.json", "Ghostty config"],
   customCommands: ["command palette", "project commands", "cmux.json"],
   dock: ["dock", "agent dock", "workspace dock"],
+  extensions: ["cmux use", "cmux.extension.json", "awesome-cmux", "viewer contributions"],
   notifications: ["OSC 777", "OSC 99", "hooks", "notification rings"],
   ohMyClaudeCode: ["omc", "oh my claude", "oh-my-claudecode"],
   ohMyCodex: ["omx", "oh my codex", "oh-my-codex"],

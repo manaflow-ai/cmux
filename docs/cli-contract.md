@@ -377,10 +377,11 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux help --help` -> `Usage: cmux help`
-- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`
+- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|extensions]`
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
+- `cmux docs extensions` -> `extensions: Build, install, and share cmux extensions`
 - `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
