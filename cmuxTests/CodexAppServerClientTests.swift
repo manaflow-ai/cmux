@@ -405,6 +405,7 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
+            remotePTYSessionID: nil,
             remoteCleanupConfiguration: nil
         )
         let destination = Workspace()
