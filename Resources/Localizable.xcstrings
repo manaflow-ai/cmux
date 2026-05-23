@@ -79157,8 +79157,8 @@
         }
     },
     "settings.search.alias.setting.terminal.scrollbar": {
-        "extractionState": "manual",
-        "localizations": {
+      "extractionState": "manual",
+      "localizations": {
             "en": {
                 "stringUnit": {
                     "state": "translated",
@@ -79272,12 +79272,137 @@
                     "state": "translated",
                     "value": "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui програма загальні параметри поведінка док рядок меню статус бічна панель термінал shell історія прокручування смуга екран імпорт міграція закладки cookies профілі • %@"
                 }
-            }
         }
+      }
+    },
+    "settings.search.alias.setting.terminal.copy-on-select": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm 選択 コピー クリップボード マウス ダブルクリック トリプルクリック"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm نسخ تحديد حافظة فأرة نقرة مزدوجة نقرة ثلاثية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopiraj odabir međuspremnik miš dvoklik troklik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopier markering udklipsholder mus dobbeltklik tredobbeltklik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopieren auswahl zwischenablage maus doppelklick dreifachklick"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm copiar selección portapapeles ratón doble clic triple clic"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm copier sélection presse-papiers souris double-clic triple-clic"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm copia selezione appunti mouse doppio clic triplo clic"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm ចម្លង ជ្រើស ក្ដារតម្រៀប កណ្ដុរ ចុចពីរដង ចុចបីដង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm 복사 선택 클립보드 마우스 더블클릭 트리플클릭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopier markering utklippstavle mus dobbeltklikk trippelklikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopiuj zaznaczenie schowek mysz dwuklik potrójne kliknięcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm copiar seleção área de transferência mouse clique duplo clique triplo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm копировать выделение буфер обмена мышь двойной щелчок тройной щелчок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm คัดลอก เลือก คลิปบอร์ด เมาส์ ดับเบิลคลิก ทริปเปิลคลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopyala seçim pano fare çift tıklama üçlü tıklama"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm копіювати виділення буфер обміну миша подвійне клацання потрійне клацання"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm 复制 选择 剪贴板 鼠标 双击 三击"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm 複製 選取 剪貼簿 滑鼠 按兩下 按三下"
+          }
+        }
+      }
     },
     "settings.search.alias.setting.sidebarAppearance.match-terminal": {
-        "extractionState": "manual",
-        "localizations": {
+      "extractionState": "manual",
+      "localizations": {
             "en": {
                 "stringUnit": {
                     "state": "translated",
@@ -100254,6 +100379,506 @@
         }
       }
     },
+    "update.error.timeout.checking.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not check for updates in time. Check your network and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートを時間内に確認できませんでした。ネットワークを確認してからもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时检查更新。请检查网络连接，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時檢查更新。請檢查網路連線，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트를 확인하지 못했습니다. 네트워크를 확인한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte nicht rechtzeitig nach Updates suchen. Prüfe deine Netzwerkverbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo buscar actualizaciones a tiempo. Comprueba tu conexión de red e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu rechercher les mises à jour à temps. Vérifiez votre réseau, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a cercare aggiornamenti in tempo. Controlla la rete e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke søge efter opdateringer i tide. Tjek netværket, og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł sprawdzić aktualizacji na czas. Sprawdź sieć i spróbuj ponownie."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя проверить наличие обновлений. Проверьте сеть и повторите попытку."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme provjeriti ažuriranja. Provjeri mrežu i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux التحقق من التحديثات في الوقت المناسب. تحقق من الشبكة ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke se etter oppdateringer i tide. Sjekk nettverket og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu verificar atualizações a tempo. Verifique sua rede e tente novamente."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถตรวจหาการอัปเดตได้ทันเวลา โปรดตรวจสอบเครือข่ายแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncellemeleri zamanında denetleyemedi. Ağınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно перевірити наявність оновлень. Перевірте мережу й повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចពិនិត្យរកការអាប់ដេតបានទាន់ពេលទេ។ សូមពិនិត្យបណ្តាញរបស់អ្នក ហើយសាកល្បងម្តងទៀត។"
+          }
+        }
+      }
+    },
+    "update.error.timeout.downloading.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not download the update in time. Check your network and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートを時間内にダウンロードできませんでした。ネットワークを確認してからもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时下载更新。请检查网络连接，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時下載更新。請檢查網路連線，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트를 다운로드하지 못했습니다. 네트워크를 확인한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Update nicht rechtzeitig laden. Prüfe deine Netzwerkverbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo descargar la actualización a tiempo. Comprueba tu conexión de red e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu télécharger la mise à jour à temps. Vérifiez votre réseau, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a scaricare l’aggiornamento in tempo. Controlla la rete e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke hente opdateringen i tide. Tjek netværket, og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł pobrać aktualizacji na czas. Sprawdź sieć i spróbuj ponownie."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя скачать обновление. Проверьте сеть и повторите попытку."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme preuzeti ažuriranje. Provjeri mrežu i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux تنزيل التحديث في الوقت المناسب. تحقق من الشبكة ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke laste ned oppdateringen i tide. Sjekk nettverket og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu baixar a atualização a tempo. Verifique sua rede e tente novamente."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถดาวน์โหลดการอัปเดตได้ทันเวลา โปรดตรวจสอบเครือข่ายแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncellemeyi zamanında indiremedi. Ağınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно завантажити оновлення. Перевірте мережу й повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចទាញយកការអាប់ដេតបានទាន់ពេលទេ។ សូមពិនិត្យបណ្តាញរបស់អ្នក ហើយសាកល្បងម្តងទៀត។"
+          }
+        }
+      }
+    },
+    "update.error.timeout.preparing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not prepare the update in time. Try again later, or restart cmux and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートを時間内に準備できませんでした。しばらくしてからもう一度試すか、cmux を再起動してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时准备更新。请稍后重试，或重新启动 cmux 后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時準備更新。請稍後再試，或重新啟動 cmux 後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트를 준비하지 못했습니다. 나중에 다시 시도하거나 cmux를 다시 시작한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Update nicht rechtzeitig vorbereiten. Versuche es später erneut oder starte cmux neu und versuche es noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo preparar la actualización a tiempo. Inténtalo más tarde o reinicia cmux y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu préparer la mise à jour à temps. Réessayez plus tard ou redémarrez cmux, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a preparare l’aggiornamento in tempo. Riprova più tardi oppure riavvia cmux e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke forberede opdateringen i tide. Prøv igen senere, eller genstart cmux og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł przygotować aktualizacji na czas. Spróbuj ponownie później albo uruchom ponownie cmux i spróbuj jeszcze raz."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя подготовить обновление. Повторите попытку позже или перезапустите cmux и попробуйте снова."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme pripremiti ažuriranje. Pokušaj kasnije ili ponovo pokreni cmux i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux تجهيز التحديث في الوقت المناسب. حاول لاحقًا أو أعد تشغيل cmux ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke klargjøre oppdateringen i tide. Prøv igjen senere, eller start cmux på nytt og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu preparar a atualização a tempo. Tente novamente mais tarde ou reinicie o cmux e tente de novo."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเตรียมการอัปเดตได้ทันเวลา โปรดลองอีกครั้งภายหลัง หรือรีสตาร์ท cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncellemeyi zamanında hazırlayamadı. Daha sonra tekrar deneyin veya cmux’i yeniden başlatıp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно підготувати оновлення. Спробуйте пізніше або перезапустіть cmux і повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចរៀបចំការអាប់ដេតបានទាន់ពេលទេ។ សូមសាកល្បងនៅពេលក្រោយ ឬចាប់ផ្តើម cmux ឡើងវិញ ហើយសាកល្បងម្តងទៀត។"
+          }
+        }
+      }
+    },
+    "update.error.timeout.starting.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not start the update check in time. Restart cmux and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートの確認を時間内に開始できませんでした。cmux を再起動してからもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时开始更新检查。请重新启动 cmux，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時開始檢查更新。請重新啟動 cmux，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트 확인을 시작하지 못했습니다. cmux를 다시 시작한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die Update-Suche nicht rechtzeitig starten. Starte cmux neu und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo iniciar la búsqueda de actualizaciones a tiempo. Reinicia cmux e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu lancer la recherche de mises à jour à temps. Redémarrez cmux, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito ad avviare la ricerca di aggiornamenti in tempo. Riavvia cmux e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte opdateringstjekket i tide. Genstart cmux, og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł rozpocząć sprawdzania aktualizacji na czas. Uruchom ponownie cmux i spróbuj jeszcze raz."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя начать проверку обновлений. Перезапустите cmux и повторите попытку."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme pokrenuti provjeru ažuriranja. Ponovo pokreni cmux i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux بدء التحقق من التحديثات في الوقت المناسب. أعد تشغيل cmux ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte oppdateringssjekken i tide. Start cmux på nytt og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu iniciar a verificação de atualizações a tempo. Reinicie o cmux e tente novamente."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเริ่มตรวจหาการอัปเดตได้ทันเวลา โปรดรีสตาร์ท cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncelleme denetimini zamanında başlatamadı. cmux’i yeniden başlatıp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно почати перевірку оновлень. Перезапустіть cmux і повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចាប់ផ្តើមពិនិត្យរកការអាប់ដេតបានទាន់ពេលទេ។ សូមចាប់ផ្តើម cmux ឡើងវិញ ហើយសាកល្បងម្តងទៀត។"
+          }
+        }
+      }
+    },
     "update.extracting.progress": {
       "extractionState": "manual",
       "localizations": {
@@ -109277,6 +109902,381 @@
         }
       }
     },
+    "settings.terminal.copyOnSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy on Selection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択時にコピー"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النسخ عند التحديد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj pri odabiru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér ved markering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Auswählen kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar al seleccionar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier à la sélection"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia alla selezione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លងពេលជ្រើស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택 시 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier ved markering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj po zaznaczeniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar ao selecionar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать при выделении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกเมื่อเลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçimde kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копіювати під час виділення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择时复制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取時複製"
+          }
+        }
+      }
+    },
+    "settings.terminal.copyOnSelect.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal selections do not replace the system clipboard. Use Cmd+C to copy manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルで選択してもシステムクリップボードは置き換えません。コピーするには Cmd+C を使います。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديدات الطرفية لا تستبدل حافظة النظام. استخدم Cmd+C للنسخ يدويًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odabiri u terminalu ne zamjenjuju sistemski međuspremnik. Koristite Cmd+C za ručno kopiranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalmarkeringer erstatter ikke systemets udklipsholder. Brug Cmd+C for at kopiere manuelt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalauswahlen ersetzen nicht die Systemzwischenablage. Verwende Cmd+C, um manuell zu kopieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las selecciones del terminal no reemplazan el portapapeles del sistema. Usa Cmd+C para copiar manualmente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les sélections du terminal ne remplacent pas le presse-papiers système. Utilisez Cmd+C pour copier manuellement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le selezioni del terminale non sostituiscono gli appunti di sistema. Usa Cmd+C per copiare manualmente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជ្រើសក្នុង terminal មិនជំនួសក្ដារតម្រៀបរបស់ប្រព័ន្ធទេ។ ប្រើ Cmd+C ដើម្បីចម្លងដោយដៃ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 선택은 시스템 클립보드를 바꾸지 않습니다. 수동으로 복사하려면 Cmd+C를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalmarkeringer erstatter ikke systemutklippstavlen. Bruk Cmd+C for å kopiere manuelt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaznaczenia w terminalu nie zastępują schowka systemowego. Użyj Cmd+C, aby skopiować ręcznie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As seleções do terminal não substituem a área de transferência do sistema. Use Cmd+C para copiar manualmente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выделения в терминале не заменяют системный буфер обмена. Используйте Cmd+C, чтобы копировать вручную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเลือกในเทอร์มินัลจะไม่แทนที่คลิปบอร์ดของระบบ ใช้ Cmd+C เพื่อคัดลอกด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal seçimleri sistem panosunun yerini almaz. Elle kopyalamak için Cmd+C kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виділення в терміналі не замінюють системний буфер обміну. Використовуйте Cmd+C, щоб копіювати вручну."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端选择不会替换系统剪贴板。请使用 Cmd+C 手动复制。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機選取不會取代系統剪貼簿。請使用 Cmd+C 手動複製。"
+          }
+        }
+      }
+    },
+    "settings.terminal.copyOnSelect.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected terminal text is copied to the system clipboard when the selection is committed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択が確定したとき、ターミナルで選択したテキストをシステムクリップボードへコピーします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم نسخ نص الطرفية المحدد إلى حافظة النظام عند تثبيت التحديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odabrani tekst iz terminala kopira se u sistemski međuspremnik kada se odabir potvrdi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markeret terminaltekst kopieres til systemets udklipsholder, når markeringen bekræftes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewählter Terminaltext wird in die Systemzwischenablage kopiert, sobald die Auswahl bestätigt wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El texto seleccionado del terminal se copia al portapapeles del sistema cuando se confirma la selección."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le texte sélectionné dans le terminal est copié dans le presse-papiers système lorsque la sélection est validée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អត្ថបទ terminal ដែលបានជ្រើស នឹងត្រូវចម្លងទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택이 확정되면 선택한 터미널 텍스트가 시스템 클립보드에 복사됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markert terminaltekst kopieres til systemutklippstavlen når markeringen bekreftes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O texto selecionado no terminal é copiado para a área de transferência do sistema quando a seleção é confirmada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выделенный текст терминала копируется в системный буфер обмена после подтверждения выделения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความเทอร์มินัลที่เลือกจะถูกคัดลอกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вибраний текст термінала копіюється до системного буфера обміну після підтвердження виділення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认选择后，所选终端文本会复制到系统剪贴板。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認選取後，所選終端機文字會複製到系統剪貼簿。"
+          }
+        }
+      }
+    },
     "settings.terminal.agentAutoResume": {
       "extractionState": "manual",
       "localizations": {
@@ -115925,6 +116925,55 @@
     "rightSidebar.remote.error.modeUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Right sidebar mode '%@' is not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーのモード '%@' は利用できません" } } } },
     "rightSidebar.remote.error.appDelegateUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: App delegate not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: アプリデリゲートを利用できません" } } } },
     "notificationHook.failure.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Notification Hook Failed" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知フックに失敗しました" } } } },
-    "notificationHook.failure.body": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux used default notification behavior because '%@' failed." } }, "ja": { "stringUnit": { "state": "translated", "value": "'%@' が失敗したため、cmux は既定の通知動作を使用しました。" } } } }
+    "notificationHook.failure.body": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux used default notification behavior because '%@' failed." } }, "ja": { "stringUnit": { "state": "translated", "value": "'%@' が失敗したため、cmux は既定の通知動作を使用しました。" } } } },
+    "example.sidebar.attentionQueue.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Attention Queue" } }, "ja": { "stringUnit": { "state": "translated", "value": "要対応キュー" } } } },
+    "example.sidebar.attentionQueue.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "User extension" } }, "ja": { "stringUnit": { "state": "translated", "value": "ユーザー拡張" } } } },
+    "example.sidebar.browserStack.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Browser Stack" } }, "ja": { "stringUnit": { "state": "translated", "value": "ブラウザスタック" } } } },
+    "example.sidebar.browserStack.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "User extension" } }, "ja": { "stringUnit": { "state": "translated", "value": "ユーザー拡張" } } } },
+    "example.sidebar.browserStack.section.tiles": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Pinned" } }, "ja": { "stringUnit": { "state": "translated", "value": "ピン留め" } } } },
+    "example.sidebar.browserStack.section.loose": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Open" } }, "ja": { "stringUnit": { "state": "translated", "value": "開いている項目" } } } },
+    "example.sidebar.browserStack.section.group:reading-list": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Reading List" } }, "ja": { "stringUnit": { "state": "translated", "value": "リーディングリスト" } } } },
+    "example.sidebar.devServers.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Dev Servers" } }, "ja": { "stringUnit": { "state": "translated", "value": "開発サーバー" } } } },
+    "example.sidebar.devServers.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "User extension" } }, "ja": { "stringUnit": { "state": "translated", "value": "ユーザー拡張" } } } },
+    "example.sidebar.lastPrompt.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Last Prompt" } }, "ja": { "stringUnit": { "state": "translated", "value": "最新プロンプト" } } } },
+    "example.sidebar.lastPrompt.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "User extension" } }, "ja": { "stringUnit": { "state": "translated", "value": "ユーザー拡張" } } } },
+    "example.sidebar.projectWorktrees.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Project Worktrees" } }, "ja": { "stringUnit": { "state": "translated", "value": "プロジェクトワークツリー" } } } },
+    "example.sidebar.projectWorktrees.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "User extension" } }, "ja": { "stringUnit": { "state": "translated", "value": "ユーザー拡張" } } } },
+    "example.sidebar.superCompact.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Super Compact" } }, "ja": { "stringUnit": { "state": "translated", "value": "超コンパクト" } } } },
+    "example.sidebar.superCompact.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "User extension" } }, "ja": { "stringUnit": { "state": "translated", "value": "ユーザー拡張" } } } },
+    "example.sidebar.group.active": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Active" } }, "ja": { "stringUnit": { "state": "translated", "value": "アクティブ" } } } },
+    "example.sidebar.group.pinned": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Pinned" } }, "ja": { "stringUnit": { "state": "translated", "value": "ピン留め" } } } },
+    "example.sidebar.group.needsAttention": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Needs Attention" } }, "ja": { "stringUnit": { "state": "translated", "value": "要対応" } } } },
+    "example.sidebar.group.quiet": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Quiet" } }, "ja": { "stringUnit": { "state": "translated", "value": "静か" } } } },
+    "example.sidebar.group.liveServers": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Live Servers" } }, "ja": { "stringUnit": { "state": "translated", "value": "稼働中のサーバー" } } } },
+    "example.sidebar.group.remote": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Remote" } }, "ja": { "stringUnit": { "state": "translated", "value": "リモート" } } } },
+    "example.sidebar.group.local": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Local" } }, "ja": { "stringUnit": { "state": "translated", "value": "ローカル" } } } },
+    "example.sidebar.group.recentPrompts": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Recent Prompts" } }, "ja": { "stringUnit": { "state": "translated", "value": "最近のプロンプト" } } } },
+    "example.sidebar.group.noPrompts": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "No Prompts" } }, "ja": { "stringUnit": { "state": "translated", "value": "プロンプトなし" } } } },
+    "example.sidebar.group.noFolder": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "No Folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "フォルダなし" } } } },
+    "example.sidebar.group.workspaces": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Workspaces" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } } } },
+    "example.sidebar.noPromptsYet": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "No prompts yet" } }, "ja": { "stringUnit": { "state": "translated", "value": "まだプロンプトがありません" } } } },
+    "command.switchExtensionSidebar.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Sidebar: %@" } }, "ja": { "stringUnit": { "state": "translated", "value": "サイドバー: %@" } } } },
+    "command.switchExtensionSidebar.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Sidebar" } }, "ja": { "stringUnit": { "state": "translated", "value": "サイドバー" } } } },
+    "relativeTime.now": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "now" } }, "ja": { "stringUnit": { "state": "translated", "value": "今" } } } },
+    "relativeTime.minutes": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%lldm" } }, "ja": { "stringUnit": { "state": "translated", "value": "%lld分" } } } },
+    "relativeTime.hours": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%lldh" } }, "ja": { "stringUnit": { "state": "translated", "value": "%lld時間" } } } },
+    "relativeTime.days": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%lldd" } }, "ja": { "stringUnit": { "state": "translated", "value": "%lld日" } } } },
+    "relativeTime.weeks": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%lldw" } }, "ja": { "stringUnit": { "state": "translated", "value": "%lld週" } } } },
+    "sidebar.browserStack.closeGroup": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Close group" } }, "ja": { "stringUnit": { "state": "translated", "value": "グループを閉じる" } } } },
+    "sidebar.browserStack.newTab": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "New Tab" } }, "ja": { "stringUnit": { "state": "translated", "value": "新しいタブ" } } } },
+    "sidebar.extension.browserAddress": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Search or enter URL" } }, "ja": { "stringUnit": { "state": "translated", "value": "検索またはURLを入力" } } } },
+    "sidebar.extension.browserTab": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Browser" } }, "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ" } } } },
+    "sidebar.extension.createWorktree": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Create worktree" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークツリーを作成" } } } },
+    "sidebar.extension.inspectWorkspace": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Workspace tools" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースツール" } } } },
+    "sidebar.extension.notesTab": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Notes" } }, "ja": { "stringUnit": { "state": "translated", "value": "メモ" } } } },
+    "sidebar.extension.openWindow": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Open window" } }, "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウで開く" } } } },
+    "sidebar.extension.toggleSection": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Toggle section" } }, "ja": { "stringUnit": { "state": "translated", "value": "セクションを切り替え" } } } },
+    "sidebar.provider.default.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmux" } } } },
+    "sidebar.provider.default.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Default Workspaces" } }, "ja": { "stringUnit": { "state": "translated", "value": "既定のワークスペース" } } } },
+    "sidebar.tree.group.other": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Other" } }, "ja": { "stringUnit": { "state": "translated", "value": "その他" } } } },
+    "sidebar.tree.group.other.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "No folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "フォルダなし" } } } },
+    "sidebar.tree.group.pinned": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Pinned" } }, "ja": { "stringUnit": { "state": "translated", "value": "ピン留め" } } } },
+    "sidebar.tree.group.remote.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "SSH" } }, "ja": { "stringUnit": { "state": "translated", "value": "SSH" } } } }
   }
 }

@@ -2142,6 +2142,7 @@ class GhosttyApp {
                 prefix: "cmux-shell-integration-override",
                 logLabel: "shell integration override (fallback)"
             )
+            loadCmuxManagedTerminalSettingsConfig(fallbackConfig)
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
                 true,
@@ -2198,6 +2199,14 @@ class GhosttyApp {
             ghostty_app_set_focus(app, false)
         })
 
+        appObservers.append(NotificationCenter.default.addObserver(
+            forName: TerminalCopyOnSelectSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reloadConfiguration(source: "settings.terminal.copyOnSelect")
+        })
+
         #endif
     }
 
@@ -2239,6 +2248,16 @@ class GhosttyApp {
             into: config,
             prefix: "cmux-default-appearance",
             logLabel: "default appearance fallback"
+        )
+    }
+
+    private func loadCmuxManagedTerminalSettingsConfig(_ config: ghostty_config_t) {
+        guard let contents = TerminalManagedGhosttySettings.ghosttyConfigContents() else { return }
+        loadInlineGhosttyConfig(
+            contents,
+            into: config,
+            prefix: "cmux-managed-terminal-settings",
+            logLabel: "managed terminal settings"
         )
     }
 
@@ -2343,6 +2362,7 @@ class GhosttyApp {
             prefix: "cmux-shell-integration-override",
             logLabel: "shell integration override"
         )
+        loadCmuxManagedTerminalSettingsConfig(config)
         loadCmuxOwnedGhosttyKeybindOverrides(config)
 
         ghostty_config_finalize(config)
@@ -3319,10 +3339,8 @@ class GhosttyApp {
         }
     }
 
-    func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
-        let currentColorScheme = GhosttyConfig.currentColorSchemePreference(
-            appAppearance: appearance ?? NSApp?.effectiveAppearance
-        )
+    func synchronizeThemeWithAppearance(_: NSAppearance?, source: String) {
+        let currentColorScheme = GhosttyConfig.currentColorSchemePreference()
         let plan = Self.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
             currentColorScheme: currentColorScheme
@@ -5680,7 +5698,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Backward-compatible shell integration keys used by existing scripts/tests.
         setManagedEnvironmentValue("CMUX_PANEL_ID", id.uuidString)
         setManagedEnvironmentValue("CMUX_TAB_ID", tabId.uuidString)
-        let socketPath = SocketControlSettings.socketPath()
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
         setManagedEnvironmentValue("CMUX_SOCKET_PATH", socketPath)
         setManagedEnvironmentValue("CMUX_SOCKET", "")
         if let inheritedClaudeConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"],
