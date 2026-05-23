@@ -306,6 +306,7 @@ jobs:
 
             wait "$pid"
             local code=$?
+            pkill -TERM -P "$watcher" >/dev/null 2>&1 || true
             kill "$watcher" >/dev/null 2>&1 || true
             wait "$watcher" >/dev/null 2>&1 || true
 
