@@ -78,10 +78,20 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
 }
 
 struct SidebarWorkspaceRowInteractionState: Equatable {
+    private enum ContextMenuLifecycle: Equatable {
+        case inactive
+        case swiftUIVisible
+        case appKitTracking
+    }
+
     private(set) var isPointerHovering = false
-    private(set) var contextMenuVisible = false
+    private var contextMenuLifecycle: ContextMenuLifecycle = .inactive
     private var contextMenuTrackingSuppressesCloseButton = false
     private var deferredPointerHoveringWhileContextMenuTracking: Bool?
+
+    var contextMenuVisible: Bool {
+        contextMenuLifecycle != .inactive
+    }
 
     mutating func setPointerHovering(_ hovering: Bool) {
         if contextMenuTrackingSuppressesCloseButton {
@@ -94,25 +104,31 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
     }
 
     mutating func contextMenuDidAppear() {
-        contextMenuVisible = true
+        if contextMenuLifecycle != .appKitTracking {
+            contextMenuLifecycle = .swiftUIVisible
+        }
         contextMenuTrackingSuppressesCloseButton = true
         deferredPointerHoveringWhileContextMenuTracking = nil
         isPointerHovering = false
     }
 
     mutating func contextMenuDidDisappear() {
-        contextMenuVisible = false
+        if contextMenuLifecycle != .appKitTracking {
+            contextMenuLifecycle = .inactive
+        }
         contextMenuTrackingSuppressesCloseButton = false
         applyDeferredPointerHovering()
     }
 
     mutating func contextMenuTrackingDidBegin() {
+        contextMenuLifecycle = .appKitTracking
         contextMenuTrackingSuppressesCloseButton = true
         deferredPointerHoveringWhileContextMenuTracking = nil
         isPointerHovering = false
     }
 
     mutating func contextMenuTrackingDidEnd() {
+        contextMenuLifecycle = .inactive
         contextMenuTrackingSuppressesCloseButton = false
         applyDeferredPointerHovering()
     }

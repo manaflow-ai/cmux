@@ -3,9 +3,21 @@ import SwiftUI
 
 struct SidebarWorkspaceRowHoverTracker: NSViewRepresentable {
     @Binding var rowInteractionState: SidebarWorkspaceRowInteractionState
+    var onContextMenuTrackingChanged: (Bool) -> Void = { _ in }
+
+    init(
+        rowInteractionState: Binding<SidebarWorkspaceRowInteractionState>,
+        onContextMenuTrackingChanged: @escaping (Bool) -> Void = { _ in }
+    ) {
+        self._rowInteractionState = rowInteractionState
+        self.onContextMenuTrackingChanged = onContextMenuTrackingChanged
+    }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(rowInteractionState: $rowInteractionState)
+        Coordinator(
+            rowInteractionState: $rowInteractionState,
+            onContextMenuTrackingChanged: onContextMenuTrackingChanged
+        )
     }
 
     func makeNSView(context: Context) -> SidebarWorkspaceRowHoverTrackingView {
@@ -22,13 +34,19 @@ struct SidebarWorkspaceRowHoverTracker: NSViewRepresentable {
 
     func updateNSView(_ nsView: SidebarWorkspaceRowHoverTrackingView, context: Context) {
         context.coordinator.rowInteractionState = $rowInteractionState
+        context.coordinator.onContextMenuTrackingChanged = onContextMenuTrackingChanged
     }
 
     final class Coordinator {
         var rowInteractionState: Binding<SidebarWorkspaceRowInteractionState>
+        var onContextMenuTrackingChanged: (Bool) -> Void
 
-        init(rowInteractionState: Binding<SidebarWorkspaceRowInteractionState>) {
+        init(
+            rowInteractionState: Binding<SidebarWorkspaceRowInteractionState>,
+            onContextMenuTrackingChanged: @escaping (Bool) -> Void = { _ in }
+        ) {
             self.rowInteractionState = rowInteractionState
+            self.onContextMenuTrackingChanged = onContextMenuTrackingChanged
         }
 
         func pointerHoverChanged(_ hovering: Bool) {
@@ -41,6 +59,7 @@ struct SidebarWorkspaceRowHoverTracker: NSViewRepresentable {
             } else {
                 rowInteractionState.wrappedValue.contextMenuTrackingDidEnd()
             }
+            onContextMenuTrackingChanged(tracking)
         }
     }
 }

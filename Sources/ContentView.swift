@@ -9489,12 +9489,7 @@ struct SidebarTabItemPresentationResolutionPolicy {
         frozen: SidebarTabItemPresentationSnapshot?
     ) -> SidebarTabItemPresentationSnapshot {
         guard let frozen, frozen.tabId == live.tabId else { return live }
-        return SidebarTabItemPresentationSnapshot(
-            tabId: live.tabId,
-            unreadCount: live.unreadCount,
-            latestNotificationText: live.latestNotificationText,
-            showsModifierShortcutHints: frozen.showsModifierShortcutHints
-        )
+        return frozen
     }
 }
 
@@ -13263,6 +13258,7 @@ struct SidebarWorkspaceSnapshotBuilder {
 }
 
 private final class SidebarTabItemContextMenuState: ObservableObject {
+    var presentationFreezeActive = false
     var hasDeferredWorkspaceObservationInvalidation = false
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
@@ -13892,7 +13888,10 @@ private struct TabItemView: View, Equatable {
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
-            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+            SidebarWorkspaceRowHoverTracker(
+                rowInteractionState: $rowInteractionState,
+                onContextMenuTrackingChanged: handleContextMenuTrackingChanged
+            )
         }
         .overlay {
             MiddleClickCapture {
@@ -14006,16 +14005,43 @@ private struct TabItemView: View, Equatable {
             workspaceContextMenu
                 .onAppear {
                     rowInteractionState.contextMenuDidAppear()
-                    contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
-                    contextMenuState.pendingWorkspaceSnapshot = nil
-                    frozenPresentation = livePresentation
+                    beginContextMenuPresentationFreeze()
                 }
                 .onDisappear {
                     rowInteractionState.contextMenuDidDisappear()
-                    frozenPresentation = nil
-                    flushDeferredWorkspaceObservationInvalidation()
+                    if !rowInteractionState.contextMenuVisible {
+                        endContextMenuPresentationFreeze()
+                    }
                 }
         }
+    }
+
+    private func handleContextMenuTrackingChanged(_ isTracking: Bool) {
+        if isTracking {
+            beginContextMenuPresentationFreeze()
+        } else {
+            endContextMenuPresentationFreeze()
+        }
+    }
+
+    private func beginContextMenuPresentationFreeze() {
+        guard !contextMenuState.presentationFreezeActive else { return }
+        contextMenuState.presentationFreezeActive = true
+        contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
+        contextMenuState.pendingWorkspaceSnapshot = nil
+        frozenPresentation = livePresentation
+    }
+
+    private func endContextMenuPresentationFreeze() {
+        guard contextMenuState.presentationFreezeActive ||
+            frozenPresentation?.tabId == tab.id ||
+            contextMenuState.hasDeferredWorkspaceObservationInvalidation
+        else {
+            return
+        }
+        contextMenuState.presentationFreezeActive = false
+        frozenPresentation = nil
+        flushDeferredWorkspaceObservationInvalidation()
     }
 
     private func refreshWorkspaceSnapshot(force: Bool = false) {
