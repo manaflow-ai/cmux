@@ -548,3 +548,71 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         return RestorableAgentSessionIndex.load(homeDirectory: home.path)
     }
 }
+
+final class TerminalCopyOnSelectSettingsTests: XCTestCase {
+    func testDefaultsNotificationAndGhosttyConfigMapping() throws {
+        let suiteName = "cmux-terminal-copy-on-select-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.copyOnSelectKey,
+            "terminal.copyOnSelect"
+        )
+        XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+
+        let notificationCenter = NotificationCenter()
+        var notificationCount = 0
+        let observer = notificationCenter.addObserver(
+            forName: TerminalCopyOnSelectSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        TerminalCopyOnSelectSettings.setEnabled(
+            true,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertTrue(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = clipboard"
+        )
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = clipboard"
+        )
+        XCTAssertEqual(notificationCount, 1)
+
+        TerminalCopyOnSelectSettings.setEnabled(
+            false,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = false"
+        )
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = false"
+        )
+        XCTAssertEqual(notificationCount, 2)
+
+        TerminalCopyOnSelectSettings.reset(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertEqual(notificationCount, 2)
+    }
+}
