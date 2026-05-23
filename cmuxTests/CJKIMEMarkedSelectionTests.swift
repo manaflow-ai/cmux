@@ -213,6 +213,70 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testRIMENoInlineCandidateNavigationDoesNotForwardArrowToTerminal() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "im.rime.inputmethod.Squirrel"
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, events in
+            guard candidateView === surfaceView,
+                  let event = events.first else {
+                return false
+            }
+            switch Int(event.keyCode) {
+            case kVK_ANSI_N, kVK_DownArrow:
+                // RIME/Squirrel can keep preedit in its candidate panel instead of
+                // reporting NSTextInputClient marked text to the client view.
+                return true
+            default:
+                return false
+            }
+        }
+
+        var forwardedPresses: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedPresses.append(keyEvent.keycode)
+        }
+
+        let composeEvent = try keyEvent(
+            text: "n",
+            keyCode: UInt16(kVK_ANSI_N),
+            windowNumber: window.windowNumber
+        )
+        let candidateDownEvent = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyDown(with: composeEvent)
+            surfaceView.keyDown(with: candidateDownEvent)
+        }
+
+        XCTAssertEqual(
+            forwardedPresses,
+            [],
+            "RIME/Squirrel no-inline candidate keys belong to IMK and must not also move the terminal cursor"
+        )
+    }
+
     func testKeyDownForKoreanPostCompositionHorizontalArrowsForwardsToTerminal() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let terminalSurface = hostedTerminal.surface
