@@ -693,6 +693,31 @@ final class AgentHibernationTests: XCTestCase {
     }
 
     @MainActor
+    func testAutosaveFingerprintTracksHibernationTransitions() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-autosave-hibernation",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+
+        let liveFingerprint = manager.sessionAutosaveFingerprint()
+        workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: snapshot,
+            lastActivityAt: Date(timeIntervalSince1970: 100)
+        )
+        let hibernatedFingerprint = manager.sessionAutosaveFingerprint()
+
+        XCTAssertNotEqual(liveFingerprint, hibernatedFingerprint)
+        XCTAssertTrue(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
+        XCTAssertNotEqual(hibernatedFingerprint, manager.sessionAutosaveFingerprint())
+    }
+
+    @MainActor
     func testDirectFocusOnHibernatedTerminalPreparesResumeWithoutHiddenFocus() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
