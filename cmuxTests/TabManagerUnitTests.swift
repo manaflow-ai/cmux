@@ -1296,21 +1296,60 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         )
     }
 
-    func testTabCloseButtonWarnBeforeClosingTabXButtonDefaultsOffWhenUnset() throws {
+    func testTabCloseButtonWarnBeforeClosingTabXButtonDefaultsOnWhenUnset() throws {
         try assertTabCloseButtonConfirmation(
             warnBeforeClosingTabXButton: nil,
-            expectedPromptCount: 0,
-            expectedPanelClosed: true
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
         )
     }
 
-    func testTabCloseButtonWarnBeforeClosingTabXButtonStaysOffWhenOnlyShortcutWarningEnabled() throws {
+    func testTabCloseButtonWarnBeforeClosingTabXButtonDefaultsOnWhenShortcutWarningDisabled() throws {
         try assertTabCloseButtonConfirmation(
-            warnBeforeClosingTab: true,
+            warnBeforeClosingTab: false,
             warnBeforeClosingTabXButton: nil,
-            expectedPromptCount: 0,
-            expectedPanelClosed: true
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
         )
+    }
+
+    func testTabCloseButtonWarnBeforeClosingTabXButtonDefaultsOnForLastWorkspaceSurface() throws {
+        try withCloseTabWarningConfig(
+            warnBeforeClosingTab: false,
+            warnBeforeClosingTabXButton: nil
+        ) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId,
+                  let surfaceId = workspace.surfaceIdFromPanelId(panelId),
+                  let terminalPanel = workspace.terminalPanel(for: panelId) else {
+                XCTFail("Expected selected workspace with a terminal panel")
+                return
+            }
+
+            terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+
+            var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+            manager.confirmCloseHandler = { title, message, acceptCmdD in
+                prompts.append((title, message, acceptCmdD))
+                return false
+            }
+
+            workspace.markExplicitClose(surfaceId: surfaceId, trigger: .tabCloseButton)
+            XCTAssertFalse(workspace.closePanel(panelId))
+            drainMainQueue()
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertEqual(prompts.count, 1)
+            XCTAssertEqual(
+                prompts.first?.title,
+                String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?")
+            )
+            XCTAssertEqual(prompts.first?.acceptCmdD, true)
+            XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
+            XCTAssertNotNil(workspace.panels[panelId])
+        }
     }
 
     func testRuntimeCloseSkipsConfirmationWhenShellReportsPromptIdle() {

@@ -298,7 +298,7 @@
         },
         "warnBeforeClosingTabXButton": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Show the same close-tab confirmation before a tab-strip X button closes a tab."
         },
         "renameSelectsExistingName": {

@@ -4730,7 +4730,7 @@ enum CloseTabWarningSettings {
     static let warnBeforeClosingTabKey = "warnBeforeClosingTabShortcut"
     static let warnBeforeClosingTabXButtonKey = "warnBeforeClosingTabXButton"
     static let defaultWarnBeforeClosingTab = true
-    static let defaultWarnBeforeClosingTabXButton = false
+    static let defaultWarnBeforeClosingTabXButton = true
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: warnBeforeClosingTabKey) == nil {
