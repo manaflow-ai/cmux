@@ -73,6 +73,28 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeSubagentSessionStartPersistsParentForRestoreFiltering() throws {
+        let context = try makeClaudeHookContext(name: "claude-subagent-parent-filter")
+        defer { context.cleanup() }
+
+        let parentSessionId = "claude-parent-session"
+        let childSessionId = "claude-child-session"
+        let childTranscriptPath = "\(context.root.path)/projects/claude-child-session.jsonl"
+
+        let start = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(childSessionId)","parent_session_id":"\#(parentSessionId)","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(childTranscriptPath)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let record = try readClaudeHookSession(childSessionId, context: context)
+        XCTAssertEqual(record["isRestorable"] as? Bool, false)
+        XCTAssertEqual(record["parentSessionId"] as? String, parentSessionId)
+        XCTAssertEqual(record["transcriptPath"] as? String, childTranscriptPath)
+    }
+
     func testLateClaudeSessionStartDoesNotClearRestorablePromptSession() throws {
         let context = try makeClaudeHookContext(name: "claude-late-start-restorable")
         defer { context.cleanup() }
