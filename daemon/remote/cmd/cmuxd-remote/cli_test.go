@@ -603,6 +603,46 @@ func TestCLINotifyInTmuxUsesCallerTargeting(t *testing.T) {
 	}
 }
 
+func TestCLINotifyInTmuxFallsBackToControllingTTY(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	workspaceID := "11111111-1111-1111-1111-111111111111"
+	surfaceID := "22222222-2222-2222-2222-222222222222"
+	t.Setenv("CMUX_WORKSPACE_ID", workspaceID)
+	t.Setenv("CMUX_SURFACE_ID", surfaceID)
+	t.Setenv("CMUX_CLI_TTY_NAME", "")
+	t.Setenv("CMUX_TTY_NAME", "")
+	t.Setenv("TTY", "")
+	t.Setenv("SSH_TTY", "")
+	t.Setenv("TMUX", "/tmp/tmux-current,123,0")
+
+	originalFDLinkPaths := callerTTYFDLinkPaths
+	originalTTYCommand := callerTTYCommand
+	callerTTYFDLinkPaths = nil
+	callerTTYCommand = func() string { return "/dev/ttys888\n" }
+	t.Cleanup(func() {
+		callerTTYFDLinkPaths = originalFDLinkPaths
+		callerTTYCommand = originalTTYCommand
+	})
+
+	code := runCLI([]string{"--socket", sockPath, "--json", "notify", "--title", "Remote", "--body", "done"})
+	if code != 0 {
+		t.Fatalf("notify should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		params, _ := req["params"].(map[string]any)
+		if got := params["caller_tty"]; got != "ttys888" {
+			t.Fatalf("expected caller_tty ttys888, got %v", got)
+		}
+		if got := params["prefer_tty"]; got != true {
+			t.Fatalf("expected prefer_tty true, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for notify request")
+	}
+}
+
 func TestCLINotifyOutsideTmuxOmitsPreferTTY(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_WORKSPACE_ID", "11111111-1111-1111-1111-111111111111")
