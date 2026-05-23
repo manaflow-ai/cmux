@@ -18,7 +18,7 @@ extension CMUXCLI {
             HermesAgentHookConfig.Event(
                 name: agentEvent,
                 command: hermesAgentShellCommand(feedHookCommand(for: def, agentEvent: agentEvent)),
-                timeout: 120
+                timeout: 5
             )
         })
         return events

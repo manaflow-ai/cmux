@@ -22,10 +22,9 @@ extension CMUXCLI {
         let aliases: Set<String>
         let publishesStopNotification: Bool
         /// Feed-hook events. Each entry installs a second hook for
-        /// `agentEvent` that invokes `cmux hooks feed --source <name>`
-        /// with a 120s timeout so the socket reply wait doesn't trip the
-        /// agent's default hook timeout when the user takes time to
-        /// approve/deny a permission / plan / question.
+        /// `agentEvent` that invokes `cmux hooks feed --source <name>`.
+        /// Installed hook commands return immediately and let cmux finish
+        /// socket work in the background.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
 
@@ -317,7 +316,8 @@ extension CMUXCLI {
             return pinnedAgentHookShellCommand(command, for: def)
         }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || echo '{}'; else echo '{}'; fi"
+        let dispatch = "if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi"
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then \(backgroundHookShellCommand(dispatch)); else echo '{}'; fi"
     }
 
     private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
@@ -367,7 +367,12 @@ extension CMUXCLI {
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || echo '{}'"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        let backgroundDispatch = backgroundHookShellCommand("\(dispatch); cmux_hook_status=$?; \(shellTraceExit)")
+        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(backgroundDispatch); }"
+    }
+
+    private static func backgroundHookShellCommand(_ command: String) -> String {
+        "cmux_hook_input=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-hook.XXXXXX\" 2>/dev/null || true)\"; if [ -n \"$cmux_hook_input\" ]; then cat > \"$cmux_hook_input\"; ( { \(command); } < \"$cmux_hook_input\" >/dev/null 2>&1; rm -f \"$cmux_hook_input\" ) & else ( { \(command); } >/dev/null 2>&1 < /dev/null ) & fi; echo '{}'"
     }
 
     private static func pinnedHookInvocation(
