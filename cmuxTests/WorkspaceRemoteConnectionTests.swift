@@ -451,6 +451,17 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(state.workspaceSchedulersSuspended)
         XCTAssertTrue(state.remotePortPollTimerExists)
         XCTAssertFalse(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+
+        controller.setWorkspaceSchedulersEnabled(false)
+        state = try controller.debugWorkspaceSchedulerStateForTesting()
+        XCTAssertTrue(state.workspaceSchedulersSuspended)
+        XCTAssertTrue(state.remotePortPollTimerExists)
+        XCTAssertTrue(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+
+        controller.stop()
+        state = try controller.debugWorkspaceSchedulerStateForTesting()
+        XCTAssertFalse(state.remotePortPollTimerExists)
+        XCTAssertFalse(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
 #else
         throw XCTSkip("Debug-only scheduler lifecycle test")
 #endif

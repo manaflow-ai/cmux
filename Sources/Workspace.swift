@@ -8145,11 +8145,12 @@ final class WorkspaceRemoteSessionController {
     private func stopRemotePortPollingLocked() {
         if let timer = remotePortPollTimer {
             timer.setEventHandler {}
-            timer.cancel()
-            // Balance the workspace-unmount suspend before releasing the source.
+            // Balance the workspace-unmount suspend before canceling the source.
             if remotePortPollTimerState == .suspendedForWorkspaceUnmount {
+                remotePortPollTimerState = .running
                 timer.resume()
             }
+            timer.cancel()
         }
         remotePortPollTimer = nil
         remotePortPollTimerState = nil
