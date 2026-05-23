@@ -9162,6 +9162,9 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    // Bumped for explicit split-tree topology callbacks. Cache correctness also keys on
+    // Bonsplit's current pane-id order so tab-only mutations and future pane-order changes
+    // cannot reuse stale tree traversal order.
     private var bonsplitTreeRevision: UInt64 = 0
     private var cachedSidebarTreeOrderedPaneIds: (
         bonsplitTreeRevision: UInt64,
@@ -16177,10 +16180,6 @@ extension Workspace: BonsplitDelegate {
         pendingNonFocusSplitFocusReassert = nil
     }
 
-    func splitTabBar(_ controller: BonsplitController, didCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) {
-        bumpBonsplitTreeRevision()
-    }
-
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         func recordPostCloseSelection() {
             let tabs = controller.tabs(inPane: pane)
@@ -16287,7 +16286,6 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
-        bumpBonsplitTreeRevision()
         forceCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
@@ -16438,7 +16436,6 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
-        bumpBonsplitTreeRevision()
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
         let sincePrev: String
