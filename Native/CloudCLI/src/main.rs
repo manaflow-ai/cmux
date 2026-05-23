@@ -5,7 +5,7 @@ use std::fs;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixStream;
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -413,8 +413,7 @@ fn run_new(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
         vm_args.push("--window".to_string());
         vm_args.push(window);
     }
-    run_parent_vm_session(ctx, &vm_args)?;
-    clear_vm_create_idempotency(&idempotency)
+    exec_parent_vm_with_idempotency(ctx, &vm_args, &idempotency)
 }
 
 fn run_destroy(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
@@ -579,37 +578,34 @@ fn run_delegated_interactive(
 }
 
 fn exec_parent_vm(ctx: &CloudContext, vm_args: &[String]) -> CliResult<()> {
+    exec_parent_vm_with_extra_env(ctx, vm_args, &[])
+}
+
+fn exec_parent_vm_with_idempotency(
+    ctx: &CloudContext,
+    vm_args: &[String],
+    idempotency: &ActiveVMCreateIdempotency,
+) -> CliResult<()> {
+    exec_parent_vm_with_extra_env(ctx, vm_args, &parent_vm_idempotency_env(idempotency))
+}
+
+fn exec_parent_vm_with_extra_env(
+    ctx: &CloudContext,
+    vm_args: &[String],
+    extra_env: &[(&'static str, String)],
+) -> CliResult<()> {
     let mut command = Command::new(&ctx.parent_cli);
     command.args(parent_vm_args(ctx, vm_args));
     for (key, value) in parent_vm_env(ctx) {
+        command.env(key, value);
+    }
+    for (key, value) in extra_env {
         command.env(key, value);
     }
     let error = command.exec();
     Err(CliError::new(format!(
         "Could not open the Cloud VM session: {error}"
     )))
-}
-
-fn run_parent_vm_session(ctx: &CloudContext, vm_args: &[String]) -> CliResult<()> {
-    let mut command = Command::new(&ctx.parent_cli);
-    command.args(parent_vm_args(ctx, vm_args));
-    for (key, value) in parent_vm_env(ctx) {
-        command.env(key, value);
-    }
-    let status = command
-        .status()
-        .map_err(|error| CliError::new(format!("Could not open the Cloud VM session: {error}")))?;
-    if status.success() {
-        return Ok(());
-    }
-    if let Some(code) = status.code() {
-        return Err(CliError::exit(format!("exit {code}"), code));
-    }
-    if let Some(signal) = status.signal() {
-        let code = 128 + signal;
-        return Err(CliError::exit(format!("signal {signal}"), code));
-    }
-    Err(CliError::new("cmux vm helper exited unsuccessfully"))
 }
 
 fn parent_vm_args(ctx: &CloudContext, vm_args: &[String]) -> Vec<String> {
@@ -633,6 +629,18 @@ fn parent_vm_env(ctx: &CloudContext) -> Vec<(&'static str, String)> {
     vec![
         ("CMUX_SOCKET_PASSWORD", password.clone()),
         ("CMUX_CLOUD_SOCKET_PASSWORD", password.clone()),
+    ]
+}
+
+fn parent_vm_idempotency_env(
+    idempotency: &ActiveVMCreateIdempotency,
+) -> Vec<(&'static str, String)> {
+    vec![
+        (
+            "CMUX_CLOUD_CLEAR_IDEMPOTENCY_SIGNATURE",
+            idempotency.signature.clone(),
+        ),
+        ("CMUX_CLOUD_CLEAR_IDEMPOTENCY_KEY", idempotency.key.clone()),
     ]
 }
 
@@ -1213,6 +1221,20 @@ mod tests {
         let message = sanitized_auth_error("ERROR: auth secret-password failed", "secret-password");
         assert!(message.contains("<redacted>"));
         assert!(!message.contains("secret-password"));
+    }
+
+    #[test]
+    fn idempotency_cleanup_token_stays_in_parent_env() {
+        let idempotency = ActiveVMCreateIdempotency {
+            signature: "image=abc\u{1f}provider=e2b".to_string(),
+            key: "idem-key".to_string(),
+        };
+        let env = parent_vm_idempotency_env(&idempotency);
+        assert!(env.contains(&(
+            "CMUX_CLOUD_CLEAR_IDEMPOTENCY_SIGNATURE",
+            "image=abc\u{1f}provider=e2b".to_string()
+        )));
+        assert!(env.contains(&("CMUX_CLOUD_CLEAR_IDEMPOTENCY_KEY", "idem-key".to_string())));
     }
 
     #[test]

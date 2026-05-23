@@ -2381,6 +2381,8 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+    private static let cloudClearIdempotencySignatureEnv = "CMUX_CLOUD_CLEAR_IDEMPOTENCY_SIGNATURE"
+    private static let cloudClearIdempotencyKeyEnv = "CMUX_CLOUD_CLEAR_IDEMPOTENCY_KEY"
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
         if client.hasUnfinishedOperationTelemetry() {
@@ -2521,6 +2523,16 @@ struct CMUXCLI {
         guard store.records[active.signature]?.key == active.key else { return }
         store.records.removeValue(forKey: active.signature)
         try? saveVMCreateIdempotencyStore(store, to: url)
+    }
+
+    private static func clearVMCreateIdempotencyFromCloudEnvironment(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        guard let signature = normalizedEnvValue(environment[cloudClearIdempotencySignatureEnv]),
+              let key = normalizedEnvValue(environment[cloudClearIdempotencyKeyEnv]) else {
+            return
+        }
+        clearVMCreateIdempotency(ActiveVMCreateIdempotency(signature: signature, key: key))
     }
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
@@ -3368,6 +3380,7 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
+                Self.clearVMCreateIdempotencyFromCloudEnvironment()
 
             case "rm", "destroy", "delete":
                 guard let vmId = rest.first else {
@@ -3404,6 +3417,7 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
+                Self.clearVMCreateIdempotencyFromCloudEnvironment()
 
             case "ssh-info":
                 guard let vmId = rest.first else {
