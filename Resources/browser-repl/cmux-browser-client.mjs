@@ -126,7 +126,10 @@ class CmuxSocketClient {
         if (this.password && !this.isRelayBacked) {
           const response = await this.sendLineOnConnectedSocket(`auth ${this.password}`);
           if (response.startsWith("ERROR:") && !response.includes("Unknown command 'auth'")) {
-            throw new Error(response);
+            const wrapped = new Error("Authentication failed");
+            wrapped.code = "auth_failed";
+            wrapped.details = { raw: response };
+            throw wrapped;
           }
         }
       } catch (error) {
@@ -160,8 +163,8 @@ class CmuxSocketClient {
       this.isRelayBacked = false;
       this.buffer = "";
       this.queuedLines = [];
+      this.rejectPending(error);
     }
-    this.rejectPending(error);
   }
 
   handleData(chunk) {
@@ -272,13 +275,17 @@ class CmuxSocketClient {
     try {
       responseLine = await this.sendLine(JSON.stringify({ id, method, params }));
     } catch (error) {
-      if (!endpoint.relay) throw error;
-      const wrapped = new Error("Connection to cmux browser relay failed");
+      const wrapped = new Error(endpoint.relay
+        ? "Connection to cmux browser relay failed"
+        : "Connection to cmux browser socket failed");
       wrapped.cause = error;
       throw wrapped;
     }
     if (responseLine.startsWith("ERROR:")) {
-      throw new Error(responseLine);
+      const wrapped = new Error("cmux browser call failed");
+      wrapped.code = "protocol_error";
+      wrapped.details = { raw: responseLine };
+      throw wrapped;
     }
     const response = JSON.parse(responseLine);
     if (response.ok) {

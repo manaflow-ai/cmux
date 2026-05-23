@@ -179,9 +179,21 @@ def main() -> int:
     _must(float(shown.get("y") or 0) > 0, f"Expected cursor y to move to element center, got: {result}")
     far_box = result.get("farBox") or {}
     far_cursor = result.get("farCursor") or {}
-    expected_far_x = float(far_box.get("x") or far_box.get("left") or 0) + float(far_box.get("width") or 0) / 2
-    expected_far_y = float(far_box.get("y") or far_box.get("top") or 0) + float(far_box.get("height") or 0) / 2
     _must(far_cursor.get("visible") is True, f"Expected cursor visible after offscreen click, got: {result}")
+    far_box_x = far_box.get("x", far_box.get("left"))
+    far_box_y = far_box.get("y", far_box.get("top"))
+    required_far_values = {
+        "farBox.x": far_box_x,
+        "farBox.y": far_box_y,
+        "farBox.width": far_box.get("width"),
+        "farBox.height": far_box.get("height"),
+        "farCursor.x": far_cursor.get("x"),
+        "farCursor.y": far_cursor.get("y"),
+    }
+    for label, value in required_far_values.items():
+        _must(value is not None, f"Expected {label} for offscreen cursor assertion, got: {result}")
+    expected_far_x = float(far_box_x) + float(far_box["width"]) / 2
+    expected_far_y = float(far_box_y) + float(far_box["height"]) / 2
     _must(abs(float(far_cursor.get("x") or 0) - expected_far_x) <= 2, f"Expected offscreen cursor x at element center, got: {result}")
     _must(abs(float(far_cursor.get("y") or 0) - expected_far_y) <= 2, f"Expected offscreen cursor y at element center, got: {result}")
     _must(hidden.get("visible") is False, f"Expected cursor hidden after hideCursor, got: {result}")
