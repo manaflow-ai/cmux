@@ -132,6 +132,7 @@ struct WorkspaceRemoteDaemonManifest: Decodable, Equatable {
     let releaseURL: String
     let checksumsAssetName: String
     let checksumsURL: String
+    let signerWorkflow: String?
     let entries: [Entry]
 
     func entry(goOS: String, goArch: String) -> Entry? {

@@ -366,6 +366,7 @@ jobs:
             --version "$VERSION" \
             --release-tag "$STABLE_TAG" \
             --repo "manaflow-ai/cmux" \
+            --signer-workflow "manaflow-ai/cmux/.github/workflows/release-candidate.yml" \
             --output-dir "remote-daemon-assets-stable"
           STABLE_MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' remote-daemon-assets-stable/cmuxd-remote-manifest.json)"
           STABLE_PLIST="build-universal/Build/Products/Release/cmux.app/Contents/Info.plist"
@@ -376,6 +377,7 @@ jobs:
             --version "$RC_MARKETING_VERSION" \
             --release-tag "$RC_TAG" \
             --repo "manaflow-ai/cmux" \
+            --signer-workflow "manaflow-ai/cmux/.github/workflows/release-candidate.yml" \
             --output-dir "remote-daemon-assets-rc"
           RC_MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' remote-daemon-assets-rc/cmuxd-remote-manifest.json)"
           RC_PLIST="build-universal/Build/Products/Release/cmux RC.app/Contents/Info.plist"
