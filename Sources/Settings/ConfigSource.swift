@@ -75,14 +75,12 @@ struct ConfigSourceEnvironment {
 
     func materializedGhosttySettingsEditorURLs() throws -> [URL] {
         let cmuxURL = try materializeCmuxConfigFileIfNeeded()
-        let syncedSnapshot = ConfigSource.synced.snapshot(environment: self)
 
         var collector = GhosttySettingsConfigFileCollector(
             fileManager: fileManager,
             homeDirectoryURL: homeDirectoryURL
         )
         collector.append(cmuxURL)
-        collector.append(syncedSnapshot.primaryURL)
 
         for url in standaloneGhosttyDisplayCandidates where isRegularFile(at: url) {
             collector.append(url)

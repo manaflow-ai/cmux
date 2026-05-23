@@ -412,7 +412,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
-    func testGhosttySettingsEditorURLsMaterializeCmuxConfigAndPreviewWhenNoConfigExists() throws {
+    func testGhosttySettingsEditorURLsMaterializeCmuxConfigWhenNoConfigExists() throws {
         try withTemporaryHomeDirectory { homeDirectory in
             let environment = ConfigSourceEnvironment(
                 homeDirectoryURL: homeDirectory,
@@ -429,9 +429,9 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
                 .deletingLastPathComponent()
                 .appendingPathComponent("config.synced-preview", isDirectory: false)
 
-            XCTAssertEqual(urls.map(\.path), [expectedConfigURL.path, expectedPreviewURL.path])
+            XCTAssertEqual(urls.map(\.path), [expectedConfigURL.path])
             XCTAssertTrue(FileManager.default.fileExists(atPath: expectedConfigURL.path))
-            XCTAssertTrue(FileManager.default.fileExists(atPath: expectedPreviewURL.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: expectedPreviewURL.path))
         }
     }
 
@@ -487,15 +487,10 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             let urls = try environment.materializedGhosttySettingsEditorURLs()
-            let previewURL = cmuxConfigURL
-                .deletingLastPathComponent()
-                .appendingPathComponent("config.synced-preview", isDirectory: false)
-
             XCTAssertEqual(
                 urls.map(\.path),
                 [
                     cmuxConfigURL.path,
-                    previewURL.path,
                     standaloneConfigURL.path,
                     ghosttyAppSupportConfigURL.path,
                     cmuxIncludeURL.path,
