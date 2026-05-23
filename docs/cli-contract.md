@@ -92,6 +92,7 @@ Environment:
 | `close-window` | Close a window by handle. |
 | `move-workspace-to-window` | Move a workspace into a target window. |
 | `reorder-workspace` | Reorder a workspace inside a window. |
+| `reorder-workspaces` | Atomically reorder workspaces inside pinned and unpinned groups. |
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
@@ -414,6 +415,7 @@ the expected text without connecting to a cmux socket.
 - `cmux split-off --help` -> `Usage: cmux split-off`
 - `cmux reorder-surface --help` -> `Usage: cmux reorder-surface`
 - `cmux reorder-workspace --help` -> `Usage: cmux reorder-workspace`
+- `cmux reorder-workspaces --help` -> `Usage: cmux reorder-workspaces`
 - `cmux workspace-action --help` -> `Usage: cmux workspace-action --action <name>`
 - `cmux move-tab-to-new-workspace --help` -> `Usage: cmux move-tab-to-new-workspace`
 - `cmux tab-action --help` -> `Usage: cmux tab-action --action <name>`

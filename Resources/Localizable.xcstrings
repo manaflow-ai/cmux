@@ -26,6 +26,13 @@
     "cli.help.markNotificationRead": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)\n\nMark notifications read without opening them. Exactly one selector is required.\n\nFlags:\n  --id <uuid>           Mark one notification read\n  --workspace <id|ref>  Mark notifications for a workspace\n  --surface <id|ref>    Narrow --workspace to one surface\n  --all                 Mark every notification read\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)\n\n通知を開かずに既読にします。セレクタは1つだけ指定してください。\n\nFlags:\n  --id <uuid>           通知を1件既読にする\n  --workspace <id|ref>  ワークスペースの通知を既読にする\n  --surface <id|ref>    --workspace を1つのサーフェスに絞り込む\n  --all                 すべての通知を既読にする\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
     "cli.help.openNotification": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux open-notification --id <uuid>\n\nFocus the notification's workspace and surface, then mark the row read.\n\nFlags:\n  --id <uuid>           Notification id to open\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux open-notification --id <uuid>\n\n通知のワークスペースとサーフェスへフォーカスし、その行を既読にします。\n\nFlags:\n  --id <uuid>           開く通知 ID\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
     "cli.help.setStatus": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux set-status <key> <value> [flags]\n\nSet a sidebar status entry for a workspace. Status entries appear as\npills in the sidebar tab row. Use a unique key so different tools\n(e.g. \"claude_code\", \"build\") can manage their own entries.\n\nFlags:\n  --icon <name>          Icon name (e.g. \"sparkle\", \"hammer\")\n  --color <#hex>         Pill color (e.g. \"#ff9500\")\n  --priority <n>         Sort priority; higher appears first (default: 0)\n  --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux set-status <key> <value> [flags]\n\nワークスペースのサイドバーステータスエントリを設定します。ステータスエントリは\nサイドバーのタブ行にピルとして表示されます。異なるツール\n（例: \"claude_code\", \"build\"）がそれぞれのエントリを管理できるよう、一意のキーを使用してください。\n\nFlags:\n  --icon <name>          アイコン名（例: \"sparkle\", \"hammer\"）\n  --color <#hex>         ピルの色（例: \"#ff9500\"）\n  --priority <n>         並び順の優先度。大きい値ほど先に表示（デフォルト: 0）\n  --workspace <id|ref>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2" } } } },
+    "cli.reorderWorkspaces.error.emptyOrder": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"bs":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"da":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"de":{"stringUnit":{"state":"translated","value":"reorder-workspaces erfordert mindestens einen Workspace in --order"}},"en":{"stringUnit":{"state":"translated","value":"reorder-workspaces requires at least one workspace in --order"}},"es":{"stringUnit":{"state":"translated","value":"reorder-workspaces requiere al menos un espacio de trabajo en --order"}},"fr":{"stringUnit":{"state":"translated","value":"reorder-workspaces requiert au moins un espace de travail dans --order"}},"it":{"stringUnit":{"state":"translated","value":"reorder-workspaces richiede almeno un'area di lavoro in --order"}},"ja":{"stringUnit":{"state":"translated","value":"reorder-workspaces には --order に少なくとも 1 つのワークスペースが必要です"}},"km":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"ko":{"stringUnit":{"state":"translated","value":"reorder-workspaces에는 --order에 하나 이상의 워크스페이스가 필요합니다"}},"nb":{"stringUnit":{"state":"translated","value":"reorder-workspaces krever minst ett arbeidsområde i --order"}},"pl":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"pt-BR":{"stringUnit":{"state":"translated","value":"reorder-workspaces requer pelo menos um workspace em --order"}},"ru":{"stringUnit":{"state":"translated","value":"reorder-workspaces требует как минимум одно рабочее пространство в --order"}},"th":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"tr":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires at least one workspace in --order"}},"uk":{"stringUnit":{"state":"translated","value":"reorder-workspaces потребує принаймні один робочий простір у --order"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"reorder-workspaces 的 --order 至少需要一个工作区"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"reorder-workspaces 的 --order 至少需要一個工作區"}}} },
+    "cli.reorderWorkspaces.error.emptyOrderItem": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"bs":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"da":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"de":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order darf keine leeren Workspace-Referenzen enthalten"}},"en":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"es":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order no puede contener referencias de espacios de trabajo vacías"}},"fr":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order ne peut pas contenir de références d'espace de travail vides"}},"it":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order non può contenere riferimenti ad aree di lavoro vuoti"}},"ja":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order に空のワークスペース参照は指定できません"}},"km":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"ko":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order에는 빈 워크스페이스 참조를 포함할 수 없습니다"}},"nb":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order kan ikke inneholde tomme arbeidsområdereferanser"}},"pl":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"pt-BR":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order não pode conter referências de workspace vazias"}},"ru":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order не может содержать пустые ссылки на рабочие пространства"}},"th":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"tr":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces --order cannot contain empty workspace refs"}},"uk":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order не може містити порожні посилання на робочі простори"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order 不能包含空的工作区引用"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"reorder-workspaces --order 不能包含空的工作區參照"}}} },
+    "cli.reorderWorkspaces.error.missingOrder": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"bs":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"da":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"de":{"stringUnit":{"state":"translated","value":"reorder-workspaces erfordert --order <id|ref|index>,<id|ref|index>,..."}},"en":{"stringUnit":{"state":"translated","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"es":{"stringUnit":{"state":"translated","value":"reorder-workspaces requiere --order <id|ref|index>,<id|ref|index>,..."}},"fr":{"stringUnit":{"state":"translated","value":"reorder-workspaces requiert --order <id|ref|index>,<id|ref|index>,..."}},"it":{"stringUnit":{"state":"translated","value":"reorder-workspaces richiede --order <id|ref|index>,<id|ref|index>,..."}},"ja":{"stringUnit":{"state":"translated","value":"reorder-workspaces には --order <id|ref|index>,<id|ref|index>,... が必要です"}},"km":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"ko":{"stringUnit":{"state":"translated","value":"reorder-workspaces에는 --order <id|ref|index>,<id|ref|index>,...가 필요합니다"}},"nb":{"stringUnit":{"state":"translated","value":"reorder-workspaces krever --order <id|ref|index>,<id|ref|index>,..."}},"pl":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"pt-BR":{"stringUnit":{"state":"translated","value":"reorder-workspaces requer --order <id|ref|index>,<id|ref|index>,..."}},"ru":{"stringUnit":{"state":"translated","value":"reorder-workspaces требует --order <id|ref|index>,<id|ref|index>,..."}},"th":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"tr":{"stringUnit":{"state":"needs_review","value":"reorder-workspaces requires --order <id|ref|index>,<id|ref|index>,..."}},"uk":{"stringUnit":{"state":"translated","value":"reorder-workspaces потребує --order <id|ref|index>,<id|ref|index>,..."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"reorder-workspaces 需要 --order <id|ref|index>,<id|ref|index>,..."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"reorder-workspaces 需要 --order <id|ref|index>,<id|ref|index>,..."}}} },
+    "cli.reorderWorkspaces.error.workspaceNotFound": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"bs":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"da":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"de":{"stringUnit":{"state":"translated","value":"Workspace nicht gefunden: %@"}},"en":{"stringUnit":{"state":"translated","value":"Workspace not found: %@"}},"es":{"stringUnit":{"state":"translated","value":"Espacio de trabajo no encontrado: %@"}},"fr":{"stringUnit":{"state":"translated","value":"Espace de travail introuvable : %@"}},"it":{"stringUnit":{"state":"translated","value":"Area di lavoro non trovata: %@"}},"ja":{"stringUnit":{"state":"translated","value":"ワークスペースが見つかりません: %@"}},"km":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"ko":{"stringUnit":{"state":"translated","value":"워크스페이스를 찾을 수 없음: %@"}},"nb":{"stringUnit":{"state":"translated","value":"Fant ikke arbeidsområde: %@"}},"pl":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Workspace não encontrado: %@"}},"ru":{"stringUnit":{"state":"translated","value":"Рабочее пространство не найдено: %@"}},"th":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"tr":{"stringUnit":{"state":"needs_review","value":"Workspace not found: %@"}},"uk":{"stringUnit":{"state":"translated","value":"Робочий простір не знайдено: %@"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未找到工作区：%@"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"找不到工作區：%@"}}} },
+    "cli.reorderWorkspaces.result.appliedLine": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"bs":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"da":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"de":{"stringUnit":{"state":"translated","value":"OK arbeitsbereich=%@ fenster=%@ index=%@"}},"en":{"stringUnit":{"state":"translated","value":"OK workspace=%@ window=%@ index=%@"}},"es":{"stringUnit":{"state":"translated","value":"OK espacio_de_trabajo=%@ ventana=%@ indice=%@"}},"fr":{"stringUnit":{"state":"translated","value":"OK espace_de_travail=%@ fenetre=%@ indice=%@"}},"it":{"stringUnit":{"state":"translated","value":"OK area_di_lavoro=%@ finestra=%@ indice=%@"}},"ja":{"stringUnit":{"state":"translated","value":"OK ワークスペース=%@ ウィンドウ=%@ インデックス=%@"}},"km":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"ko":{"stringUnit":{"state":"translated","value":"OK 워크스페이스=%@ 창=%@ 인덱스=%@"}},"nb":{"stringUnit":{"state":"translated","value":"OK arbeidsomrade=%@ vindu=%@ indeks=%@"}},"pl":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"pt-BR":{"stringUnit":{"state":"translated","value":"OK area_de_trabalho=%@ janela=%@ indice=%@"}},"ru":{"stringUnit":{"state":"translated","value":"OK рабочее_пространство=%@ окно=%@ индекс=%@"}},"th":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"tr":{"stringUnit":{"state":"needs_review","value":"OK workspace=%@ window=%@ index=%@"}},"uk":{"stringUnit":{"state":"translated","value":"OK робочий_простір=%@ вікно=%@ індекс=%@"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"OK 工作区=%@ 窗口=%@ 索引=%@"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"OK 工作區=%@ 視窗=%@ 索引=%@"}}}},
+    "cli.reorderWorkspaces.result.planLine": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"bs":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"da":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"de":{"stringUnit":{"state":"translated","value":"OK plan arbeitsbereich=%@ fenster=%@ index=%@"}},"en":{"stringUnit":{"state":"translated","value":"OK plan workspace=%@ window=%@ index=%@"}},"es":{"stringUnit":{"state":"translated","value":"OK plan espacio_de_trabajo=%@ ventana=%@ indice=%@"}},"fr":{"stringUnit":{"state":"translated","value":"OK plan espace_de_travail=%@ fenetre=%@ indice=%@"}},"it":{"stringUnit":{"state":"translated","value":"OK piano area_di_lavoro=%@ finestra=%@ indice=%@"}},"ja":{"stringUnit":{"state":"translated","value":"OK 計画 ワークスペース=%@ ウィンドウ=%@ インデックス=%@"}},"km":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"ko":{"stringUnit":{"state":"translated","value":"OK 계획 워크스페이스=%@ 창=%@ 인덱스=%@"}},"nb":{"stringUnit":{"state":"translated","value":"OK plan arbeidsomrade=%@ vindu=%@ indeks=%@"}},"pl":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"pt-BR":{"stringUnit":{"state":"translated","value":"OK plano area_de_trabalho=%@ janela=%@ indice=%@"}},"ru":{"stringUnit":{"state":"translated","value":"OK план рабочее_пространство=%@ окно=%@ индекс=%@"}},"th":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"tr":{"stringUnit":{"state":"needs_review","value":"OK plan workspace=%@ window=%@ index=%@"}},"uk":{"stringUnit":{"state":"translated","value":"OK план робочий_простір=%@ вікно=%@ індекс=%@"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"OK 计划 工作区=%@ 窗口=%@ 索引=%@"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"OK 計畫 工作區=%@ 視窗=%@ 索引=%@"}}}},
+    "cli.help.reorderWorkspaces": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"bs":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"da":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"de":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nOrdnet Workspaces in einem Fenster als atomaren Batch neu an. Die kommaseparierte\nReihenfolge ist die endgültige führende Reihenfolge innerhalb der angehefteten\nund nicht angehefteten Gruppen; nicht angegebene Workspaces behalten ihre\nrelative Reihenfolge nach den aufgeführten Workspaces in derselben Gruppe.\n\nFlags:\n  --order <refs>                Kommaseparierte Workspace-Referenzen, die zuerst platziert werden\n  --window <id|ref|index>       Fensterkontext\n  --dry-run                     Gibt die aufgelösten endgültigen Indizes aus, ohne anzuwenden\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"en":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"es":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReordena los espacios de trabajo de una ventana como un lote atómico. El orden\nseparado por comas es el orden inicial final dentro de los grupos fijados y no\nfijados; los espacios no mencionados conservan su orden relativo después de los\nespacios listados en el mismo grupo.\n\nFlags:\n  --order <refs>                Referencias de espacios de trabajo separadas por comas para colocar primero\n  --window <id|ref|index>       Contexto de ventana\n  --dry-run                     Imprime los índices finales resueltos sin aplicar cambios\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"fr":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nRéordonne les espaces de travail d'une fenêtre en un lot atomique. L'ordre\nséparé par des virgules est l'ordre de tête final dans les groupes épinglés et\nnon épinglés; les espaces non mentionnés conservent leur ordre relatif après les\nespaces listés dans le même groupe.\n\nFlags:\n  --order <refs>                Références d'espaces de travail séparées par des virgules à placer en premier\n  --window <id|ref|index>       Contexte de fenêtre\n  --dry-run                     Affiche les indices finaux résolus sans appliquer\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"it":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nRiordina le aree di lavoro in una finestra come un unico batch atomico. L'ordine\nseparato da virgole è l'ordine iniziale finale nei gruppi fissati e non fissati;\nle aree non menzionate mantengono il loro ordine relativo dopo quelle elencate\nnello stesso gruppo.\n\nFlags:\n  --order <refs>                Riferimenti alle aree di lavoro separati da virgole da posizionare per primi\n  --window <id|ref|index>       Contesto della finestra\n  --dry-run                     Stampa gli indici finali risolti senza applicare\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"ja":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nワークスペースを 1 つのウィンドウ内でアトミックに並べ替えます。カンマ区切りの\n順序は、ピン留め済みグループと未ピン留めグループ内で先頭に置く最終順序です。\n指定されていないワークスペースは、同じグループ内で指定されたワークスペースの後に\n元の相対順序で残ります。\n\nFlags:\n  --order <refs>                先頭に配置するワークスペース参照をカンマ区切りで指定\n  --window <id|ref|index>       ウィンドウコンテキスト\n  --dry-run                     適用せずに解決後の最終インデックスを出力\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"km":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"ko":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\n한 창 안의 워크스페이스를 하나의 원자적 배치로 다시 정렬합니다. 쉼표로 구분한\n순서는 고정 및 비고정 그룹 안에서 앞에 올 최종 순서입니다. 지정하지 않은\n워크스페이스는 같은 그룹에서 나열된 워크스페이스 뒤에 기존 상대 순서를 유지합니다.\n\nFlags:\n  --order <refs>                먼저 배치할 워크스페이스 참조를 쉼표로 구분해 지정\n  --window <id|ref|index>       창 컨텍스트\n  --dry-run                     적용하지 않고 해석된 최종 인덱스를 출력\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"nb":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nOmordner arbeidsområder i ett vindu som én atomisk batch. Den kommaseparerte\nrekkefølgen er den endelige ledende rekkefølgen i festede og ikke-festede\ngrupper; arbeidsområder som ikke er nevnt beholder sin relative rekkefølge etter\nde oppførte arbeidsområdene i samme gruppe.\n\nFlags:\n  --order <refs>                Kommaseparerte arbeidsområdereferanser som plasseres først\n  --window <id|ref|index>       Vinduskontekst\n  --dry-run                     Skriv ut de løste endelige indeksene uten å bruke endringen\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"pl":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReordena os workspaces em uma janela como um único lote atômico. A ordem separada\npor vírgulas é a ordem inicial final dentro dos grupos fixados e não fixados;\nworkspaces não mencionados mantêm sua ordem relativa depois dos listados no\nmesmo grupo.\n\nFlags:\n  --order <refs>                Referências de workspaces separadas por vírgulas para colocar primeiro\n  --window <id|ref|index>       Contexto da janela\n  --dry-run                     Imprime os índices finais resolvidos sem aplicar\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"ru":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nПереупорядочивает рабочие пространства в окне как один атомарный пакет. Порядок,\nразделенный запятыми, задает итоговый начальный порядок внутри закрепленных и\nнезакрепленных групп; неуказанные рабочие пространства сохраняют относительный\nпорядок после перечисленных элементов в той же группе.\n\nFlags:\n  --order <refs>                Ссылки рабочих пространств через запятую, которые нужно поставить первыми\n  --window <id|ref|index>       Контекст окна\n  --dry-run                     Выводит разрешенные итоговые индексы без применения\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"th":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"tr":{"stringUnit":{"state":"needs_review","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nReorder workspaces within a window as one atomic batch. The comma-separated\norder is the final leading order inside the pinned and unpinned groups;\nunmentioned workspaces keep their relative order after listed peers in the\nsame group.\n\nFlags:\n  --order <refs>                Comma-separated workspace refs to place first\n  --window <id|ref|index>       Window context\n  --dry-run                     Print the resolved final indexes without applying\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"uk":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\nПереупорядковує робочі простори у вікні як один атомарний пакет. Порядок,\nрозділений комами, задає підсумковий початковий порядок у закріплених і\nнезакріплених групах; не зазначені робочі простори зберігають відносний порядок\nпісля перелічених у тій самій групі.\n\nFlags:\n  --order <refs>                Посилання робочих просторів через кому, які треба поставити першими\n  --window <id|ref|index>       Контекст вікна\n  --dry-run                     Виводить розв'язані підсумкові індекси без застосування\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\n在一个窗口内以原子批次重新排序工作区。逗号分隔的顺序是在已固定和未固定\n分组中置于前面的最终顺序；未提及的工作区会在同一分组中列出的工作区之后\n保留原有相对顺序。\n\nFlags:\n  --order <refs>                以逗号分隔、要优先放置的工作区引用\n  --window <id|ref|index>       窗口上下文\n  --dry-run                     不应用更改，仅输出解析后的最终索引\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Usage: cmux reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [flags]\n\n在一個視窗內以原子批次重新排序工作區。逗號分隔的順序是在已釘選與未釘選\n分組中置於前面的最終順序；未提及的工作區會在同一分組中列出的工作區之後\n保留原有相對順序。\n\nFlags:\n  --order <refs>                以逗號分隔、要優先放置的工作區參照\n  --window <id|ref|index>       視窗上下文\n  --dry-run                     不套用變更，只輸出解析後的最終索引\n\nExample:\n  cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31\n  cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run"}}}},
     "socket.notification.dismissSelectorRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Select exactly one of id or all_read" } }, "ja": { "stringUnit": { "state": "translated", "value": "id または all_read のどちらか一つだけを選択してください" } } } },
     "socket.notification.idRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Missing or invalid notification id" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知 ID が指定されていないか無効です" } } } },
     "socket.notification.markReadSelectorRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Select exactly one of id, tab_id, or all" } }, "ja": { "stringUnit": { "state": "translated", "value": "id、tab_id、all のいずれか一つだけを選択してください" } } } },
@@ -33,6 +40,11 @@
     "socket.notification.surfaceIdInvalid": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Missing or invalid surface_id" } }, "ja": { "stringUnit": { "state": "translated", "value": "surface_id が指定されていないか無効です" } } } },
     "socket.notification.surfaceIdRequiresWorkspace": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "surface_id requires tab_id or workspace_id" } }, "ja": { "stringUnit": { "state": "translated", "value": "surface_id には tab_id または workspace_id が必要です" } } } },
     "socket.notification.targetNotFound": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Notification target not found" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知の移動先が見つかりません" } } } },
+    "socket.workspace.reorderMany.duplicateWorkspace": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"bs":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"da":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"de":{"stringUnit":{"state":"translated","value":"Doppelter Workspace in der Reihenfolge"}},"en":{"stringUnit":{"state":"translated","value":"Duplicate workspace in order"}},"es":{"stringUnit":{"state":"translated","value":"Espacio de trabajo duplicado en el orden"}},"fr":{"stringUnit":{"state":"translated","value":"Espace de travail en double dans l'ordre"}},"it":{"stringUnit":{"state":"translated","value":"Area di lavoro duplicata nell'ordine"}},"ja":{"stringUnit":{"state":"translated","value":"並び順に重複したワークスペースがあります"}},"km":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"ko":{"stringUnit":{"state":"translated","value":"순서에 중복된 워크스페이스가 있습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Duplisert arbeidsområde i rekkefølgen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Workspace duplicado na ordem"}},"ru":{"stringUnit":{"state":"translated","value":"Дубликат рабочего пространства в порядке"}},"th":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"tr":{"stringUnit":{"state":"needs_review","value":"Duplicate workspace in order"}},"uk":{"stringUnit":{"state":"translated","value":"Дубльований робочий простір у порядку"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"排序中存在重复的工作区"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"排序中有重複的工作區"}}} },
+    "socket.workspace.reorderMany.invalidWorkspace": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"bs":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"da":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"de":{"stringUnit":{"state":"translated","value":"Ungültige Workspace-ID oder -Referenz"}},"en":{"stringUnit":{"state":"translated","value":"Invalid workspace id or ref"}},"es":{"stringUnit":{"state":"translated","value":"ID o referencia de espacio de trabajo no válida"}},"fr":{"stringUnit":{"state":"translated","value":"ID ou référence d'espace de travail non valide"}},"it":{"stringUnit":{"state":"translated","value":"ID o riferimento dell'area di lavoro non valido"}},"ja":{"stringUnit":{"state":"translated","value":"ワークスペース ID または参照が無効です"}},"km":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"ko":{"stringUnit":{"state":"translated","value":"워크스페이스 ID 또는 참조가 유효하지 않습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Ugyldig arbeidsområde-ID eller referanse"}},"pl":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"pt-BR":{"stringUnit":{"state":"translated","value":"ID ou referência de workspace inválida"}},"ru":{"stringUnit":{"state":"translated","value":"Недопустимый идентификатор или ссылка рабочего пространства"}},"th":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"tr":{"stringUnit":{"state":"needs_review","value":"Invalid workspace id or ref"}},"uk":{"stringUnit":{"state":"translated","value":"Недійсний ідентифікатор або посилання робочого простору"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无效的工作区 ID 或引用"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無效的工作區 ID 或參照"}}} },
+    "socket.workspace.reorderMany.tabManagerUnavailable": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"bs":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"da":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"de":{"stringUnit":{"state":"translated","value":"TabManager nicht verfügbar"}},"en":{"stringUnit":{"state":"translated","value":"TabManager not available"}},"es":{"stringUnit":{"state":"translated","value":"TabManager no disponible"}},"fr":{"stringUnit":{"state":"translated","value":"TabManager indisponible"}},"it":{"stringUnit":{"state":"translated","value":"TabManager non disponibile"}},"ja":{"stringUnit":{"state":"translated","value":"TabManager を利用できません"}},"km":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"ko":{"stringUnit":{"state":"translated","value":"TabManager를 사용할 수 없습니다"}},"nb":{"stringUnit":{"state":"translated","value":"TabManager er ikke tilgjengelig"}},"pl":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"pt-BR":{"stringUnit":{"state":"translated","value":"TabManager indisponível"}},"ru":{"stringUnit":{"state":"translated","value":"TabManager недоступен"}},"th":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"tr":{"stringUnit":{"state":"needs_review","value":"TabManager not available"}},"uk":{"stringUnit":{"state":"translated","value":"TabManager недоступний"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"TabManager 不可用"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"TabManager 無法使用"}}} },
+    "socket.workspace.reorderMany.missingOrder": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"bs":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"da":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"de":{"stringUnit":{"state":"translated","value":"workspace_ids fehlt"}},"en":{"stringUnit":{"state":"translated","value":"Missing workspace_ids"}},"es":{"stringUnit":{"state":"translated","value":"Falta workspace_ids"}},"fr":{"stringUnit":{"state":"translated","value":"workspace_ids manquant"}},"it":{"stringUnit":{"state":"translated","value":"workspace_ids mancante"}},"ja":{"stringUnit":{"state":"translated","value":"workspace_ids が指定されていません"}},"km":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"ko":{"stringUnit":{"state":"translated","value":"workspace_ids가 누락되었습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Mangler workspace_ids"}},"pl":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"pt-BR":{"stringUnit":{"state":"translated","value":"workspace_ids ausente"}},"ru":{"stringUnit":{"state":"translated","value":"Отсутствует workspace_ids"}},"th":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"tr":{"stringUnit":{"state":"needs_review","value":"Missing workspace_ids"}},"uk":{"stringUnit":{"state":"translated","value":"Відсутній workspace_ids"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"缺少 workspace_ids"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"缺少 workspace_ids"}}} },
+    "socket.workspace.reorderMany.workspaceNotFound": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"bs":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"da":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"de":{"stringUnit":{"state":"translated","value":"Workspace nicht gefunden"}},"en":{"stringUnit":{"state":"translated","value":"Workspace not found"}},"es":{"stringUnit":{"state":"translated","value":"Espacio de trabajo no encontrado"}},"fr":{"stringUnit":{"state":"translated","value":"Espace de travail introuvable"}},"it":{"stringUnit":{"state":"translated","value":"Area di lavoro non trovata"}},"ja":{"stringUnit":{"state":"translated","value":"ワークスペースが見つかりません"}},"km":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"ko":{"stringUnit":{"state":"translated","value":"워크스페이스를 찾을 수 없습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Fant ikke arbeidsområde"}},"pl":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Workspace não encontrado"}},"ru":{"stringUnit":{"state":"translated","value":"Рабочее пространство не найдено"}},"th":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"tr":{"stringUnit":{"state":"needs_review","value":"Workspace not found"}},"uk":{"stringUnit":{"state":"translated","value":"Робочий простір не знайдено"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未找到工作区"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"找不到工作區"}}} },
     "socket.terminal.inputQueueFull": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable." } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルは現在これ以上の入力を受け付けられません。しばらくしてから再試行するか、利用できない状態が続く場合はターミナルを開き直してください。" } } } },
     "socket.terminal.processExited": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The terminal session has ended; reopen it or create a new terminal session." } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションは終了しています。開き直すか、新しいターミナルセッションを作成してください。" } } } },
     "socket.terminal.surfaceUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The terminal surface is no longer available; reopen it or create a new terminal session." } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルサーフェスは利用できなくなっています。開き直すか、新しいターミナルセッションを作成してください。" } } } },
@@ -59916,6 +59928,631 @@
         }
       }
     },
+    "settings.app.confirmQuit.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دائمًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvijek"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immer"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siempre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sempre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជានិច្ច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alltid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zawsze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sempre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всегда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her zaman"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завжди"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "始终"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一律"
+          }
+        }
+      }
+    },
+    "settings.app.confirmQuit.dirtyOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الحاجة فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo po potrebi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun ved behov"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur bei Bedarf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dirty Only"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo si hace falta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si nécessaire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se necessario"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要時のみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តែពេលចាំបាច់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필요 시에만"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare ved behov"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko w razie potrzeby"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só quando necessário"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только при необходимости"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฉพาะเมื่อจำเป็น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca gerekirse"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише за потреби"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅在需要时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅在需要時"
+          }
+        }
+      }
+    },
+    "settings.app.confirmQuit.never": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أبدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nikad"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aldrig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nunca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jamais"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mai"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なし"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនដែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안 함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aldri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nigdy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nunca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Никогда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่เลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ніколи"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从不"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "永不"
+          }
+        }
+      }
+    },
+    "settings.app.confirmQuit.subtitleDirtyOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض تأكيدًا فقط عندما تحتاج مساحة عمل إلى تأكيد الإغلاق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži potvrdu samo kada workspace zahtijeva potvrdu zatvaranja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kun en bekræftelse, når et workspace kræver bekræftelse ved lukning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeige nur dann eine Bestätigung, wenn ein Workspace eine Schließbestätigung benötigt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a confirmation only when a workspace needs close confirmation."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar una confirmación solo cuando un espacio de trabajo requiera confirmación al cerrar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher une confirmation uniquement lorsqu’un workspace nécessite une confirmation de fermeture."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra una conferma solo quando un workspace richiede conferma di chiusura."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる確認が必要なワークスペースがある場合のみ確認を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញការបញ្ជាក់តែនៅពេល workspace ត្រូវការការបញ្ជាក់ពេលបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "닫기 확인이 필요한 워크스페이스가 있을 때만 확인을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis bare en bekreftelse når et workspace krever bekreftelse ved lukking."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj potwierdzenie tylko wtedy, gdy workspace wymaga potwierdzenia zamknięcia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostre uma confirmação apenas quando um workspace precisar de confirmação de fechamento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать подтверждение только тогда, когда workspace требует подтверждения закрытия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงการยืนยันเฉพาะเมื่อ workspace ต้องยืนยันก่อนปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca bir workspace kapatma onayı gerektirdiğinde onay göster."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати підтвердження лише тоді, коли workspace потребує підтвердження закриття."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅当工作区需要关闭确认时显示确认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅在工作區需要關閉確認時顯示確認。"
+          }
+        }
+      }
+    },
+    "settings.app.confirmQuit.subtitleDevOverride": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في بنية DEV، تأكيدات الإنهاء معطلة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U DEV buildu potvrde izlaska su onemogućene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I DEV-builds er afslutningsbekræftelser deaktiveret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In DEV-Builds sind Beendigungsbestätigungen deaktiviert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV build: quit confirmations are disabled."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En las compilaciones DEV, las confirmaciones de salida están desactivadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans les builds DEV, les confirmations de fermeture sont désactivées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nelle build DEV le conferme di uscita sono disattivate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV ビルドでは終了確認は無効です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅក្នុង DEV build ការបញ្ជាក់ពេលចាកចេញត្រូវបានបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV 빌드에서는 종료 확인이 비활성화됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I DEV-bygg er avslutningsbekreftelser deaktivert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W buildach DEV potwierdzenia zamknięcia są wyłączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em builds DEV, as confirmações de saída ficam desativadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В сборках DEV подтверждения выхода отключены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ในบิลด์ DEV การยืนยันก่อนออกจะถูกปิดใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV derlemelerinde çıkış onayları devre dışıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У збірках DEV підтвердження виходу вимкнені."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV 构建中已禁用退出确认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV 建置中已停用結束確認。"
+          }
+        }
+      }
+    },
     "settings.app.warnBeforeQuit": {
       "extractionState": "manual",
       "localizations": {
@@ -99613,6 +100250,506 @@
           "stringUnit": {
             "state": "translated",
             "value": "Час очікування оновлення вичерпано"
+          }
+        }
+      }
+    },
+    "update.error.timeout.checking.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not check for updates in time. Check your network and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートを時間内に確認できませんでした。ネットワークを確認してからもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时检查更新。请检查网络连接，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時檢查更新。請檢查網路連線，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트를 확인하지 못했습니다. 네트워크를 확인한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte nicht rechtzeitig nach Updates suchen. Prüfe deine Netzwerkverbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo buscar actualizaciones a tiempo. Comprueba tu conexión de red e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu rechercher les mises à jour à temps. Vérifiez votre réseau, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a cercare aggiornamenti in tempo. Controlla la rete e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke søge efter opdateringer i tide. Tjek netværket, og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł sprawdzić aktualizacji na czas. Sprawdź sieć i spróbuj ponownie."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя проверить наличие обновлений. Проверьте сеть и повторите попытку."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme provjeriti ažuriranja. Provjeri mrežu i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux التحقق من التحديثات في الوقت المناسب. تحقق من الشبكة ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke se etter oppdateringer i tide. Sjekk nettverket og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu verificar atualizações a tempo. Verifique sua rede e tente novamente."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถตรวจหาการอัปเดตได้ทันเวลา โปรดตรวจสอบเครือข่ายแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncellemeleri zamanında denetleyemedi. Ağınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно перевірити наявність оновлень. Перевірте мережу й повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចពិនិត្យរកការអាប់ដេតបានទាន់ពេលទេ។ សូមពិនិត្យបណ្តាញរបស់អ្នក ហើយសាកល្បងម្តងទៀត។"
+          }
+        }
+      }
+    },
+    "update.error.timeout.downloading.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not download the update in time. Check your network and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートを時間内にダウンロードできませんでした。ネットワークを確認してからもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时下载更新。请检查网络连接，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時下載更新。請檢查網路連線，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트를 다운로드하지 못했습니다. 네트워크를 확인한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Update nicht rechtzeitig laden. Prüfe deine Netzwerkverbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo descargar la actualización a tiempo. Comprueba tu conexión de red e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu télécharger la mise à jour à temps. Vérifiez votre réseau, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a scaricare l’aggiornamento in tempo. Controlla la rete e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke hente opdateringen i tide. Tjek netværket, og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł pobrać aktualizacji na czas. Sprawdź sieć i spróbuj ponownie."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя скачать обновление. Проверьте сеть и повторите попытку."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme preuzeti ažuriranje. Provjeri mrežu i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux تنزيل التحديث في الوقت المناسب. تحقق من الشبكة ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke laste ned oppdateringen i tide. Sjekk nettverket og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu baixar a atualização a tempo. Verifique sua rede e tente novamente."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถดาวน์โหลดการอัปเดตได้ทันเวลา โปรดตรวจสอบเครือข่ายแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncellemeyi zamanında indiremedi. Ağınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно завантажити оновлення. Перевірте мережу й повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចទាញយកការអាប់ដេតបានទាន់ពេលទេ។ សូមពិនិត្យបណ្តាញរបស់អ្នក ហើយសាកល្បងម្តងទៀត។"
+          }
+        }
+      }
+    },
+    "update.error.timeout.preparing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not prepare the update in time. Try again later, or restart cmux and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートを時間内に準備できませんでした。しばらくしてからもう一度試すか、cmux を再起動してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时准备更新。请稍后重试，或重新启动 cmux 后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時準備更新。請稍後再試，或重新啟動 cmux 後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트를 준비하지 못했습니다. 나중에 다시 시도하거나 cmux를 다시 시작한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Update nicht rechtzeitig vorbereiten. Versuche es später erneut oder starte cmux neu und versuche es noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo preparar la actualización a tiempo. Inténtalo más tarde o reinicia cmux y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu préparer la mise à jour à temps. Réessayez plus tard ou redémarrez cmux, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a preparare l’aggiornamento in tempo. Riprova più tardi oppure riavvia cmux e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke forberede opdateringen i tide. Prøv igen senere, eller genstart cmux og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł przygotować aktualizacji na czas. Spróbuj ponownie później albo uruchom ponownie cmux i spróbuj jeszcze raz."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя подготовить обновление. Повторите попытку позже или перезапустите cmux и попробуйте снова."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme pripremiti ažuriranje. Pokušaj kasnije ili ponovo pokreni cmux i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux تجهيز التحديث في الوقت المناسب. حاول لاحقًا أو أعد تشغيل cmux ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke klargjøre oppdateringen i tide. Prøv igjen senere, eller start cmux på nytt og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu preparar a atualização a tempo. Tente novamente mais tarde ou reinicie o cmux e tente de novo."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเตรียมการอัปเดตได้ทันเวลา โปรดลองอีกครั้งภายหลัง หรือรีสตาร์ท cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncellemeyi zamanında hazırlayamadı. Daha sonra tekrar deneyin veya cmux’i yeniden başlatıp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно підготувати оновлення. Спробуйте пізніше або перезапустіть cmux і повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចរៀបចំការអាប់ដេតបានទាន់ពេលទេ។ សូមសាកល្បងនៅពេលក្រោយ ឬចាប់ផ្តើម cmux ឡើងវិញ ហើយសាកល្បងម្តងទៀត។"
+          }
+        }
+      }
+    },
+    "update.error.timeout.starting.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not start the update check in time. Restart cmux and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートの確認を時間内に開始できませんでした。cmux を再起動してからもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时开始更新检查。请重新启动 cmux，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時開始檢查更新。請重新啟動 cmux，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트 확인을 시작하지 못했습니다. cmux를 다시 시작한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die Update-Suche nicht rechtzeitig starten. Starte cmux neu und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo iniciar la búsqueda de actualizaciones a tiempo. Reinicia cmux e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu lancer la recherche de mises à jour à temps. Redémarrez cmux, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito ad avviare la ricerca di aggiornamenti in tempo. Riavvia cmux e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte opdateringstjekket i tide. Genstart cmux, og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł rozpocząć sprawdzania aktualizacji na czas. Uruchom ponownie cmux i spróbuj jeszcze raz."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя начать проверку обновлений. Перезапустите cmux и повторите попытку."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme pokrenuti provjeru ažuriranja. Ponovo pokreni cmux i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux بدء التحقق من التحديثات في الوقت المناسب. أعد تشغيل cmux ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte oppdateringssjekken i tide. Start cmux på nytt og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu iniciar a verificação de atualizações a tempo. Reinicie o cmux e tente novamente."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเริ่มตรวจหาการอัปเดตได้ทันเวลา โปรดรีสตาร์ท cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncelleme denetimini zamanında başlatamadı. cmux’i yeniden başlatıp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно почати перевірку оновлень. Перезапустіть cmux і повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចាប់ផ្តើមពិនិត្យរកការអាប់ដេតបានទាន់ពេលទេ។ សូមចាប់ផ្តើម cmux ឡើងវិញ ហើយសាកល្បងម្តងទៀត។"
           }
         }
       }
