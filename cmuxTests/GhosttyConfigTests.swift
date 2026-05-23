@@ -790,6 +790,18 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testUnparsedAppearanceDirectiveIsTrackedSeparatelyFromParsedHexColor() {
+        var config = GhosttyConfig()
+
+        config.parse("background = black\nforeground = #ddeeff\n")
+
+        XCTAssertTrue(config.hasBackgroundColorDirective)
+        XCTAssertFalse(config.hasParsedBackgroundColor)
+        XCTAssertTrue(config.hasForegroundColorDirective)
+        XCTAssertTrue(config.hasParsedForegroundColor)
+        XCTAssertEqual(config.foregroundColor.hexString(), "#DDEEFF")
+    }
+
     func testUnparsedAppearanceFallbackKeepsNativeLegacyBaselineWhenCurrentConfigIsMissingOrEmpty() throws {
         let appSupport = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-test-native-legacy-baseline-empty-\(UUID().uuidString)")

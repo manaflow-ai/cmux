@@ -27,20 +27,28 @@ struct GhosttyConfig {
 
     // Colors (from theme or config)
     var backgroundColor: NSColor = NSColor(hex: "#272822")!
+    var hasBackgroundColorDirective = false
     var hasParsedBackgroundColor = false
     var backgroundOpacity: Double = 1.0
+    var hasBackgroundOpacityDirective = false
     var hasParsedBackgroundOpacity = false
     var backgroundBlur: GhosttyBackgroundBlur = .disabled
+    var hasBackgroundBlurDirective = false
     var hasParsedBackgroundBlur = false
     var foregroundColor: NSColor = NSColor(hex: "#fdfff1")!
+    var hasForegroundColorDirective = false
     var hasParsedForegroundColor = false
     var cursorColor: NSColor = NSColor(hex: "#c0c1b5")!
+    var hasCursorColorDirective = false
     var hasParsedCursorColor = false
     var cursorTextColor: NSColor = NSColor(hex: "#8d8e82")!
+    var hasCursorTextColorDirective = false
     var hasParsedCursorTextColor = false
     var selectionBackground: NSColor = NSColor(hex: "#57584f")!
+    var hasSelectionBackgroundDirective = false
     var hasParsedSelectionBackground = false
     var selectionForeground: NSColor = NSColor(hex: "#fdfff1")!
+    var hasSelectionForegroundDirective = false
     var hasParsedSelectionForeground = false
 
     // Sidebar appearance
@@ -403,6 +411,7 @@ struct GhosttyConfig {
                         scrollbackLimit = limit
                     }
                 case "background":
+                    hasBackgroundColorDirective = true
                     if let color = NSColor(hex: value) {
                         backgroundColor = color
                         hasParsedBackgroundColor = true
@@ -410,6 +419,7 @@ struct GhosttyConfig {
                         hasParsedBackgroundColor = false
                     }
                 case "background-opacity":
+                    hasBackgroundOpacityDirective = true
                     if let opacity = Double(value) {
                         backgroundOpacity = min(1.0, max(0.0, opacity))
                         hasParsedBackgroundOpacity = true
@@ -417,6 +427,7 @@ struct GhosttyConfig {
                         hasParsedBackgroundOpacity = false
                     }
                 case "background-blur":
+                    hasBackgroundBlurDirective = true
                     if let parsedBlur = Self.parseBackgroundBlur(value) {
                         backgroundBlur = parsedBlur
                         hasParsedBackgroundBlur = true
@@ -424,6 +435,7 @@ struct GhosttyConfig {
                         hasParsedBackgroundBlur = false
                     }
                 case "foreground":
+                    hasForegroundColorDirective = true
                     if let color = NSColor(hex: value) {
                         foregroundColor = color
                         hasParsedForegroundColor = true
@@ -431,6 +443,7 @@ struct GhosttyConfig {
                         hasParsedForegroundColor = false
                     }
                 case "cursor-color":
+                    hasCursorColorDirective = true
                     if let color = NSColor(hex: value) {
                         cursorColor = color
                         hasParsedCursorColor = true
@@ -438,6 +451,7 @@ struct GhosttyConfig {
                         hasParsedCursorColor = false
                     }
                 case "cursor-text":
+                    hasCursorTextColorDirective = true
                     if let color = NSColor(hex: value) {
                         cursorTextColor = color
                         hasParsedCursorTextColor = true
@@ -445,6 +459,7 @@ struct GhosttyConfig {
                         hasParsedCursorTextColor = false
                     }
                 case "selection-background":
+                    hasSelectionBackgroundDirective = true
                     if let color = NSColor(hex: value) {
                         selectionBackground = color
                         hasParsedSelectionBackground = true
@@ -452,6 +467,7 @@ struct GhosttyConfig {
                         hasParsedSelectionBackground = false
                     }
                 case "selection-foreground":
+                    hasSelectionForegroundDirective = true
                     if let color = NSColor(hex: value) {
                         selectionForeground = color
                         hasParsedSelectionForeground = true
