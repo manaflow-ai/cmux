@@ -1,5 +1,8 @@
 import Combine
 import Foundation
+import os
+
+nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
 @MainActor
 final class KeyboardShortcutSettingsObserver: ObservableObject {
@@ -194,7 +197,7 @@ final class CmuxSettingsFileStore {
             try contents.write(to: fileURL, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
-            NSLog("[CmuxSettingsFileStore] failed to bootstrap %@: %@", primaryPath, String(describing: error))
+            cmuxSettingsFileStoreLogger.warning("failed to bootstrap \(self.primaryPath, privacy: .public): \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -305,7 +308,7 @@ final class CmuxSettingsFileStore {
             }
             return .parsed(parseSettingsFile(root: root, sourcePath: path))
         } catch {
-            NSLog("[CmuxSettingsFileStore] parse error at %@: %@", path, String(describing: error))
+            cmuxSettingsFileStoreLogger.warning("parse error at \(path, privacy: .public): \(String(describing: error), privacy: .public)")
             return .invalid
         }
     }
@@ -313,11 +316,7 @@ final class CmuxSettingsFileStore {
     private func parseSettingsFile(root: [String: Any], sourcePath: String) -> ResolvedSettingsSnapshot {
         let schemaVersion = jsonInt(root["schemaVersion"]) ?? 1
         if schemaVersion > Self.currentSchemaVersion {
-            NSLog(
-                "[CmuxSettingsFileStore] %@ uses future schemaVersion %d; parsing known fields only",
-                sourcePath,
-                schemaVersion
-            )
+            cmuxSettingsFileStoreLogger.warning("\(sourcePath, privacy: .public) uses future schemaVersion \(schemaVersion, privacy: .public); parsing known fields only")
         }
 
         var snapshot = ResolvedSettingsSnapshot(path: sourcePath)
@@ -602,12 +601,12 @@ final class CmuxSettingsFileStore {
             for (rawName, rawValue) in rawColors {
                 let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty else {
-                    NSLog("[CmuxSettingsFileStore] ignoring empty workspace color name in %@", sourcePath)
+                    cmuxSettingsFileStoreLogger.warning("ignoring empty workspace color name in \(sourcePath, privacy: .public)")
                     continue
                 }
                 guard let hex = jsonString(rawValue),
                       let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
-                    NSLog("[CmuxSettingsFileStore] ignoring invalid workspace color '%@' in %@", name, sourcePath)
+                    cmuxSettingsFileStoreLogger.warning("ignoring invalid workspace color '\(name, privacy: .public)' in \(sourcePath, privacy: .public)")
                     continue
                 }
                 normalizedPalette[name] = normalizedHex
@@ -624,12 +623,12 @@ final class CmuxSettingsFileStore {
             )
             for (name, rawValue) in rawOverrides {
                 guard validNames.contains(name) else {
-                    NSLog("[CmuxSettingsFileStore] ignoring unknown workspace color '%@' in %@", name, sourcePath)
+                    cmuxSettingsFileStoreLogger.warning("ignoring unknown workspace color '\(name, privacy: .public)' in \(sourcePath, privacy: .public)")
                     continue
                 }
                 guard let hex = jsonString(rawValue),
                       let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
-                    NSLog("[CmuxSettingsFileStore] ignoring invalid workspace color override '%@' in %@", name, sourcePath)
+                    cmuxSettingsFileStoreLogger.warning("ignoring invalid workspace color override '\(name, privacy: .public)' in \(sourcePath, privacy: .public)")
                     continue
                 }
                 palette[name] = normalizedHex
@@ -851,15 +850,11 @@ final class CmuxSettingsFileStore {
 
         for (rawAction, rawBinding) in bindings {
             guard let action = KeyboardShortcutSettings.Action(rawValue: rawAction) else {
-                NSLog("[CmuxSettingsFileStore] ignoring unknown shortcut action '%@' in %@", rawAction, sourcePath)
+                cmuxSettingsFileStoreLogger.warning("ignoring unknown shortcut action '\(rawAction, privacy: .public)' in \(sourcePath, privacy: .public)")
                 continue
             }
             guard let shortcut = parseShortcutBindingValue(rawBinding, action: action) else {
-                NSLog(
-                    "[CmuxSettingsFileStore] ignoring invalid shortcut binding for '%@' in %@",
-                    rawAction,
-                    sourcePath
-                )
+                cmuxSettingsFileStoreLogger.warning("ignoring invalid shortcut binding for '\(rawAction, privacy: .public)' in \(sourcePath, privacy: .public)")
                 continue
             }
             snapshot.shortcuts[action] = shortcut
@@ -1406,7 +1401,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func logInvalid(_ path: String, sourcePath: String) {
-        NSLog("[CmuxSettingsFileStore] ignoring invalid setting '%@' in %@", path, sourcePath)
+        cmuxSettingsFileStoreLogger.warning("ignoring invalid setting '\(path, privacy: .public)' in \(sourcePath, privacy: .public)")
     }
 
     private func jsonString(_ rawValue: Any?) -> String? {
