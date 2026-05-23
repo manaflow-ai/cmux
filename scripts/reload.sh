@@ -592,9 +592,9 @@ def wait_for_any_slot():
         for slot in range(1, concurrency + 1):
             pid = os.fork()
             if pid == 0:
-                parent_sock.close()
-                fd, _ = open_slot(slot)
                 try:
+                    parent_sock.close()
+                    fd, _ = open_slot(slot)
                     fcntl.flock(fd, fcntl.LOCK_EX)
                     payload = array.array("i", [fd])
                     child_sock.sendmsg(
