@@ -200,12 +200,26 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showDownloadDidStartExtractingUpdate() {
         UpdateLogStore.shared.append("show extraction started")
-        setState(.extracting(.init(progress: 0)), timeoutStage: .preparing)
+        runOnMain { [weak self] in
+            guard let self else { return }
+            guard !operationHasTimedOut else {
+                UpdateLogStore.shared.append("ignoring extraction start after timeout")
+                return
+            }
+            setState(.extracting(.init(progress: 0)), timeoutStage: .preparing)
+        }
     }
 
     func showExtractionReceivedProgress(_ progress: Double) {
         UpdateLogStore.shared.append(String(format: "show extraction progress: %.2f", progress))
-        setState(.extracting(.init(progress: progress)), timeoutStage: .preparing)
+        runOnMain { [weak self] in
+            guard let self else { return }
+            guard !operationHasTimedOut else {
+                UpdateLogStore.shared.append("ignoring extraction progress after timeout")
+                return
+            }
+            setState(.extracting(.init(progress: progress)), timeoutStage: .preparing)
+        }
     }
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {

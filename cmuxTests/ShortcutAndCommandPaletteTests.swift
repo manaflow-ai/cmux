@@ -1978,7 +1978,7 @@ final class UpdateDriverTimeoutTests: XCTestCase {
         XCTAssertEqual(UpdateViewModel.userFacingErrorTitle(for: error!), "Update Timed Out")
         XCTAssertEqual(
             UpdateViewModel.userFacingErrorMessage(for: error!),
-            "Updating failed because checking for updates took too long."
+            "cmux could not check for updates in time. Check your network and try again."
         )
     }
 
@@ -1997,7 +1997,7 @@ final class UpdateDriverTimeoutTests: XCTestCase {
         XCTAssertEqual(cancelCount, 1)
         XCTAssertEqual(
             UpdateViewModel.userFacingErrorMessage(for: error!),
-            "Updating failed because downloading the update took too long."
+            "cmux could not download the update in time. Check your network and try again."
         )
     }
 
@@ -2012,7 +2012,7 @@ final class UpdateDriverTimeoutTests: XCTestCase {
         XCTAssertNotNil(error)
         XCTAssertEqual(
             UpdateViewModel.userFacingErrorMessage(for: error!),
-            "Updating failed because preparing the update took too long."
+            "cmux could not prepare the update in time. Try again later, or restart cmux and try again."
         )
     }
 
