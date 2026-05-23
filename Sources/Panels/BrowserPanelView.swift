@@ -58,9 +58,9 @@ private struct BrowserLayerBackedSpinner: NSViewRepresentable {
 
             for shapeLayer in [trackLayer, arcLayer] {
                 shapeLayer.fillColor = NSColor.clear.cgColor
-                shapeLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
                 layer?.addSublayer(shapeLayer)
             }
+            updateContentsScale()
             arcLayer.lineCap = .round
             arcLayer.strokeStart = 0
             arcLayer.strokeEnd = 0.28
@@ -94,6 +94,7 @@ private struct BrowserLayerBackedSpinner: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            updateContentsScale()
             if window == nil {
                 stopAnimation()
             } else {
@@ -101,9 +102,26 @@ private struct BrowserLayerBackedSpinner: NSViewRepresentable {
             }
         }
 
+        override func viewDidChangeBackingProperties() {
+            super.viewDidChangeBackingProperties()
+            updateContentsScale()
+        }
+
         override func viewDidChangeEffectiveAppearance() {
             super.viewDidChangeEffectiveAppearance()
             updateLayerColors()
+        }
+
+        private func updateContentsScale() {
+            let scale = window?.backingScaleFactor
+                ?? window?.screen?.backingScaleFactor
+                ?? NSScreen.main?.backingScaleFactor
+                ?? 2
+            for shapeLayer in [trackLayer, arcLayer] {
+                shapeLayer.contentsScale = scale
+                shapeLayer.setNeedsDisplay()
+            }
+            layer?.setNeedsDisplay()
         }
 
         private func updateLayerColors() {
