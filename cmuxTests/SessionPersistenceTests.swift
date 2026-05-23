@@ -1,11 +1,21 @@
 import Darwin
 import XCTest
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private func sessionPersistenceSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+    switch node {
+    case .pane:
+        return []
+    case .split(let split):
+        return [split] + sessionPersistenceSplitNodes(in: split.first) + sessionPersistenceSplitNodes(in: split.second)
+    }
+}
 
 final class SessionPersistenceTests: XCTestCase {
     private struct LegacyPersistedWindowGeometry: Codable {
@@ -108,6 +118,53 @@ final class SessionPersistenceTests: XCTestCase {
         let restoredPanelIds = restoredDock.controller.allTabIds.compactMap { restored.panelIdFromSurfaceId($0) }
         XCTAssertEqual(restoredPanelIds.count, 1)
         XCTAssertTrue(restoredPanelIds.allSatisfy { restored.terminalPanel(for: $0) != nil })
+    }
+
+    @MainActor
+    func testWorkspaceSessionRestoreDoesNotFocusClosedDockOnlyPanel() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let seededMainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        workspace.dockLayout.openEdge(.right)
+
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        XCTAssertTrue(workspace.closePanel(seededMainPanelId, force: true))
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+
+        dockPanel.hostedView.setActive(true)
+        workspace.dockLayout.closeEdge(.right)
+        XCTAssertNil(workspace.focusedPanelId)
+        XCTAssertFalse(dockPanel.hostedView.debugRenderStats().isActive)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertFalse(restored.dockLayout.isEdgeOpen(.right))
+        let restoredDock = try XCTUnwrap(restored.dockLayout.docksSnapshot(for: .right).first)
+        let restoredPanelId = try XCTUnwrap(
+            restoredDock.controller.allTabIds.compactMap { restored.panelIdFromSurfaceId($0) }.first
+        )
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+        restoredPanel.hostedView.setActive(true)
+
+        restored.debugReconcileFocusStateForTesting()
+
+        XCTAssertNil(restored.focusedPanelId)
+        XCTAssertFalse(restoredPanel.hostedView.debugRenderStats().isActive)
+        XCTAssertFalse(restored.dockLayout.isEdgeOpen(.right))
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 
     @MainActor
@@ -4043,6 +4100,50 @@ extension SessionPersistenceTests {
             manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: firstIndex),
             manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: secondIndex)
         )
+    }
+
+    @MainActor
+    func testAutosaveFingerprintIncludesDockState() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let baseline = manager.sessionAutosaveFingerprint()
+
+        workspace.dockLayout.setDockCount(edge: .right, count: 1)
+        let dock = try XCTUnwrap(workspace.dockLayout.docksSnapshot(for: .right).first)
+        let openEmptyDock = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(baseline, openEmptyDock)
+
+        workspace.dockLayout.closeEdge(.right)
+        let closedEmptyDock = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(openEmptyDock, closedEmptyDock)
+
+        workspace.dockLayout.openEdge(.right)
+        let reopenedDock = manager.sessionAutosaveFingerprint()
+        workspace.dockLayout.setPreferredSize(333, for: dock)
+        let resizedDock = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(reopenedDock, resizedDock)
+
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        _ = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: dockPanel.id,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        let splitDock = manager.sessionAutosaveFingerprint()
+        let split = try XCTUnwrap(sessionPersistenceSplitNodes(in: dock.controller.treeSnapshot()).first)
+        let splitId = try XCTUnwrap(UUID(uuidString: split.id))
+
+        XCTAssertTrue(dock.controller.setDividerPosition(0.7, forSplit: splitId))
+        XCTAssertNotEqual(splitDock, manager.sessionAutosaveFingerprint())
     }
 
     @MainActor

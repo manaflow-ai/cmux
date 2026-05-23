@@ -378,6 +378,35 @@ extension Workspace {
         }
     }
 
+    func hashSessionDockState(into hasher: inout Hasher) {
+        let snapshots = sessionDockSnapshots()
+        hasher.combine(snapshots.count)
+        for snapshot in snapshots {
+            hasher.combine(snapshot.edge.rawValue)
+            hasher.combine(snapshot.isOpen)
+            hasher.combine(Int((snapshot.preferredSize * 2).rounded()))
+            Self.hashSessionLayout(snapshot.layout, into: &hasher)
+        }
+    }
+
+    private static func hashSessionLayout(_ layout: SessionWorkspaceLayoutSnapshot, into hasher: inout Hasher) {
+        switch layout {
+        case .pane(let pane):
+            hasher.combine("pane")
+            hasher.combine(pane.selectedPanelId)
+            hasher.combine(pane.panelIds.count)
+            for panelId in pane.panelIds {
+                hasher.combine(panelId)
+            }
+        case .split(let split):
+            hasher.combine("split")
+            hasher.combine(split.orientation.rawValue)
+            hasher.combine(Int((split.dividerPosition * 1000).rounded()))
+            hashSessionLayout(split.first, into: &hasher)
+            hashSessionLayout(split.second, into: &hasher)
+        }
+    }
+
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
         switch node {
         case .pane(let pane):
@@ -13181,7 +13210,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         setFocusedBonsplitController(bonsplitController)
-        _ = focusPreferredPane(in: bonsplitController)
+        if !focusPreferredPane(in: bonsplitController) {
+            clearPanelFocusForNoVisibleTarget(controller: bonsplitController)
+        }
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.dockEdgeDidClose")
     }
@@ -13686,20 +13717,27 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        if targetPanelId == nil, let fallbackPanelId = panels.keys.first {
-            targetPanelId = fallbackPanelId
-            if let fallbackTabId = surfaceIdFromPanelId(fallbackPanelId),
-               let fallbackController = renderedBonsplitControllers.first(where: { $0.tab(fallbackTabId) != nil }),
-               let fallbackPane = fallbackController.allPaneIds.first(where: { paneId in
-                   fallbackController.tabs(inPane: paneId).contains(where: { $0.id == fallbackTabId })
-               }) {
+        if targetPanelId == nil {
+            for fallbackPanelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+                guard let fallbackTabId = surfaceIdFromPanelId(fallbackPanelId),
+                      let fallbackController = renderedBonsplitControllers.first(where: { $0.tab(fallbackTabId) != nil }),
+                      let fallbackPane = fallbackController.allPaneIds.first(where: { paneId in
+                          fallbackController.tabs(inPane: paneId).contains(where: { $0.id == fallbackTabId })
+                      }) else {
+                    continue
+                }
                 fallbackController.focusPane(fallbackPane)
                 fallbackController.selectTab(fallbackTabId)
                 targetController = fallbackController
+                targetPanelId = fallbackPanelId
+                break
             }
         }
 
-        guard let targetPanelId, let targetPanel = panels[targetPanelId] else { return }
+        guard let targetPanelId, let targetPanel = panels[targetPanelId] else {
+            clearPanelFocusForNoVisibleTarget(controller: targetController)
+            return
+        }
         setFocusedBonsplitController(targetController)
 
         for (panelId, panel) in panels where panelId != targetPanelId {
@@ -13715,6 +13753,15 @@ final class Workspace: Identifiable, ObservableObject {
         }
         gitBranch = panelGitBranches[targetPanelId]
         pullRequest = panelPullRequests[targetPanelId]
+    }
+
+    private func clearPanelFocusForNoVisibleTarget(controller: BonsplitController) {
+        setFocusedBonsplitController(controller)
+        for panel in panels.values {
+            panel.unfocus()
+        }
+        gitBranch = nil
+        pullRequest = nil
     }
 
     /// Reconcile focus/first-responder convergence.
