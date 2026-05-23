@@ -1324,6 +1324,26 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         )
     }
 
+    func testWorkspaceCloseButtonWarnsForPromptIdleWorkspaceWhenXButtonWarningEnabled() throws {
+        try assertWorkspaceCloseButtonConfirmation(
+            warnBeforeClosingTab: false,
+            warnBeforeClosingTabXButton: true,
+            shellActivityState: .promptIdle,
+            expectedPromptCount: 1,
+            expectedWorkspaceClosed: false
+        )
+    }
+
+    func testWorkspaceCloseButtonClosesPromptIdleWorkspaceWhenXButtonWarningDisabled() throws {
+        try assertWorkspaceCloseButtonConfirmation(
+            warnBeforeClosingTab: true,
+            warnBeforeClosingTabXButton: false,
+            shellActivityState: .promptIdle,
+            expectedPromptCount: 0,
+            expectedWorkspaceClosed: true
+        )
+    }
+
     func testTabCloseButtonWarnBeforeClosingTabXButtonDefaultsOnForLastWorkspaceSurface() throws {
         try withCloseTabWarningConfig(
             warnBeforeClosingTab: false,
@@ -1752,6 +1772,56 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
                 XCTAssertNil(workspace.panels[initialPanelId], file: file, line: line)
             } else {
                 XCTAssertNotNil(workspace.panels[initialPanelId], file: file, line: line)
+            }
+        }
+    }
+
+    private func assertWorkspaceCloseButtonConfirmation(
+        warnBeforeClosingTab: Bool?,
+        warnBeforeClosingTabXButton: Bool?,
+        shellActivityState: Workspace.PanelShellActivityState,
+        expectedPromptCount: Int,
+        expectedWorkspaceClosed: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try withCloseTabWarningConfig(
+            warnBeforeClosingTab: warnBeforeClosingTab,
+            warnBeforeClosingTabXButton: warnBeforeClosingTabXButton
+        ) {
+            let manager = TabManager()
+            let firstWorkspace = manager.tabs[0]
+            let targetWorkspace = manager.addWorkspace()
+            manager.selectWorkspace(targetWorkspace)
+            guard let panelId = targetWorkspace.focusedPanelId else {
+                XCTFail("Expected selected workspace with a focused panel", file: file, line: line)
+                return
+            }
+
+            targetWorkspace.updatePanelShellActivityState(panelId: panelId, state: shellActivityState)
+
+            var promptCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return false
+            }
+
+            XCTAssertTrue(
+                manager.closeWorkspaceFromCloseTabGesture(targetWorkspace, trigger: .tabCloseButton),
+                file: file,
+                line: line
+            )
+            drainMainQueue()
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertEqual(promptCount, expectedPromptCount, file: file, line: line)
+            if expectedWorkspaceClosed {
+                XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id], file: file, line: line)
+                XCTAssertNil(targetWorkspace.panels[panelId], file: file, line: line)
+            } else {
+                XCTAssertTrue(manager.tabs.contains(where: { $0.id == targetWorkspace.id }), file: file, line: line)
+                XCTAssertNotNil(targetWorkspace.panels[panelId], file: file, line: line)
             }
         }
     }

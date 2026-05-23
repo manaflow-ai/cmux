@@ -13863,7 +13863,7 @@ private struct TabItemView: View, Equatable {
                     #if DEBUG
                     cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
                     #endif
-                    tabManager.closeWorkspaceWithConfirmation(tab)
+                    tabManager.closeWorkspaceFromCloseTabGesture(tab, trigger: .tabCloseButton)
                 }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .medium))
