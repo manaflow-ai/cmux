@@ -196,7 +196,7 @@ struct GhosttyConfig {
             "~/.config/ghostty/config.ghostty",
         ].map { NSString(string: $0).expandingTildeInPath }
         configPaths.append(appSupportConfigGhostty)
-        if shouldLoadLegacyGhosttyConfig(
+        if shouldIncludeLegacyGhosttyConfigInResolvedLoad(
             newConfigFileSize: configFileSize(at: appSupportConfigGhostty),
             legacyConfigFileSize: configFileSize(at: appSupportLegacyConfig)
         ) {
@@ -521,7 +521,8 @@ struct GhosttyConfig {
                 into: &config,
                 preferredColorScheme: preferredColorScheme,
                 recursiveConfigPaths: &recursiveConfigPaths,
-                loadedConfigPaths: &loadedConfigPaths
+                loadedConfigPaths: &loadedConfigPaths,
+                markLoadedPath: false
             )
         }
 
@@ -532,7 +533,8 @@ struct GhosttyConfig {
                 into: &config,
                 preferredColorScheme: preferredColorScheme,
                 recursiveConfigPaths: &recursiveConfigPaths,
-                loadedConfigPaths: &loadedConfigPaths
+                loadedConfigPaths: &loadedConfigPaths,
+                markLoadedPath: true
             )
         }
     }
@@ -542,12 +544,17 @@ struct GhosttyConfig {
         into config: inout GhosttyConfig,
         preferredColorScheme: ColorSchemePreference,
         recursiveConfigPaths: inout [String],
-        loadedConfigPaths: inout Set<String>
+        loadedConfigPaths: inout Set<String>,
+        markLoadedPath: Bool
     ) {
         let resolved = (path as NSString).standardizingPath
-        guard !loadedConfigPaths.contains(resolved) else { return }
+        if markLoadedPath {
+            guard !loadedConfigPaths.contains(resolved) else { return }
+        }
         guard let contents = readConfigFile(at: resolved) else { return }
-        loadedConfigPaths.insert(resolved)
+        if markLoadedPath {
+            loadedConfigPaths.insert(resolved)
+        }
 
         config.parse(
             contents,
@@ -952,7 +959,7 @@ struct GhosttyConfig {
         return size.intValue
     }
 
-    private static func shouldLoadLegacyGhosttyConfig(
+    private static func shouldIncludeLegacyGhosttyConfigInResolvedLoad(
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {

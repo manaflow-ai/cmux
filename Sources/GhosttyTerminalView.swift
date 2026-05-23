@@ -2823,7 +2823,7 @@ class GhosttyApp {
         let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
         let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
         paths.append(nativeConfig.path)
-        if shouldLoadLegacyGhosttyConfig(
+        if shouldIncludeLegacyGhosttyConfigInScanPaths(
             newConfigFileSize: configFileSize(at: nativeConfig),
             legacyConfigFileSize: configFileSize(at: nativeLegacyConfig)
         ) {
@@ -2846,7 +2846,7 @@ class GhosttyApp {
         let releaseConfigSize = configFileSize(at: releaseConfig)
         let releaseLegacyConfigSize = configFileSize(at: releaseLegacyConfig)
 
-        if shouldLoadLegacyGhosttyConfig(
+        if shouldIncludeLegacyGhosttyConfigInScanPaths(
             newConfigFileSize: releaseConfigSize,
             legacyConfigFileSize: releaseLegacyConfigSize
         ), !paths.contains(releaseLegacyConfig.path) {
@@ -3008,6 +3008,14 @@ class GhosttyApp {
     }
 
     static func shouldLoadLegacyGhosttyConfig(
+        newConfigFileSize: Int?,
+        legacyConfigFileSize: Int?
+    ) -> Bool {
+        guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
+        return newConfigFileSize == 0
+    }
+
+    static func shouldIncludeLegacyGhosttyConfigInScanPaths(
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {

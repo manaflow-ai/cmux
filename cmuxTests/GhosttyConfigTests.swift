@@ -345,6 +345,43 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(loaded.foregroundColor.hexString(), "#222222")
     }
 
+    func testLoadAllowsRecursiveConfigFileToReloadTopLevelConfigAsFinalOverride() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-config-top-level-reload-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
+        let legacyConfig = ghosttyConfigDir.appendingPathComponent("config", isDirectory: false)
+        try "background = #111111\n".write(to: legacyConfig, atomically: true, encoding: .utf8)
+        try """
+        background = #222222
+        config-file = \(legacyConfig.path)
+        """
+        .write(
+            to: ghosttyConfigDir.appendingPathComponent("config.ghostty", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
+
+        XCTAssertEqual(loaded.backgroundColor.hexString(), "#111111")
+    }
+
     func testLoadReadsOptionalQuotedConfigFilePath() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -740,9 +777,18 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    func testLegacyConfigFallbackUsesLegacyFileWhenConfigGhosttyIsMissing() {
-        XCTAssertTrue(
+    func testLegacyConfigFallbackDoesNotReloadLegacyFileWhenConfigGhosttyIsMissing() {
+        XCTAssertFalse(
             GhosttyApp.shouldLoadLegacyGhosttyConfig(
+                newConfigFileSize: nil,
+                legacyConfigFileSize: 42
+            )
+        )
+    }
+
+    func testLegacyConfigScanPathsIncludeLegacyFileWhenConfigGhosttyIsMissing() {
+        XCTAssertTrue(
+            GhosttyApp.shouldIncludeLegacyGhosttyConfigInScanPaths(
                 newConfigFileSize: nil,
                 legacyConfigFileSize: 42
             )
