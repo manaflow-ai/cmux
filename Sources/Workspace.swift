@@ -8405,6 +8405,43 @@ private struct SidebarPanelObservationState: Equatable {
     }
 }
 
+private struct SidebarPanePanelIdsFingerprintEntry: Equatable {
+    let paneId: String
+    let panelIds: [UUID]
+}
+
+private struct SidebarPanelOrderingFingerprint: Equatable {
+    let panelIds: [UUID]
+    let panePanelIds: [SidebarPanePanelIdsFingerprintEntry]
+    let bonsplitTreeRevision: UInt64
+}
+
+private struct SidebarPanelDirectoryFingerprintEntry: Equatable {
+    let panelId: UUID
+    let directory: String
+}
+
+private struct SidebarPanelGitBranchFingerprintEntry: Equatable {
+    let panelId: UUID
+    let state: SidebarGitBranchState
+}
+
+private struct SidebarHomeDirectoryFingerprint: Equatable {
+    let remoteConfiguration: WorkspaceRemoteConfiguration?
+    let currentDirectory: String?
+    let resolvedPanelDirectories: [SidebarPanelDirectoryFingerprintEntry]
+}
+
+private struct SidebarBranchDirectoryEntriesFingerprint: Equatable {
+    let orderedPanelIds: [UUID]
+    let resolvedPanelDirectories: [SidebarPanelDirectoryFingerprintEntry]
+    let panelGitBranches: [SidebarPanelGitBranchFingerprintEntry]
+    let fallbackBranch: SidebarGitBranchState?
+    let defaultDirectory: String?
+    let homeDirectoryForCanonicalization: String?
+    let remoteConfiguration: WorkspaceRemoteConfiguration?
+}
+
 enum WorkspaceRemoteConnectionState: String {
     case disconnected
     case connecting
@@ -9101,6 +9138,16 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    private var bonsplitTreeRevision: UInt64 = 0
+    private var cachedSidebarOrderedPanelIds: (fingerprint: SidebarPanelOrderingFingerprint, ids: [UUID])?
+    private var cachedSidebarHomeDirectoryForCanonicalization: (
+        fingerprint: SidebarHomeDirectoryFingerprint,
+        homeDirectory: String?
+    )?
+    private var cachedSidebarBranchDirectoryEntries: (
+        fingerprint: SidebarBranchDirectoryEntriesFingerprint,
+        entries: [SidebarBranchOrdering.BranchDirectoryEntry]
+    )?
 
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher
@@ -10923,23 +10970,68 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func sidebarOrderedPanelIds() -> [UUID] {
-        let paneTabs: [String: [UUID]] = Dictionary(
-            uniqueKeysWithValues: bonsplitController.allPaneIds.map { paneId in
-                let panelIds = bonsplitController
-                    .tabs(inPane: paneId)
-                    .compactMap { panelIdFromSurfaceId($0.id) }
-                return (paneId.id.uuidString, panelIds)
-            }
-        )
+    private func bumpBonsplitTreeRevision() {
+        bonsplitTreeRevision &+= 1
+    }
 
-        let fallbackPanelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
+    private func sortedPanelIds() -> [UUID] {
+        panels.keys.sorted { $0.uuidString < $1.uuidString }
+    }
+
+    private func sidebarPanePanelIds() -> [SidebarPanePanelIdsFingerprintEntry] {
+        bonsplitController.allPaneIds.map { paneId in
+            let panelIds = bonsplitController
+                .tabs(inPane: paneId)
+                .compactMap { panelIdFromSurfaceId($0.id) }
+            return SidebarPanePanelIdsFingerprintEntry(
+                paneId: paneId.id.uuidString,
+                panelIds: panelIds
+            )
+        }
+    }
+
+    private func sidebarPanelDirectoryFingerprintEntries(
+        _ directories: [UUID: String]
+    ) -> [SidebarPanelDirectoryFingerprintEntry] {
+        directories
+            .map { panelId, directory in
+                SidebarPanelDirectoryFingerprintEntry(panelId: panelId, directory: directory)
+            }
+            .sorted { lhs, rhs in lhs.panelId.uuidString < rhs.panelId.uuidString }
+    }
+
+    private func sidebarPanelGitBranchFingerprintEntries(
+        orderedPanelIds: [UUID]
+    ) -> [SidebarPanelGitBranchFingerprintEntry] {
+        orderedPanelIds.compactMap { panelId in
+            guard let state = panelGitBranches[panelId] else { return nil }
+            return SidebarPanelGitBranchFingerprintEntry(panelId: panelId, state: state)
+        }
+    }
+
+    func sidebarOrderedPanelIds() -> [UUID] {
+        let panePanelIds = sidebarPanePanelIds()
+        let fingerprint = SidebarPanelOrderingFingerprint(
+            panelIds: sortedPanelIds(),
+            panePanelIds: panePanelIds,
+            bonsplitTreeRevision: bonsplitTreeRevision
+        )
+        if let cached = cachedSidebarOrderedPanelIds, cached.fingerprint == fingerprint {
+            return cached.ids
+        }
+
+        let paneTabs = Dictionary(
+            uniqueKeysWithValues: panePanelIds.map { ($0.paneId, $0.panelIds) }
+        )
+        let fallbackPanelIds = fingerprint.panelIds
         let tree = bonsplitController.treeSnapshot()
-        return SidebarBranchOrdering.orderedPanelIds(
+        let ids = SidebarBranchOrdering.orderedPanelIds(
             tree: tree,
             paneTabs: paneTabs,
             fallbackPanelIds: fallbackPanelIds
         )
+        cachedSidebarOrderedPanelIds = (fingerprint, ids)
+        return ids
     }
 
     private func normalizedSidebarDirectory(_ directory: String?) -> String? {
@@ -10951,13 +11043,27 @@ final class Workspace: Identifiable, ObservableObject {
     private func sidebarHomeDirectoryForCanonicalization(
         resolvedPanelDirectories: [UUID: String]
     ) -> String? {
+        let fingerprint = SidebarHomeDirectoryFingerprint(
+            remoteConfiguration: remoteConfiguration,
+            currentDirectory: normalizedSidebarDirectory(currentDirectory),
+            resolvedPanelDirectories: sidebarPanelDirectoryFingerprintEntries(resolvedPanelDirectories)
+        )
+        if let cached = cachedSidebarHomeDirectoryForCanonicalization,
+           cached.fingerprint == fingerprint {
+            return cached.homeDirectory
+        }
+
+        let homeDirectory: String?
         if isRemoteWorkspace {
-            return SidebarBranchOrdering.inferredRemoteHomeDirectory(
+            homeDirectory = SidebarBranchOrdering.inferredRemoteHomeDirectory(
                 from: Array(resolvedPanelDirectories.values),
                 fallbackDirectory: normalizedSidebarDirectory(currentDirectory)
             )
+        } else {
+            homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
         }
-        return FileManager.default.homeDirectoryForCurrentUser.path
+        cachedSidebarHomeDirectoryForCanonicalization = (fingerprint, homeDirectory)
+        return homeDirectory
     }
 
     private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
@@ -11041,16 +11147,33 @@ final class Workspace: Identifiable, ObservableObject {
         orderedPanelIds: [UUID]
     ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
-        return SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let defaultDirectory = normalizedSidebarDirectory(currentDirectory)
+        let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
+            resolvedPanelDirectories: resolvedDirectories
+        )
+        let fingerprint = SidebarBranchDirectoryEntriesFingerprint(
+            orderedPanelIds: orderedPanelIds,
+            resolvedPanelDirectories: sidebarPanelDirectoryFingerprintEntries(resolvedDirectories),
+            panelGitBranches: sidebarPanelGitBranchFingerprintEntries(orderedPanelIds: orderedPanelIds),
+            fallbackBranch: gitBranch,
+            defaultDirectory: defaultDirectory,
+            homeDirectoryForCanonicalization: homeDirectoryForCanonicalization,
+            remoteConfiguration: remoteConfiguration
+        )
+        if let cached = cachedSidebarBranchDirectoryEntries, cached.fingerprint == fingerprint {
+            return cached.entries
+        }
+
+        let entries = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: orderedPanelIds,
             panelBranches: panelGitBranches,
             panelDirectories: resolvedDirectories,
-            defaultDirectory: normalizedSidebarDirectory(currentDirectory),
-            homeDirectoryForTildeExpansion: sidebarHomeDirectoryForCanonicalization(
-                resolvedPanelDirectories: resolvedDirectories
-            ),
+            defaultDirectory: defaultDirectory,
+            homeDirectoryForTildeExpansion: homeDirectoryForCanonicalization,
             fallbackBranch: gitBranch
         )
+        cachedSidebarBranchDirectoryEntries = (fingerprint, entries)
+        return entries
     }
 
     func sidebarBranchDirectoryEntriesInDisplayOrder() -> [SidebarBranchOrdering.BranchDirectoryEntry] {
@@ -15964,6 +16087,10 @@ extension Workspace: BonsplitDelegate {
         pendingNonFocusSplitFocusReassert = nil
     }
 
+    func splitTabBar(_ controller: BonsplitController, didCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+        bumpBonsplitTreeRevision()
+    }
+
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         func recordPostCloseSelection() {
             let tabs = controller.tabs(inPane: pane)
@@ -16070,6 +16197,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        bumpBonsplitTreeRevision()
         forceCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
@@ -16220,6 +16348,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
+        bumpBonsplitTreeRevision()
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
         let sincePrev: String
@@ -16291,6 +16420,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        bumpBonsplitTreeRevision()
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
@@ -16348,6 +16478,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
+        bumpBonsplitTreeRevision()
 #if DEBUG
         let panelKindForTab: (TabID) -> String = { tabId in
             guard let panelId = self.panelIdFromSurfaceId(tabId),
