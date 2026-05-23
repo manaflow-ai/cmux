@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 
 struct BrowserOpenTabSuggestionSnapshot: Equatable {
@@ -148,6 +149,23 @@ final class BrowserOpenTabSuggestionIndex {
             suggestionOrder.append(snapshot.panelId)
         }
     }
+}
+
+final class OmnibarSuggestionRefreshScheduler: ObservableObject {
+    let refreshPublisher: AnyPublisher<Void, Never>
+
+    private let refreshSubject = PassthroughSubject<Void, Never>()
+
+    init(debounceDelay: RunLoop.SchedulerTimeType.Stride = .milliseconds(80)) {
+        _ = debounceDelay
+        refreshPublisher = refreshSubject.eraseToAnyPublisher()
+    }
+
+    func scheduleRefresh() {
+        refreshSubject.send(())
+    }
+
+    func cancelPendingRefresh() {}
 }
 
 private var browserOpenTabSuggestionIndexesByManagerId: [ObjectIdentifier: BrowserOpenTabSuggestionIndex] = [:]

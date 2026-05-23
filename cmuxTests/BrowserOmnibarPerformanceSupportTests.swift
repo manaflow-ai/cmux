@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,6 +8,40 @@ import XCTest
 #endif
 
 final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
+    private var cancellables: Set<AnyCancellable> = []
+
+    override func tearDown() {
+        cancellables.removeAll()
+        super.tearDown()
+    }
+
+    func testSuggestionRefreshSchedulerCoalescesTypingBurst() {
+        let scheduler = OmnibarSuggestionRefreshScheduler(debounceDelay: .milliseconds(40))
+        let settled = expectation(description: "debounced refresh window settled")
+        var refreshCount = 0
+
+        scheduler.refreshPublisher
+            .sink {
+                refreshCount += 1
+            }
+            .store(in: &cancellables)
+
+        for _ in 0..<20 {
+            scheduler.scheduleRefresh()
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 1)
+
+        XCTAssertEqual(
+            refreshCount,
+            1,
+            "A burst of omnibar text changes should schedule one suggestion refresh after the debounce window."
+        )
+    }
+
     func testOpenTabSuggestionSeedSnapshotsAreEvaluatedOnlyOnce() {
         let workspaceId = UUID()
         let panelId = UUID()
