@@ -40,9 +40,13 @@ final class CMUXSudoTests: XCTestCase {
         assertInvalid(
             valid.merging(["caller_pid": NSNumber(value: Int64(Int32.max) + 1)] as [String: Any]) { _, new in new }
         )
+        assertInvalid(valid.merging(["caller_pid": NSNumber(value: 123.9)] as [String: Any]) { _, new in new })
+        assertInvalid(valid.merging(["caller_pid": NSNumber(value: true)] as [String: Any]) { _, new in new })
         assertInvalid(
             valid.merging(["caller_uid": NSNumber(value: Int64(UInt32.max) + 1)] as [String: Any]) { _, new in new }
         )
+        assertInvalid(valid.merging(["caller_uid": NSNumber(value: 501.2)] as [String: Any]) { _, new in new })
+        assertInvalid(valid.merging(["caller_uid": NSNumber(value: false)] as [String: Any]) { _, new in new })
     }
 
     func testSudoCallerValidatorRejectsRequestsOutsideCmuxPtyScope() throws {

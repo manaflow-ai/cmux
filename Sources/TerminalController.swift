@@ -514,8 +514,8 @@ class TerminalController {
         pid: pid_t?,
         uid: uid_t?,
         processStartTime: UInt64?,
-        _ body: () -> T
-    ) -> T {
+        _ body: () throws -> T
+    ) rethrows -> T {
         let previousPID = Thread.current.threadDictionary[socketPeerPIDKey]
         let previousUID = Thread.current.threadDictionary[socketPeerUIDKey]
         let previousProcessStartTime = Thread.current.threadDictionary[socketPeerProcessStartTimeKey]
@@ -554,7 +554,7 @@ class TerminalController {
             }
         }
 
-        return body()
+        return try body()
     }
 
 #if DEBUG
@@ -562,9 +562,9 @@ class TerminalController {
         pid: pid_t?,
         uid: uid_t?,
         processStartTime: UInt64? = 1,
-        _ body: () -> T
-    ) -> T {
-        withSocketPeerIdentity(pid: pid, uid: uid, processStartTime: processStartTime, body)
+        _ body: () throws -> T
+    ) rethrows -> T {
+        try withSocketPeerIdentity(pid: pid, uid: uid, processStartTime: processStartTime, body)
     }
 #endif
 

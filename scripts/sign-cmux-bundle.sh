@@ -59,12 +59,19 @@ fi
 
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 
-# 1. CLI helpers
-for helper in "$APP_PATH/Contents/Resources/bin"/*; do
-  [[ -f "$helper" && -x "$helper" ]] || continue
-  echo "==> signing helper $(basename "$helper")"
-  /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
-done
+sign_helpers_in_dir() {
+  local dir="$1"
+  [[ -d "$dir" ]] || return 0
+  for helper in "$dir"/*; do
+    [[ -f "$helper" && -x "$helper" ]] || continue
+    echo "==> signing helper $(basename "$helper")"
+    /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+  done
+}
+
+# 1. CLI and privileged helpers
+sign_helpers_in_dir "$APP_PATH/Contents/Resources/bin"
+sign_helpers_in_dir "$APP_PATH/Contents/Library/LaunchServices"
 
 # 2. Plugins
 if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
@@ -105,14 +112,21 @@ fi
     exit 1
   }
 
+verify_helpers_lack_app_id() {
+  local dir="$1"
+  [[ -d "$dir" ]] || return 0
+  for helper in "$dir"/*; do
+    [[ -f "$helper" && -x "$helper" ]] || continue
+    if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
+         | grep -q "application-identifier"; then
+      echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2
+      exit 1
+    fi
+  done
+}
+
 # Helpers must NOT carry the main app's application-identifier.
-for helper in "$APP_PATH/Contents/Resources/bin"/*; do
-  [[ -f "$helper" && -x "$helper" ]] || continue
-  if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
-       | grep -q "application-identifier"; then
-    echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2
-    exit 1
-  fi
-done
+verify_helpers_lack_app_id "$APP_PATH/Contents/Resources/bin"
+verify_helpers_lack_app_id "$APP_PATH/Contents/Library/LaunchServices"
 
 echo "==> signing OK: $APP_PATH"

@@ -78,7 +78,7 @@ struct CMUXSudoCommandRequest: Sendable {
             return pid_t(value)
         }
         if let value = value as? Int { return checked(Int64(value)) }
-        if let value = value as? NSNumber { return checked(value.int64Value) }
+        if let value = strictInt64Value(value) { return checked(value) }
         if let value = value as? String,
            let parsed = Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
             return checked(parsed)
@@ -93,8 +93,7 @@ struct CMUXSudoCommandRequest: Sendable {
         }
         if let value = value as? UInt { return checked(UInt64(value)) }
         if let value = value as? Int, value >= 0 { return checked(UInt64(value)) }
-        if let value = value as? NSNumber {
-            let signed = value.int64Value
+        if let signed = strictInt64Value(value) {
             guard signed >= 0 else { return nil }
             return checked(UInt64(signed))
         }
@@ -103,6 +102,21 @@ struct CMUXSudoCommandRequest: Sendable {
             return checked(parsed)
         }
         return nil
+    }
+
+    private static func strictInt64Value(_ value: Any?) -> Int64? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            return nil
+        }
+        let doubleValue = number.doubleValue
+        guard doubleValue.isFinite,
+              doubleValue.rounded(.towardZero) == doubleValue,
+              doubleValue >= Double(Int64.min),
+              doubleValue <= Double(Int64.max) else {
+            return nil
+        }
+        return number.int64Value
     }
 }
 

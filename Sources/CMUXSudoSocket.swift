@@ -368,7 +368,7 @@ extension TerminalController {
             )
         }
 
-        let execution = CMUXSudoHelperClient.execute(envelope)
+        let execution = await executeSudoHelper(envelope)
         _ = try? CMUXSudoAuditLogger.append(
             auditRecord(
                 request: request,
@@ -408,6 +408,16 @@ extension TerminalController {
         }
 #endif
         return CMUXSudoAuditLogger.defaultLogURL
+    }
+
+    private nonisolated func executeSudoHelper(
+        _ envelope: CMUXSudoSignedHelperEnvelope
+    ) async -> CMUXSudoHelperExecutionResult {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: CMUXSudoHelperClient.execute(envelope))
+            }
+        }
     }
 
     private nonisolated func v2SudoSurfaceExists(workspaceID: UUID, surfaceID: UUID) -> Bool {

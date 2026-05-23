@@ -7,6 +7,9 @@ import Security
 private let helperLogger = Logger(subsystem: "com.cmuxterm.sudo-helper", category: "daemon")
 private let socketPath = "/var/run/cmux-sudo-helper.sock"
 private let secureSearchPath = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+private let deniedRootExecutableNames: Set<String> = [
+    "bash", "csh", "dash", "env", "fish", "ksh", "login", "sh", "su", "sudo", "tcsh", "zsh",
+]
 private let maxCapturedOutputBytes = 2 * 1024 * 1024
 private let maxCommandRuntimeSeconds = 10 * 60
 private let allowedBundleIdentifiers: Set<String> = [
@@ -52,6 +55,7 @@ enum CMUXSudoHelper {
     private static let clientQueue = DispatchQueue(label: "com.cmuxterm.sudo-helper.clients", attributes: .concurrent)
 
     static func main() {
+        signal(SIGPIPE, SIG_IGN)
         do {
             try runServer()
         } catch {
@@ -84,6 +88,7 @@ enum CMUXSudoHelper {
         defer { Darwin.close(client) }
         let response: [String: Any]
         do {
+            try configureNoSigPipe(client)
             let peer = try peerIdentity(for: client)
             try validatePeerApp(peer: peer)
             let envelope = try readEnvelope(from: client)
@@ -274,10 +279,13 @@ enum CMUXSudoHelper {
             throw HelperError(code: "replayed_request", message: "Helper request was already used")
         }
         if seenRequestIDs.count >= maxSeenRequestIDs {
-            let overflowCount = seenRequestIDs.count - maxSeenRequestIDs + 1
-            for requestID in seenRequestIDs.sorted(by: { $0.value < $1.value }).prefix(overflowCount).map(\.key) {
-                seenRequestIDs.removeValue(forKey: requestID)
-            }
+            throw HelperError(
+                code: "replay_cache_full",
+                message: String(
+                    localized: "sudo.helper.replayCacheFull",
+                    defaultValue: "The sudo helper is temporarily busy validating requests. Retry shortly."
+                )
+            )
         }
         seenRequestIDs[requestID] = createdAt
     }
@@ -377,16 +385,31 @@ enum CMUXSudoHelper {
             guard command.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: command) else {
                 throw HelperError(code: "command_not_executable", message: "Command is not an executable absolute path")
             }
-            return command
+            return try allowedRootExecutablePath(command)
         }
 
         for directory in secureSearchPath {
             let candidate = URL(fileURLWithPath: directory).appendingPathComponent(command).path
             if FileManager.default.isExecutableFile(atPath: candidate) {
-                return candidate
+                return try allowedRootExecutablePath(candidate)
             }
         }
         throw HelperError(code: "command_not_found", message: "Command was not found in the helper search path")
+    }
+
+    private static func allowedRootExecutablePath(_ path: String) throws -> String {
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        let executableName = URL(fileURLWithPath: resolved).lastPathComponent
+        guard !deniedRootExecutableNames.contains(executableName) else {
+            throw HelperError(
+                code: "command_rejected",
+                message: String(
+                    localized: "sudo.helper.shellRejected",
+                    defaultValue: "cmux sudo will not run shell, sudo, su, env, or login executables as root."
+                )
+            )
+        }
+        return resolved
     }
 
     private static func readLineData(from fd: Int32) throws -> Data {
@@ -434,6 +457,20 @@ enum CMUXSudoHelper {
                 offset += written
             }
         }
+    }
+
+    private static func configureNoSigPipe(_ fd: Int32) throws {
+#if os(macOS)
+        var noSigPipe: Int32 = 1
+        let result = withUnsafePointer(to: &noSigPipe) { pointer in
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, pointer, socklen_t(MemoryLayout<Int32>.size))
+        }
+        guard result == 0 else {
+            throw HelperError(code: "setsockopt_failed", message: errnoMessage("setsockopt(SO_NOSIGPIPE)"))
+        }
+#else
+        _ = fd
+#endif
     }
 
     private static func canonicalJSONData(_ object: Any) throws -> Data {
