@@ -27,6 +27,8 @@ HTML = """<!doctype html>
     <label>Name <input id="name" onkeydown="if (event.key === 'Enter') document.querySelector('#status').textContent = this.value + ':pressed'" /></label>
     <button id="go" onclick="document.querySelector('#status').textContent = document.querySelector('#name').value + ':clicked'">Go</button>
     <div id="status">idle</div>
+    <div style="height: 1600px"></div>
+    <button id="far" onclick="document.querySelector('#status').textContent = document.querySelector('#name').value + ':far-clicked'">Far</button>
   </body>
 </html>"""
 
@@ -82,6 +84,10 @@ const title = await tab.playwright.title();
 const status = await tab.playwright.locator("#status").textContent();
 const value = await tab.playwright.locator("#name").inputValue();
 const shown = await cmuxBrowserClient.call("browser.cursor.get", {{ surface_id: tab.surfaceId }});
+await tab.playwright.locator("#far").click();
+const farStatus = await tab.playwright.locator("#status").textContent();
+const farBox = await tab.playwright.locator("#far").boundingBox();
+const farCursor = await cmuxBrowserClient.call("browser.cursor.get", {{ surface_id: tab.surfaceId }});
 await tab.playwright.hideCursor();
 const hidden = await cmuxBrowserClient.call("browser.cursor.get", {{ surface_id: tab.surfaceId }});
 console.log(JSON.stringify({{
@@ -90,7 +96,10 @@ console.log(JSON.stringify({{
   clickedStatus,
   status,
   value,
+  farStatus,
+  farBox,
   shown: shown.cursor,
+  farCursor: farCursor.cursor,
   hidden: hidden.cursor
 }}));
 """.strip()
@@ -154,16 +163,24 @@ def main() -> int:
         thread.join(timeout=2)
     _must(result.get("clickedStatus") == "cmux:clicked", f"Expected click handler status, got: {result}")
     _must(result.get("status") == "cmux:pressed", f"Expected locator press to target input, got: {result}")
+    _must(result.get("farStatus") == "cmux:far-clicked", f"Expected offscreen click handler status, got: {result}")
     _must(result.get("value") == "cmux", f"Expected filled input value, got: {result}")
     _must(result.get("title") == "cmux repl e2e", f"Expected page.title() string, got: {result}")
     _must(result.get("boundTitle") == "cmux repl e2e", f"Expected bound page.title() string, got: {result}")
-    _must(result.get("boundStatus") == "cmux:pressed", f"Expected bound REPL to target existing surface, got: {result}")
+    _must(result.get("boundStatus") == "cmux:far-clicked", f"Expected bound REPL to target existing surface, got: {result}")
     _must(result.get("boundSurfaceId") == result.get("surfaceId"), f"Expected bound REPL surface id to match, got: {result}")
     shown = result.get("shown") or {}
     hidden = result.get("hidden") or {}
     _must(shown.get("visible") is True, f"Expected cursor visible after locator input/click, got: {result}")
     _must(float(shown.get("x") or 0) > 0, f"Expected cursor x to move to element center, got: {result}")
     _must(float(shown.get("y") or 0) > 0, f"Expected cursor y to move to element center, got: {result}")
+    far_box = result.get("farBox") or {}
+    far_cursor = result.get("farCursor") or {}
+    expected_far_x = float(far_box.get("x") or far_box.get("left") or 0) + float(far_box.get("width") or 0) / 2
+    expected_far_y = float(far_box.get("y") or far_box.get("top") or 0) + float(far_box.get("height") or 0) / 2
+    _must(far_cursor.get("visible") is True, f"Expected cursor visible after offscreen click, got: {result}")
+    _must(abs(float(far_cursor.get("x") or 0) - expected_far_x) <= 2, f"Expected offscreen cursor x at element center, got: {result}")
+    _must(abs(float(far_cursor.get("y") or 0) - expected_far_y) <= 2, f"Expected offscreen cursor y at element center, got: {result}")
     _must(hidden.get("visible") is False, f"Expected cursor hidden after hideCursor, got: {result}")
     print("PASS: browser repl JS adapter drives fill/click and cursor state")
     return 0

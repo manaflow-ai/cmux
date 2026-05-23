@@ -30,11 +30,18 @@ function relayCredentials(endpoint) {
   }
 
   const authPath = path.join(os.homedir(), ".cmux", "relay", `${endpoint.port}.auth`);
-  const authObject = JSON.parse(fs.readFileSync(authPath, "utf8"));
+  let authObject;
+  try {
+    authObject = JSON.parse(fs.readFileSync(authPath, "utf8"));
+  } catch (error) {
+    const wrapped = new Error("Unable to load relay credentials");
+    wrapped.cause = error;
+    throw wrapped;
+  }
   const relayId = String(authObject.relay_id || "").trim();
   const relayTokenHex = String(authObject.relay_token || "").trim();
   if (!relayId || !/^[0-9a-fA-F]+$/.test(relayTokenHex) || relayTokenHex.length % 2 !== 0) {
-    throw new Error(`Missing relay auth metadata for ${endpoint.host}:${endpoint.port}`);
+    throw new Error("Unable to load relay credentials");
   }
   return { relayId, relayToken: Buffer.from(relayTokenHex, "hex") };
 }
@@ -73,15 +80,8 @@ class CmuxSocketClient {
     this.socket = socket;
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => this.handleData(chunk));
-    socket.on("error", (error) => this.rejectPending(error));
-    socket.on("close", () => {
-      if (this.socket === socket) {
-        this.socket = null;
-        this.connectPromise = null;
-        this.isRelayBacked = false;
-      }
-      this.rejectPending(new Error("cmux socket closed"));
-    });
+    socket.on("error", (error) => this.resetConnectionState(socket, error));
+    socket.on("close", () => this.resetConnectionState(socket, new Error("cmux socket closed")));
 
     const connectPromise = (async () => {
       try {
@@ -138,6 +138,17 @@ class CmuxSocketClient {
     this.isRelayBacked = false;
     this.buffer = "";
     this.queuedLines = [];
+  }
+
+  resetConnectionState(socket, error) {
+    if (this.socket === socket) {
+      this.socket = null;
+      this.connectPromise = null;
+      this.isRelayBacked = false;
+      this.buffer = "";
+      this.queuedLines = [];
+    }
+    this.rejectPending(error);
   }
 
   handleData(chunk) {
@@ -243,7 +254,16 @@ class CmuxSocketClient {
 
   async call(method, params = {}) {
     const id = this.nextId++;
-    const responseLine = await this.sendLine(JSON.stringify({ id, method, params }));
+    const endpoint = parseEndpoint(this.socketPath);
+    let responseLine;
+    try {
+      responseLine = await this.sendLine(JSON.stringify({ id, method, params }));
+    } catch (error) {
+      if (!endpoint.relay) throw error;
+      const wrapped = new Error("Connection to cmux browser relay failed");
+      wrapped.cause = error;
+      throw wrapped;
+    }
     if (responseLine.startsWith("ERROR:")) {
       throw new Error(responseLine);
     }
@@ -496,6 +516,12 @@ class CmuxLocator {
   }
 
   async moveCursorToElement(options = {}) {
+    if (options.scroll !== false) {
+      await this.client.call("browser.scroll_into_view", {
+        surface_id: this.surfaceId,
+        selector: this.selector,
+      });
+    }
     const box = await this.boundingBox();
     if (!box) return null;
     const x = Number(box.x || box.left || 0) + Number(box.width || 0) / 2;
