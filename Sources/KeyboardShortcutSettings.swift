@@ -2213,7 +2213,10 @@ struct StoredShortcut: Codable, Equatable, Hashable {
 }
 
 extension ShortcutStroke {
-    static func parseConfig(_ rawValue: String) -> ShortcutStroke? {
+    static func parseConfig(
+        _ rawValue: String,
+        inferShiftFromBareKeyToken: Bool = false
+    ) -> ShortcutStroke? {
         guard !rawValue.isEmpty else { return nil }
 
         let rawParts = rawValue.split(separator: "+", omittingEmptySubsequences: false)
@@ -2243,8 +2246,14 @@ extension ShortcutStroke {
             }
         }
 
-        guard let parsedKey = parseConfigKeyToken(lastRawPart) else { return nil }
-        shift = shift || parsedKey.shift
+        let hasExplicitModifier = command || shift || option || control
+        guard let parsedKey = parseConfigKeyToken(
+            lastRawPart,
+            resolveShiftedToken: shift || (!hasExplicitModifier && inferShiftFromBareKeyToken)
+        ) else { return nil }
+        if !hasExplicitModifier && inferShiftFromBareKeyToken {
+            shift = shift || parsedKey.shift
+        }
         return ShortcutStroke(
             key: parsedKey.key,
             command: command,
@@ -2274,7 +2283,10 @@ extension ShortcutStroke {
         return key
     }
 
-    private static func parseConfigKeyToken(_ rawValue: String) -> (key: String, shift: Bool)? {
+    private static func parseConfigKeyToken(
+        _ rawValue: String,
+        resolveShiftedToken: Bool
+    ) -> (key: String, shift: Bool)? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             return rawValue == " " ? ("space", false) : nil
@@ -2335,10 +2347,11 @@ extension ShortcutStroke {
         case "previoustrack", "mediaprevious", "media.previous", "media.previoustrack":
             return ("media.previous", false)
         default:
-            if trimmed == "?" {
+            if resolveShiftedToken, trimmed == "?" {
                 return ("/", true)
             }
-            if trimmed.count == 1,
+            if resolveShiftedToken,
+               trimmed.count == 1,
                let scalar = trimmed.unicodeScalars.first,
                CharacterSet.uppercaseLetters.contains(scalar) {
                 return (lowered, true)
@@ -2367,7 +2380,9 @@ extension StoredShortcut {
         if strokes.count == 1, let rawValue = strokes.first, isUnboundConfigToken(rawValue) {
             return .unbound
         }
-        let parsedStrokes = strokes.compactMap(ShortcutStroke.parseConfig(_:))
+        let parsedStrokes = strokes.compactMap {
+            ShortcutStroke.parseConfig($0, inferShiftFromBareKeyToken: allowBareFirstStroke)
+        }
         guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
             return nil
         }

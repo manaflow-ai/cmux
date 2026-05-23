@@ -80,7 +80,14 @@ final class KeyboardShortcutSpaceKeyTests: XCTestCase {
     }
 
     func testShortcutConfigParsingPreservesImplicitShift() throws {
-        XCTAssertEqual(StoredShortcut.parseConfig("cmd+N")?.configIdentifier, "cmd+shift+n")
+        XCTAssertEqual(StoredShortcut.parseConfig("cmd+N")?.configIdentifier, "cmd+n")
+        XCTAssertEqual(StoredShortcut.parseConfig("cmd+B")?.configIdentifier, "cmd+b")
+        XCTAssertEqual(StoredShortcut.parseConfig("cmd+?")?.configIdentifier, "cmd+?")
+        XCTAssertNil(StoredShortcut.parseConfig("N"))
+        XCTAssertEqual(
+            StoredShortcut.parseConfig("N", allowBareFirstStroke: true)?.configIdentifier,
+            "shift+n"
+        )
         XCTAssertEqual(
             StoredShortcut.parseConfig("?", allowBareFirstStroke: true)?.configIdentifier,
             "shift+/"
