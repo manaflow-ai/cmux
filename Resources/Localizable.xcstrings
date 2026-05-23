@@ -25384,6 +25384,40 @@
         }
       }
     },
+    "command.openGhosttySettings.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty Config Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty設定ファイル"
+          }
+        }
+      }
+    },
+    "command.openGhosttySettings.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Ghostty Settings in TextEdit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty設定をTextEditで開く"
+          }
+        }
+      }
+    },
     "command.openSettings.subtitle": {
       "extractionState": "manual",
       "localizations": {
