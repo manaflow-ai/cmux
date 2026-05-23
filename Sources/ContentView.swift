@@ -9520,6 +9520,7 @@ struct VerticalTabsSidebar: View {
     @State private var dropIndicator: SidebarDropIndicator?
     @State private var frozenTabItemPresentation: SidebarTabItemPresentationSnapshot?
     @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
+    @State private var visibleWorkspaceRowIds: Set<UUID> = []
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
@@ -9584,7 +9585,9 @@ struct VerticalTabsSidebar: View {
         // LazyVStack can resolve IDs for unmounted rows, so do not wait for
         // visible-row anchor preferences here.
         proxy.scrollTo(selectedWorkspaceId)
-        pendingSelectedWorkspaceScrollId = nil
+        if visibleWorkspaceRowIds.contains(selectedWorkspaceId) {
+            pendingSelectedWorkspaceScrollId = nil
+        }
     }
 
     private func shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
@@ -9620,6 +9623,7 @@ struct VerticalTabsSidebar: View {
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
         let workspaceTerminalScrollBarHiddenById: [UUID: Bool]
+        let visibleWorkspaceRowIds: Set<UUID>
 
         var workspaceIds: [UUID] {
             tabs.map(\.id)
@@ -9660,7 +9664,8 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
-            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById
+            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById,
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -9852,6 +9857,10 @@ struct VerticalTabsSidebar: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
                     requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
+                }
+                .onPreferenceChange(SidebarWorkspaceRowIdsPreferenceKey.self) { rowIds in
+                    visibleWorkspaceRowIds = rowIds
+                    flushPendingSelectedWorkspaceScroll(scrollProxy)
                 }
             }
         }
@@ -10783,6 +10792,10 @@ struct VerticalTabsSidebar: View {
             return trimmed.isEmpty ? nil : trimmed
         }()
         let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
+        let nextWorkspaceId = renderContext.tabs.indices.contains(index + 1)
+            ? renderContext.tabs[index + 1].id
+            : nil
+        let isNextWorkspaceRowVisible = nextWorkspaceId.map { renderContext.visibleWorkspaceRowIds.contains($0) } ?? false
         let livePresentation = SidebarTabItemPresentationSnapshot(
             tabId: tab.id,
             unreadCount: liveUnreadCount,
@@ -10826,6 +10839,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
             contextMenuPinState: contextMenuPinState,
+            isNextWorkspaceRowVisible: isNextWorkspaceRowVisible,
             settings: renderContext.tabItemSettings,
             livePresentation: livePresentation,
             frozenPresentation: $frozenTabItemPresentation
@@ -10833,6 +10847,7 @@ struct VerticalTabsSidebar: View {
         .equatable()
         .id(tab.id)
         .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
+        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
         .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
             [tab.id: anchor]
         }
@@ -10841,6 +10856,14 @@ struct VerticalTabsSidebar: View {
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+}
+
+private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
+    static let defaultValue: Set<UUID> = []
+
+    static func reduce(value: inout Set<UUID>, nextValue: () -> Set<UUID>) {
+        value.formUnion(nextValue())
     }
 }
 
@@ -13281,6 +13304,7 @@ private struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
+        lhs.isNextWorkspaceRowVisible == rhs.isNextWorkspaceRowVisible &&
         lhs.settings == rhs.settings
     }
 
@@ -13313,6 +13337,7 @@ private struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let allContextMenuWorkspacesHideTerminalScrollBar: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
+    let isNextWorkspaceRowVisible: Bool
     let settings: SidebarTabItemSettingsSnapshot
     let livePresentation: SidebarTabItemPresentationSnapshot
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
@@ -14384,7 +14409,9 @@ private struct TabItemView: View, Equatable {
 
     private var showsCenteredBottomDropIndicator: Bool {
         guard let indicator = dropIndicator else { return false }
-        return indicator.tabId == tab.id && indicator.edge == .bottom
+        return indicator.tabId == tab.id
+            && indicator.edge == .bottom
+            && !isNextWorkspaceRowVisible
     }
 
     private var accessibilityTitle: String {
