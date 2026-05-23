@@ -3141,6 +3141,53 @@ func omnibarPrefixAfterDeletingTrailingWord(from text: String) -> String {
     return nsText.substring(to: deletionStart)
 }
 
+struct OmnibarURLWordDeletion: Equatable {
+    let text: String
+    let selectedRange: NSRange
+}
+
+private let omnibarURLWordBoundaryCharacterSet = CharacterSet.whitespacesAndNewlines
+    .union(CharacterSet(charactersIn: ".:/?#&=@"))
+
+func omnibarTextAfterDeletingURLWordBackward(
+    text: String,
+    selectedRange: NSRange
+) -> OmnibarURLWordDeletion? {
+    let nsText = text as NSString
+    let textLength = nsText.length
+    guard selectedRange.location != NSNotFound,
+          selectedRange.length == 0,
+          selectedRange.location <= textLength,
+          selectedRange.location > 0 else {
+        return nil
+    }
+
+    let caret = selectedRange.location
+    guard !omnibarURLWordBoundaryCharacter(in: nsText, at: caret - 1) else {
+        return nil
+    }
+
+    var deletionStart = caret
+    while deletionStart > 0,
+          !omnibarURLWordBoundaryCharacter(in: nsText, at: deletionStart - 1) {
+        deletionStart -= 1
+    }
+
+    guard deletionStart < caret else { return nil }
+    let deletionRange = NSRange(location: deletionStart, length: caret - deletionStart)
+    let updated = nsText.replacingCharacters(in: deletionRange, with: "")
+    return OmnibarURLWordDeletion(
+        text: updated,
+        selectedRange: NSRange(location: deletionStart, length: 0)
+    )
+}
+
+private func omnibarURLWordBoundaryCharacter(in text: NSString, at index: Int) -> Bool {
+    guard index >= 0, index < text.length else { return true }
+    guard let scalar = UnicodeScalar(Int(text.character(at: index))) else { return false }
+    return omnibarURLWordBoundaryCharacterSet.contains(scalar)
+}
+
 private func typedQueryHasExplicitPathOrQuery(_ typedQuery: String) -> Bool {
     var normalized = typedQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     if normalized.hasPrefix("https://") {
@@ -4267,6 +4314,14 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                     return true
                 }
             case 51: // Backspace
+                if modifiers == [.option],
+                   let editor,
+                   handleOptionDeleteBackward(editor: editor) {
+#if DEBUG
+                    handled = true
+#endif
+                    return true
+                }
                 if modifiers.contains(.command) || modifiers.contains(.option) {
                     return false
                 }
@@ -4283,6 +4338,28 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
 
             return false
+        }
+
+        private func handleOptionDeleteBackward(editor: NSTextView) -> Bool {
+            guard parent.inlineCompletion == nil else { return false }
+            guard let deletion = omnibarTextAfterDeletingURLWordBackward(
+                text: editor.string,
+                selectedRange: editor.selectedRange()
+            ) else {
+                return false
+            }
+
+            isProgrammaticMutation = true
+            editor.string = deletion.text
+            parentField?.stringValue = deletion.text
+            editor.setSelectedRange(deletion.selectedRange)
+            isProgrammaticMutation = false
+
+            parent.text = deletion.text
+            parent.onSelectionChanged(deletion.selectedRange, false)
+            lastPublishedSelection = deletion.selectedRange
+            lastPublishedHasMarkedText = false
+            return true
         }
     }
 
