@@ -201,10 +201,9 @@ enum CMUXSudoAuditLogger {
             } else {
                 throw AuditLogError.corrupt
             }
-            guard storedPreviousHash == previousHash else {
-                if !(allowExternalFirstPrevious && isFirstLine && previousHash == nil && storedPreviousHash != nil) {
-                    throw AuditLogError.corrupt
-                }
+            if storedPreviousHash != previousHash,
+               !(allowExternalFirstPrevious && isFirstLine && previousHash == nil && storedPreviousHash != nil) {
+                throw AuditLogError.corrupt
             }
             object.removeValue(forKey: "entry_sha256")
             let computedHash = try sha256Hex(canonicalJSONData(object))
