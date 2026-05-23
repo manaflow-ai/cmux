@@ -3,23 +3,7 @@ import Darwin
 import Foundation
 
 extension Workspace {
-    private static let structuredAgentHookStatusKeys: Set<String> = [
-        "amp",
-        "antigravity",
-        "claude_code",
-        "codebuddy",
-        "codex",
-        "copilot",
-        "cursor",
-        "factory",
-        "gemini",
-        "grok",
-        "hermes-agent",
-        "opencode",
-        "pi",
-        "qoder",
-        "rovodev",
-    ]
+    private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
 

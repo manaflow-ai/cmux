@@ -10685,6 +10685,7 @@ final class Workspace: Identifiable, ObservableObject {
                 : .manualResumeAvailable
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
+        clearAgentLifecycleStates(panelId: panelId)
         AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
         if focus {
             focusPanel(panelId)

@@ -44,3 +44,27 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         }
     }
 }
+
+enum AgentHibernationLifecycleStatusKeys {
+    static let allowedStatusKeys: Set<String> = [
+        "amp",
+        "antigravity",
+        "claude_code",
+        "codebuddy",
+        "codex",
+        "copilot",
+        "cursor",
+        "factory",
+        "gemini",
+        "grok",
+        "hermes-agent",
+        "opencode",
+        "pi",
+        "qoder",
+        "rovodev",
+    ]
+
+    static func isAllowed(_ key: String) -> Bool {
+        allowedStatusKeys.contains(key)
+    }
+}

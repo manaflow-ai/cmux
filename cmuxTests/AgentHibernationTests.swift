@@ -23,6 +23,12 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(decoded, .unknown)
     }
 
+    func testSocketLifecycleRejectsUnsupportedStatusKey() {
+        let response = TerminalController.shared.handleSocketLine("set_agent_lifecycle fake-agent idle")
+
+        XCTAssertTrue(response.contains("Unsupported agent lifecycle key"))
+    }
+
     func testSettingsDefaultToOptInAndNotifyOnChanges() throws {
         let suiteName = "cmux-agent-hibernation-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -715,6 +721,28 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertNotEqual(liveFingerprint, hibernatedFingerprint)
         XCTAssertTrue(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
         XCTAssertNotEqual(hibernatedFingerprint, manager.sessionAutosaveFingerprint())
+    }
+
+    @MainActor
+    func testResumeClearsStaleLifecycleState() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-clear-lifecycle-on-resume",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .idle)
+        workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: snapshot,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertTrue(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
     }
 
     @MainActor

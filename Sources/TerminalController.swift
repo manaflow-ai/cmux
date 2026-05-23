@@ -18696,6 +18696,9 @@ class TerminalController {
             return "ERROR: Usage: \(usage)"
         }
         let key = parsed.positional[0]
+        guard AgentHibernationLifecycleStatusKeys.isAllowed(key) else {
+            return "ERROR: Unsupported agent lifecycle key '\(key)'"
+        }
         let rawLifecycle = parsed.positional[1]
         guard let lifecycle = AgentHibernationLifecycleState.parseCLIValue(rawLifecycle) else {
             return "ERROR: Invalid agent lifecycle '\(parsed.positional[1])' — usage: \(usage)"
