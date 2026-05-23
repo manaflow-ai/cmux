@@ -1273,6 +1273,22 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNil(button.terminalCommand)
     }
 
+    func testBuiltInActionReferencePreservesConfiguredSources() throws {
+        let button = CmuxSurfaceTabBarButton(
+            id: "pack-terminal",
+            icon: .imagePath("icons/terminal.svg"),
+            action: .actionReference("newTerminal"),
+            actionSourcePath: "/tmp/global/cmux.json",
+            iconSourcePath: "/tmp/global/packs/team/cmux.pack.json"
+        )
+
+        let resolved = try button.resolved(actions: [:], codingPath: [])
+
+        XCTAssertEqual(resolved.action, .builtIn(.newTerminal))
+        XCTAssertEqual(resolved.actionSourcePath, "/tmp/global/cmux.json")
+        XCTAssertEqual(resolved.iconSourcePath, "/tmp/global/packs/team/cmux.pack.json")
+    }
+
     func testSurfaceTabBarWorkspaceCommandButtonRoundTrips() throws {
         let original = CmuxSurfaceTabBarButton(
             id: "new-dev",
@@ -1616,6 +1632,11 @@ final class CmuxConfigDecodingTests: XCTestCase {
                   "command": "npm run inline",
                   "icon": { "type": "image", "path": "icons/inline.svg" }
                 },
+                {
+                  "id": "personal.terminal",
+                  "action": "newTerminal",
+                  "icon": { "type": "image", "path": "icons/terminal.svg" }
+                },
                 { "action": "personal.tests" }
               ]
             }
@@ -1641,6 +1662,9 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let inlineButton = try XCTUnwrap(store.surfaceTabBarButtons.first { $0.id == "personal.inline" })
         XCTAssertEqual(inlineButton.actionSourcePath, globalConfigURL.path)
         XCTAssertEqual(inlineButton.iconSourcePath, packURL.path)
+        let builtInButton = try XCTUnwrap(store.surfaceTabBarButtons.first { $0.id == "personal.terminal" })
+        XCTAssertNil(builtInButton.actionSourcePath)
+        XCTAssertEqual(builtInButton.iconSourcePath, packURL.path)
         let actionButton = try XCTUnwrap(store.surfaceTabBarButtons.first { $0.id == "personal.tests" })
         XCTAssertEqual(actionButton.actionSourcePath, globalConfigURL.path)
         XCTAssertEqual(actionButton.iconSourcePath, packURL.path)
