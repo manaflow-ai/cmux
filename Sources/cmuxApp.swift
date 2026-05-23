@@ -7734,7 +7734,7 @@ struct SettingsView: View {
             browserImportHintVariantRaw = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw).rawValue
             didLoadBrowserHistoryForSettings = BrowserHistoryStore.shared.isLoaded
             browserHistoryEntryCount = didLoadBrowserHistoryForSettings ? BrowserHistoryStore.shared.entries.count : 0
-            draftState.browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
+            draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(browserInsecureHTTPAllowlist)
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
@@ -7755,11 +7755,9 @@ struct SettingsView: View {
         .onChange(of: notificationSoundCustomFilePath) { _, _ in
             refreshNotificationCustomSoundStatus()
         }
-        .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
+        .onChange(of: browserInsecureHTTPAllowlist) { _, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
-            if draftState.browserInsecureHTTPAllowlistDraft == oldValue {
-                draftState.browserInsecureHTTPAllowlistDraft = newValue
-            }
+            draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(newValue)
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
             guard BrowserHistoryStore.shared.isLoaded else { return }
@@ -7886,6 +7884,7 @@ struct SettingsView: View {
         browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         draftState.browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
+        draftState.browserInsecureHTTPAllowlistSyncedValue = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationSound = NotificationSoundSettings.defaultValue
         notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
         notificationCustomSoundStatusMessage = nil
@@ -8015,6 +8014,7 @@ struct SettingsView: View {
 
     private func saveBrowserInsecureHTTPAllowlist() {
         browserInsecureHTTPAllowlist = draftState.browserInsecureHTTPAllowlistDraft
+        draftState.browserInsecureHTTPAllowlistSyncedValue = draftState.browserInsecureHTTPAllowlistDraft
     }
 
     private func refreshDetectedImportBrowsers() {
@@ -8790,9 +8790,17 @@ private struct SettingsWindowRootView: View {
 @Observable
 final class SettingsDraftState {
     var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
+    var browserInsecureHTTPAllowlistSyncedValue = BrowserInsecureHTTPSettings.defaultAllowlistText
     var socketPasswordDraft = ""
     var settingsColumnVisibility: NavigationSplitViewVisibility = .all
     var settingsSearchText = ""
+
+    func syncBrowserInsecureHTTPAllowlistFromSavedValue(_ savedValue: String) {
+        if browserInsecureHTTPAllowlistDraft == browserInsecureHTTPAllowlistSyncedValue {
+            browserInsecureHTTPAllowlistDraft = savedValue
+        }
+        browserInsecureHTTPAllowlistSyncedValue = savedValue
+    }
 }
 
 private struct SettingsRootView: View {
