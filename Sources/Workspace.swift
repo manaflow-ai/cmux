@@ -10279,12 +10279,12 @@ final class Workspace: Identifiable, ObservableObject {
             isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
             isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
         )
-        let kindUpdate: String?? = expectedKind.map { .some($0) }
+        let kindUpdate: String?? = .some(expectedKind)
 
         guard let tab = bonsplitController.tab(tabId) else { return }
         guard tab.showsNotificationBadge != shouldShowUnread ||
             tab.isPinned != expectedPinned ||
-            (expectedKind != nil && tab.kind != expectedKind) else {
+            tab.kind != expectedKind else {
             return
         }
 

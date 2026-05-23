@@ -2208,6 +2208,7 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         let tabIds = Set(oldValue.keys).union(newValue.keys)
         for tabId in tabIds {
+            guard oldValue[tabId] != newValue[tabId] else { continue }
             var changedPanelIds = Set<UUID>()
             if let oldPanelId = oldValue[tabId] {
                 changedPanelIds.insert(oldPanelId)
