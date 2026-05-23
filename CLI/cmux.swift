@@ -21164,10 +21164,10 @@ struct CMUXCLI {
         var signals = CodexTranscriptSubagentSignals()
         var currentTurnId: String?
         var currentTurnRelevant = normalizedTurnId == nil
-        // A relay before any scoped record is ambiguous because tail reads can
-        // start mid-turn. Turn-start records make it stale; terminal records
-        // with the requested turn id promote it to a current-turn relay.
-        var sawScopedTurnRecord = false
+        // A relay before any turn marker is ambiguous because tail reads can
+        // start mid-turn. Turn-start records make it stale; terminal records for
+        // unrelated turns leave it unresolved, and a terminal record with the
+        // requested turn id promotes it to a current-turn relay.
         var pendingUnscopedSubagentRelay = false
 
         for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
@@ -21188,8 +21188,7 @@ struct CMUXCLI {
             if objectType == "turn_context",
                let payload = object["payload"] as? [String: Any] {
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                sawScopedTurnRecord = true
-                if normalizedTurnId != nil, currentTurnId == nil, pendingUnscopedSubagentRelay {
+                if normalizedTurnId != nil, pendingUnscopedSubagentRelay {
                     pendingUnscopedSubagentRelay = false
                 }
                 currentTurnId = payloadTurnId
@@ -21203,8 +21202,7 @@ struct CMUXCLI {
                 switch eventType {
                 case "task_started":
                     let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                    sawScopedTurnRecord = true
-                    if normalizedTurnId != nil, currentTurnId == nil, pendingUnscopedSubagentRelay {
+                    if normalizedTurnId != nil, pendingUnscopedSubagentRelay {
                         pendingUnscopedSubagentRelay = false
                     }
                     currentTurnId = payloadTurnId
@@ -21212,12 +21210,11 @@ struct CMUXCLI {
                 case "task_complete", "turn_complete":
                     let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
                     if let payloadTurnId {
-                        sawScopedTurnRecord = true
-                        if normalizedTurnId != nil, currentTurnId == nil, pendingUnscopedSubagentRelay {
+                        if normalizedTurnId != nil, pendingUnscopedSubagentRelay {
                             if payloadTurnId == normalizedTurnId {
                                 signals.hasSubagentNotificationRelay = true
+                                pendingUnscopedSubagentRelay = false
                             }
-                            pendingUnscopedSubagentRelay = false
                         }
                     }
                     if let payloadTurnId {
@@ -21248,7 +21245,10 @@ struct CMUXCLI {
             }
         }
 
-        if normalizedTurnId != nil, pendingUnscopedSubagentRelay, !sawScopedTurnRecord {
+        // If EOF arrives with the relay still pending, no later turn-start boundary
+        // proved it stale. Treat it as current-turn because the parent terminal
+        // record may not have flushed yet or may be outside the transcript tail.
+        if normalizedTurnId != nil, pendingUnscopedSubagentRelay {
             signals.hasSubagentNotificationRelay = true
         }
 

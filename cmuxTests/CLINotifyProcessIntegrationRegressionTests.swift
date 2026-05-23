@@ -2029,6 +2029,87 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexStopWithTurnIdKeepsPendingRelayAcrossUnrelatedTerminalTurn() throws {
+        let context = try makeClaudeHookContext(name: "codex-relay-before-child-terminal")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-relay-before-child-terminal-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-relay-before-child-terminal.jsonl")
+        try [
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":"<subagent_notification>current child finished</subagent_notification>"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"child-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"current-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"top-level"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stopStart = context.state.commands.count
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        XCTAssertFalse(
+            stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "An unrelated child terminal event must not clear a pending current-turn relay before the parent terminal event arrives, saw \(stopCommands)"
+        )
+    }
+
+    func testCodexStopWithTurnIdSuppressesPendingRelayAtEOFAfterUnrelatedTerminalTurn() throws {
+        let context = try makeClaudeHookContext(name: "codex-relay-eof-after-child-terminal")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-relay-eof-after-child-terminal-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-relay-eof-after-child-terminal.jsonl")
+        try [
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":"<subagent_notification>current child finished</subagent_notification>"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"child-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"top-level"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stopStart = context.state.commands.count
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        XCTAssertFalse(
+            stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "EOF after an unrelated child terminal event must not expose the duplicate parent completion notification, saw \(stopCommands)"
+        )
+    }
+
     func testManagedCodexSubagentSessionEndDoesNotClearParentResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "codex-managed-end-resume-guard")
         defer { context.cleanup() }
