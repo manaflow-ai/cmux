@@ -1888,6 +1888,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertFalse(panel.shouldRenderWebView)
         XCTAssertEqual(panel.currentURL, url)
         XCTAssertFalse(panel.isShowingNewTabPage)
+        XCTAssertEqual(panel.webViewLifecycleState, .deferredURL)
     }
 
     func testBrowserPanelThemeModeUpdatesWebViewAppearance() {

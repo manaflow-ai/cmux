@@ -2296,6 +2296,7 @@ private enum BrowserInsecureHTTPNavigationIntent {
 
 nonisolated enum BrowserWebViewLifecycleState: String {
     case newTab = "new_tab"
+    case deferredURL = "deferred_url"
     case liveVisible = "live_visible"
     case liveHidden = "live_hidden"
     case discarded
@@ -3008,7 +3009,7 @@ final class BrowserPanel: Panel, ObservableObject {
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
             nextState = .discarded
         } else if !shouldRenderWebView {
-            nextState = .newTab
+            nextState = preferredURLStringForOmnibar() == nil ? .newTab : .deferredURL
         } else if isWebViewVisibleInUI {
             nextState = .liveVisible
         } else {
