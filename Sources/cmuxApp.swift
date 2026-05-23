@@ -853,9 +853,12 @@ struct cmuxApp: App {
     private func updateSocketController() {
         let mode = SocketControlSettings.effectiveMode(userMode: currentSocketMode)
         if mode != .off {
+            let socketPath = TerminalController.shared.activeSocketPath(
+                preferredPath: SocketControlSettings.socketPath()
+            )
             TerminalController.shared.start(
                 tabManager: activeTabManager,
-                socketPath: SocketControlSettings.socketPath(),
+                socketPath: socketPath,
                 accessMode: mode
             )
         } else {
@@ -1190,6 +1193,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.aboutTitlebarDebug",
     "cmux.debugWindowControls",
     "cmux.browserImportHintDebug",
+    "cmux.extensionSidebarInspector",
     "cmux.sidebarDebug",
     "cmux.menubarDebug",
     "cmux.backgroundDebug",
@@ -5235,6 +5239,8 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(TerminalCopyOnSelectSettings.copyOnSelectKey)
+    private var terminalCopyOnSelect = TerminalCopyOnSelectSettings.defaultCopyOnSelect
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -5425,6 +5431,17 @@ struct SettingsView: View {
                 guard showTerminalScrollBar != newValue else { return }
                 showTerminalScrollBar = newValue
                 TerminalScrollBarSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var terminalCopyOnSelectBinding: Binding<Bool> {
+        Binding(
+            get: { terminalCopyOnSelect },
+            set: { newValue in
+                guard terminalCopyOnSelect != newValue else { return }
+                terminalCopyOnSelect = newValue
+                TerminalCopyOnSelectSettings.notifyDidChange()
             }
         )
     }
@@ -6578,6 +6595,24 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.copyOnSelect"),
+                            String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),
+                            subtitle: terminalCopyOnSelect
+                                ? String(localized: "settings.terminal.copyOnSelect.subtitleOn", defaultValue: "Selected terminal text is copied to the system clipboard when the selection is committed.")
+                                : String(localized: "settings.terminal.copyOnSelect.subtitleOff", defaultValue: "Terminal selections do not replace the system clipboard. Use Cmd+C to copy manually.")
+                        ) {
+                            Toggle("", isOn: terminalCopyOnSelectBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection")
                                 )
                         }
 
@@ -7814,6 +7849,11 @@ struct SettingsView: View {
         showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
+        }
+        let previousTerminalCopyOnSelect = terminalCopyOnSelect
+        terminalCopyOnSelect = TerminalCopyOnSelectSettings.defaultCopyOnSelect
+        if previousTerminalCopyOnSelect != terminalCopyOnSelect {
+            TerminalCopyOnSelectSettings.notifyDidChange()
         }
         fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
         let previousAutoResumeAgentSessions = autoResumeAgentSessions

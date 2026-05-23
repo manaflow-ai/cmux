@@ -554,6 +554,9 @@
         "app": {
           "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
           "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。"
+        },
+        "terminal": {
+          "copyOnSelect": "選択が確定したとき、ダブルクリックやトリプルクリックによる単語・行の選択を含め、選択したターミナルテキストをシステムクリップボードへコピーします。"
         }
       }
     },
