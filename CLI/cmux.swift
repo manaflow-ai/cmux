@@ -1008,7 +1008,7 @@ private final class ClaudeHookSessionStore {
             record.lastSubtitle = nil
             record.lastBody = nil
             record.lastNotificationStatus = nil
-            record.runtimeStatus = nil
+            record.runtimeStatus = .running
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -20416,6 +20416,9 @@ struct CMUXCLI {
             "claude code needs your attention",
             "claude code needs your input",
             "claude code needs your permission",
+            "needs your attention",
+            "needs your input",
+            "needs your permission",
             "permission needed",
             "waiting for input",
         ]

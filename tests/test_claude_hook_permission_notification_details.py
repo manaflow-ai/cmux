@@ -165,12 +165,21 @@ def main() -> int:
 
     with CapturingSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
         env = os.environ.copy()
+        state_path = os.path.join(server.root.name, "state.json")
         env["CMUX_SOCKET_PATH"] = server.socket_path
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = surface_id
-        env["CMUX_CLAUDE_HOOK_STATE_PATH"] = os.path.join(server.root.name, "state.json")
+        env["CMUX_CLAUDE_HOOK_STATE_PATH"] = state_path
         env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        def session_record(session_id: str) -> dict[str, object]:
+            with open(state_path, "r", encoding="utf-8") as state_file:
+                state = json.load(state_file)
+            record = state.get("sessions", {}).get(session_id)
+            if not isinstance(record, dict):
+                raise AssertionError(f"missing session record for {session_id}")
+            return record
 
         cases = [
             {
@@ -340,7 +349,7 @@ def main() -> int:
                         ],
                     },
                 },
-                "notification_message": "Claude needs your input",
+                "notification_message": "needs your input",
                 "expected": "Claude Code|Question|Which notification style should cmux use? [Detailed] [Compact]",
             },
             {
@@ -609,6 +618,15 @@ def main() -> int:
             print(f"stderr={pre_tool_use_proc.stderr!r}")
             print(f"commands={server.commands!r}")
             return 1
+        try:
+            direct_record = session_record(direct_stale_session_id)
+        except Exception as exc:
+            print(f"FAIL: direct pending summary state missing after pre-tool-use: {exc}")
+            return 1
+        if direct_record.get("runtimeStatus") != "running":
+            print("FAIL: pre-tool-use should restore pending runtime status to running")
+            print(f"record={direct_record!r}")
+            return 1
         before_count = len([line for line in server.commands if line.startswith("notify_target_async ")])
         direct_stale_followup = {
             "session_id": direct_stale_session_id,
@@ -664,6 +682,15 @@ def main() -> int:
             print(f"stdout={stale_feed_proc.stdout!r}")
             print(f"stderr={stale_feed_proc.stderr!r}")
             print(f"commands={server.commands!r}")
+            return 1
+        try:
+            stale_record = session_record(stale_session_id)
+        except Exception as exc:
+            print(f"FAIL: resolved pending summary state missing: {exc}")
+            return 1
+        if stale_record.get("runtimeStatus") != "running":
+            print("FAIL: resolved pending summary should restore runtime status to running")
+            print(f"record={stale_record!r}")
             return 1
         before_count = len([line for line in server.commands if line.startswith("notify_target_async ")])
         stale_notification = {
