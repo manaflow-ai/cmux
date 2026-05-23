@@ -315,6 +315,7 @@ extension TerminalController {
         // default; preview remains one click away in the panel toolbar.
         let openInTextMode = true
         let notePath = noteResult.path
+        let canonicalNotePath = (notePath as NSString).standardizingPath
         let note = noteResult.note
         let hasRequestedAttachment = resolvedAttachment.map { target in
             note.attachments.contains(where: { $0.matches(target) })
@@ -341,10 +342,9 @@ extension TerminalController {
             // Reuse an existing markdown panel that already shows this note,
             // so repeated `cmux note open <slug>` focuses rather than spawns
             // duplicates. Mirrors openOrFocusMarkdownSurface semantics.
-            let canonical = (notePath as NSString).resolvingSymlinksInPath
             for (existingId, existingPanel) in ws.panels {
                 guard let md = existingPanel as? MarkdownPanel else { continue }
-                if (md.filePath as NSString).resolvingSymlinksInPath == canonical {
+                if (md.filePath as NSString).standardizingPath == canonicalNotePath {
                     md.markAsProjectNote(
                         slug: note.slug,
                         id: note.id,
