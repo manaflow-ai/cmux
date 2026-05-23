@@ -109,6 +109,70 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalCopyOnSelectSettings {
+    static let copyOnSelectKey = "terminal.copyOnSelect"
+    static let defaultCopyOnSelect = false
+    static let didChangeNotification = Notification.Name("cmux.terminalCopyOnSelectSettingsDidChange")
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        storedValue(defaults: defaults) ?? defaultCopyOnSelect
+    }
+
+    static func storedValue(defaults: UserDefaults = .standard) -> Bool? {
+        defaults.object(forKey: copyOnSelectKey) as? Bool
+    }
+
+    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard) -> String? {
+        guard let enabled = storedValue(defaults: defaults) else { return nil }
+        return enabled ? "clipboard" : "false"
+    }
+
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
+        guard let value = ghosttyCopyOnSelectValue(defaults: defaults) else { return nil }
+        return "copy-on-select = \(value)"
+    }
+
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.set(enabled, forKey: copyOnSelectKey)
+        if wasEnabled != enabled {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.removeObject(forKey: copyOnSelectKey)
+        let didChange = wasEnabled != isEnabled(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+enum TerminalManagedGhosttySettings {
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
+        let lines = [
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+        ].compactMap { $0 }
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n")
+    }
+}
+
 enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
     static let defaultAutoResumeAgentSessions = true
