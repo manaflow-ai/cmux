@@ -206,7 +206,7 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
 }
 
 final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
-    func testFrozenContextMenuPresentationDoesNotSuppressLiveNotificationState() {
+    func testFrozenContextMenuPresentationStabilizesNotificationState() {
         let tabId = UUID()
         let frozen = SidebarTabItemPresentationSnapshot(
             tabId: tabId,
@@ -226,8 +226,8 @@ final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
             frozen: frozen
         )
 
-        XCTAssertEqual(resolved.unreadCount, 1)
-        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertEqual(resolved.unreadCount, 0)
+        XCTAssertNil(resolved.latestNotificationText)
         XCTAssertTrue(resolved.showsModifierShortcutHints)
     }
 
@@ -273,6 +273,40 @@ final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
 }
 
 final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
+    func testContextMenuTrackingBeginMarksMenuVisibleBeforeSwiftUIContentAppears() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.contextMenuTrackingDidBegin()
+
+        XCTAssertTrue(
+            state.contextMenuVisible,
+            "AppKit menu tracking begins before SwiftUI context-menu content can appear, so workspace row updates must already be deferred."
+        )
+    }
+
+    func testContextMenuTrackingEndClearsMenuVisibilityWhenSwiftUIDisappearIsSkipped() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.contextMenuDidAppear()
+        state.contextMenuTrackingDidBegin()
+        state.contextMenuTrackingDidEnd()
+
+        XCTAssertFalse(
+            state.contextMenuVisible,
+            "AppKit menu tracking ending is the authoritative close signal when SwiftUI skips context-menu onDisappear."
+        )
+    }
+
+    func testSwiftUIOnlyContextMenuLifecycleStillMarksMenuVisible() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.contextMenuDidAppear()
+        XCTAssertTrue(state.contextMenuVisible)
+
+        state.contextMenuDidDisappear()
+        XCTAssertFalse(state.contextMenuVisible)
+    }
+
     func testHoverRevealIsIndependentFromStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()
 
