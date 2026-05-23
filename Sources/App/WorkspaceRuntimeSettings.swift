@@ -109,6 +109,23 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalSmoothScrollingSettings {
+    static let enabledKey = "terminal.smoothScrolling"
+    static let defaultEnabled = true
+    static let didChangeNotification = Notification.Name("cmux.terminalSmoothScrollingSettingsDidChange")
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
     static let defaultAutoResumeAgentSessions = true

@@ -367,6 +367,20 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "terminalSmoothScrolling",
+                settingsKey: "terminal.smoothScrolling",
+                title: {
+                    String(localized: "settings.terminal.smoothScrolling", defaultValue: "Smooth Terminal Scrolling")
+                },
+                sectionTitle: terminal,
+                keywords: ["terminal.smoothScrolling", "terminal", "smooth", "scroll", "scrollback", "trackpad"],
+                defaultValue: TerminalSmoothScrollingSettings.defaultEnabled,
+                defaultsKey: TerminalSmoothScrollingSettings.enabledKey,
+                didSet: { _, _, notificationCenter in
+                    TerminalSmoothScrollingSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "autoResumeAgentSessions",
                 settingsKey: "terminal.autoResumeAgentSessions",
                 title: {

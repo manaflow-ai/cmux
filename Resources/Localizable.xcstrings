@@ -79275,6 +79275,23 @@
             }
         }
     },
+    "settings.search.alias.setting.terminal.smooth-scrolling": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "terminal.smoothScrolling smooth scroll scrolling pixel precise trackpad magic mouse scrollback"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "terminal.smoothScrolling smooth scroll scrolling pixel precise trackpad magic mouse scrollback ターミナル スムーズ スクロール トラックパッド"
+                }
+            }
+        }
+    },
     "settings.search.alias.setting.sidebarAppearance.match-terminal": {
         "extractionState": "manual",
         "localizations": {
@@ -109773,6 +109790,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "シェルのスクロールバックでは右端のターミナルスクロールバーを表示します。cmux は代替画面系の TUI では自動的に隠し、ワークスペースごとにも無効化できます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.smoothScrolling": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smooth Terminal Scrolling"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのスムーズスクロール"
+          }
+        }
+      }
+    },
+    "settings.terminal.smoothScrolling.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses Ghostty's row-based scrollback handling for terminal wheel gestures."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのホイールジェスチャには Ghostty の行単位スクロールバック処理を使います。"
+          }
+        }
+      }
+    },
+    "settings.terminal.smoothScrolling.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses pixel-precise scrollback for trackpads and Magic Mouse gestures. Mouse-reporting terminal apps keep their own wheel handling."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トラックパッドと Magic Mouse のジェスチャではピクセル単位のスクロールバックを使います。マウス入力を扱うターミナルアプリは独自のホイール処理を維持します。"
           }
         }
       }

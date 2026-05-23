@@ -319,6 +319,11 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "smoothScrolling": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use pixel-precise shell scrollback for trackpads and Magic Mouse gestures. Mouse-reporting terminal apps keep Ghostty's direct wheel handling."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,

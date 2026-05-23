@@ -496,6 +496,12 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
 
+        if let value = jsonBool(section["smoothScrolling"]) {
+            snapshot.managedUserDefaults[TerminalSmoothScrollingSettings.enabledKey] = .bool(value)
+        } else if section.keys.contains("smoothScrolling") {
+            logInvalid("terminal.smoothScrolling", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["autoResumeAgentSessions"]) {
             snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
         } else if section.keys.contains("autoResumeAgentSessions") {
@@ -1315,6 +1321,10 @@ final class CmuxSettingsFileStore {
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == TerminalSmoothScrollingSettings.enabledKey {
+                    TerminalSmoothScrollingSettings.notifyDidChange(notificationCenter: notificationCenter)
                 }
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
