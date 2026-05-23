@@ -430,7 +430,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @StateObject private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
+    @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
@@ -1016,8 +1016,8 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshBrowserChromeStyle()
         }
-        .onReceive(omnibarSuggestionRefreshScheduler.refreshPublisher) { _ in
-            refreshSuggestions()
+        .task {
+            await consumeScheduledOmnibarSuggestionRefreshes()
         }
     }
 
@@ -2098,13 +2098,24 @@ struct BrowserPanelView: View {
     }
 
     private func hideSuggestions() {
+        cancelPendingOmnibarSuggestionWork()
+        let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated([]))
+        applyOmnibarEffects(effects)
+        inlineCompletion = nil
+    }
+
+    @MainActor
+    private func consumeScheduledOmnibarSuggestionRefreshes() async {
+        for await _ in omnibarSuggestionRefreshScheduler.refreshStream {
+            refreshSuggestions()
+        }
+    }
+
+    private func cancelPendingOmnibarSuggestionWork() {
         omnibarSuggestionRefreshScheduler.cancelPendingRefresh()
         suggestionTask?.cancel()
         suggestionTask = nil
-        let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated([]))
-        applyOmnibarEffects(effects)
         isLoadingRemoteSuggestions = false
-        inlineCompletion = nil
     }
 
     private func commitSelectedSuggestion() {
@@ -2463,7 +2474,7 @@ struct BrowserPanelView: View {
 
     private func applyOmnibarEffects(_ effects: OmnibarEffects) {
         if effects.shouldCancelPendingSuggestionRefresh {
-            omnibarSuggestionRefreshScheduler.cancelPendingRefresh()
+            cancelPendingOmnibarSuggestionWork()
         }
         if effects.shouldClearInlineCompletion {
             inlineCompletion = nil

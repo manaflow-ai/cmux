@@ -1,6 +1,6 @@
 import AppKit
-import Combine
 import Foundation
+import Observation
 
 struct BrowserOpenTabSuggestionSnapshot: Equatable {
     let workspaceId: UUID
@@ -151,48 +151,40 @@ final class BrowserOpenTabSuggestionIndex {
     }
 }
 
-private final class OmnibarSuggestionRefreshGeneration {
-    private let lock = NSLock()
-    private var value: UInt64 = 0
+@MainActor
+@Observable
+final class OmnibarSuggestionRefreshScheduler {
+    @ObservationIgnored var refreshStream: AsyncStream<Void>
 
-    func next() -> UInt64 {
-        lock.lock()
-        defer { lock.unlock() }
-        value &+= 1
-        return value
-    }
+    @ObservationIgnored private var refreshContinuation: AsyncStream<Void>.Continuation
+    @ObservationIgnored private var debounceDelay: Duration
+    @ObservationIgnored private var pendingRefreshTask: Task<Void, Never>?
 
-    func isCurrent(_ generation: UInt64) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return value == generation
-    }
-}
-
-final class OmnibarSuggestionRefreshScheduler: ObservableObject {
-    let refreshPublisher: AnyPublisher<Void, Never>
-
-    private let refreshSubject: PassthroughSubject<UInt64, Never>
-    private let refreshGeneration: OmnibarSuggestionRefreshGeneration
-
-    init(debounceDelay: RunLoop.SchedulerTimeType.Stride = .milliseconds(80)) {
-        let subject = PassthroughSubject<UInt64, Never>()
-        let generation = OmnibarSuggestionRefreshGeneration()
-        refreshSubject = subject
-        refreshGeneration = generation
-        refreshPublisher = subject
-            .debounce(for: debounceDelay, scheduler: RunLoop.main)
-            .filter { generation.isCurrent($0) }
-            .map { _ in () }
-            .eraseToAnyPublisher()
+    init(debounceDelay: Duration = .milliseconds(80)) {
+        self.debounceDelay = debounceDelay
+        let refreshPipe = AsyncStream<Void>.makeStream()
+        refreshStream = refreshPipe.stream
+        refreshContinuation = refreshPipe.continuation
     }
 
     func scheduleRefresh() {
-        refreshSubject.send(refreshGeneration.next())
+        pendingRefreshTask?.cancel()
+        let debounceDelay = debounceDelay
+        pendingRefreshTask = Task { @MainActor [weak self, debounceDelay] in
+            do {
+                try await Task.sleep(for: debounceDelay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            pendingRefreshTask = nil
+            refreshContinuation.yield(())
+        }
     }
 
     func cancelPendingRefresh() {
-        _ = refreshGeneration.next()
+        pendingRefreshTask?.cancel()
+        pendingRefreshTask = nil
     }
 }
 

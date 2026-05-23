@@ -1,5 +1,4 @@
 import XCTest
-import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,22 +7,16 @@ import Combine
 #endif
 
 final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
-    private var cancellables: Set<AnyCancellable> = []
-
-    override func tearDown() {
-        cancellables.removeAll()
-        super.tearDown()
-    }
-
-    func testSuggestionRefreshSchedulerCoalescesTypingBurst() {
+    @MainActor
+    func testSuggestionRefreshSchedulerCoalescesTypingBurst() async {
         let scheduler = OmnibarSuggestionRefreshScheduler(debounceDelay: .milliseconds(40))
         let firstRefresh = expectation(description: "first debounced refresh emitted")
         let noExtraRefresh = expectation(description: "no extra refresh emitted")
         noExtraRefresh.isInverted = true
         var refreshCount = 0
 
-        scheduler.refreshPublisher
-            .sink {
+        let listener = Task { @MainActor in
+            for await _ in scheduler.refreshStream {
                 refreshCount += 1
                 if refreshCount == 1 {
                     firstRefresh.fulfill()
@@ -31,13 +24,14 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
                     noExtraRefresh.fulfill()
                 }
             }
-            .store(in: &cancellables)
+        }
 
         for _ in 0..<20 {
             scheduler.scheduleRefresh()
         }
 
-        wait(for: [firstRefresh, noExtraRefresh], timeout: 0.3)
+        await fulfillment(of: [firstRefresh, noExtraRefresh], timeout: 0.3)
+        listener.cancel()
 
         XCTAssertEqual(
             refreshCount,
@@ -46,23 +40,25 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         )
     }
 
-    func testSuggestionRefreshSchedulerCancelsPendingRefresh() {
+    @MainActor
+    func testSuggestionRefreshSchedulerCancelsPendingRefresh() async {
         let scheduler = OmnibarSuggestionRefreshScheduler(debounceDelay: .milliseconds(40))
         let noRefresh = expectation(description: "no refresh after cancellation")
         noRefresh.isInverted = true
         var refreshCount = 0
 
-        scheduler.refreshPublisher
-            .sink {
+        let listener = Task { @MainActor in
+            for await _ in scheduler.refreshStream {
                 refreshCount += 1
                 noRefresh.fulfill()
             }
-            .store(in: &cancellables)
+        }
 
         scheduler.scheduleRefresh()
         scheduler.cancelPendingRefresh()
 
-        wait(for: [noRefresh], timeout: 0.2)
+        await fulfillment(of: [noRefresh], timeout: 0.2)
+        listener.cancel()
 
         XCTAssertEqual(refreshCount, 0)
     }
