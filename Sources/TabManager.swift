@@ -1319,6 +1319,7 @@ class TabManager: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { [weak self] in
                 self?.sidebarGitMetadataWatchSettingsDidChange()
+                self?.refreshTabCloseButtonVisibility()
             }
         })
 #if DEBUG
@@ -5834,7 +5835,7 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true) {
+        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true, source: .shortcut) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
                 title: prompt.title,
@@ -5886,6 +5887,17 @@ class TabManager: ObservableObject {
             return true
         }
         closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
+        return true
+    }
+
+    @discardableResult
+    func closeWorkspaceFromTabCloseButton(_ workspace: Workspace) -> Bool {
+        if workspace.isPinned {
+            guard confirmPinnedWorkspaceClose(source: .tabCloseButton) else { return false }
+            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            return true
+        }
+        closeWorkspaceIfRunningProcess(workspace, source: .tabCloseButton)
         return true
     }
 
@@ -6051,6 +6063,7 @@ class TabManager: ObservableObject {
     private enum CloseConfirmationSource {
         case workspace
         case tabClose
+        case tabCloseButton
     }
 
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
@@ -6169,7 +6182,15 @@ class TabManager: ObservableObject {
         case .workspace:
             return requiresConfirmation
         case .tabClose:
-            return CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation)
+            return CloseTabConfirmationPolicy.shouldConfirm(
+                requiresConfirmation: requiresConfirmation,
+                source: .shortcut
+            )
+        case .tabCloseButton:
+            return CloseTabConfirmationPolicy.shouldConfirm(
+                requiresConfirmation: requiresConfirmation,
+                source: .tabCloseButton
+            )
         }
     }
 
@@ -6279,7 +6300,10 @@ class TabManager: ObservableObject {
             requiresConfirmation = false
         }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation) {
+        if CloseTabConfirmationPolicy.shouldConfirm(
+            requiresConfirmation: requiresConfirmation,
+            source: .shortcut
+        ) {
             guard confirmClose(
                 title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                 message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
@@ -7206,6 +7230,12 @@ class TabManager: ObservableObject {
     func refreshSplitButtonTooltips() {
         for workspace in tabs {
             workspace.refreshSplitButtonTooltips()
+        }
+    }
+
+    func refreshTabCloseButtonVisibility() {
+        for workspace in tabs {
+            workspace.refreshTabCloseButtonVisibility()
         }
     }
 
