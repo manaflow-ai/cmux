@@ -101,6 +101,25 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         XCTAssertFalse(effects.shouldClearInlineCompletion)
     }
 
+    func testOmnibarEscapeCancelsPendingSuggestionRefresh() {
+        var state = OmnibarState(
+            isFocused: true,
+            currentURLString: "",
+            buffer: "go",
+            suggestions: [],
+            selectedSuggestionIndex: 0,
+            selectedSuggestionID: nil,
+            isUserEditing: true
+        )
+
+        let effects = omnibarReduce(state: &state, event: .escape)
+
+        XCTAssertTrue(effects.shouldSelectAll)
+        XCTAssertTrue(effects.shouldCancelPendingSuggestionRefresh)
+        XCTAssertEqual(state.buffer, "")
+        XCTAssertFalse(state.isUserEditing)
+    }
+
     func testOpenTabSuggestionSeedSnapshotsAreEvaluatedOnlyOnce() {
         let workspaceId = UUID()
         let panelId = UUID()

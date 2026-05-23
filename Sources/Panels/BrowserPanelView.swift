@@ -2462,6 +2462,9 @@ struct BrowserPanelView: View {
     }
 
     private func applyOmnibarEffects(_ effects: OmnibarEffects) {
+        if effects.shouldCancelPendingSuggestionRefresh {
+            omnibarSuggestionRefreshScheduler.cancelPendingRefresh()
+        }
         if effects.shouldClearInlineCompletion {
             inlineCompletion = nil
         }
@@ -3264,6 +3267,7 @@ struct OmnibarEffects: Equatable {
     var shouldBlurToWebView: Bool = false
     var shouldRefreshSuggestions: Bool = false
     var shouldClearInlineCompletion: Bool = false
+    var shouldCancelPendingSuggestionRefresh: Bool = false
 }
 
 @discardableResult
@@ -3280,6 +3284,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
         effects.shouldSelectAll = shouldSelectAll
+        effects.shouldCancelPendingSuggestionRefresh = true
 
     case .focusReasserted(let shouldSelectAll):
         state.isFocused = true
@@ -3293,6 +3298,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        effects.shouldCancelPendingSuggestionRefresh = true
 
     case .focusLostPreserveBuffer(let url):
         state.isFocused = false
@@ -3301,6 +3307,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        effects.shouldCancelPendingSuggestionRefresh = true
 
     case .panelURLChanged(let url):
         state.currentURLString = url
@@ -3309,6 +3316,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.suggestions = []
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            effects.shouldCancelPendingSuggestionRefresh = true
         }
 
     case .bufferChanged(let newValue):
@@ -3377,6 +3385,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
             effects.shouldSelectAll = true
+            effects.shouldCancelPendingSuggestionRefresh = true
         } else {
             effects.shouldBlurToWebView = true
         }
