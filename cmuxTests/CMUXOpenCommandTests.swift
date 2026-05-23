@@ -1402,8 +1402,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         let marker = "const payload = "
         let start = try XCTUnwrap(html.range(of: marker)?.upperBound)
         let tail = html[start...]
-        let end = try XCTUnwrap(tail.range(of: ";\n            const labels")?.lowerBound)
-        let json = String(tail[..<end])
+        let end = try XCTUnwrap(tail.range(of: "\n            const labels")?.lowerBound)
+        var json = String(tail[..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if json.hasSuffix(";") {
+            json.removeLast()
+        }
         let object = try JSONSerialization.jsonObject(with: Data(json.utf8))
         return try XCTUnwrap(object as? [String: Any])
     }
