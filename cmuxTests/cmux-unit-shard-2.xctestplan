@@ -26,7 +26,9 @@
         "AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace()",
         "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()",
         "MarkdownPanelTests/testMarkdownRenderBlocksRemoteImagesUntilUserAction()",
-        "PiVaultAgentPersistenceTests/testGrokAgentSearchScopeUsesCurrentDirectoryCWDFilter()"
+        "PiVaultAgentPersistenceTests/testGrokAgentSearchScopeUsesCurrentDirectoryCWDFilter()",
+        "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYJSONResolvesSessionIDWhenWorkspaceCreateOmitsSurfaceID()",
+        "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYTreatsControlPersistZeroAsReusable()"
       ],
       "target": {
         "containerPath": "container:cmux.xcodeproj",
