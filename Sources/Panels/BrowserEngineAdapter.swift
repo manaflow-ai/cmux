@@ -144,7 +144,8 @@ extension BrowserEngineCapabilities {
         .contextMenus,
         .filePicker,
         .permissionPrompts,
-        .authPrompts
+        .authPrompts,
+        .profiles
     ])
 }
 
