@@ -3,8 +3,8 @@ import Darwin
 
 extension CMUXCLI {
     static let cmuxThemeOverrideBundleIdentifier = CmuxGhosttyConfigPathResolver.releaseBundleIdentifier
-    static let cmuxThemesBlockStart = "# cmux themes start"
-    static let cmuxThemesBlockEnd = "# cmux themes end"
+    static let cmuxThemesBlockStart = CmuxGhosttyConfigPathResolver.cmuxThemesBlockStart
+    static let cmuxThemesBlockEnd = CmuxGhosttyConfigPathResolver.cmuxThemesBlockEnd
     static let cmuxThemesReloadNotificationName = "com.cmuxterm.themes.reload-config"
 
     struct ThemeSelection {
@@ -44,7 +44,7 @@ extension CMUXCLI {
             throw CLIError(message: "Bundled Ghostty theme picker helper not found")
         }
 
-        try removeStaleReleaseManagedThemeOverrideIfNeeded()
+        try removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: targetBundleIdentifier)
         let selection = currentThemeSelection(targetBundleIdentifier: targetBundleIdentifier)
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_THEME_PICKER_CONFIG"] = try cmuxThemeOverrideConfigURL(
@@ -238,6 +238,7 @@ extension CMUXCLI {
         explicitPassword: String?
     ) throws {
         let targetBundleIdentifier = themeTargetBundleIdentifier(socketPath: socketPath)
+        try removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: targetBundleIdentifier)
         if commandArgs.isEmpty {
             if shouldUseInteractiveThemePicker(jsonOutput: jsonOutput) {
                 try runInteractiveThemes(
@@ -377,6 +378,7 @@ extension CMUXCLI {
         }
 
         let availableThemes = availableThemeNames()
+        try removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: targetBundleIdentifier)
         let current = currentThemeSelection(targetBundleIdentifier: targetBundleIdentifier)
 
         let lightTheme: String?

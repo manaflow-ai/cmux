@@ -266,6 +266,59 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
+    func testCmuxAppSupportConfigURLsStripStaleReleaseManagedThemeForNightlyFallback() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: """
+                font-size = 13
+
+                # cmux themes start
+                theme = light:Old Stable Light,dark:Old Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [releaseConfigURL]
+            )
+
+            let releaseContents = try String(contentsOf: releaseConfigURL, encoding: .utf8)
+            XCTAssertEqual(releaseContents, "font-size = 13\n")
+        }
+    }
+
+    func testCmuxAppSupportConfigURLsDeleteReleaseOnlyManagedThemeForNightlyFallback() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: """
+                # cmux themes start
+                theme = light:Old Stable Light,dark:Old Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+
+            XCTAssertTrue(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                    appSupportDirectory: appSupportDirectory
+                ).isEmpty
+            )
+            XCTAssertFalse(FileManager.default.fileExists(atPath: releaseConfigURL.path))
+        }
+    }
+
     func testCmuxAppSupportConfigURLsUseStagingConfigWhenPresent() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(

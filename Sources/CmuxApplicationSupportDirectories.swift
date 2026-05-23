@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 enum CmuxApplicationSupportDirectories {
@@ -39,6 +40,8 @@ enum CmuxApplicationSupportDirectories {
 
 enum CmuxGhosttyConfigPathResolver {
     static let releaseBundleIdentifier = "com.cmuxterm.app"
+    static let cmuxThemesBlockStart = "# cmux themes start"
+    static let cmuxThemesBlockEnd = "# cmux themes end"
     private static let releaseFallbackChannelSuffixes = ["debug", "nightly", "staging"]
 
     static func editableConfigURL(
@@ -81,6 +84,12 @@ enum CmuxGhosttyConfigPathResolver {
                 fileManager: fileManager
             )
         }
+
+        try? removeStaleReleaseManagedThemeOverrideIfNeeded(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        )
 
         let currentURLs = preferredExistingConfigURLs(
             for: currentBundleIdentifier,
@@ -158,6 +167,83 @@ enum CmuxGhosttyConfigPathResolver {
             return false
         }
         return size.intValue > 0
+    }
+
+    @discardableResult
+    static func removeStaleReleaseManagedThemeOverrideIfNeeded(
+        currentBundleIdentifier: String?,
+        appSupportDirectory: URL,
+        fileManager: FileManager = .default
+    ) throws -> Bool {
+        guard let currentBundleIdentifier = currentBundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+              shouldRemoveReleaseManagedThemeOverride(for: currentBundleIdentifier) else {
+            return false
+        }
+
+        let releaseConfigURL = editableConfigURL(
+            currentBundleIdentifier: releaseBundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        )
+        guard let existingContents = try readOptionalConfigContents(at: releaseConfigURL) else {
+            return false
+        }
+
+        let strippedContents = removingManagedThemeOverride(from: existingContents)
+        guard strippedContents != existingContents else {
+            return false
+        }
+
+        let normalizedContents = strippedContents.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedContents.isEmpty {
+            do {
+                try fileManager.removeItem(at: releaseConfigURL)
+            } catch {
+                guard !isConfigFileNotFoundError(error) else {
+                    return true
+                }
+                throw error
+            }
+        } else {
+            try normalizedContents.appending("\n").write(to: releaseConfigURL, atomically: true, encoding: .utf8)
+        }
+        return true
+    }
+
+    static func removingManagedThemeOverride(from contents: String) -> String {
+        let start = NSRegularExpression.escapedPattern(for: cmuxThemesBlockStart)
+        let end = NSRegularExpression.escapedPattern(for: cmuxThemesBlockEnd)
+        let pattern = "(?ms)\\n?\(start)\\n.*?\\n\(end)\\n?"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return contents
+        }
+        let fullRange = NSRange(contents.startIndex..<contents.endIndex, in: contents)
+        return regex.stringByReplacingMatches(in: contents, options: [], range: fullRange, withTemplate: "")
+    }
+
+    private static func readOptionalConfigContents(at url: URL) throws -> String? {
+        do {
+            return try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            guard isConfigFileNotFoundError(error) else {
+                throw error
+            }
+            return nil
+        }
+    }
+
+    private static func isConfigFileNotFoundError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain {
+            return nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError
+        }
+        if nsError.domain == NSPOSIXErrorDomain {
+            return nsError.code == ENOENT
+        }
+        return false
+    }
+
+    private static func shouldRemoveReleaseManagedThemeOverride(for bundleIdentifier: String) -> Bool {
+        bundleIdentifier != releaseBundleIdentifier && allowsReleaseFallback(bundleIdentifier)
     }
 
     private static func allowsReleaseFallback(_ bundleIdentifier: String) -> Bool {
