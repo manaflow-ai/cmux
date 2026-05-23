@@ -2127,6 +2127,7 @@ final class CmuxWebView: WKWebView {
             item.target = self
             menu.insertItem(item, at: min(openLinkInsertionIndex, menu.items.count))
         }
+        appendScreenshotContextMenuItems(to: menu)
         appendMoveTabToNewWorkspaceContextMenuItem(to: menu)
     }
     @objc private func contextMenuOpenLinkInDefaultBrowser(_ sender: Any?) {

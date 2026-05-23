@@ -230,8 +230,22 @@ func handleTitlebarDoubleClick(
 
 private enum WindowDragHandleAssociatedObjectKeys {
     private static let suppressionDepthToken = NSObject()
+    private static let moveSuppressionSequenceToken = NSObject()
 
     static let suppressionDepth = UnsafeRawPointer(Unmanaged.passUnretained(suppressionDepthToken).toOpaque())
+    static let moveSuppressionSequence = UnsafeRawPointer(Unmanaged.passUnretained(moveSuppressionSequenceToken).toOpaque())
+}
+
+// Stored as an NSWindow associated object and touched only from AppKit's
+// main-thread mouse-event dispatch path.
+private final class WindowMoveSuppressionSequenceState: @unchecked Sendable {
+    let reason: WindowMoveSuppressionReason
+    let previousMovableState: Bool
+
+    init(reason: WindowMoveSuppressionReason, previousMovableState: Bool) {
+        self.reason = reason
+        self.previousMovableState = previousMovableState
+    }
 }
 
 func beginWindowDragSuppression(window: NSWindow?) -> Int? {
@@ -282,14 +296,74 @@ func isWindowDragSuppressed(window: NSWindow?) -> Bool {
     windowDragSuppressionDepth(window: window) > 0
 }
 
+func activeWindowMoveSuppressionSequenceReason(window: NSWindow?) -> WindowMoveSuppressionReason? {
+    guard let window,
+          let state = objc_getAssociatedObject(
+            window,
+            WindowDragHandleAssociatedObjectKeys.moveSuppressionSequence
+          ) as? WindowMoveSuppressionSequenceState else {
+        return nil
+    }
+    return state.reason
+}
+
 @discardableResult
-func temporarilyDisableWindowDragging(window: NSWindow?) -> Bool? {
+func beginWindowMoveSuppressionSequence(
+    window: NSWindow?,
+    reason: WindowMoveSuppressionReason
+) -> WindowMoveSuppressionReason? {
     guard let window else { return nil }
+    if let activeReason = activeWindowMoveSuppressionSequenceReason(window: window) {
+        ensureWindowMoveSuppressionSequenceIsImmovable(window: window)
+        return activeReason
+    }
+
     let previousMovableState = window.isMovable
-    if previousMovableState {
+    _ = beginWindowDragSuppression(window: window)
+    if window.isMovable {
         window.isMovable = false
     }
-    return previousMovableState
+    let state = WindowMoveSuppressionSequenceState(
+        reason: reason,
+        previousMovableState: previousMovableState
+    )
+    objc_setAssociatedObject(
+        window,
+        WindowDragHandleAssociatedObjectKeys.moveSuppressionSequence,
+        state,
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    )
+    return reason
+}
+
+func ensureWindowMoveSuppressionSequenceIsImmovable(window: NSWindow?) {
+    guard let window,
+          activeWindowMoveSuppressionSequenceReason(window: window) != nil,
+          window.isMovable else {
+        return
+    }
+    window.isMovable = false
+}
+
+@discardableResult
+func finishWindowMoveSuppressionSequence(window: NSWindow?) -> WindowMoveSuppressionReason? {
+    guard let window,
+          let state = objc_getAssociatedObject(
+            window,
+            WindowDragHandleAssociatedObjectKeys.moveSuppressionSequence
+          ) as? WindowMoveSuppressionSequenceState else {
+        return nil
+    }
+
+    objc_setAssociatedObject(
+        window,
+        WindowDragHandleAssociatedObjectKeys.moveSuppressionSequence,
+        nil,
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    )
+    _ = endWindowDragSuppression(window: window)
+    restoreWindowDragging(window: window, previousMovableState: state.previousMovableState)
+    return state.reason
 }
 
 func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
@@ -303,6 +377,9 @@ func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
 @discardableResult
 func clearWindowDragSuppression(window: NSWindow?) -> Int {
     guard let window else { return 0 }
+    if activeWindowMoveSuppressionSequenceReason(window: window) != nil {
+        _ = finishWindowMoveSuppressionSequence(window: window)
+    }
     var depth = windowDragSuppressionDepth(window: window)
     while depth > 0 {
         depth = endWindowDragSuppression(window: window)
@@ -354,6 +431,61 @@ protocol MinimalModeTitlebarControlHitRegionProviding: AnyObject {
 
 protocol MinimalModeSidebarControlActionHitRegionProviding: MinimalModeTitlebarControlHitRegionProviding {
     func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot?
+}
+
+protocol WorkspaceLayoutTabItemHitRegionProviding: AnyObject {
+    func containsWorkspaceLayoutTabItemHit(localPoint: NSPoint) -> Bool
+}
+
+enum WorkspaceLayoutTabItemHitRegionRegistry {
+    private static let lock = NSLock()
+    private static let registeredViews = NSHashTable<NSView>.weakObjects()
+
+    static func register(_ view: NSView) {
+        lock.lock()
+        registeredViews.add(view)
+        lock.unlock()
+    }
+
+    static func unregister(_ view: NSView) {
+        lock.lock()
+        registeredViews.remove(view)
+        lock.unlock()
+    }
+
+    private static func snapshot() -> [NSView] {
+        lock.lock()
+        let views = registeredViews.allObjects
+        lock.unlock()
+        return views
+    }
+
+    private static func isVisibleInHierarchy(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let candidate = current {
+            guard !candidate.isHidden, candidate.alphaValue > 0 else { return false }
+            current = candidate.superview
+        }
+        return true
+    }
+
+    static func containsWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> Bool {
+        let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
+        for view in snapshot() {
+            guard view.window === window, isVisibleInHierarchy(view) else { continue }
+            let localPoint = view.convert(windowPoint, from: nil)
+            let localBounds = view.bounds.insetBy(dx: -epsilon, dy: -epsilon)
+            guard localBounds.contains(localPoint) else { continue }
+            if let provider = view as? WorkspaceLayoutTabItemHitRegionProviding {
+                if provider.containsWorkspaceLayoutTabItemHit(localPoint: localPoint) {
+                    return true
+                }
+            } else {
+                return true
+            }
+        }
+        return false
+    }
 }
 
 enum MinimalModeTitlebarControlHitRegionRegistry {
@@ -556,6 +688,103 @@ enum MinimalModeSidebarTitlebarControlsMetrics {
     static let hostWidth: CGFloat = 124
     static let hostHeight: CGFloat = 28
     static let singleButtonHostWidth: CGFloat = hostHeight
+
+    static func titlebarControlsOpticalYOffset(backingScaleFactor: CGFloat?) -> CGFloat {
+        let scale = max(1.0, backingScaleFactor ?? 1.0)
+        return 1.0 / scale
+    }
+
+    @MainActor
+    static func titlebarControlsOpticalYOffset(in window: NSWindow?) -> CGFloat {
+        titlebarControlsOpticalYOffset(
+            backingScaleFactor: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor
+        )
+    }
+}
+
+@MainActor
+func minimalModeSidebarTitlebarControlsFrame(
+    in window: NSWindow,
+    defaults: UserDefaults = .standard
+) -> NSRect {
+    let contentView = window.contentView
+    let contentBounds = contentView?.bounds ?? NSRect(
+        x: 0,
+        y: 0,
+        width: window.frame.width,
+        height: window.frame.height
+    )
+    let trafficLightFrameInContent = minimalModeTrafficLightFrameInContentCoordinates(for: window)
+    return minimalModeSidebarTitlebarControlsFrame(
+        contentBounds: contentBounds,
+        contentViewIsFlipped: contentView?.isFlipped ?? false,
+        trafficLightFrameInContent: trafficLightFrameInContent,
+        visualDownwardAdjustment: trafficLightFrameInContent == nil
+            ? 0
+            : MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(in: window),
+        defaults: defaults
+    )
+}
+
+@MainActor
+func minimalModeSidebarTitlebarControlsTopInset(
+    in window: NSWindow,
+    defaults: UserDefaults = .standard
+) -> CGFloat {
+    guard let contentView = window.contentView else {
+        return MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults)
+    }
+    let controlsFrame = minimalModeSidebarTitlebarControlsFrame(in: window, defaults: defaults)
+    if contentView.isFlipped {
+        return controlsFrame.minY - contentView.bounds.minY
+    }
+    return contentView.bounds.maxY - controlsFrame.maxY
+}
+
+func minimalModeSidebarTitlebarControlsFrame(
+    contentBounds: NSRect,
+    contentViewIsFlipped: Bool,
+    trafficLightFrameInContent: NSRect?,
+    visualDownwardAdjustment: CGFloat = 0,
+    defaults: UserDefaults = .standard
+) -> NSRect {
+    let hostHeight = MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+    let targetY: CGFloat
+    if let trafficLightFrameInContent {
+        let centeredY = trafficLightFrameInContent.midY - hostHeight / 2.0
+        targetY = contentViewIsFlipped
+            ? centeredY + visualDownwardAdjustment
+            : centeredY - visualDownwardAdjustment
+    } else {
+        let topInset = MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults)
+        targetY = contentViewIsFlipped
+            ? contentBounds.minY + topInset
+            : max(0, contentBounds.maxY - hostHeight - topInset)
+    }
+    return NSRect(
+        x: MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults),
+        y: targetY,
+        width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+        height: hostHeight
+    )
+}
+
+func minimalModeTrafficLightFrameInContentCoordinates(
+    window: NSWindow,
+    contentView: NSView
+) -> NSRect? {
+    dispatchPrecondition(condition: .onQueue(.main))
+    guard let closeButton = window.standardWindowButton(.closeButton),
+          let closeButtonSuperview = closeButton.superview else {
+        return nil
+    }
+    return closeButtonSuperview.convert(closeButton.frame, to: contentView)
+}
+
+@MainActor
+private func minimalModeTrafficLightFrameInContentCoordinates(for window: NSWindow) -> NSRect? {
+    guard let contentView = window.contentView else { return nil }
+    return minimalModeTrafficLightFrameInContentCoordinates(window: window, contentView: contentView)
 }
 
 enum MinimalModeSidebarControlActionSlot: Int {
@@ -824,6 +1053,19 @@ func windowDragHandleShouldCaptureHit(
     eventWindow: NSWindow? = NSApp.currentEvent?.window
 ) -> Bool {
     let dragHandleWindow = dragHandleView.window
+
+    if let dragHandleWindow,
+       eventType == .leftMouseDown {
+        let windowPoint = dragHandleView.convert(point, to: nil)
+        if WorkspaceLayoutTabItemHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) {
+            #if DEBUG
+            cmuxDebugLog(
+                "titlebar.dragHandle.hitTest capture=false reason=workspaceLayoutPaneTab point=\(windowDragHandleFormatPoint(point))"
+            )
+            #endif
+            return false
+        }
+    }
 
     // Suppression recovery runs first so stale depth is cleared even for
     // passive events — the associated-object reads/writes here are pure ObjC

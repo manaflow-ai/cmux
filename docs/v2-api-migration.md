@@ -72,6 +72,8 @@ Workspaces:
 - [x] select_workspace -> `workspace.select`
 - [x] current_workspace -> `workspace.current`
 - [x] close_workspace -> `workspace.close`
+- [x] reorder-workspace -> `workspace.reorder`
+- [x] reorder-workspaces -> `workspace.reorder_many`
 
 Surfaces / Splits:
 - [x] list_surfaces -> `surface.list`

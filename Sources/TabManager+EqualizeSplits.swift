@@ -1,5 +1,4 @@
 import CMUXLayout
-import CoreGraphics
 import Foundation
 
 extension TabManager {
@@ -16,16 +15,12 @@ extension TabManager {
     }
 
     @discardableResult
-    private func equalizeSplitsOnce(in tab: Workspace) -> EqualizeSplitsResult {
-        var foundSplit = false
-        var allSucceeded = true
-        equalizeSplits(
+    private func equalizeSplitsOnce(in tab: Workspace) -> TerminalController.EqualizeSplitsResult {
+        TerminalController.equalizeSplitsProportionally(
             in: tab.layoutController.treeSnapshot(),
             controller: tab.layoutController,
-            foundSplit: &foundSplit,
-            allSucceeded: &allSucceeded
+            fromExternal: true
         )
-        return EqualizeSplitsResult(foundSplit: foundSplit, allSucceeded: allSucceeded)
     }
 
     private func scheduleEqualizeSplitsFollowUp(tabId: UUID) {
@@ -44,44 +39,4 @@ extension TabManager {
         }
     }
 
-    private func equalizeSplits(
-        in node: ExternalTreeNode,
-        controller: WorkspaceLayoutController,
-        foundSplit: inout Bool,
-        allSucceeded: inout Bool
-    ) {
-        switch node {
-        case .pane:
-            return
-        case .split(let splitNode):
-            foundSplit = true
-            if let splitId = UUID(uuidString: splitNode.id) {
-                if !controller.setDividerPosition(0.5, forSplit: splitId, fromExternal: true) {
-                    allSucceeded = false
-                }
-            } else {
-                allSucceeded = false
-            }
-
-            equalizeSplits(
-                in: splitNode.first,
-                controller: controller,
-                foundSplit: &foundSplit,
-                allSucceeded: &allSucceeded
-            )
-            equalizeSplits(
-                in: splitNode.second,
-                controller: controller,
-                foundSplit: &foundSplit,
-                allSucceeded: &allSucceeded
-            )
-        }
-    }
-
-    private struct EqualizeSplitsResult {
-        let foundSplit: Bool
-        let allSucceeded: Bool
-
-        var didFullyEqualize: Bool { foundSplit && allSucceeded }
-    }
 }

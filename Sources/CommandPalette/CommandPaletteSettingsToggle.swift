@@ -305,14 +305,16 @@ enum CommandPaletteSettingsToggleCommands {
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "warnBeforeQuit",
-                settingsKey: "app.warnBeforeQuit",
+                settingsKey: "app.confirmQuit",
                 title: {
                     String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit")
                 },
                 sectionTitle: app,
-                keywords: ["app.warnBeforeQuit", "warn", "quit", "confirmation", "cmd-q", "exit"],
-                defaultValue: QuitWarningSettings.defaultWarnBeforeQuit,
-                defaultsKey: QuitWarningSettings.warnBeforeQuitKey
+                keywords: ["app.confirmQuit", "app.warnBeforeQuit", "warn", "quit", "confirmation", "cmd-q", "exit"],
+                isOn: { defaults in QuitWarningSettings.isEnabled(defaults: defaults) },
+                setOn: { newValue, defaults, _ in
+                    QuitWarningSettings.setEnabled(newValue, defaults: defaults)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "warnBeforeClosingTab",
@@ -462,6 +464,18 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "watchGitStatusInSidebar",
+                settingsKey: "sidebar.watchGitStatus",
+                title: {
+                    String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar")
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.watchGitStatus", "sidebar", "git", "status", "branch", "watcher", "index", "lock"],
+                defaultValue: SidebarWorkspaceDetailDefaults.watchGitStatus,
+                defaultsKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey,
+                isAvailable: sidebarDetailsAvailable
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "makeSidebarPullRequestsClickable",
                 settingsKey: "sidebar.makePullRequestsClickable",
                 title: {
@@ -590,6 +604,29 @@ enum CommandPaletteSettingsToggleCommands {
                 keywords: ["automation.claudeCodeIntegration", "claude", "code", "hooks", "agent", "integration"],
                 defaultValue: ClaudeCodeIntegrationSettings.defaultHooksEnabled,
                 defaultsKey: ClaudeCodeIntegrationSettings.hooksEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "suppressSubagentNotifications",
+                settingsKey: "automation.suppressSubagentNotifications",
+                title: {
+                    String(
+                        localized: "settings.automation.suppressSubagentNotifications",
+                        defaultValue: "Suppress Subagent Notifications"
+                    )
+                },
+                sectionTitle: automation,
+                keywords: [
+                    "automation.suppressSubagentNotifications",
+                    "subagent",
+                    "nested",
+                    "agent",
+                    "codex",
+                    "claude",
+                    "notifications",
+                    "hooks",
+                ],
+                defaultValue: AgentSubagentNotificationSettings.defaultSuppressNotifications,
+                defaultsKey: AgentSubagentNotificationSettings.suppressNotificationsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "cursorIntegration",

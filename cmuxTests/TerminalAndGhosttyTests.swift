@@ -1843,6 +1843,28 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
     }
 
+    func testLowContrastPanelForegroundFallsBackToReadableColor() {
+        var config = GhosttyConfig()
+        config.backgroundColor = NSColor(hex: "#FFFFFF")!
+        config.backgroundOpacity = 1.0
+        config.foregroundColor = NSColor(hex: "#FFFFFF")!
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+
+        XCTAssertEqual(appearance.foregroundColor.hexString(), "#000000")
+    }
+
+    func testReadablePanelForegroundPreservesThemeColor() {
+        var config = GhosttyConfig()
+        config.backgroundColor = NSColor(hex: "#000000")!
+        config.backgroundOpacity = 1.0
+        config.foregroundColor = NSColor(hex: "#FDF6E3")!
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+
+        XCTAssertEqual(appearance.foregroundColor.hexString(), "#FDF6E3")
+    }
+
     func testGhosttyGlassBackgroundUsesClearContentBackground() {
         var config = GhosttyConfig()
         config.backgroundOpacity = 1.0
