@@ -807,6 +807,71 @@ private extension CMUXMarkdownInlineSpan {
     }
 }
 
+private func cmuxMarkdownInlineTextOffset(for kind: CMUXMarkdownBlockKind) -> Int {
+    switch kind {
+    case .unorderedListItem(let depth, let taskState):
+        let indentLength = max(0, depth) * 2
+        let checkboxLength: Int
+        switch taskState {
+        case .checked, .unchecked:
+            checkboxLength = 4
+        case nil:
+            checkboxLength = 0
+        }
+        return indentLength + 2 + checkboxLength
+    case .orderedListItem(let depth, let number):
+        return max(0, depth) * 2 + "\(number). ".utf16.count
+    case .paragraph, .heading, .codeBlock, .table, .thematicBreak:
+        return 0
+    case .blockQuote(let depth):
+        return cmuxMarkdownBlockQuotePrefixLength(depth: depth)
+    }
+}
+
+private func cmuxMarkdownBlockQuotePrefixLength(depth: Int) -> Int {
+    String(repeating: "> ", count: max(1, depth)).utf16.count
+}
+
+private func cmuxMarkdownRenderedInlineSpans(for block: CMUXMarkdownBlock) -> [CMUXMarkdownInlineSpan] {
+    guard case .blockQuote(let depth) = block.kind else {
+        let offset = cmuxMarkdownInlineTextOffset(for: block.kind)
+        return block.inlineSpans.map { $0.offset(by: offset) }
+    }
+
+    let prefixLength = cmuxMarkdownBlockQuotePrefixLength(depth: depth)
+    let source = block.text as NSString
+    guard source.length > 0 else { return [] }
+
+    var renderedSpans: [CMUXMarkdownInlineSpan] = []
+    var lineLocation = 0
+    var lineIndex = 0
+
+    while lineLocation < source.length {
+        let lineRange = source.lineRange(for: NSRange(location: lineLocation, length: 0))
+        for span in block.inlineSpans {
+            let start = max(span.range.location, lineRange.location)
+            let end = min(span.range.upperBound, lineRange.upperBound)
+            guard end > start else { continue }
+            renderedSpans.append(
+                CMUXMarkdownInlineSpan(
+                    range: NSRange(
+                        location: start + prefixLength * (lineIndex + 1),
+                        length: end - start
+                    ),
+                    styles: span.styles,
+                    linkDestination: span.linkDestination
+                )
+            )
+        }
+        let nextLocation = lineRange.upperBound
+        guard nextLocation > lineLocation else { break }
+        lineLocation = nextLocation
+        lineIndex += 1
+    }
+
+    return renderedSpans
+}
+
 public struct CMUXMarkdownRenderedText {
     public var plainText: String
     public var attributedString: CFAttributedString
@@ -896,11 +961,11 @@ public struct CMUXMarkdownCoreTextRenderer {
                 )
             )
 
-            for span in block.inlineSpans {
+            for span in cmuxMarkdownRenderedInlineSpans(for: block) {
                 apply(
                     span: span,
                     blockKind: block.kind,
-                    blockStart: blockStart + inlineTextOffset(for: block.kind),
+                    blockStart: blockStart,
                     to: output
                 )
             }
@@ -956,25 +1021,6 @@ public struct CMUXMarkdownCoreTextRenderer {
             return (block.text, "\n\n")
         case .thematicBreak:
             return ("------------------------------", "\n\n")
-        }
-    }
-
-    private func inlineTextOffset(for kind: CMUXMarkdownBlockKind) -> Int {
-        switch kind {
-        case .unorderedListItem(let depth, let taskState):
-            let indentLength = max(0, depth) * 2
-            let checkboxLength: Int
-            switch taskState {
-            case .checked, .unchecked:
-                checkboxLength = 4
-            case nil:
-                checkboxLength = 0
-            }
-            return indentLength + 2 + checkboxLength
-        case .orderedListItem(let depth, let number):
-            return max(0, depth) * 2 + "\(number). ".utf16.count
-        case .paragraph, .heading, .blockQuote, .codeBlock, .table, .thematicBreak:
-            return 0
         }
     }
 
@@ -1264,11 +1310,11 @@ public struct CMUXMarkdownAppKitRenderer {
                     attributes: cachedAttributes(for: block.kind)
                 )
             )
-            for span in block.inlineSpans {
+            for span in cmuxMarkdownRenderedInlineSpans(for: block) {
                 apply(
                     span: span,
                     blockKind: block.kind,
-                    blockStart: blockStart + inlineTextOffset(for: block.kind),
+                    blockStart: blockStart,
                     to: output
                 )
             }
@@ -1481,25 +1527,6 @@ public struct CMUXMarkdownAppKitRenderer {
             return (block.text, "\n")
         case .thematicBreak:
             return ("------------------------------", "\n")
-        }
-    }
-
-    private func inlineTextOffset(for kind: CMUXMarkdownBlockKind) -> Int {
-        switch kind {
-        case .unorderedListItem(let depth, let taskState):
-            let indentLength = max(0, depth) * 2
-            let checkboxLength: Int
-            switch taskState {
-            case .checked, .unchecked:
-                checkboxLength = 4
-            case nil:
-                checkboxLength = 0
-            }
-            return indentLength + 2 + checkboxLength
-        case .orderedListItem(let depth, let number):
-            return max(0, depth) * 2 + "\(number). ".utf16.count
-        case .paragraph, .heading, .blockQuote, .codeBlock, .table, .thematicBreak:
-            return 0
         }
     }
 

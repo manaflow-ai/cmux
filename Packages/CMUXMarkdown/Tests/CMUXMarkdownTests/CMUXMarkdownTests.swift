@@ -95,6 +95,24 @@ final class CMUXMarkdownTests: XCTestCase {
         XCTAssertNotNil(attributed.attribute(underlineKey, at: secondFilenameRange.location, effectiveRange: nil))
     }
 
+    func testCoreTextRendererOffsetsBlockQuoteInlineSpansAfterQuoteMarkers() {
+        let rendered = CMUXMarkdownCoreTextRenderer().render("""
+        > **bold**
+        > next **line**
+        """)
+        let attributed = rendered.attributedString as NSAttributedString
+        let text = rendered.plainText as NSString
+        let fontKey = NSAttributedString.Key(kCTFontAttributeName as String)
+        let quoteMarkerRange = text.range(of: "> ")
+        let boldRange = text.range(of: "bold")
+        let lineRange = text.range(of: "line")
+
+        XCTAssertEqual(rendered.plainText, "> bold\n> next line")
+        XCTAssertFalse(Self.isCoreTextBoldFont(attributed.attribute(fontKey, at: quoteMarkerRange.location, effectiveRange: nil)))
+        XCTAssertTrue(Self.isCoreTextBoldFont(attributed.attribute(fontKey, at: boldRange.upperBound - 1, effectiveRange: nil)))
+        XCTAssertTrue(Self.isCoreTextBoldFont(attributed.attribute(fontKey, at: lineRange.upperBound - 1, effectiveRange: nil)))
+    }
+
     func testInlineUnderscoresInsideFilenamesStayLiteral() {
         let markdown = "Fix shell/platformdelegate_mac.mm and keep _real emphasis_ working."
 
@@ -310,6 +328,22 @@ final class CMUXMarkdownTests: XCTestCase {
         XCTAssertNil(rendered.attribute(.underlineStyle, at: secondMarkerRange.location, effectiveRange: nil))
         XCTAssertNotNil(rendered.attribute(.underlineStyle, at: secondFilenameRange.location, effectiveRange: nil))
     }
+
+    func testAppKitRendererOffsetsBlockQuoteInlineSpansAfterQuoteMarkers() {
+        let rendered = CMUXMarkdownAppKitRenderer().render("""
+        > **bold**
+        > next **line**
+        """)
+        let text = rendered.string as NSString
+        let quoteMarkerRange = text.range(of: "> ")
+        let boldRange = text.range(of: "bold")
+        let lineRange = text.range(of: "line")
+
+        XCTAssertEqual(rendered.string, "> bold\n> next line")
+        XCTAssertFalse(Self.isAppKitBoldFont(rendered.attribute(.font, at: quoteMarkerRange.location, effectiveRange: nil) as? NSFont))
+        XCTAssertTrue(Self.isAppKitBoldFont(rendered.attribute(.font, at: boldRange.upperBound - 1, effectiveRange: nil) as? NSFont))
+        XCTAssertTrue(Self.isAppKitBoldFont(rendered.attribute(.font, at: lineRange.upperBound - 1, effectiveRange: nil) as? NSFont))
+    }
     #endif
 
     func testTableParserDoesNotSplitEscapedOrCodeSpanPipes() throws {
@@ -391,4 +425,16 @@ final class CMUXMarkdownTests: XCTestCase {
         XCTAssertEqual(document.blocks.filter { $0.kind == .table }.count, 1_000)
         XCTAssertLessThan(elapsed, 500)
     }
+
+    private static func isCoreTextBoldFont(_ value: Any?) -> Bool {
+        guard let value else { return false }
+        let font = value as! CTFont
+        return CTFontGetSymbolicTraits(font).contains(.boldTrait)
+    }
+
+    #if canImport(AppKit)
+    private static func isAppKitBoldFont(_ font: NSFont?) -> Bool {
+        font?.fontDescriptor.symbolicTraits.contains(.bold) ?? false
+    }
+    #endif
 }
