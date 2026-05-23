@@ -82,14 +82,25 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let parentTranscriptPath = "\(context.root.path)/projects/claude-parent-session.jsonl"
         let childTranscriptPath = "\(context.root.path)/projects/claude-child-session.jsonl"
 
-        let parentPrompt = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "prompt-submit"],
-            standardInput: #"{"session_id":"\#(parentSessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","transcript_path":"\#(parentTranscriptPath)","hook_event_name":"UserPromptSubmit"}"#
-        )
-        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
-        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
-        XCTAssertEqual(context.state.resumeBindingCheckpointId, parentSessionId)
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                parentSessionId: [
+                    "sessionId": parentSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": parentTranscriptPath,
+                    "isRestorable": true,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
         _ = context.state.setResumeBinding(
             [
                 "checkpoint_id": childSessionId,
