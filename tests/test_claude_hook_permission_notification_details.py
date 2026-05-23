@@ -215,6 +215,19 @@ def main() -> int:
                 "expected": "Claude Code|Permission|Bash: Sensitive content removed",
             },
             {
+                "name": "redacted non-bearer authorization",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": os.getcwd(),
+                    "tool_name": "Bash",
+                    "tool_input": {
+                        "command": "curl -H 'Authorization: token ghp_1234567890abcdef1234567890abcdef123456' https://api.github.test/repos",
+                    },
+                },
+                "notification_message": "Claude needs your permission",
+                "expected": "Claude Code|Permission|Bash: Sensitive content removed",
+            },
+            {
                 "name": "nested file permission",
                 "feed_payload": {
                     "hook_event_name": "PermissionRequest",
