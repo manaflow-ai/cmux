@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "Copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada, incluindo seleções de palavras e linhas por clique duplo e triplo."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Primeiro ou único toque do atalho. Deve incluir um modificador, exceto quando a tecla é Space.",
+          "markdownShortcutFirstStroke": "Primeiro ou único toque do atalho da prévia de Markdown. As ações da prévia de Markdown aceitam primeiros toques isolados, como h, j, k, l, / e n, porque são locais ao painel Markdown em foco."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "As ações da prévia de Markdown aceitam primeiros toques isolados, como <j>j</j> e <slash>/</slash>, porque só ficam ativas no painel Markdown em foco."
     },
     "customCommands": {
       "title": "Comandos personalizados",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "Workspaces ficam na barra lateral. Cada workspace tem seu próprio conjunto de painéis e superfícies.",
         "surfaces": "Superfícies",
         "surfacesBlurb": "Superfícies são abas dentro de um painel.",
+        "markdownPreview": "Prévia de Markdown",
+        "markdownPreviewBlurb": "Os atalhos da prévia de Markdown funcionam apenas no painel Markdown em foco, então teclas Vim isoladas não afetam os terminais.",
         "splitPanes": "Painéis Divididos",
         "browser": "Navegador",
         "notifications": "Notificações",

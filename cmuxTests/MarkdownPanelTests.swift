@@ -252,6 +252,491 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(discardedPointerDownCount, 0)
     }
 
+    func testMarkdownPreviewKeyboardShortcutsUseVimDefaults() throws {
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(for: try keyDownEvent("h", keyCode: 4)),
+            .scrollLeft
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(for: try keyDownEvent("j", keyCode: 38)),
+            .scrollDown
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(for: try keyDownEvent("k", keyCode: 40)),
+            .scrollUp
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(for: try keyDownEvent("l", keyCode: 37)),
+            .scrollRight
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("u", keyCode: 32, modifiers: [.control])
+            ),
+            .pageUp
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("d", keyCode: 2, modifiers: [.control])
+            ),
+            .pageDown
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(for: try keyDownEvent("/", keyCode: 44)),
+            .findForward
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("f", keyCode: 3, modifiers: [.command])
+            ),
+            .findForward
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("?", charactersIgnoringModifiers: "/", keyCode: 44, modifiers: [.shift])
+            ),
+            .findBackward
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(for: try keyDownEvent("n", keyCode: 45)),
+            .findNext
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("n", keyCode: 45, modifiers: [.control])
+            ),
+            .findNext
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("g", keyCode: 5, modifiers: [.command])
+            ),
+            .findNext
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("N", charactersIgnoringModifiers: "n", keyCode: 45, modifiers: [.shift])
+            ),
+            .findPrevious
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("p", keyCode: 35, modifiers: [.control])
+            ),
+            .findPrevious
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("g", keyCode: 5, modifiers: [.command, .option])
+            ),
+            .findPrevious
+        )
+    }
+
+    func testMarkdownPreviewDoesNotTreatGlobalFindChordAsPreviewPrefix() throws {
+        let globalFindChord = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "f"
+        )
+        let provider: MarkdownPreviewKeyboardShortcutResolver.ShortcutProvider = { action in
+            action == .find ? globalFindChord : action.defaultShortcut
+        }
+        let prefixStroke = ShortcutStroke(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true
+        )
+
+        XCTAssertNil(
+            MarkdownPreviewKeyboardShortcutResolver.chordPrefix(
+                for: try keyDownEvent("b", keyCode: 11, modifiers: [.control]),
+                shortcutForAction: provider
+            )
+        )
+        XCTAssertNil(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("f", keyCode: 3),
+                pendingFirstStroke: prefixStroke,
+                shortcutForAction: provider
+            )
+        )
+    }
+
+    func testMarkdownPreviewControlAliasesAreSettingsBacked() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-alias-shortcuts-\(UUID().uuidString).json")
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "markdownFindNextAlternate": "ctrl+j",
+              "markdownFindPreviousAlternate": null
+            }
+          }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: fileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            KeyboardShortcutSettings.resetAll()
+        }
+
+        XCTAssertNil(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("n", keyCode: 45, modifiers: [.control])
+            )
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("j", keyCode: 38, modifiers: [.control])
+            ),
+            .findNext
+        )
+        XCTAssertNil(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("p", keyCode: 35, modifiers: [.control])
+            )
+        )
+    }
+
+    func testMarkdownPreviewKeyboardShortcutsCanUseBareCmuxJSONBindings() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-shortcuts-\(UUID().uuidString).json")
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "markdownScrollDown": "g",
+              "markdownFindForward": ["ctrl+b", "/"],
+              "toggleSidebar": "x"
+            }
+          }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: fileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            KeyboardShortcutSettings.resetAll()
+        }
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .markdownScrollDown).configIdentifier, "g")
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .markdownFindForward).configIdentifier,
+            "ctrl+b /"
+        )
+        XCTAssertFalse(KeyboardShortcutSettings.isManagedBySettingsFile(.toggleSidebar))
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(for: try keyDownEvent("g", keyCode: 5)),
+            .scrollDown
+        )
+        let prefix = MarkdownPreviewKeyboardShortcutResolver.chordPrefix(
+            for: try keyDownEvent("b", keyCode: 11, modifiers: [.control])
+        )
+        XCTAssertEqual(prefix, ShortcutStroke(key: "b", command: false, shift: false, option: false, control: true))
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("/", keyCode: 44),
+                pendingFirstStroke: try XCTUnwrap(prefix)
+            ),
+            .findForward
+        )
+    }
+
+    func testMarkdownPreviewShortcutChordMissConsumesSecondStroke() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-shortcut-miss-\(UUID().uuidString).json")
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "markdownFindForward": ["ctrl+b", "/"]
+            }
+          }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: fileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            KeyboardShortcutSettings.resetAll()
+        }
+
+        let coordinator = MarkdownWebRenderer.Coordinator()
+#if DEBUG
+        let originalObserver = MarkdownWebRenderer.Coordinator.keyboardCommandObserver
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = { _ in }
+        defer { MarkdownWebRenderer.Coordinator.keyboardCommandObserver = originalObserver }
+#endif
+        XCTAssertTrue(
+            coordinator.handleKeyboardShortcut(try keyDownEvent("b", keyCode: 11, modifiers: [.control]))
+        )
+        XCTAssertTrue(coordinator.handleKeyboardShortcut(try keyDownEvent("x", keyCode: 7)))
+        XCTAssertTrue(coordinator.handleKeyboardShortcut(try keyDownEvent("j", keyCode: 38)))
+    }
+
+    func testMarkdownPreviewShortcutsFallThroughBeforeShellLoads() throws {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+
+        XCTAssertFalse(coordinator.handleKeyboardShortcut(try keyDownEvent("j", keyCode: 38)))
+        XCTAssertFalse(coordinator.performKeyboardCommand(.scrollDown))
+    }
+
+    func testMarkdownPreviewKeyCommandHandlersScrollAndSearch() async throws {
+        let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
+        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            window.close()
+        }
+
+        let loaded = expectation(description: "markdown shell loaded")
+        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
+        webView.navigationDelegate = loadDelegate
+        webView.loadHTMLString(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            baseURL: FileManager.default.temporaryDirectory.appendingPathComponent("keyboard.md")
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+        defer {
+            webView.stopLoading()
+            webView.removeFromSuperview()
+        }
+
+        try await renderMarkdown(scrollSmokeMarkdown(extraBeforeSection20: false), in: webView)
+        let before = try await evaluateScrollSnapshot(
+            """
+            (function() {
+              var scroller = document.scrollingElement || document.documentElement;
+              return { y: window.scrollY || scroller.scrollTop };
+            })();
+            """,
+            in: webView
+        )
+        try await webView.evaluateJavaScript(
+            """
+            (function() {
+              window.__cmuxTestScrollCalls = [];
+              var originalScrollTo = window.scrollTo.bind(window);
+              window.scrollTo = function(first, second) {
+                var call;
+                if (first && typeof first === 'object') {
+                  call = {
+                    left: Number(first.left || 0),
+                    top: Number(first.top || 0),
+                    behavior: String(first.behavior || '')
+                  };
+                  window.__cmuxTestScrollCalls.push(call);
+                  var scroller = document.scrollingElement || document.documentElement;
+                  if (scroller) {
+                    scroller.scrollLeft = call.left;
+                    scroller.scrollTop = call.top;
+                  }
+                  originalScrollTo(call.left, call.top);
+                  return;
+                }
+                call = {
+                  left: Number(first || 0),
+                  top: Number(second || 0),
+                  behavior: 'legacy'
+                };
+                window.__cmuxTestScrollCalls.push(call);
+                originalScrollTo(first, second);
+              };
+            })();
+            """
+        )
+        _ = try await webView.evaluateJavaScript("window.__cmuxMarkdownPreviewHandleKeyCommand('scrollDown');")
+        let afterScroll = try await evaluateScrollSnapshot(
+            """
+            (function() {
+              var scroller = document.scrollingElement || document.documentElement;
+              var calls = window.__cmuxTestScrollCalls || [];
+              return {
+                y: window.scrollY || scroller.scrollTop,
+                calls: calls.length,
+                targetY: calls[0] ? calls[0].top : 0,
+                smooth: calls[0] && calls[0].behavior === 'smooth' ? 1 : 0
+              };
+            })();
+            """,
+            in: webView
+        )
+        XCTAssertEqual(afterScroll["calls"] ?? 0, 1)
+        XCTAssertGreaterThan(afterScroll["targetY"] ?? 0, before["y"] ?? 0)
+        XCTAssertEqual(afterScroll["smooth"] ?? 0, 1)
+
+        let searchSnapshot = try await evaluateScrollSnapshot(
+            """
+            (function() {
+              var calls = [];
+              Object.defineProperty(window, 'find', {
+                configurable: true,
+                value: function(query, caseSensitive, backwards, wrap, wholeWord, searchInFrames, showDialog) {
+                  calls.push({
+                    query: String(query),
+                    backwards: backwards ? 1 : 0,
+                    wrap: wrap ? 1 : 0
+                  });
+                  return true;
+                }
+              });
+              var directFound = window.__cmuxMarkdownPreviewSearch('Section 20', false) ? 1 : 0;
+              var promptCalls = 0;
+              window.prompt = function(prompt, defaultValue) {
+                promptCalls += 1;
+                return 'Section 21';
+              };
+              var promptFound = window.__cmuxMarkdownPreviewHandleKeyCommand('findForward') ? 1 : 0;
+              var nextFound = window.__cmuxMarkdownPreviewHandleKeyCommand('findNext') ? 1 : 0;
+              var previousFound = window.__cmuxMarkdownPreviewHandleKeyCommand('findPrevious') ? 1 : 0;
+              return {
+                calls: calls.length,
+                firstFound: directFound,
+                promptFound: promptFound,
+                promptCalls: promptCalls,
+                nextFound: nextFound,
+                previousFound: previousFound,
+                firstBackwards: calls[0] ? calls[0].backwards : -1,
+                lastBackwards: calls[3] ? calls[3].backwards : -1,
+                firstWrap: calls[0] ? calls[0].wrap : -1
+              };
+            })();
+            """,
+            in: webView
+        )
+        XCTAssertEqual(searchSnapshot["calls"] ?? 0, 4)
+        XCTAssertEqual(searchSnapshot["firstFound"] ?? 0, 1)
+        XCTAssertEqual(searchSnapshot["promptFound"] ?? 0, 1)
+        XCTAssertEqual(searchSnapshot["promptCalls"] ?? 0, 1)
+        XCTAssertEqual(searchSnapshot["nextFound"] ?? 0, 1)
+        XCTAssertEqual(searchSnapshot["previousFound"] ?? 0, 1)
+        XCTAssertEqual(searchSnapshot["firstBackwards"] ?? -1, 0)
+        XCTAssertEqual(searchSnapshot["lastBackwards"] ?? -1, 1)
+        XCTAssertEqual(searchSnapshot["firstWrap"] ?? -1, 1)
+
+        let emptyPromptSnapshot = try await evaluateScrollSnapshot(
+            """
+            (function() {
+              var calls = [];
+              Object.defineProperty(window, 'find', {
+                configurable: true,
+                value: function(query, caseSensitive, backwards, wrap, wholeWord, searchInFrames, showDialog) {
+                  calls.push(String(query));
+                  return true;
+                }
+              });
+              window.__cmuxMarkdownPreviewSearch('Section 20', false);
+              window.prompt = function() { return ''; };
+              var emptyPromptFound = window.__cmuxMarkdownPreviewHandleKeyCommand('findForward') ? 1 : 0;
+              var nextFound = window.__cmuxMarkdownPreviewHandleKeyCommand('findNext') ? 1 : 0;
+              return {
+                calls: calls.length,
+                emptyPromptFound: emptyPromptFound,
+                nextFound: nextFound,
+                emptyPromptQueryPreserved: calls[1] === 'Section 20' ? 1 : 0,
+                nextQueryPreserved: calls[2] === 'Section 20' ? 1 : 0
+              };
+            })();
+            """,
+            in: webView
+        )
+        XCTAssertEqual(emptyPromptSnapshot["calls"] ?? 0, 3)
+        XCTAssertEqual(emptyPromptSnapshot["emptyPromptFound"] ?? 0, 1)
+        XCTAssertEqual(emptyPromptSnapshot["nextFound"] ?? 0, 1)
+        XCTAssertEqual(emptyPromptSnapshot["emptyPromptQueryPreserved"] ?? 0, 1)
+        XCTAssertEqual(emptyPromptSnapshot["nextQueryPreserved"] ?? 0, 1)
+
+        let domShortcutSnapshot = try await evaluateScrollSnapshot(
+            """
+            (function() {
+              var calls = [];
+              Object.defineProperty(window, 'find', {
+                configurable: true,
+                value: function(query, caseSensitive, backwards, wrap, wholeWord, searchInFrames, showDialog) {
+                  calls.push({
+                    query: String(query),
+                    backwards: backwards ? 1 : 0,
+                    wrap: wrap ? 1 : 0
+                  });
+                  return true;
+                }
+              });
+              window.prompt = function() { return 'Section 20'; };
+              var cmdF = new KeyboardEvent('keydown', {
+                key: 'f',
+                metaKey: true,
+                bubbles: true,
+                cancelable: true
+              });
+              var ctrlN = new KeyboardEvent('keydown', {
+                key: 'n',
+                ctrlKey: true,
+                bubbles: true,
+                cancelable: true
+              });
+              var ctrlP = new KeyboardEvent('keydown', {
+                key: 'p',
+                ctrlKey: true,
+                bubbles: true,
+                cancelable: true
+              });
+              return {
+                cmdFCanceled: document.dispatchEvent(cmdF) ? 0 : 1,
+                ctrlNCanceled: document.dispatchEvent(ctrlN) ? 0 : 1,
+                ctrlPCanceled: document.dispatchEvent(ctrlP) ? 0 : 1,
+                calls: calls.length,
+                firstBackwards: calls[0] ? calls[0].backwards : -1,
+                secondBackwards: calls[1] ? calls[1].backwards : -1,
+                thirdBackwards: calls[2] ? calls[2].backwards : -1
+              };
+            })();
+            """,
+            in: webView
+        )
+        XCTAssertEqual(domShortcutSnapshot["cmdFCanceled"] ?? 1, 0)
+        XCTAssertEqual(domShortcutSnapshot["ctrlNCanceled"] ?? 1, 0)
+        XCTAssertEqual(domShortcutSnapshot["ctrlPCanceled"] ?? 1, 0)
+        XCTAssertEqual(domShortcutSnapshot["calls"] ?? -1, 0)
+        XCTAssertEqual(domShortcutSnapshot["firstBackwards"] ?? -1, -1)
+        XCTAssertEqual(domShortcutSnapshot["secondBackwards"] ?? -1, -1)
+        XCTAssertEqual(domShortcutSnapshot["thirdBackwards"] ?? -1, -1)
+    }
+
     func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
@@ -1148,6 +1633,28 @@ final class MarkdownPanelTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
         let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
         _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
+    }
+
+    private func keyDownEvent(
+        _ characters: String,
+        charactersIgnoringModifiers: String? = nil,
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags = []
+    ) throws -> NSEvent {
+        try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: charactersIgnoringModifiers ?? characters,
+                isARepeat: false,
+                keyCode: keyCode
+            )
+        )
     }
 
     private func evaluateScrollSnapshot(_ script: String, in webView: WKWebView) async throws -> [String: Double] {

@@ -557,8 +557,13 @@
         },
         "terminal": {
           "copyOnSelect": "選択が確定したとき、ダブルクリックやトリプルクリックによる単語・行の選択を含め、選択したターミナルテキストをシステムクリップボードへコピーします。"
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "最初または唯一のショートカットストローク。キーが Space の場合を除き、修飾キーが必要です。",
+          "markdownShortcutFirstStroke": "Markdown プレビューショートカットの最初または唯一のストローク。Markdown プレビュー操作はフォーカス中の Markdown パネルだけで動作するため、h、j、k、l、/、n などの単独の第1ストロークも使えます。"
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Markdown プレビューの操作では、フォーカス中の Markdown パネル内でのみ有効なため、<j>j</j> や <slash>/</slash> などの単独の第1ストロークを使えます。"
     },
     "customCommands": {
       "title": "カスタムコマンド",
@@ -682,6 +687,8 @@
         "workspacesBlurb": "ワークスペースはサイドバーに表示されます。各ワークスペースには独自のペインとサーフェスがあります。",
         "surfaces": "サーフェス",
         "surfacesBlurb": "サーフェスはペイン内のタブです。",
+        "markdownPreview": "Markdown プレビュー",
+        "markdownPreviewBlurb": "Markdown プレビューのショートカットはフォーカス中の Markdown パネルだけで動作するため、Vim 風の単独キーはターミナルに影響しません。",
         "splitPanes": "分割ペイン",
         "browser": "ブラウザ",
         "notifications": "通知",

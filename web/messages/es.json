@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "Copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección, incluidas las selecciones de palabras y líneas con doble y triple clic."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Primera o única pulsación del atajo. Debe incluir un modificador salvo que la tecla sea Space.",
+          "markdownShortcutFirstStroke": "Primera o única pulsación del atajo de vista previa de Markdown. Las acciones de vista previa de Markdown aceptan primeras pulsaciones sueltas como h, j, k, l, / y n porque son locales al panel Markdown enfocado."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Las acciones de vista previa de Markdown aceptan primeras pulsaciones sueltas como <j>j</j> y <slash>/</slash> porque solo están activas dentro del panel Markdown enfocado."
     },
     "customCommands": {
       "title": "Comandos personalizados",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "Los workspaces se encuentran en la barra lateral. Cada workspace tiene sus propios paneles y superficies.",
         "surfaces": "Superficies",
         "surfacesBlurb": "Las superficies son pestañas dentro de un panel.",
+        "markdownPreview": "Vista previa de Markdown",
+        "markdownPreviewBlurb": "Los atajos de la vista previa de Markdown solo funcionan en el panel de Markdown enfocado, por lo que las teclas Vim sueltas no afectan a las terminales.",
         "splitPanes": "Paneles divididos",
         "browser": "Navegador",
         "notifications": "Notificaciones",

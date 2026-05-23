@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "ينسخ نص الطرفية المحدد إلى حافظة النظام عند تثبيت التحديد، بما في ذلك تحديد الكلمات والأسطر بالنقر المزدوج والثلاثي."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "الضغطة الأولى أو الوحيدة للاختصار. يجب أن تتضمن مفتاح تعديل إلا إذا كان المفتاح Space.",
+          "markdownShortcutFirstStroke": "الضغطة الأولى أو الوحيدة لاختصار معاينة Markdown. تقبل إجراءات معاينة Markdown ضغطات أولى منفردة مثل h و j و k و l و / و n لأنها محلية للوحة Markdown المركزة."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "تقبل إجراءات معاينة Markdown الضغطات الأولى المنفردة مثل <j>j</j> و <slash>/</slash> لأنها لا تكون نشطة إلا داخل لوحة Markdown المركزة."
     },
     "customCommands": {
       "title": "أوامر مخصصة",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "مساحات العمل موجودة في الشريط الجانبي. كل مساحة عمل لها مجموعتها الخاصة من الألواح والأسطح.",
         "surfaces": "الأسطح",
         "surfacesBlurb": "الأسطح هي علامات تبويب داخل اللوح.",
+        "markdownPreview": "معاينة Markdown",
+        "markdownPreviewBlurb": "تعمل اختصارات معاينة Markdown داخل لوحة Markdown المركزة فقط، لذلك لا تؤثر مفاتيح Vim المنفردة على الطرفيات.",
         "splitPanes": "الألواح المقسمة",
         "browser": "المتصفح",
         "notifications": "الإشعارات",

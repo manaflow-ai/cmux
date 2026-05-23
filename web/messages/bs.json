@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Prva ili jedina tipka prečice. Mora sadržavati modifikator osim ako je tipka Space.",
+          "markdownShortcutFirstStroke": "Prva ili jedina tipka prečice Markdown pregleda. Radnje Markdown pregleda prihvataju samostalne prve tipke kao što su h, j, k, l, / i n jer su lokalne za fokusirani Markdown panel."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Radnje Markdown pregleda prihvataju samostalne prve tipke kao što su <j>j</j> i <slash>/</slash>, jer su aktivne samo u fokusiranom Markdown panelu."
     },
     "customCommands": {
       "title": "Prilagođene komande",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "Radni prostori se nalaze u bočnoj traci. Svaki radni prostor ima vlastiti set panela i površina.",
         "surfaces": "Površine",
         "surfacesBlurb": "Površine su tabovi unutar panela.",
+        "markdownPreview": "Markdown pregled",
+        "markdownPreviewBlurb": "Prečice za Markdown pregled rade samo u fokusiranom Markdown panelu, pa samostalne Vim tipke ne utiču na terminale.",
         "splitPanes": "Podijeljeni paneli",
         "browser": "Preglednik",
         "notifications": "Notifikacije",

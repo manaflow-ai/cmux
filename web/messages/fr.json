@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Première ou unique touche du raccourci. Doit inclure un modificateur, sauf si la touche est Space.",
+          "markdownShortcutFirstStroke": "Première ou unique touche du raccourci d’aperçu Markdown. Les actions d’aperçu Markdown acceptent des premières touches seules comme h, j, k, l, / et n, car elles sont locales au panneau Markdown ciblé."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Les actions d’aperçu Markdown acceptent des premières touches seules comme <j>j</j> et <slash>/</slash>, car elles ne sont actives que dans le panneau Markdown ciblé."
     },
     "customCommands": {
       "title": "Commandes personnalisées",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "Les espaces de travail se trouvent dans la barre latérale. Chaque espace de travail a ses propres panneaux et surfaces.",
         "surfaces": "Surfaces",
         "surfacesBlurb": "Les surfaces sont des onglets à l'intérieur d'un panneau.",
+        "markdownPreview": "Aperçu Markdown",
+        "markdownPreviewBlurb": "Les raccourcis de l'aperçu Markdown ne fonctionnent que dans le panneau Markdown actif, donc les touches Vim seules n'affectent pas les terminaux.",
         "splitPanes": "Panneaux divisés",
         "browser": "Navigateur",
         "notifications": "Notifications",

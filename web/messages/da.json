@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "Kopierer markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes, inklusive ord- og linjemarkeringer fra dobbelt- og tredobbeltklik."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Første eller eneste genvejstast. Skal indeholde en modifikatortast, medmindre tasten er Space.",
+          "markdownShortcutFirstStroke": "Første eller eneste genvejstast til Markdown-forhåndsvisning. Markdown-forhåndsvisningshandlinger accepterer enkelte første tastetryk som h, j, k, l, / og n, fordi de er lokale i det fokuserede Markdown-panel."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Markdown-forhåndsvisningshandlinger accepterer enkelte første tastetryk som <j>j</j> og <slash>/</slash>, fordi de kun er aktive i det fokuserede Markdown-panel."
     },
     "customCommands": {
       "title": "Brugerdefinerede kommandoer",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "Workspaces bor i sidebaren. Hvert workspace har sit eget sæt af paneler og surfaces.",
         "surfaces": "Surfaces",
         "surfacesBlurb": "Surfaces er faner inde i et panel.",
+        "markdownPreview": "Markdown-forhåndsvisning",
+        "markdownPreviewBlurb": "Genveje til Markdown-forhåndsvisning virker kun i det fokuserede Markdown-panel, så enkelte Vim-taster påvirker ikke terminaler.",
         "splitPanes": "Opdelte paneler",
         "browser": "Browser",
         "notifications": "Notifikationer",

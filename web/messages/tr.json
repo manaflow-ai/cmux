@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Kısayolun ilk veya tek tuşu. Tuş Space olmadığı sürece bir değiştirici içermelidir.",
+          "markdownShortcutFirstStroke": "Markdown önizleme kısayolunun ilk veya tek tuşu. Markdown önizleme eylemleri h, j, k, l, / ve n gibi tek başına ilk tuşları kabul eder, çünkü odaktaki Markdown paneline yereldir."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Markdown önizleme eylemleri <j>j</j> ve <slash>/</slash> gibi tek başına ilk tuşları kabul eder, çünkü yalnızca odaktaki Markdown panelinde etkindir."
     },
     "customCommands": {
       "title": "Özel Komutlar",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "Çalışma alanları kenar çubuğunda bulunur. Her çalışma alanının kendi panel ve yüzey seti vardır.",
         "surfaces": "Yüzeyler",
         "surfacesBlurb": "Yüzeyler, bir panel içindeki sekmelerdir.",
+        "markdownPreview": "Markdown Önizleme",
+        "markdownPreviewBlurb": "Markdown önizleme kısayolları yalnızca odaktaki Markdown panelinde çalışır, bu yüzden tek Vim tuşları terminalleri etkilemez.",
         "splitPanes": "Bölünmüş Paneller",
         "browser": "Tarayıcı",
         "notifications": "Bildirimler",

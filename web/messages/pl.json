@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Pierwszy lub jedyny klawisz skrótu. Musi zawierać modyfikator, chyba że klawiszem jest Space.",
+          "markdownShortcutFirstStroke": "Pierwszy lub jedyny klawisz skrótu podglądu Markdown. Akcje podglądu Markdown akceptują pojedyncze pierwsze klawisze, takie jak h, j, k, l, / i n, ponieważ działają lokalnie w aktywnym panelu Markdown."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Akcje podglądu Markdown akceptują pojedyncze pierwsze klawisze, takie jak <j>j</j> i <slash>/</slash>, ponieważ działają tylko w aktywnym panelu Markdown."
     },
     "customCommands": {
       "title": "Niestandardowe polecenia",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "Workspace'y znajdują się w pasku bocznym. Każdy workspace ma własny zestaw paneli i surface'ów.",
         "surfaces": "Surface'y",
         "surfacesBlurb": "Surface'y to karty wewnątrz panelu.",
+        "markdownPreview": "Podgląd Markdown",
+        "markdownPreviewBlurb": "Skróty podglądu Markdown działają tylko w aktywnym panelu Markdown, więc pojedyncze klawisze Vim nie wpływają na terminale.",
         "splitPanes": "Dzielone panele",
         "browser": "Przeglądarka",
         "notifications": "Powiadomienia",

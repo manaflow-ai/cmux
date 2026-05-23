@@ -12,6 +12,7 @@ const shortcutChordExample = `{
     "bindings": {
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
+      "markdownFindForward": "/",
       "toggleSidebar": "cmd+b",
       "toggleFileExplorer": "cmd+opt+b",
       "splitRight": "",

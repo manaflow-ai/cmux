@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Første eller eneste snarveistast. Må inneholde en modifikatortast med mindre tasten er Space.",
+          "markdownShortcutFirstStroke": "Første eller eneste snarveistast for Markdown-forhåndsvisning. Handlinger for Markdown-forhåndsvisning godtar enkle første tastetrykk som h, j, k, l, / og n fordi de er lokale i det fokuserte Markdown-panelet."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Handlinger for Markdown-forhåndsvisning godtar enkle første tastetrykk som <j>j</j> og <slash>/</slash>, fordi de bare er aktive i det fokuserte Markdown-panelet."
     },
     "customCommands": {
       "title": "Egendefinerte kommandoer",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "Arbeidsområder lever i sidefeltet. Hvert arbeidsområde har sitt eget sett med paneler og overflater.",
         "surfaces": "Overflater",
         "surfacesBlurb": "Overflater er faner inne i et panel.",
+        "markdownPreview": "Markdown-forhåndsvisning",
+        "markdownPreviewBlurb": "Snarveier for Markdown-forhåndsvisning virker bare i det fokuserte Markdown-panelet, så enkle Vim-taster påvirker ikke terminaler.",
         "splitPanes": "Delte paneler",
         "browser": "Nettleser",
         "notifications": "Varsler",

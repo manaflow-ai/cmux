@@ -141,6 +141,86 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    func testMarkdownShortcutsConflictWithNonBrowserShortcuts() {
+        let commandR = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
+
+        XCTAssertEqual(KeyboardShortcutSettings.Action.markdownFindNext.shortcutContext, .markdownPanel)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.shortcutContext, .nonBrowserPanel)
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.renameTab.conflicts(
+                with: commandR,
+                proposedAction: .markdownFindNext,
+                configuredShortcut: commandR
+            )
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.markdownFindNext.conflicts(
+                with: commandR,
+                proposedAction: .renameTab,
+                configuredShortcut: commandR
+            )
+        )
+    }
+
+    func testMarkdownControlFindAliasesDoNotConflictWithCommandPaletteNavigation() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let directoryURL = try makeTemporaryDirectory()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile("{}", to: settingsFileURL)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        KeyboardShortcutSettings.resetAll()
+
+        let controlN = KeyboardShortcutSettings.Action.markdownFindNextAlternate.defaultShortcut
+        let controlP = KeyboardShortcutSettings.Action.markdownFindPreviousAlternate.defaultShortcut
+
+        XCTAssertEqual(controlN, KeyboardShortcutSettings.Action.commandPaletteNext.defaultShortcut)
+        XCTAssertEqual(controlP, KeyboardShortcutSettings.Action.commandPalettePrevious.defaultShortcut)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.markdownFindNextAlternate.normalizedRecordedShortcutResult(controlN),
+            .accepted(controlN)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.markdownFindPreviousAlternate.normalizedRecordedShortcutResult(controlP),
+            .accepted(controlP)
+        )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.commandPaletteNext.conflicts(
+                with: controlN,
+                proposedAction: .markdownFindNextAlternate,
+                configuredShortcut: KeyboardShortcutSettings.Action.commandPaletteNext.defaultShortcut
+            )
+        )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.commandPalettePrevious.conflicts(
+                with: controlP,
+                proposedAction: .markdownFindPreviousAlternate,
+                configuredShortcut: KeyboardShortcutSettings.Action.commandPalettePrevious.defaultShortcut
+            )
+        )
+    }
+
+    func testMarkdownShortcutsStillConflictWithNormalApplicationShortcuts() {
+        let commandN = KeyboardShortcutSettings.Action.newTab.defaultShortcut
+
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.newTab.conflicts(
+                with: commandN,
+                proposedAction: .markdownFindNextAlternate,
+                configuredShortcut: commandN
+            )
+        )
+    }
+
     func testShortcutSettingsFilePreservesConfiguredShortcutWithoutGlobalConflictLookup() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }

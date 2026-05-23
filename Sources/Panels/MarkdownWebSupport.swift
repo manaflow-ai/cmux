@@ -20,6 +20,7 @@ final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
 @MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
+    var onKeyboardShortcut: ((NSEvent) -> Bool)?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
@@ -28,6 +29,47 @@ final class MarkdownWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
         super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if onKeyboardShortcut?(event) == true {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if onKeyboardShortcut?(event) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func doCommand(by selector: Selector) {
+        if Self.isControlNavigationCommand(selector, currentEvent: NSApp.currentEvent),
+           let event = NSApp.currentEvent,
+           onKeyboardShortcut?(event) == true {
+            return
+        }
+        nextResponder?.doCommand(by: selector)
+    }
+
+    private static func isControlNavigationCommand(
+        _ selector: Selector,
+        currentEvent event: NSEvent?
+    ) -> Bool {
+        guard let event, event.type == .keyDown else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.capsLock, .function, .numericPad])
+        guard flags == [.control] else { return false }
+        switch event.keyCode {
+        case 35:
+            return selector == #selector(NSResponder.moveUp(_:))
+        case 45:
+            return selector == #selector(NSResponder.moveDown(_:))
+        default:
+            return false
+        }
     }
 }
 
@@ -86,6 +128,16 @@ final class MarkdownRendererSession {
 
     func close() {
         ownedCoordinator.close()
+    }
+
+    @discardableResult
+    func handleKeyboardShortcut(_ event: NSEvent) -> Bool {
+        ownedCoordinator.handleKeyboardShortcut(event)
+    }
+
+    @discardableResult
+    func performKeyboardCommand(_ command: MarkdownPreviewKeyCommand) -> Bool {
+        ownedCoordinator.performKeyboardCommand(command)
     }
 
     func renderedHTML(markdown: String? = nil) async -> String? {

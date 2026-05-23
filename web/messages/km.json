@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "ចម្លងអត្ថបទ terminal ដែលបានជ្រើសទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់ រួមទាំងការជ្រើសពាក្យ និងបន្ទាត់ដោយចុចពីរដង និងចុចបីដង។"
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "គ្រាប់ចុចដំបូង ឬគ្រាប់ចុចតែមួយរបស់ផ្លូវកាត់។ ត្រូវតែមានគ្រាប់ចុចកែប្រែ លើកលែងតែគ្រាប់ចុច Space។",
+          "markdownShortcutFirstStroke": "គ្រាប់ចុចដំបូង ឬគ្រាប់ចុចតែមួយរបស់ផ្លូវកាត់មើលជាមុន Markdown។ សកម្មភាពមើលជាមុន Markdown ទទួលយកគ្រាប់ចុចដំបូងដាច់ដោយឡែកដូចជា h, j, k, l, / និង n ព្រោះវាស្ថិតក្នុងផ្ទាំង Markdown ដែលកំពុងផ្ដោត។"
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "សកម្មភាពមើលជាមុន Markdown ទទួលយកគ្រាប់ចុចដំបូងដាច់ដោយឡែកដូចជា <j>j</j> និង <slash>/</slash> ព្រោះវាសកម្មតែក្នុងផ្ទាំង Markdown ដែលកំពុងផ្ដោត។"
     },
     "customCommands": {
       "title": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "Workspace មាននៅក្នុងរបារចំហៀង។ Workspace នីមួយៗមានសំណុំបន្ទះនិង surface ផ្ទាល់ខ្លួន។",
         "surfaces": "Surface",
         "surfacesBlurb": "Surface គឺជាផ្ទាំងក្នុងបន្ទះ។",
+        "markdownPreview": "ការមើលជាមុន Markdown",
+        "markdownPreviewBlurb": "ផ្លូវកាត់ការមើលជាមុន Markdown ដំណើរការតែក្នុងផ្ទាំង Markdown ដែលកំពុងផ្ដោត ដូច្នេះគ្រាប់ចុច Vim ដាច់ដោយឡែកមិនប៉ះពាល់ដល់ terminal ទេ។",
         "splitPanes": "បន្ទះបំបែក",
         "browser": "កម្មវិធីរុករក",
         "notifications": "ជូនដំណឹង",

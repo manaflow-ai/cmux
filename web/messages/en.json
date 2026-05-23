@@ -598,8 +598,13 @@
         },
         "terminal": {
           "copyOnSelect": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "First or only shortcut stroke. Must include a modifier unless the key is Space.",
+          "markdownShortcutFirstStroke": "First or only Markdown preview shortcut stroke. Markdown preview actions accept bare first strokes such as h, j, k, l, /, and n because they are local to the focused Markdown panel."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Bare first strokes such as <j>j</j> and <slash>/</slash> are accepted for Markdown preview actions because they are only active inside the focused Markdown panel."
     },
     "customCommands": {
       "title": "Custom Commands",
@@ -724,6 +729,8 @@
         "workspacesBlurb": "Workspaces live in the sidebar. Each workspace has its own set of panes and surfaces.",
         "surfaces": "Surfaces",
         "surfacesBlurb": "Surfaces are tabs inside a pane.",
+        "markdownPreview": "Markdown Preview",
+        "markdownPreviewBlurb": "Markdown preview shortcuts are local to the focused Markdown panel, so bare Vim-style keys do not affect terminals.",
         "splitPanes": "Split Panes",
         "browser": "Browser",
         "notifications": "Notifications",

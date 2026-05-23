@@ -91,6 +91,8 @@ const settingsFileExample = `{
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
   //     "toggleFileExplorer": "cmd+opt+b",
+  //     "markdownScrollDown": "j",
+  //     "markdownFindForward": "/",
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null
   //   }
@@ -376,7 +378,11 @@ working-directory = ~/code`}</CodeBlock>
         <code>unbound</code>, and <code>disabled</code>. Example chord:{" "}
         <code>[&quot;ctrl+b&quot;, &quot;c&quot;]</code>. Numbered actions use{" "}
         <code>1</code> as the stored default and still match digits <code>1</code> through{" "}
-        <code>9</code>.
+        <code>9</code>.{" "}
+        {t.rich("bareMarkdownPreviewStrokes", {
+          j: (chunks) => <code>{chunks}</code>,
+          slash: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
       <p>
         The defaults below are the same cmux-owned actions listed on the{" "}

@@ -123,6 +123,18 @@ enum KeyboardShortcutSettings {
 
         // Panels
         case saveFilePreview
+        case markdownScrollLeft
+        case markdownScrollDown
+        case markdownScrollUp
+        case markdownScrollRight
+        case markdownPageUp
+        case markdownPageDown
+        case markdownFindForward
+        case markdownFindBackward
+        case markdownFindNext
+        case markdownFindPrevious
+        case markdownFindNextAlternate
+        case markdownFindPreviousAlternate
         case openBrowser
         case focusBrowserAddressBar
         case browserBack
@@ -201,6 +213,18 @@ enum KeyboardShortcutSettings {
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
             case .toggleRightSidebar: return String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
             case .saveFilePreview: return String(localized: "shortcut.saveFilePreview.label", defaultValue: "Save File Preview")
+            case .markdownScrollLeft: return String(localized: "shortcut.markdownScrollLeft.label", defaultValue: "Markdown Preview: Scroll Left")
+            case .markdownScrollDown: return String(localized: "shortcut.markdownScrollDown.label", defaultValue: "Markdown Preview: Scroll Down")
+            case .markdownScrollUp: return String(localized: "shortcut.markdownScrollUp.label", defaultValue: "Markdown Preview: Scroll Up")
+            case .markdownScrollRight: return String(localized: "shortcut.markdownScrollRight.label", defaultValue: "Markdown Preview: Scroll Right")
+            case .markdownPageUp: return String(localized: "shortcut.markdownPageUp.label", defaultValue: "Markdown Preview: Page Up")
+            case .markdownPageDown: return String(localized: "shortcut.markdownPageDown.label", defaultValue: "Markdown Preview: Page Down")
+            case .markdownFindForward: return String(localized: "shortcut.markdownFindForward.label", defaultValue: "Markdown Preview: Search Forward")
+            case .markdownFindBackward: return String(localized: "shortcut.markdownFindBackward.label", defaultValue: "Markdown Preview: Search Backward")
+            case .markdownFindNext: return String(localized: "shortcut.markdownFindNext.label", defaultValue: "Markdown Preview: Find Next")
+            case .markdownFindPrevious: return String(localized: "shortcut.markdownFindPrevious.label", defaultValue: "Markdown Preview: Find Previous")
+            case .markdownFindNextAlternate: return String(localized: "shortcut.markdownFindNextAlternate.label", defaultValue: "Markdown Preview: Find Next (Control-N)")
+            case .markdownFindPreviousAlternate: return String(localized: "shortcut.markdownFindPreviousAlternate.label", defaultValue: "Markdown Preview: Find Previous (Control-P)")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .focusBrowserAddressBar: return String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")
             case .browserBack: return String(localized: "menu.view.back", defaultValue: "Back")
@@ -349,6 +373,30 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
             case .saveFilePreview:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: false)
+            case .markdownScrollLeft:
+                return StoredShortcut(key: "h", command: false, shift: false, option: false, control: false)
+            case .markdownScrollDown:
+                return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
+            case .markdownScrollUp:
+                return StoredShortcut(key: "k", command: false, shift: false, option: false, control: false)
+            case .markdownScrollRight:
+                return StoredShortcut(key: "l", command: false, shift: false, option: false, control: false)
+            case .markdownPageUp:
+                return StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
+            case .markdownPageDown:
+                return StoredShortcut(key: "d", command: false, shift: false, option: false, control: true)
+            case .markdownFindForward:
+                return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
+            case .markdownFindBackward:
+                return StoredShortcut(key: "/", command: false, shift: true, option: false, control: false)
+            case .markdownFindNext:
+                return StoredShortcut(key: "n", command: false, shift: false, option: false, control: false)
+            case .markdownFindPrevious:
+                return StoredShortcut(key: "n", command: false, shift: true, option: false, control: false)
+            case .markdownFindNextAlternate:
+                return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
+            case .markdownFindPreviousAlternate:
+                return StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .focusBrowserAddressBar:
@@ -401,6 +449,46 @@ enum KeyboardShortcutSettings {
             }
         }
 
+        var allowsBareFirstStroke: Bool {
+            switch self {
+            case .markdownScrollLeft,
+                 .markdownScrollDown,
+                 .markdownScrollUp,
+                 .markdownScrollRight,
+                 .markdownPageUp,
+                 .markdownPageDown,
+                 .markdownFindForward,
+                 .markdownFindBackward,
+                 .markdownFindNext,
+                 .markdownFindPrevious,
+                 .markdownFindNextAlternate,
+                 .markdownFindPreviousAlternate:
+                return true
+            default:
+                return false
+            }
+        }
+
+        var isSurfaceLocalShortcutAction: Bool {
+            switch self {
+            case .markdownScrollLeft,
+                 .markdownScrollDown,
+                 .markdownScrollUp,
+                 .markdownScrollRight,
+                 .markdownPageUp,
+                 .markdownPageDown,
+                 .markdownFindForward,
+                 .markdownFindBackward,
+                 .markdownFindNext,
+                 .markdownFindPrevious,
+                 .markdownFindNextAlternate,
+                 .markdownFindPreviousAlternate:
+                return true
+            default:
+                return false
+            }
+        }
+
         func displayedShortcutString(for shortcut: StoredShortcut) -> String {
             if shortcut.isUnbound {
                 return shortcut.displayString
@@ -416,6 +504,9 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
+            if Self.allowsSharedMarkdownCommandPaletteNavigationShortcut(self, proposedAction) {
+                return false
+            }
             guard shortcutContext.overlaps(proposedAction.shortcutContext) else {
                 return false
             }
@@ -425,6 +516,23 @@ enum KeyboardShortcutSettings {
                 configuredShortcut,
                 configuredUsesNumberedDigitMatching: usesNumberedDigitMatching
             )
+        }
+
+        private static func allowsSharedMarkdownCommandPaletteNavigationShortcut(
+            _ lhs: Action,
+            _ rhs: Action
+        ) -> Bool {
+            let pair = Set([lhs, rhs])
+            let markdownFindAliases: Set<Action> = [
+                .markdownFindNextAlternate,
+                .markdownFindPreviousAlternate,
+            ]
+            let commandPaletteNavigation: Set<Action> = [
+                .commandPaletteNext,
+                .commandPalettePrevious,
+            ]
+            return !pair.isDisjoint(with: markdownFindAliases) &&
+                !pair.isDisjoint(with: commandPaletteNavigation)
         }
 
         func normalizedRecordedShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {
@@ -468,6 +576,12 @@ enum KeyboardShortcutSettings {
         func resolvedRecordedShortcutIgnoringConflicts(_ shortcut: StoredShortcut, checkingSystemWideConflicts: Bool = true) -> RecordedShortcutResolution {
             if shortcut.isUnbound {
                 return .accepted(.unbound)
+            }
+
+            if !allowsBareFirstStroke,
+               shortcut.firstStroke.modifierFlags.isEmpty,
+               shortcut.firstStroke.key != "space" {
+                return .rejected(.bareKeyNotAllowed)
             }
 
             switch self {
@@ -734,6 +848,8 @@ enum KeyboardShortcutSettings {
         switch action.resolvedRecordedShortcutIgnoringConflicts(shortcut) {
         case let .accepted(normalizedShortcut):
             return normalizedShortcut
+        case .rejected(.bareKeyNotAllowed):
+            return nil
         case .rejected:
             if action.usesNumberedDigitMatching || action == .showHideAllWindows || action == .globalSearch {
                 return nil
@@ -2117,7 +2233,10 @@ struct StoredShortcut: Codable, Equatable, Hashable {
 }
 
 extension ShortcutStroke {
-    static func parseConfig(_ rawValue: String) -> ShortcutStroke? {
+    static func parseConfig(
+        _ rawValue: String,
+        inferShiftFromBareKeyToken: Bool = false
+    ) -> ShortcutStroke? {
         guard !rawValue.isEmpty else { return nil }
 
         let rawParts = rawValue.split(separator: "+", omittingEmptySubsequences: false)
@@ -2147,9 +2266,16 @@ extension ShortcutStroke {
             }
         }
 
-        guard let key = parseConfigKeyToken(lastRawPart) else { return nil }
+        let hasExplicitModifier = command || shift || option || control
+        guard let parsedKey = parseConfigKeyToken(
+            lastRawPart,
+            resolveShiftedToken: shift || (!hasExplicitModifier && inferShiftFromBareKeyToken)
+        ) else { return nil }
+        if !hasExplicitModifier && inferShiftFromBareKeyToken {
+            shift = shift || parsedKey.shift
+        }
         return ShortcutStroke(
-            key: key,
+            key: parsedKey.key,
             command: command,
             shift: shift,
             option: option,
@@ -2177,96 +2303,110 @@ extension ShortcutStroke {
         return key
     }
 
-    private static func parseConfigKeyToken(_ rawValue: String) -> String? {
+    private static func parseConfigKeyToken(
+        _ rawValue: String,
+        resolveShiftedToken: Bool
+    ) -> (key: String, shift: Bool)? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            return rawValue == " " ? "space" : nil
+            return rawValue == " " ? ("space", false) : nil
         }
 
         let lowered = trimmed.lowercased()
         switch lowered {
         case "left", "arrowleft", "leftarrow", "←":
-            return "←"
+            return ("←", false)
         case "right", "arrowright", "rightarrow", "→":
-            return "→"
+            return ("→", false)
         case "up", "arrowup", "uparrow", "↑":
-            return "↑"
+            return ("↑", false)
         case "down", "arrowdown", "downarrow", "↓":
-            return "↓"
+            return ("↓", false)
         case "tab":
-            return "\t"
+            return ("\t", false)
         case "return", "enter", "↩":
-            return "\r"
+            return ("\r", false)
         case "space", "spacebar", "<space>":
-            return "space"
+            return ("space", false)
         case "comma":
-            return ","
+            return (",", false)
         case "period", "dot":
-            return "."
+            return (".", false)
         case "slash":
-            return "/"
+            return ("/", false)
         case "backslash":
-            return "\\"
+            return ("\\", false)
         case "semicolon":
-            return ";"
+            return (";", false)
         case "quote", "apostrophe":
-            return "'"
+            return ("'", false)
         case "backtick", "grave":
-            return "`"
+            return ("`", false)
         case "minus", "hyphen":
-            return "-"
+            return ("-", false)
         case "plus", "equals":
-            return "="
+            return ("=", false)
         case "leftbracket", "openbracket":
-            return "["
+            return ("[", false)
         case "rightbracket", "closebracket":
-            return "]"
+            return ("]", false)
         case "volumeup", "mediavolumeup", "media.volumeup":
-            return "media.volumeUp"
+            return ("media.volumeUp", false)
         case "volumedown", "mediavolumedown", "media.volumedown":
-            return "media.volumeDown"
+            return ("media.volumeDown", false)
         case "brightnessup", "mediabrightnessup", "media.brightnessup":
-            return "media.brightnessUp"
+            return ("media.brightnessUp", false)
         case "brightnessdown", "mediabrightnessdown", "media.brightnessdown":
-            return "media.brightnessDown"
+            return ("media.brightnessDown", false)
         case "mute", "mediamute", "media.mute":
-            return "media.mute"
+            return ("media.mute", false)
         case "playpause", "mediaplaypause", "media.playpause":
-            return "media.playPause"
+            return ("media.playPause", false)
         case "nexttrack", "medianext", "media.next", "media.nexttrack":
-            return "media.next"
+            return ("media.next", false)
         case "previoustrack", "mediaprevious", "media.previous", "media.previoustrack":
-            return "media.previous"
+            return ("media.previous", false)
         default:
+            if resolveShiftedToken, trimmed == "?" {
+                return ("/", true)
+            }
+            if resolveShiftedToken,
+               trimmed.count == 1,
+               let scalar = trimmed.unicodeScalars.first,
+               CharacterSet.uppercaseLetters.contains(scalar) {
+                return (lowered, true)
+            }
             if lowered.hasPrefix("f"),
                let number = Int(lowered.dropFirst()),
                (1...20).contains(number) {
-                return "f\(number)"
+                return ("f\(number)", false)
             }
             guard lowered.count == 1 else { return nil }
-            return lowered
+            return (lowered, false)
         }
     }
 }
 
 extension StoredShortcut {
-    static func parseConfig(_ rawValue: String) -> StoredShortcut? {
+    static func parseConfig(_ rawValue: String, allowBareFirstStroke: Bool = false) -> StoredShortcut? {
         if isUnboundConfigToken(rawValue) {
             return .unbound
         }
-        return parseConfig(strokes: [rawValue])
+        return parseConfig(strokes: [rawValue], allowBareFirstStroke: allowBareFirstStroke)
     }
 
-    static func parseConfig(strokes: [String]) -> StoredShortcut? {
+    static func parseConfig(strokes: [String], allowBareFirstStroke: Bool = false) -> StoredShortcut? {
         guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
         if strokes.count == 1, let rawValue = strokes.first, isUnboundConfigToken(rawValue) {
             return .unbound
         }
-        let parsedStrokes = strokes.compactMap(ShortcutStroke.parseConfig(_:))
+        let parsedStrokes = strokes.compactMap {
+            ShortcutStroke.parseConfig($0, inferShiftFromBareKeyToken: allowBareFirstStroke)
+        }
         guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
             return nil
         }
-        guard !firstStroke.modifierFlags.isEmpty || firstStroke.key == "space" else { return nil }
+        guard allowBareFirstStroke || !firstStroke.modifierFlags.isEmpty || firstStroke.key == "space" else { return nil }
         let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
         return StoredShortcut(first: firstStroke, second: secondStroke)
     }

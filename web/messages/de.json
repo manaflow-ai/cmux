@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "Kopiert ausgewählten Terminaltext in die Systemzwischenablage, sobald die Auswahl bestätigt wird, einschließlich Wort- und Zeilenauswahl per Doppel- und Dreifachklick."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Erster oder einziger Kurzbefehl-Tastenanschlag. Muss eine Zusatztaste enthalten, außer die Taste ist Space.",
+          "markdownShortcutFirstStroke": "Erster oder einziger Markdown-Vorschau-Kurzbefehl. Markdown-Vorschau-Aktionen akzeptieren einzelne erste Tasten wie h, j, k, l, / und n, weil sie nur im fokussierten Markdown-Panel gelten."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Markdown-Vorschau-Aktionen akzeptieren einzelne erste Tasten wie <j>j</j> und <slash>/</slash>, weil sie nur im fokussierten Markdown-Panel aktiv sind."
     },
     "customCommands": {
       "title": "Benutzerdefinierte Befehle",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "Workspaces befinden sich in der Seitenleiste. Jeder Workspace hat seine eigenen Bereiche und Oberflächen.",
         "surfaces": "Oberflächen",
         "surfacesBlurb": "Oberflächen sind Tabs innerhalb eines Bereichs.",
+        "markdownPreview": "Markdown-Vorschau",
+        "markdownPreviewBlurb": "Markdown-Vorschau-Kurzbefehle gelten nur im fokussierten Markdown-Panel, sodass einzelne Vim-Tasten Terminals nicht beeinflussen.",
         "splitPanes": "Geteilte Bereiche",
         "browser": "Browser",
         "notifications": "Benachrichtigungen",

@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。"
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "第一个或唯一的快捷键按键。除 Space 键外，必须包含修饰键。",
+          "markdownShortcutFirstStroke": "Markdown 预览快捷键的第一个或唯一按键。Markdown 预览操作只在当前聚焦的 Markdown 面板中生效，因此接受 h、j、k、l、/、n 等单独的第一按键。"
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Markdown 预览操作接受 <j>j</j> 和 <slash>/</slash> 等单独的第一按键，因为它们只在当前聚焦的 Markdown 面板中生效。"
     },
     "customCommands": {
       "title": "自定义命令",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "工作区位于侧边栏中。每个工作区有自己的面板和 surface。",
         "surfaces": "Surface",
         "surfacesBlurb": "Surface 是面板内的标签页。",
+        "markdownPreview": "Markdown 预览",
+        "markdownPreviewBlurb": "Markdown 预览快捷键只在当前聚焦的 Markdown 面板中生效，因此单独的 Vim 风格按键不会影响终端。",
         "splitPanes": "分屏面板",
         "browser": "浏览器",
         "notifications": "通知",

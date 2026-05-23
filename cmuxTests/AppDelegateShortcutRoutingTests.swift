@@ -131,6 +131,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         KeyboardShortcutRecorderActivity.resetForTesting()
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
         KeyboardShortcutSettings.shortcutLookupObserver = nil
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = nil
         #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
@@ -5209,6 +5210,309 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         #else
         XCTFail("shortcutLookupObserver is only available in DEBUG")
         #endif
+    }
+
+    func testFocusedMarkdownPreviewOwnsFindFamilyShortcuts() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected test window, manager, workspace, and focused source panel")
+            return
+        }
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-find-\(UUID().uuidString).md")
+        try "# Markdown\n\nFind target\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let markdownPanel = try XCTUnwrap(
+            workspace.newMarkdownSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                filePath: fileURL.path,
+                focus: true
+            )
+        )
+        workspace.focusPanel(markdownPanel.id)
+
+        let responder = FocusableTestView(frame: .zero)
+        window.contentView?.addSubview(responder)
+        defer { responder.removeFromSuperview() }
+        XCTAssertTrue(window.makeFirstResponder(responder))
+
+        var observedCommands: [MarkdownPreviewKeyCommand] = []
+#if DEBUG
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = { command in
+            observedCommands.append(command)
+        }
+#else
+        XCTFail("keyboardCommandObserver is only available in DEBUG")
+#endif
+
+        let cases: [(command: MarkdownPreviewKeyCommand, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
+            (.findForward, [.command], "f", 3),
+            (.findNext, [.command], "g", 5),
+            (.findPrevious, [.command, .option], "g", 5),
+            (.findNext, [.control], "n", 45),
+            (.findPrevious, [.control], "p", 35),
+        ]
+
+        for testCase in cases {
+            let event = try XCTUnwrap(
+                makeKeyDownEvent(
+                    key: testCase.key,
+                    modifiers: testCase.modifiers,
+                    keyCode: testCase.keyCode,
+                    windowNumber: window.windowNumber
+                )
+            )
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+            XCTAssertEqual(observedCommands.last, testCase.command)
+        }
+
+        observedCommands.removeAll()
+        XCTAssertTrue(appDelegate.performFindShortcutInActiveMainWindow(preferredWindow: window))
+        XCTAssertEqual(observedCommands.last, .findForward)
+
+        manager.findNext()
+        XCTAssertEqual(observedCommands.last, .findNext)
+
+        manager.findPrevious()
+        XCTAssertEqual(observedCommands.last, .findPrevious)
+    }
+
+    func testFocusedMarkdownPreviewDoesNotOwnAuxiliaryWindowTyping() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected test manager, workspace, and focused source panel")
+            return
+        }
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-auxiliary-\(UUID().uuidString).md")
+        try "# Markdown\n\nFind target\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let markdownPanel = try XCTUnwrap(
+            workspace.newMarkdownSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                filePath: fileURL.path,
+                focus: true
+            )
+        )
+        workspace.focusPanel(markdownPanel.id)
+
+        let auxiliaryWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        auxiliaryWindow.isReleasedWhenClosed = false
+        auxiliaryWindow.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
+
+        let auxiliaryResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 100, height: 24))
+        let contentView = NSView(frame: auxiliaryWindow.contentRect(forFrameRect: auxiliaryWindow.frame))
+        contentView.addSubview(auxiliaryResponder)
+        auxiliaryWindow.contentView = contentView
+        auxiliaryWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(auxiliaryWindow.makeFirstResponder(auxiliaryResponder))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        defer {
+            if auxiliaryWindow.isVisible {
+                auxiliaryWindow.performClose(nil)
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            }
+        }
+
+        var observedCommands: [MarkdownPreviewKeyCommand] = []
+#if DEBUG
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = { command in
+            observedCommands.append(command)
+        }
+#else
+        XCTFail("keyboardCommandObserver is only available in DEBUG")
+#endif
+
+        let event = try XCTUnwrap(
+            makeKeyDownEvent(
+                key: "j",
+                modifiers: [],
+                keyCode: 38,
+                windowNumber: auxiliaryWindow.windowNumber
+            )
+        )
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertTrue(observedCommands.isEmpty, "Markdown preview shortcuts should not consume auxiliary-window typing")
+        XCTAssertTrue(auxiliaryWindow.firstResponder === auxiliaryResponder)
+    }
+
+    func testFocusedMarkdownPreviewDoesNotOwnMainWindowTextInput() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected test window, manager, workspace, and focused source panel")
+            return
+        }
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-main-text-input-\(UUID().uuidString).md")
+        try "# Markdown\n\nFind target\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let markdownPanel = try XCTUnwrap(
+            workspace.newMarkdownSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                filePath: fileURL.path,
+                focus: true
+            )
+        )
+        workspace.focusPanel(markdownPanel.id)
+
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 180, height: 32))
+        textView.isEditable = true
+        window.contentView?.addSubview(textView)
+        defer { textView.removeFromSuperview() }
+        XCTAssertTrue(window.makeFirstResponder(textView))
+
+        var observedCommands: [MarkdownPreviewKeyCommand] = []
+#if DEBUG
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = { command in
+            observedCommands.append(command)
+        }
+#else
+        XCTFail("keyboardCommandObserver is only available in DEBUG")
+#endif
+
+        let event = try XCTUnwrap(
+            makeKeyDownEvent(
+                key: "j",
+                modifiers: [],
+                keyCode: 38,
+                windowNumber: window.windowNumber
+            )
+        )
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertTrue(observedCommands.isEmpty, "Markdown preview shortcuts should not consume main-window text input")
+        XCTAssertTrue(window.firstResponder === textView)
+    }
+
+    func testFocusedMarkdownPreviewDoesNotConsumePendingAppShortcutChord() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "b",
+                command: false,
+                shift: false,
+                option: false,
+                control: true,
+                chordKey: "n"
+            ),
+            for: .newTab
+        )
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected test window, manager, workspace, and focused source panel")
+            return
+        }
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-pending-app-chord-\(UUID().uuidString).md")
+        try "# Markdown\n\nFind target\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let markdownPanel = try XCTUnwrap(
+            workspace.newMarkdownSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                filePath: fileURL.path,
+                focus: true
+            )
+        )
+        workspace.focusPanel(markdownPanel.id)
+
+        let responder = FocusableTestView(frame: .zero)
+        window.contentView?.addSubview(responder)
+        defer { responder.removeFromSuperview() }
+        XCTAssertTrue(window.makeFirstResponder(responder))
+
+        var observedCommands: [MarkdownPreviewKeyCommand] = []
+#if DEBUG
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = { command in
+            observedCommands.append(command)
+        }
+#else
+        XCTFail("keyboardCommandObserver is only available in DEBUG")
+#endif
+
+        let workspaceCountBefore = manager.tabs.count
+        let prefixEvent = try XCTUnwrap(
+            makeKeyDownEvent(key: "b", modifiers: [.control], keyCode: 11, windowNumber: window.windowNumber)
+        )
+        let secondEvent = try XCTUnwrap(
+            makeKeyDownEvent(key: "n", modifiers: [], keyCode: 45, windowNumber: window.windowNumber)
+        )
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: secondEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertEqual(manager.tabs.count, workspaceCountBefore + 1)
+        XCTAssertTrue(observedCommands.isEmpty, "Pending app chords should resolve before Markdown preview shortcuts")
     }
 
     // MARK: - Browser find shortcut routing tests

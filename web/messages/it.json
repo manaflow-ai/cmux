@@ -497,8 +497,13 @@
         },
         "terminal": {
           "copyOnSelect": "Copia il testo selezionato nel terminale negli appunti di sistema quando la selezione viene confermata, incluse le selezioni di parole e righe con doppio e triplo clic."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Primo o unico tasto della scorciatoia. Deve includere un modificatore, a meno che il tasto sia Space.",
+          "markdownShortcutFirstStroke": "Primo o unico tasto della scorciatoia dell’anteprima Markdown. Le azioni dell’anteprima Markdown accettano primi tasti singoli come h, j, k, l, / e n perché sono locali al pannello Markdown in focus."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Le azioni dell’anteprima Markdown accettano primi tasti singoli come <j>j</j> e <slash>/</slash>, perché sono attive solo nel pannello Markdown in focus."
     },
     "customCommands": {
       "title": "Comandi personalizzati",
@@ -614,6 +619,8 @@
         "workspacesBlurb": "I workspace si trovano nella barra laterale. Ogni workspace ha i propri pannelli e superfici.",
         "surfaces": "Superfici",
         "surfacesBlurb": "Le superfici sono tab all'interno di un pannello.",
+        "markdownPreview": "Anteprima Markdown",
+        "markdownPreviewBlurb": "Le scorciatoie dell'anteprima Markdown funzionano solo nel pannello Markdown attivo, quindi i tasti Vim singoli non influenzano i terminali.",
         "splitPanes": "Pannelli divisi",
         "browser": "Browser",
         "notifications": "Notifiche",

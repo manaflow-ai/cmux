@@ -11302,7 +11302,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // here would swallow the first stroke and leave the second one
             // orphaned, breaking that keystroke for the focused terminal/browser
             // input.
-            guard action != .showHideAllWindows && action != .globalSearch else { return false }
+            guard action != .showHideAllWindows,
+                  action != .globalSearch,
+                  !action.isSurfaceLocalShortcutAction else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
     }
@@ -11924,6 +11926,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
+        if handleFocusedMarkdownPreviewShortcut(event) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
@@ -14513,6 +14516,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             responder: shortcutResponder,
             owningWebView: owningWebView
         )
+    }
+
+    private func handleFocusedMarkdownPreviewShortcut(_ event: NSEvent) -> Bool {
+        guard activeConfiguredShortcutChordPrefixForCurrentEvent == nil else {
+            return false
+        }
+        guard let shortcutWindow = markdownPreviewShortcutWindow(for: event) else {
+            return false
+        }
+        if shouldBypassFocusedMarkdownPreviewShortcut(
+            responder: shortcutWindow.firstResponder,
+            in: shortcutWindow
+        ) {
+            return false
+        }
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: shortcutWindow),
+              context.keyboardFocusCoordinator.findShortcutTarget(currentResponder: shortcutWindow.firstResponder) == .mainPanelFind,
+              let workspace = context.tabManager.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let markdownPanel = workspace.markdownPanel(for: focusedPanelId) else {
+            return false
+        }
+        return markdownPanel.handlePreviewKeyboardShortcut(event)
+    }
+
+    private func shouldBypassFocusedMarkdownPreviewShortcut(
+        responder: NSResponder?,
+        in window: NSWindow
+    ) -> Bool {
+        if isCommandPaletteEffectivelyVisible(in: window) {
+            return true
+        }
+        guard let responder else { return false }
+        if cmuxOwningGhosttyView(for: responder) != nil {
+            return true
+        }
+        if responder is NSText || responder is NSTextField {
+            return true
+        }
+        if isRightSidebarFocusResponder(responder, in: window) {
+            return true
+        }
+        return false
+    }
+
+    private func markdownPreviewShortcutWindow(for event: NSEvent) -> NSWindow? {
+        if let eventWindow = resolvedShortcutEventWindow(event) {
+            return isMainTerminalWindow(eventWindow) ? eventWindow : nil
+        }
+        if let keyWindow = NSApp.keyWindow {
+            return isMainTerminalWindow(keyWindow) ? keyWindow : nil
+        }
+        if let mainWindow = NSApp.mainWindow, isMainTerminalWindow(mainWindow) {
+            return mainWindow
+        }
+        return nil
     }
 
     private func browserPanelOwning(_ webView: CmuxWebView) -> BrowserPanel? {
