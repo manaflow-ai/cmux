@@ -4430,39 +4430,39 @@ struct CMUXCLI {
 
         // Browser commands
         case "browser":
-            try runBrowserCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runBrowserCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, socketPassword: socketPasswordArg)
 
         // Legacy aliases shimmed onto the v2 browser command surface.
         case "open-browser":
-            try runBrowserCommand(commandArgs: ["open"] + commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runBrowserCommand(commandArgs: ["open"] + commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, socketPassword: socketPasswordArg)
 
         case "navigate":
             let bridged = replaceToken(commandArgs, from: "--panel", to: "--surface")
-            try runBrowserCommand(commandArgs: ["navigate"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runBrowserCommand(commandArgs: ["navigate"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat, socketPassword: socketPasswordArg)
 
         case "browser-back":
             let bridged = replaceToken(commandArgs, from: "--panel", to: "--surface")
-            try runBrowserCommand(commandArgs: ["back"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runBrowserCommand(commandArgs: ["back"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat, socketPassword: socketPasswordArg)
 
         case "browser-forward":
             let bridged = replaceToken(commandArgs, from: "--panel", to: "--surface")
-            try runBrowserCommand(commandArgs: ["forward"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runBrowserCommand(commandArgs: ["forward"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat, socketPassword: socketPasswordArg)
 
         case "browser-reload":
             let bridged = replaceToken(commandArgs, from: "--panel", to: "--surface")
-            try runBrowserCommand(commandArgs: ["reload"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runBrowserCommand(commandArgs: ["reload"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat, socketPassword: socketPasswordArg)
 
         case "get-url":
             let bridged = replaceToken(commandArgs, from: "--panel", to: "--surface")
-            try runBrowserCommand(commandArgs: ["get-url"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runBrowserCommand(commandArgs: ["get-url"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat, socketPassword: socketPasswordArg)
 
         case "focus-webview":
             let bridged = replaceToken(commandArgs, from: "--panel", to: "--surface")
-            try runBrowserCommand(commandArgs: ["focus-webview"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runBrowserCommand(commandArgs: ["focus-webview"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat, socketPassword: socketPasswordArg)
 
         case "is-webview-focused":
             let bridged = replaceToken(commandArgs, from: "--panel", to: "--surface")
-            try runBrowserCommand(commandArgs: ["is-webview-focused"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runBrowserCommand(commandArgs: ["is-webview-focused"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat, socketPassword: socketPasswordArg)
 
         // Markdown commands
         case "markdown":
@@ -9680,7 +9680,8 @@ struct CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        socketPassword: String? = nil
     ) throws {
         guard !commandArgs.isEmpty else {
             throw CLIError(message: "browser requires a subcommand")
@@ -9732,7 +9733,12 @@ struct CMUXCLI {
         let subArgs = Array(args.dropFirst())
 
         if subcommand == "repl" {
-            try runBrowserReplCommand(arguments: subArgs, client: client)
+            try runBrowserReplCommand(
+                arguments: subArgs,
+                client: client,
+                parsedSurface: surfaceRaw,
+                socketPassword: socketPassword
+            )
             return
         }
 
@@ -11339,15 +11345,20 @@ struct CMUXCLI {
         throw CLIError(message: "Unsupported browser subcommand: \(subcommand)")
     }
 
-    private func runBrowserReplCommand(arguments: [String], client: SocketClient) throws {
+    private func runBrowserReplCommand(
+        arguments: [String],
+        client: SocketClient,
+        parsedSurface: String?,
+        socketPassword: String?
+    ) throws {
         let (surfaceOpt, rem1) = parseOption(arguments, name: "--surface")
         let (urlOpt, rem2) = parseOption(rem1, name: "--url")
         let (evalOpt, rem3) = parseOption(rem2, name: "--eval")
         let evalScript = evalOpt ?? rem3.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         let clientURL = try browserReplClientResourceURL()
-        let resolvedSurface = try surfaceOpt.flatMap { try normalizeSurfaceHandle($0, client: client) }
+        let resolvedSurface = try (surfaceOpt ?? parsedSurface).flatMap { try normalizeSurfaceHandle($0, client: client) }
         let resolvedPassword = SocketPasswordResolver.resolve(
-            explicit: nil,
+            explicit: socketPassword,
             socketPath: client.socketPath
         )
 

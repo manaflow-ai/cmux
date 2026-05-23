@@ -22,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CLIENT_PATH = REPO_ROOT / "Resources" / "browser-repl" / "cmux-browser-client.mjs"
 HTML = """<!doctype html>
 <html>
+  <head><title>cmux repl e2e</title></head>
   <body>
     <label>Name <input id="name" /></label>
     <button id="go" onclick="document.querySelector('#status').textContent = document.querySelector('#name').value + ':clicked'">Go</button>
@@ -74,6 +75,7 @@ def _run_cli_repl(cli: str, url: str) -> dict:
 const tab = await browser.tabs.new({{ url: {json.dumps(url)} }});
 await tab.playwright.locator("#name").fill("cmux");
 await tab.playwright.locator("#go").click();
+const title = await tab.playwright.title();
 const status = await tab.playwright.locator("#status").textContent();
 const value = await tab.playwright.locator("#name").inputValue();
 const shown = await cmuxBrowserClient.call("browser.cursor.get", {{ surface_id: tab.surfaceId }});
@@ -81,17 +83,27 @@ await tab.playwright.hideCursor();
 const hidden = await cmuxBrowserClient.call("browser.cursor.get", {{ surface_id: tab.surfaceId }});
 console.log(JSON.stringify({{
   surfaceId: tab.surfaceId,
+  title,
   status,
   value,
   shown: shown.cursor,
   hidden: hidden.cursor
 }}));
-await tab.close();
 """.strip()
 
     env = dict(os.environ)
     env["CMUX_SOCKET_PATH"] = SOCKET_PATH
     env["CMUX_BROWSER_CLIENT_PATH"] = str(CLIENT_PATH)
+    def parse_json_result(proc: subprocess.CompletedProcess[str], label: str) -> dict:
+        if proc.returncode != 0:
+            merged = f"{proc.stdout}\n{proc.stderr}".strip()
+            raise cmuxError(f"{label} failed: {merged}")
+        for line in reversed(proc.stdout.splitlines()):
+            line = line.strip()
+            if line.startswith("{") and line.endswith("}"):
+                return json.loads(line)
+        raise cmuxError(f"{label} did not print JSON result: {proc.stdout!r}")
+
     proc = subprocess.run(
         [cli, "--socket", SOCKET_PATH, "browser", "repl", "--eval", script],
         capture_output=True,
@@ -100,15 +112,30 @@ await tab.close();
         env=env,
         timeout=30,
     )
-    if proc.returncode != 0:
-        merged = f"{proc.stdout}\n{proc.stderr}".strip()
-        raise cmuxError(f"browser repl failed: {merged}")
+    result = parse_json_result(proc, "browser repl")
+    surface_id = result.get("surfaceId")
+    _must(isinstance(surface_id, str) and surface_id, f"browser repl did not return surface id: {result}")
 
-    for line in reversed(proc.stdout.splitlines()):
-        line = line.strip()
-        if line.startswith("{") and line.endswith("}"):
-            return json.loads(line)
-    raise cmuxError(f"browser repl did not print JSON result: {proc.stdout!r}")
+    bind_script = """
+const title = await page.title();
+const status = await page.locator("#status").textContent();
+console.log(JSON.stringify({
+  boundSurfaceId: tab.surfaceId,
+  boundTitle: title,
+  boundStatus: status
+}));
+await tab.close();
+""".strip()
+    bind_proc = subprocess.run(
+        [cli, "--socket", SOCKET_PATH, "browser", surface_id, "repl", "--eval", bind_script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=30,
+    )
+    result.update(parse_json_result(bind_proc, "browser surface-bound repl"))
+    return result
 
 
 def main() -> int:
@@ -123,6 +150,10 @@ def main() -> int:
         thread.join(timeout=2)
     _must(result.get("status") == "cmux:clicked", f"Expected click handler status, got: {result}")
     _must(result.get("value") == "cmux", f"Expected filled input value, got: {result}")
+    _must(result.get("title") == "cmux repl e2e", f"Expected page.title() string, got: {result}")
+    _must(result.get("boundTitle") == "cmux repl e2e", f"Expected bound page.title() string, got: {result}")
+    _must(result.get("boundStatus") == "cmux:clicked", f"Expected bound REPL to target existing surface, got: {result}")
+    _must(result.get("boundSurfaceId") == result.get("surfaceId"), f"Expected bound REPL surface id to match, got: {result}")
     shown = result.get("shown") or {}
     hidden = result.get("hidden") or {}
     _must(shown.get("visible") is True, f"Expected cursor visible after locator input/click, got: {result}")

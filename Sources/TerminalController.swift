@@ -10610,6 +10610,7 @@ class TerminalController {
 
     private func v2AwaitCallback<T>(
         timeout: TimeInterval,
+        onTimeout: (() -> Void)? = nil,
         start: (@escaping (T) -> Void) -> Void
     ) -> T? {
         if Thread.isMainThread {
@@ -10638,12 +10639,17 @@ class TerminalController {
                 0,
                 0,
                 { _ in
+                    var shouldNotifyTimeout = false
                     lock.lock()
                     if !resolved {
                         resolved = true
                         timedOut = true
+                        shouldNotifyTimeout = true
                     }
                     lock.unlock()
+                    if shouldNotifyTimeout {
+                        onTimeout?()
+                    }
                     CFRunLoopStop(runLoop)
                 }
             ) else {
@@ -10677,6 +10683,7 @@ class TerminalController {
             semaphore.signal()
         }
         guard semaphore.wait(timeout: .now() + timeout) == .success else {
+            onTimeout?()
             return nil
         }
         lock.lock()
@@ -11241,6 +11248,23 @@ class TerminalController {
         return result
     }
 
+    private final class BrowserInitialLoadWaitObservationState {
+        var observations: [NSKeyValueObservation] = []
+        private var finished = false
+
+        func complete() -> Bool {
+            guard !finished else { return false }
+            finished = true
+            observations.removeAll()
+            return true
+        }
+
+        func cancel() {
+            finished = true
+            observations.removeAll()
+        }
+    }
+
     private func v2WaitForBrowserInitialLoad(
         _ browserPanel: BrowserPanel,
         expectedURL: URL,
@@ -11266,25 +11290,23 @@ class TerminalController {
             return true
         }
 
-        return v2AwaitCallback(timeout: timeout) { finish in
-            var observations: [NSKeyValueObservation] = []
-            var finished = false
-
+        let observationState = BrowserInitialLoadWaitObservationState()
+        return v2AwaitCallback(timeout: timeout, onTimeout: {
+            observationState.cancel()
+        }) { finish in
             let completeIfReady = {
-                guard !finished else { return }
                 guard isSettled() else { return }
-                finished = true
-                observations.removeAll()
+                guard observationState.complete() else { return }
                 finish(true)
             }
 
-            observations.append(webView.observe(\.url, options: [.new]) { _, _ in
+            observationState.observations.append(webView.observe(\.url, options: [.new]) { _, _ in
                 DispatchQueue.main.async(execute: completeIfReady)
             })
-            observations.append(webView.observe(\.isLoading, options: [.new]) { _, _ in
+            observationState.observations.append(webView.observe(\.isLoading, options: [.new]) { _, _ in
                 DispatchQueue.main.async(execute: completeIfReady)
             })
-            observations.append(webView.observe(\.estimatedProgress, options: [.new]) { _, _ in
+            observationState.observations.append(webView.observe(\.estimatedProgress, options: [.new]) { _, _ in
                 DispatchQueue.main.async(execute: completeIfReady)
             })
 

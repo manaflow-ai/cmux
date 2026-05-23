@@ -1,4 +1,8 @@
 import net from "node:net";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 function defaultSocketPath() {
   return process.env.CMUX_SOCKET_PATH || process.env.CMUX_SOCKET || "/tmp/cmux-debug.sock";
@@ -13,7 +17,26 @@ function parseEndpoint(socketPath) {
   if (!host || !Number.isFinite(port) || port <= 0) {
     return { path: socketPath };
   }
-  return { host, port };
+  const normalizedHost = host.toLowerCase() === "localhost" ? "127.0.0.1" : host;
+  const relay = normalizedHost === "127.0.0.1";
+  return { host: normalizedHost, port, relay };
+}
+
+function relayCredentials(endpoint) {
+  const envRelayID = (process.env.CMUX_RELAY_ID || "").trim();
+  const envRelayToken = (process.env.CMUX_RELAY_TOKEN || "").trim();
+  if (envRelayID && /^[0-9a-fA-F]+$/.test(envRelayToken) && envRelayToken.length % 2 === 0) {
+    return { relayId: envRelayID, relayToken: Buffer.from(envRelayToken, "hex") };
+  }
+
+  const authPath = path.join(os.homedir(), ".cmux", "relay", `${endpoint.port}.auth`);
+  const authObject = JSON.parse(fs.readFileSync(authPath, "utf8"));
+  const relayId = String(authObject.relay_id || "").trim();
+  const relayTokenHex = String(authObject.relay_token || "").trim();
+  if (!relayId || !/^[0-9a-fA-F]+$/.test(relayTokenHex) || relayTokenHex.length % 2 !== 0) {
+    throw new Error(`Missing relay auth metadata for ${endpoint.host}:${endpoint.port}`);
+  }
+  return { relayId, relayToken: Buffer.from(relayTokenHex, "hex") };
 }
 
 function maybeUnwrapValue(payload) {
@@ -29,13 +52,17 @@ class CmuxSocketClient {
     this.password = password || "";
     this.socket = null;
     this.buffer = "";
-    this.pending = [];
+    this.lineWaiters = [];
+    this.queuedLines = [];
     this.nextId = 1;
+    this.isRelayBacked = false;
+    this.relaySendChain = Promise.resolve();
   }
 
   async connect() {
     if (this.socket) return;
     const endpoint = parseEndpoint(this.socketPath);
+    this.isRelayBacked = endpoint.relay === true;
     this.socket = net.createConnection(endpoint);
     this.socket.setEncoding("utf8");
     this.socket.on("data", (chunk) => this.handleData(chunk));
@@ -45,7 +72,10 @@ class CmuxSocketClient {
       this.socket.once("connect", resolve);
       this.socket.once("error", reject);
     });
-    if (this.password) {
+    if (this.isRelayBacked) {
+      await this.authenticateRelay(endpoint);
+    }
+    if (this.password && !this.isRelayBacked) {
       const response = await this.sendLine(`auth ${this.password}`);
       if (response.startsWith("ERROR:") && !response.includes("Unknown command 'auth'")) {
         throw new Error(response);
@@ -56,6 +86,9 @@ class CmuxSocketClient {
   close() {
     this.socket?.destroy();
     this.socket = null;
+    this.isRelayBacked = false;
+    this.buffer = "";
+    this.queuedLines = [];
   }
 
   handleData(chunk) {
@@ -65,26 +98,78 @@ class CmuxSocketClient {
       if (newline < 0) return;
       const line = this.buffer.slice(0, newline).trim();
       this.buffer = this.buffer.slice(newline + 1);
-      const pending = this.pending.shift();
-      if (pending) {
-        pending.resolve(line);
+      const waiter = this.lineWaiters.shift();
+      if (waiter) {
+        waiter.resolve(line);
+      } else {
+        this.queuedLines.push(line);
       }
     }
   }
 
   rejectPending(error) {
-    const pending = this.pending.splice(0);
-    for (const item of pending) item.reject(error);
+    const waiters = this.lineWaiters.splice(0);
+    for (const item of waiters) item.reject(error);
   }
 
   async sendLine(line) {
+    const endpoint = parseEndpoint(this.socketPath);
+    if (endpoint.relay) {
+      const send = () => this.sendLineOnOpenConnection(line);
+      const next = this.relaySendChain.catch(() => undefined).then(send);
+      this.relaySendChain = next.catch(() => undefined);
+      return await next;
+    }
+    return await this.sendLineOnOpenConnection(line);
+  }
+
+  async sendLineOnOpenConnection(line) {
     await this.connect();
-    return await new Promise((resolve, reject) => {
-      this.pending.push({ resolve, reject });
+    const relayBacked = this.isRelayBacked;
+    const responsePromise = this.readLine();
+    try {
       this.socket.write(`${line}\n`, "utf8", (error) => {
-        if (error) reject(error);
+        if (error) this.rejectPending(error);
       });
+      return await responsePromise;
+    } finally {
+      if (relayBacked) {
+        this.close();
+      }
+    }
+  }
+
+  readLine() {
+    if (this.queuedLines.length > 0) {
+      return Promise.resolve(this.queuedLines.shift());
+    }
+    return new Promise((resolve, reject) => {
+      this.lineWaiters.push({ resolve, reject });
     });
+  }
+
+  async authenticateRelay(endpoint) {
+    const credentials = relayCredentials(endpoint);
+    const challengeLine = await this.readLine();
+    const challenge = JSON.parse(challengeLine);
+    if (
+      challenge.protocol !== "cmux-relay-auth" ||
+      !Number.isInteger(challenge.version) ||
+      challenge.relay_id !== credentials.relayId ||
+      !challenge.nonce
+    ) {
+      throw new Error("Invalid relay authentication challenge");
+    }
+    const authMessage = `relay_id=${credentials.relayId}\nnonce=${challenge.nonce}\nversion=${challenge.version}`;
+    const mac = crypto.createHmac("sha256", credentials.relayToken).update(authMessage).digest("hex");
+    const authResponsePromise = this.readLine();
+    this.socket.write(`${JSON.stringify({ relay_id: credentials.relayId, mac })}\n`, "utf8", (error) => {
+      if (error) this.rejectPending(error);
+    });
+    const authResponse = JSON.parse(await authResponsePromise);
+    if (authResponse.ok !== true) {
+      throw new Error("Relay authentication failed");
+    }
   }
 
   async call(method, params = {}) {
@@ -217,9 +302,10 @@ class CmuxPlaywrightPage {
   }
 
   async title() {
-    return maybeUnwrapValue(await this.client.call("browser.get.title", {
+    const result = await this.client.call("browser.get.title", {
       surface_id: this.surfaceId,
-    }));
+    });
+    return typeof result.title === "string" ? result.title : maybeUnwrapValue(result);
   }
 
   async content() {
