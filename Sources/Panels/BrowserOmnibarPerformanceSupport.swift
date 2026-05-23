@@ -158,10 +158,15 @@ final class OmnibarSuggestionRefreshScheduler {
 
     @ObservationIgnored private var refreshContinuation: AsyncStream<Void>.Continuation
     @ObservationIgnored private var debounceDelay: Duration
+    @ObservationIgnored private var clock: any OmnibarSuggestionRefreshClock
     @ObservationIgnored private var pendingRefreshTask: Task<Void, Never>?
 
-    init(debounceDelay: Duration = .milliseconds(80)) {
+    init(
+        debounceDelay: Duration = .milliseconds(80),
+        clock: any OmnibarSuggestionRefreshClock = ContinuousOmnibarSuggestionRefreshClock()
+    ) {
         self.debounceDelay = debounceDelay
+        self.clock = clock
         let refreshPipe = AsyncStream<Void>.makeStream()
         refreshStream = refreshPipe.stream
         refreshContinuation = refreshPipe.continuation
@@ -170,9 +175,10 @@ final class OmnibarSuggestionRefreshScheduler {
     func scheduleRefresh() {
         pendingRefreshTask?.cancel()
         let debounceDelay = debounceDelay
-        pendingRefreshTask = Task { @MainActor [weak self, debounceDelay] in
+        let clock = clock
+        pendingRefreshTask = Task { @MainActor [weak self, debounceDelay, clock] in
             do {
-                try await Task.sleep(for: debounceDelay)
+                try await clock.sleep(for: debounceDelay)
             } catch {
                 return
             }
@@ -185,6 +191,16 @@ final class OmnibarSuggestionRefreshScheduler {
     func cancelPendingRefresh() {
         pendingRefreshTask?.cancel()
         pendingRefreshTask = nil
+    }
+}
+
+protocol OmnibarSuggestionRefreshClock: Sendable {
+    func sleep(for duration: Duration) async throws
+}
+
+struct ContinuousOmnibarSuggestionRefreshClock: OmnibarSuggestionRefreshClock {
+    func sleep(for duration: Duration) async throws {
+        try await ContinuousClock().sleep(for: duration)
     }
 }
 

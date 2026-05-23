@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,10 +10,12 @@ import XCTest
 final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
     @MainActor
     func testSuggestionRefreshSchedulerCoalescesTypingBurst() async {
-        let scheduler = OmnibarSuggestionRefreshScheduler(debounceDelay: .milliseconds(40))
+        let clock = ManualOmnibarSuggestionRefreshClock()
+        let scheduler = OmnibarSuggestionRefreshScheduler(
+            debounceDelay: .milliseconds(40),
+            clock: clock
+        )
         let firstRefresh = expectation(description: "first debounced refresh emitted")
-        let noExtraRefresh = expectation(description: "no extra refresh emitted")
-        noExtraRefresh.isInverted = true
         var refreshCount = 0
 
         let listener = Task { @MainActor in
@@ -20,8 +23,6 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
                 refreshCount += 1
                 if refreshCount == 1 {
                     firstRefresh.fulfill()
-                } else {
-                    noExtraRefresh.fulfill()
                 }
             }
         }
@@ -30,7 +31,10 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
             scheduler.scheduleRefresh()
         }
 
-        await fulfillment(of: [firstRefresh, noExtraRefresh], timeout: 0.3)
+        await Task.yield()
+        await clock.advance()
+        await fulfillment(of: [firstRefresh], timeout: 1)
+        await Task.yield()
         listener.cancel()
 
         XCTAssertEqual(
@@ -42,9 +46,11 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
 
     @MainActor
     func testSuggestionRefreshSchedulerCancelsPendingRefresh() async {
-        let scheduler = OmnibarSuggestionRefreshScheduler(debounceDelay: .milliseconds(40))
-        let noRefresh = expectation(description: "no refresh after cancellation")
-        noRefresh.isInverted = true
+        let clock = ManualOmnibarSuggestionRefreshClock()
+        let scheduler = OmnibarSuggestionRefreshScheduler(
+            debounceDelay: .milliseconds(40),
+            clock: clock
+        )
         var refreshCount = 0
 
         let listener = Task { @MainActor in
@@ -55,9 +61,12 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         }
 
         scheduler.scheduleRefresh()
+        await Task.yield()
         scheduler.cancelPendingRefresh()
+        await clock.advance()
+        await Task.yield()
+        await Task.yield()
 
-        await fulfillment(of: [noRefresh], timeout: 0.2)
         listener.cancel()
 
         XCTAssertEqual(refreshCount, 0)
@@ -182,5 +191,34 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
 
         XCTAssertEqual(matches.map(\.title), ["Docs"])
         XCTAssertEqual(matches.map(\.url), [url])
+    }
+}
+
+private actor ManualOmnibarSuggestionRefreshClock: OmnibarSuggestionRefreshClock {
+    private var continuations: [UUID: CheckedContinuation<Void, Error>] = [:]
+
+    func sleep(for duration: Duration) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                continuations[id] = continuation
+            }
+        } onCancel: {
+            Task {
+                await self.cancel(id)
+            }
+        }
+    }
+
+    func advance() {
+        let pendingContinuations = Array(continuations.values)
+        continuations.removeAll(keepingCapacity: true)
+        for continuation in pendingContinuations {
+            continuation.resume()
+        }
+    }
+
+    private func cancel(_ id: UUID) {
+        continuations.removeValue(forKey: id)?.resume(throwing: CancellationError())
     }
 }
