@@ -31,7 +31,7 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
             scheduler.scheduleRefresh()
         }
 
-        await Task.yield()
+        await waitForPendingSleep(on: clock)
         await clock.advance()
         await fulfillment(of: [firstRefresh], timeout: 1)
         await Task.yield()
@@ -60,7 +60,7 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         }
 
         scheduler.scheduleRefresh()
-        await Task.yield()
+        await waitForPendingSleep(on: clock)
         scheduler.cancelPendingRefresh()
         await clock.advance()
         await Task.yield()
@@ -82,7 +82,7 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         var shouldProcessQueuedRefresh: Bool?
 
         scheduler.scheduleRefresh()
-        await Task.yield()
+        await waitForPendingSleep(on: clock)
         await clock.advance()
         await Task.yield()
         await Task.yield()
@@ -226,21 +226,41 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         XCTAssertEqual(matches.map(\.title), ["Docs"])
         XCTAssertEqual(matches.map(\.url), [url])
     }
+
+    @MainActor
+    private func waitForPendingSleep(on clock: ManualOmnibarSuggestionRefreshClock) async {
+        let pendingSleep = expectation(description: "manual clock has a pending sleep")
+        let waiter = Task { @MainActor in
+            await clock.waitForPendingSleep()
+            pendingSleep.fulfill()
+        }
+        await fulfillment(of: [pendingSleep], timeout: 1)
+        waiter.cancel()
+    }
 }
 
 private actor ManualOmnibarSuggestionRefreshClock: OmnibarSuggestionRefreshClock {
     private var continuations: [UUID: CheckedContinuation<Void, Error>] = [:]
+    private var pendingSleepWaiters: [CheckedContinuation<Void, Never>] = []
 
     func sleep(for duration: Duration) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 continuations[id] = continuation
+                resumePendingSleepWaiters()
             }
         } onCancel: {
             Task {
                 await self.cancel(id)
             }
+        }
+    }
+
+    func waitForPendingSleep() async {
+        guard continuations.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            pendingSleepWaiters.append(continuation)
         }
     }
 
@@ -254,5 +274,13 @@ private actor ManualOmnibarSuggestionRefreshClock: OmnibarSuggestionRefreshClock
 
     private func cancel(_ id: UUID) {
         continuations.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    }
+
+    private func resumePendingSleepWaiters() {
+        let waiters = pendingSleepWaiters
+        pendingSleepWaiters.removeAll(keepingCapacity: true)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }

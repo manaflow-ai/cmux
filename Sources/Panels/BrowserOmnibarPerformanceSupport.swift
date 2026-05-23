@@ -180,6 +180,7 @@ final class OmnibarSuggestionRefreshScheduler {
         let debounceDelay = debounceDelay
         let clock = clock
         pendingRefreshTask = Task { @MainActor [weak self, generation, debounceDelay, clock] in
+            guard !Task.isCancelled else { return }
             do {
                 try await clock.sleep(for: debounceDelay)
             } catch {
