@@ -326,6 +326,7 @@ actor SearchIndex {
             """, database: database)
         try execute("CREATE INDEX IF NOT EXISTS chunks_panel_idx ON chunks(panel_id)", database: database)
         try execute("CREATE INDEX IF NOT EXISTS chunks_workspace_idx ON chunks(workspace_id)", database: database)
+        try execute("CREATE INDEX IF NOT EXISTS chunks_ts_desc_idx ON chunks(ts DESC)", database: database)
         try execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
                 title,

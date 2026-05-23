@@ -7209,9 +7209,11 @@ class TerminalController {
     func readTerminalTextForSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
-        lineLimit: Int? = nil
+        lineLimit: Int? = nil,
+        allowVTExport: Bool = true
     ) -> String? {
         if includeScrollback,
+           allowVTExport,
            let vtOutput = readTerminalTextFromVTExportForSnapshot(
                terminalPanel: terminalPanel,
                lineLimit: lineLimit

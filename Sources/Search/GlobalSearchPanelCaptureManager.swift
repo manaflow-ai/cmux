@@ -350,7 +350,8 @@ final class GlobalSearchPanelCaptureManager {
         guard let scrollback = TerminalController.shared.readTerminalTextForSnapshot(
             terminalPanel: panel,
             includeScrollback: true,
-            lineLimit: GlobalSearchIndexingLimits.maxIndexedTerminalScrollbackLines
+            lineLimit: GlobalSearchIndexingLimits.maxIndexedTerminalScrollbackLines,
+            allowVTExport: false
         ) else {
             await purgeTerminalDocuments(forPanelID: context.panelID, index: index)
             return
