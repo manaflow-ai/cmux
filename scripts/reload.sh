@@ -553,8 +553,9 @@ mkdir -p "$XCODEBUILD_SLOT_DIR"
   python3 -c '
 import fcntl
 import os
+import queue
 import sys
-import time
+import threading
 
 max_concurrency = int(sys.argv[1])
 slot_dir = sys.argv[2]
@@ -569,39 +570,70 @@ def surface(message):
         pass
     os.write(2, data)
 
-waited = False
-while True:
+def acquire_slot(slot, blocking):
+    lock_path = os.path.join(slot_dir, f"slot-{slot}.lock")
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        operation = fcntl.LOCK_EX if blocking else (fcntl.LOCK_EX | fcntl.LOCK_NB)
+        while True:
+            try:
+                fcntl.flock(fd, operation)
+                break
+            except InterruptedError:
+                continue
+            except BlockingIOError:
+                os.close(fd)
+                return None
+
+        flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+        fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
+        return fd
+    except OSError:
+        os.close(fd)
+        raise
+
+errors = []
+for slot in range(1, max_concurrency + 1):
+    try:
+        acquired_fd = acquire_slot(slot, blocking=False)
+    except OSError as exc:
+        errors.append(f"slot {slot}: {exc}")
+        continue
+    if acquired_fd is not None:
+        break
+else:
+    if len(errors) == max_concurrency:
+        raise SystemExit(f"error: acquire xcodebuild slot: {errors[0]}")
+
+    surface(f"==> All {max_concurrency} xcodebuild slots are busy; waiting for {slot_dir}...\n")
+    results = queue.Queue()
+
+    def wait_for_slot(slot):
+        try:
+            fd = acquire_slot(slot, blocking=True)
+        except OSError as exc:
+            results.put(("error", slot, str(exc)))
+            return
+        results.put(("acquired", slot, fd))
+
     for slot in range(1, max_concurrency + 1):
-        lock_path = os.path.join(slot_dir, f"slot-{slot}.lock")
-        try:
-            fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-        except OSError as exc:
-            raise SystemExit(f"error: open xcodebuild slot: {exc}")
+        thread = threading.Thread(target=wait_for_slot, args=(slot,), daemon=True)
+        thread.start()
 
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            os.close(fd)
-            continue
-        except OSError as exc:
-            os.close(fd)
-            raise SystemExit(f"error: acquire xcodebuild slot: {exc}")
+    errors = []
+    while True:
+        kind, slot, value = results.get()
+        if kind == "acquired":
+            acquired_fd = value
+            break
+        errors.append(f"slot {slot}: {value}")
+        if len(errors) == max_concurrency:
+            raise SystemExit(f"error: acquire xcodebuild slot: {errors[0]}")
 
-        try:
-            flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-            fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
-        except OSError as exc:
-            raise SystemExit(f"error: fcntl xcodebuild slot fd: {exc}")
-
-        try:
-            os.execvp(command[0], command)
-        except OSError as exc:
-            raise SystemExit(f"error: exec: {exc}")
-
-    if not waited:
-        surface(f"==> All {max_concurrency} xcodebuild slots are busy; waiting for {slot_dir}...\n")
-        waited = True
-    time.sleep(2)
+try:
+    os.execvp(command[0], command)
+except OSError as exc:
+    raise SystemExit(f"error: exec: {exc}")
 ' "$XCODEBUILD_MAX_CONCURRENCY" "$XCODEBUILD_SLOT_DIR" xcodebuild "${XCODEBUILD_ARGS[@]}"
 )
 sleep 0.2
