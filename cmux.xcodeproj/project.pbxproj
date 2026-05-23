@@ -1699,6 +1699,7 @@
 				A5001020 /* Embed Frameworks */,
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
 				C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */,
+				D3664004D3664004D3664004 /* Stamp Generated Ghostty Resources */,
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
 			);
 			buildRules = (
@@ -1940,6 +1941,26 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/compress-markdown-viewer-assets.sh\"\n";
 		};
+		D3664004D3664004D3664004 /* Stamp Generated Ghostty Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp Generated Ghostty Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/ghostty-generated-resources.stamp",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nSTAMP=\"${DERIVED_FILE_DIR}/ghostty-generated-resources.stamp\"\nTMP=\"${STAMP}.tmp\"\nmkdir -p \"$(dirname \"$STAMP\")\"\n{\n  for dir in \"${SRCROOT}/ghostty/zig-out/share/ghostty\" \"${SRCROOT}/ghostty/zig-out/share/terminfo\"; do\n    if [ -d \"$dir\" ]; then\n      printf 'dir %s\\n' \"${dir#${SRCROOT}/}\"\n      find \"$dir\" -type f -print | LC_ALL=C sort | while IFS= read -r file; do\n        rel=\"${file#${SRCROOT}/}\"\n        hash=\"$(shasum -a 256 \"$file\" | awk '{print $1}')\"\n        printf '%s %s\\n' \"$hash\" \"$rel\"\n      done\n    else\n      printf 'missing %s\\n' \"${dir#${SRCROOT}/}\"\n    fi\n  done\n} > \"$TMP\"\nif [ -f \"$STAMP\" ] && cmp -s \"$TMP\" \"$STAMP\"; then\n  rm -f \"$TMP\"\nelse\n  mv \"$TMP\" \"$STAMP\"\nfi\n";
+		};
 		A5001300A1B2C3D4E5F60719 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -1950,6 +1971,7 @@
 				"$(SRCROOT)/cmux.xcodeproj/BuildGhosttyCLIHelperSourceInputs.xcfilelist",
 			);
 			inputPaths = (
+				"$(DERIVED_FILE_DIR)/ghostty-generated-resources.stamp",
 				"$(SRCROOT)/ghostty/src/shell-integration/zsh/ghostty-integration",
 				"$(SRCROOT)/scripts/build-ghostty-cli-helper.sh",
 			);

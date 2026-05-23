@@ -208,6 +208,12 @@ if [[ -f "$INFO_PLIST" ]]; then
     || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
+  COMMIT="$(git -C "$PWD" rev-parse --short=9 HEAD 2>/dev/null || true)"
+  if [[ -n "$COMMIT" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CMUXCommit $COMMIT" "$INFO_PLIST" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $COMMIT" "$INFO_PLIST" 2>/dev/null \
+      || true
+  fi
 
   # Inject staging socket paths via LSEnvironment so the Release binary
   # (which defaults to the per-user stable socket) uses isolated sockets instead.

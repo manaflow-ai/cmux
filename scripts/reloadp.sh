@@ -19,6 +19,14 @@ fi
 echo "Release app:"
 echo "  ${APP_PATH}"
 
+INFO_PLIST="$APP_PATH/Contents/Info.plist"
+COMMIT="$(git -C "$PWD" rev-parse --short=9 HEAD 2>/dev/null || true)"
+if [[ -n "$COMMIT" && -f "$INFO_PLIST" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CMUXCommit $COMMIT" "$INFO_PLIST" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $COMMIT" "$INFO_PLIST" 2>/dev/null \
+    || true
+fi
+
 # Dev shells (including CI/Codex) often force-disable paging by exporting these.
 # Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.
 env -u GIT_PAGER -u GH_PAGER open -g "$APP_PATH"
