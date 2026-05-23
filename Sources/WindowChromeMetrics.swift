@@ -39,7 +39,7 @@ enum SidebarWorkspaceListMetrics {
     }
 }
 
-struct SidebarWorkspaceScrollInsets: Equatable {
+nonisolated struct SidebarWorkspaceScrollInsets: Sendable, Equatable {
     static let workspaceList = SidebarWorkspaceScrollInsets(
         top: SidebarWorkspaceListMetrics.scrollTopInset,
         bottom: SidebarWorkspaceListMetrics.bottomScrimHeight
