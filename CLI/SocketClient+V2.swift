@@ -3,6 +3,9 @@ import Darwin
 import Foundation
 
 extension SocketClient {
+    private static let streamMaxFrameBytes = 4 * 1024 * 1024
+    private static let streamReadTimeoutSeconds: TimeInterval = 45
+
     func sendV2(
         method: String,
         params: [String: Any] = [:],
@@ -39,7 +42,10 @@ extension SocketClient {
         }
 
         if let ok = response["ok"] as? Bool, ok {
-            return (response["result"] as? [String: Any]) ?? [:]
+            guard let result = response["result"] as? [String: Any] else {
+                throw CLIError(message: "Invalid v2 response from server")
+            }
+            return result
         }
 
         if let error = response["error"] as? [String: Any] {
@@ -69,6 +75,8 @@ extension SocketClient {
         details: String? = nil
     ) -> String {
         let header: String
+        // vm_error messages are already formatted for users, so avoid repeating
+        // the generic code prefix in the header.
         if code == "vm_error" {
             header = message
         } else if message.contains("\n") {
@@ -156,9 +164,11 @@ extension SocketClient {
         onLine: (String) throws -> Void
     ) throws {
         if socketFD < 0 {
+            guard isRelayBacked else {
+                throw CLIError(message: "Not connected")
+            }
             try connect()
         }
-        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
         let request: [String: Any] = [
             "id": UUID().uuidString,
             "method": method,
@@ -182,9 +192,9 @@ extension SocketClient {
         }
     }
 
-    private func readStreamLine(maxBytes: Int = 4 * 1024 * 1024) throws -> String {
+    private func readStreamLine(maxBytes: Int = SocketClient.streamMaxFrameBytes) throws -> String {
         var data = Data()
-        try configureReceiveTimeout(45)
+        try configureReceiveTimeout(Self.streamReadTimeoutSeconds)
         while data.count < maxBytes {
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)

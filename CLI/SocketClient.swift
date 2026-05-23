@@ -24,7 +24,7 @@ final class SocketClient {
     }
 
     private let path: String
-    var socketFD: Int32 = -1
+    private(set) var socketFD: Int32 = -1
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0

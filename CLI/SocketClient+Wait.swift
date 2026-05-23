@@ -12,15 +12,34 @@ extension SocketClient {
         }
 
         if client.isRelayBacked {
-            let deadline = Date().addingTimeInterval(timeout)
-            while Date() < deadline {
+            let queue = DispatchQueue(label: "com.cmux.cli.relay-watch.\(UUID().uuidString)")
+            let semaphore = DispatchSemaphore(value: 0)
+            var connected = false
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+
+            func attemptConnect() {
+                guard !connected else { return }
                 if (try? client.connect()) != nil {
+                    connected = true
                     client.close()
-                    return client
+                    semaphore.signal()
                 }
-                usleep(50_000)
             }
-            throw CLIError(message: "cmux app did not start in time (relay not reachable at \(path))")
+
+            timer.setEventHandler {
+                attemptConnect()
+            }
+            timer.schedule(deadline: .now(), repeating: .milliseconds(50))
+            timer.resume()
+
+            guard semaphore.wait(timeout: .now() + timeout) == .success else {
+                timer.cancel()
+                client.close()
+                throw CLIError(message: "Application did not start in time (connection not reachable at \(path))")
+            }
+
+            timer.cancel()
+            return client
         }
 
         guard let watchDirectory = existingWatchDirectory(forPath: path) else {
