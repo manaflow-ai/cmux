@@ -9781,14 +9781,12 @@ struct VerticalTabsSidebar: View {
                     Color.clear.frame(height: scrollInsets.bottom)
                         .allowsHitTesting(false)
                 }
-                .overlay(alignment: .top) {
-                    SidebarTopScrim(height: sidebarTopScrimHeight)
-                        .allowsHitTesting(false)
-                }
-                .overlay(alignment: .bottom) {
-                    SidebarBottomScrim(height: sidebarBottomScrimHeight)
-                        .allowsHitTesting(false)
-                }
+                .mask(
+                    SidebarWorkspaceScrollEdgeFadeMask(
+                        topHeight: sidebarTopScrimHeight,
+                        bottomHeight: sidebarBottomScrimHeight
+                    )
+                )
                 .overlay(alignment: .top) {
                     // The sidebar top strip remains draggable and handles
                     // double-clicks with the standard titlebar action.
@@ -9932,14 +9930,12 @@ struct VerticalTabsSidebar: View {
                 Color.clear.frame(height: SidebarWorkspaceScrollInsets.workspaceList.bottom)
                     .allowsHitTesting(false)
             }
-            .overlay(alignment: .top) {
-                SidebarTopScrim(height: sidebarTopScrimHeight)
-                    .allowsHitTesting(false)
-            }
-            .overlay(alignment: .bottom) {
-                SidebarBottomScrim(height: sidebarBottomScrimHeight)
-                    .allowsHitTesting(false)
-            }
+            .mask(
+                SidebarWorkspaceScrollEdgeFadeMask(
+                    topHeight: sidebarTopScrimHeight,
+                    bottomHeight: sidebarBottomScrimHeight
+                )
+            )
             .overlay(alignment: .top) {
                 WindowDragHandleView()
                     .frame(height: sidebarTitlebarInteractionHeight)
