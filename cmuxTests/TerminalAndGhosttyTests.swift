@@ -2449,6 +2449,183 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
+    func testPrintableKeyRepeatDoesNotForceSurfaceRefresh() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        XCTAssertNotNil(surface.surface, "Expected runtime surface before sending repeat key input")
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { _, _ in false }
+        var forwardedRepeatCount = 0
+        var forwardedTexts: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_REPEAT, keyEvent.keycode == 0 else { return }
+            forwardedRepeatCount += 1
+            if let text = keyEvent.text {
+                forwardedTexts.append(String(cString: text))
+            }
+        }
+
+        surface.resetDebugForceRefreshCount()
+
+        for index in 0..<3 {
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime + (Double(index) * 0.001),
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "a",
+                charactersIgnoringModifiers: "a",
+                isARepeat: true,
+                keyCode: 0
+            ))
+
+            withExtendedLifetime(surface) {
+                surfaceView.keyDown(with: event)
+            }
+        }
+
+        XCTAssertEqual(forwardedRepeatCount, 3, "Repeat text keyDown events should still reach Ghostty")
+        XCTAssertEqual(forwardedTexts, ["a", "a", "a"], "Printable repeat should exercise the fallback text path")
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(),
+            0,
+            "Printable key repeat must rely on Ghostty wakeups instead of forcing a synchronous surface refresh per key"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testIMECommittedKeyRepeatDoesNotForceSurfaceRefresh() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        XCTAssertNotNil(surface.surface, "Expected runtime surface before sending repeat IME input")
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { view, _ in
+            view.insertText("あ", replacementRange: NSRange(location: NSNotFound, length: 0))
+            return true
+        }
+        var forwardedRepeatCount = 0
+        var forwardedTexts: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_REPEAT, keyEvent.keycode == 0 else { return }
+            forwardedRepeatCount += 1
+            if let text = keyEvent.text {
+                forwardedTexts.append(String(cString: text))
+            }
+        }
+
+        surface.resetDebugForceRefreshCount()
+
+        for index in 0..<3 {
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime + (Double(index) * 0.001),
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "a",
+                charactersIgnoringModifiers: "a",
+                isARepeat: true,
+                keyCode: 0
+            ))
+
+            withExtendedLifetime(surface) {
+                surfaceView.keyDown(with: event)
+            }
+        }
+
+        XCTAssertEqual(forwardedRepeatCount, 3, "Repeat IME text keyDown events should still reach Ghostty")
+        XCTAssertEqual(forwardedTexts, ["あ", "あ", "あ"], "IME repeat should exercise the accumulated committed-text path")
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(),
+            0,
+            "IME key repeat must rely on Ghostty wakeups instead of forcing a synchronous surface refresh per key"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
 #if DEBUG
         let window = makeWindow()

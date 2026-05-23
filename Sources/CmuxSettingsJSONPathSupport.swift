@@ -66,6 +66,8 @@ extension CmuxSettingsFileStore {
         "app.confirmQuit",
         "app.warnBeforeQuit",
         "app.warnBeforeClosingTab",
+        "app.warnBeforeClosingTabXButton",
+        "app.hideTabCloseButton",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
         "terminal.showScrollBar",

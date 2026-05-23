@@ -443,6 +443,12 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["warnBeforeClosingTab"]) {
             snapshot.managedUserDefaults[CloseTabWarningSettings.warnBeforeClosingTabKey] = .bool(value)
         }
+        if let value = jsonBool(section["warnBeforeClosingTabXButton"]) {
+            snapshot.managedUserDefaults[CloseTabWarningSettings.warnBeforeClosingTabXButtonKey] = .bool(value)
+        }
+        if let value = jsonBool(section["hideTabCloseButton"]) {
+            snapshot.managedUserDefaults[CloseTabWarningSettings.hideTabCloseButtonKey] = .bool(value)
+        }
         if let value = jsonBool(section["renameSelectsExistingName"]) {
             snapshot.managedUserDefaults[CommandPaletteRenameSelectionSettings.selectAllOnFocusKey] = .bool(value)
         }

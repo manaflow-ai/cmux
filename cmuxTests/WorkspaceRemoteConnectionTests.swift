@@ -2561,6 +2561,47 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testARunProcessCaptureSurvivesPipeReadHandleTeardown() throws {
+        let controller = WorkspaceRemoteSessionController(
+            workspace: Workspace(),
+            configuration: WorkspaceRemoteConfiguration(
+                destination: "test@example.invalid",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                terminalStartupCommand: nil
+            ),
+            controllerID: UUID()
+        )
+
+        let didCloseReadHandles = DispatchSemaphore(value: 0)
+        WorkspaceRemoteSessionController.runProcessReadHandlesDidInstallForTesting = { stdoutHandle, stderrHandle in
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+            didCloseReadHandles.signal()
+        }
+        defer {
+            WorkspaceRemoteSessionController.runProcessReadHandlesDidInstallForTesting = nil
+        }
+
+        let result = try controller.runProcessForTesting(
+            executable: "/usr/bin/true",
+            arguments: [],
+            timeout: 2
+        )
+
+        XCTAssertEqual(didCloseReadHandles.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(result.stderr, "")
+    }
+
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook")

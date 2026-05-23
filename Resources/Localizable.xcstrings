@@ -60961,6 +60961,881 @@
         }
       }
     },
+    "settings.app.warnBeforeClosingTabXButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحذير قبل استخدام زر إغلاق التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upozori prije zatvaranja kartice dugmetom za zatvaranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advar før fanen lukkes med luk-knappen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines Tabs per Schließen-Taste warnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Tab Close Button"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar antes de cerrar una pestaña con el botón"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertir avant de fermer un onglet avec le bouton"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvisa prima di chiudere una scheda con il pulsante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンで閉じる前に確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្រមានមុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 닫기 버튼으로 닫기 전에 확인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advar før fanen lukkes med lukkeknappen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostrzegaj przed zamknięciem karty przyciskiem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar antes de fechar a aba pelo botão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предупреждать перед закрытием вкладки кнопкой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เตือนก่อนปิดแท็บด้วยปุ่มปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme kapatma düğmesiyle kapatmadan önce uyar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попереджати перед закриттям вкладки кнопкою"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用标签页关闭按钮前警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用分頁關閉按鈕前警告"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTabXButton.subtitleHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أزرار إغلاق التبويبات مخفية، لذلك يكون هذا التحذير غير نشط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugmad za zatvaranje kartica su skrivena, pa je ovo upozorenje neaktivno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanernes luk-knapper er skjult, så denne advarsel er inaktiv."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Tab-Schließen-Tasten sind ausgeblendet, daher ist diese Warnung inaktiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab close buttons are hidden, so this warning is inactive."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los botones de cerrar pestañas están ocultos, por lo que este aviso está inactivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les boutons de fermeture d’onglet sont masqués, donc cet avertissement est inactif."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I pulsanti di chiusura delle schede sono nascosti, quindi questo avviso è inattivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンは非表示のため、この警告は無効です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៊ូតុងបិទផ្ទាំងត្រូវបានលាក់ ដូច្នេះការព្រមាននេះមិនដំណើរការទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 닫기 버튼이 숨겨져 있어 이 경고는 비활성 상태입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukkeknappene for faner er skjult, så denne advarselen er inaktiv."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przyciski zamykania kart są ukryte, więc to ostrzeżenie jest nieaktywne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os botões de fechar abas estão ocultos, então este aviso fica inativo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки закрытия вкладок скрыты, поэтому это предупреждение неактивно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มปิดแท็บถูกซ่อนอยู่ ดังนั้นคำเตือนนี้จึงไม่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme kapatma düğmeleri gizli olduğu için bu uyarı etkin değildir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки закриття вкладок приховано, тому це попередження неактивне."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页关闭按钮已隐藏，因此此警告处于非活动状态。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分頁關閉按鈕已隱藏，因此此警告未啟用。"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTabXButton.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يغلق زر إغلاق التبويب التبويبات فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugme za zatvaranje kartice odmah zatvara kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanens luk-knap lukker faner med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Tab-Schließen-Taste schließt Tabs sofort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab close button closes tabs immediately."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El botón de cerrar pestaña cierra las pestañas inmediatamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le bouton de fermeture d’onglet ferme les onglets immédiatement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il pulsante di chiusura della scheda chiude subito le schede."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンですぐにタブを閉じます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៊ូតុងបិទផ្ទាំងបិទផ្ទាំងភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 닫기 버튼은 탭을 즉시 닫습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukkeknappen for fanen lukker faner umiddelbart."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przycisk zamykania karty natychmiast zamyka karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O botão de fechar aba fecha abas imediatamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопка закрытия вкладки сразу закрывает вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มปิดแท็บจะปิดแท็บทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme kapatma düğmesi sekmeleri hemen kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопка закриття вкладки одразу закриває вкладки."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页关闭按钮会立即关闭标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分頁關閉按鈕會立即關閉分頁。"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTabXButton.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطلب زر إغلاق التبويب التأكيد قبل الإغلاق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugme za zatvaranje kartice traži potvrdu prije zatvaranja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanens luk-knap beder om bekræftelse før lukning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Tab-Schließen-Taste fragt vor dem Schließen nach Bestätigung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab close button asks for confirmation before closing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El botón de cerrar pestaña pide confirmación antes de cerrar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le bouton de fermeture d’onglet demande confirmation avant de fermer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il pulsante di chiusura della scheda chiede conferma prima di chiudere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンで閉じる前に確認を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៊ូតុងបិទផ្ទាំងស្នើការបញ្ជាក់មុនពេលបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 닫기 버튼은 닫기 전에 확인을 요청합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukkeknappen for fanen ber om bekreftelse før lukking."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przycisk zamykania karty prosi o potwierdzenie przed zamknięciem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O botão de fechar aba pede confirmação antes de fechar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопка закрытия вкладки запрашивает подтверждение перед закрытием."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มปิดแท็บจะขอการยืนยันก่อนปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme kapatma düğmesi kapatmadan önce onay ister."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопка закриття вкладки просить підтвердження перед закриттям."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页关闭按钮会在关闭前要求确认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分頁關閉按鈕會在關閉前要求確認。"
+          }
+        }
+      }
+    },
+    "settings.app.hideTabCloseButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء زر إغلاق التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij dugme za zatvaranje kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul fanens luk-knap"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab-Schließen-Taste ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Tab Close Button"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar botón de cerrar pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer le bouton de fermeture d’onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi il pulsante di chiusura della scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンを非表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់ប៊ូតុងបិទផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 닫기 버튼 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul lukkeknappen for faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj przycisk zamykania karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar botão de fechar aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть кнопку закрытия вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนปุ่มปิดแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme kapatma düğmesini gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приховати кнопку закриття вкладки"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏标签页关闭按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏分頁關閉按鈕"
+          }
+        }
+      }
+    },
+    "settings.app.hideTabCloseButton.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تظهر أزرار إغلاق التبويبات عند التحويم وعلى التبويب النشط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugmad za zatvaranje kartica pojavljuju se pri prelasku pokazivačem i na aktivnoj kartici."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanernes luk-knapper vises ved markørføring og på den aktive fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab-Schließen-Tasten erscheinen beim Darüberfahren und im aktiven Tab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab close buttons appear on hover and on the active tab."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los botones de cerrar pestañas aparecen al pasar el cursor y en la pestaña activa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les boutons de fermeture d’onglet apparaissent au survol et sur l’onglet actif."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I pulsanti di chiusura delle schede appaiono al passaggio del cursore e sulla scheda attiva."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバー時とアクティブなタブに閉じるボタンを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៊ូតុងបិទផ្ទាំងបង្ហាញនៅពេលដាក់កណ្ដុរលើ និងនៅលើផ្ទាំងសកម្ម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 닫기 버튼은 마우스를 올리거나 활성 탭에서 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukkeknapper for faner vises ved peking og på den aktive fanen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przyciski zamykania kart pojawiają się po najechaniu oraz na aktywnej karcie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os botões de fechar abas aparecem ao passar o cursor e na aba ativa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки закрытия вкладок появляются при наведении и на активной вкладке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มปิดแท็บจะแสดงเมื่อวางเมาส์เหนือแท็บและบนแท็บที่ใช้งานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme kapatma düğmeleri üzerine gelindiğinde ve etkin sekmede görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки закриття вкладок з’являються під час наведення та на активній вкладці."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页关闭按钮会在悬停时和当前标签页上显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分頁關閉按鈕會在游標停留時和目前分頁上顯示。"
+          }
+        }
+      }
+    },
+    "settings.app.hideTabCloseButton.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أزرار إغلاق التبويبات مخفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugmad za zatvaranje kartica su skrivena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanernes luk-knapper er skjult."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab-Schließen-Tasten sind ausgeblendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab close buttons are hidden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los botones de cerrar pestañas están ocultos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les boutons de fermeture d’onglet sont masqués."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I pulsanti di chiusura delle schede sono nascosti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンを非表示にします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៊ូតុងបិទផ្ទាំងត្រូវបានលាក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 닫기 버튼이 숨겨져 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukkeknappene for faner er skjult."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przyciski zamykania kart są ukryte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os botões de fechar abas estão ocultos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки закрытия вкладок скрыты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มปิดแท็บถูกซ่อนอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme kapatma düğmeleri gizlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки закриття вкладок приховано."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页关闭按钮已隐藏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分頁關閉按鈕已隱藏。"
+          }
+        }
+      }
+    },
     "settings.notifications.sound.custom.choose.button": {
       "extractionState": "manual",
       "localizations": {
@@ -77353,6 +78228,256 @@
                 }
             }
         }
+    },
+    "settings.search.alias.setting.app.warn-before-closing-tab-x-button": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface زر إغلاق التبويب تأكيد تحذير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface zatvori karticu dugme potvrda upozorenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface luk fane knap bekræftelse advarsel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface Tab schließen Taste Bestätigung Warnung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface cerrar pestaña botón confirmación aviso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface fermer onglet bouton confirmation avertissement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface chiudi scheda pulsante conferma avviso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface タブ 閉じるボタン 確認 警告"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface បិទផ្ទាំង ប៊ូតុង បញ្ជាក់ ព្រមាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface 탭 닫기 버튼 확인 경고"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface lukk fane knapp bekreftelse advarsel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface zamknij kartę przycisk potwierdzenie ostrzeżenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface fechar aba botão confirmação aviso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface закрыть вкладку кнопка подтверждение предупреждение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface ปิดแท็บ ปุ่ม ยืนยัน เตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface sekme kapat düğme onay uyarı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface закрити вкладку кнопка підтвердження попередження"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface 关闭标签页 按钮 确认 警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface 關閉分頁 按鈕 確認 警告"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.hide-tab-close-button": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface إخفاء زر إغلاق التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface sakrij zatvori karticu dugme"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface skjul luk fane knap"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface ausblenden Tab schließen Taste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface ocultar cerrar pestaña botón"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface masquer fermer onglet bouton"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface nascondi chiudi scheda pulsante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface タブ 閉じるボタン 非表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface លាក់ បិទផ្ទាំង ប៊ូតុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface 탭 닫기 버튼 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface skjul lukk fane knapp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface ukryj zamknij kartę przycisk"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface ocultar fechar aba botão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface скрыть закрыть вкладку кнопка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface ซ่อน ปิดแท็บ ปุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface gizle sekme kapat düğme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface приховати закрити вкладку кнопка"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface 隐藏 关闭标签页 按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.hideTabCloseButton hide close tab x button terminal surface 隱藏 關閉分頁 按鈕"
+          }
+        }
+      }
     },
     "settings.search.alias.setting.app.rename-selects-name": {
         "extractionState": "manual",
