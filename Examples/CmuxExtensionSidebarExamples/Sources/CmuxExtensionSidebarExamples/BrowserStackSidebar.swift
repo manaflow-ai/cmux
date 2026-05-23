@@ -108,7 +108,7 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
         let isDiaBrowser = title == "dia"
             || titleTokens.contains("dia")
             || title.contains("dia browser")
-        if isDiaBrowser || workspace.unreadCount > 0 {
+        if isDiaBrowser {
             return CmuxExtensionSidebarRenderIcon(
                 systemImageName: "bubble.left.fill",
                 foregroundColorHex: "#D8D8D8",
@@ -231,9 +231,10 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
     }
 
     private func scopedState(for scopeKey: String) -> ScopedState {
+        let scopedInitialState = scopeKey == Self.legacyScopeKey ? initialState : nil
         statesByScope[scopeKey] ?? ScopedState(
-            state: initialState,
-            didStartLoad: initialState != nil,
+            state: scopedInitialState,
+            didStartLoad: scopedInitialState != nil,
             mutationGeneration: 0
         )
     }

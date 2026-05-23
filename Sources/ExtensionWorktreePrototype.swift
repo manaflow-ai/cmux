@@ -141,12 +141,12 @@ enum CmuxExtensionWorktreePrototype {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
-        let outputCollector = CmuxExtensionPipeOutputCollector(fileHandle: pipe.fileHandleForReading)
         let termination = CmuxExtensionProcessTermination()
         process.terminationHandler = { process in
             termination.complete(process.terminationStatus)
         }
         try process.run()
+        let outputCollector = CmuxExtensionPipeOutputCollector(fileHandle: pipe.fileHandleForReading)
         let terminationStatus = await termination.wait()
         let outputData = await outputCollector.finish()
         guard terminationStatus == 0 else {
@@ -169,51 +169,22 @@ enum CmuxExtensionWorktreePrototype {
 }
 
 final class CmuxExtensionPipeOutputCollector: @unchecked Sendable {
-    private let fileHandle: FileHandle
-    private let lock = NSLock()
-    private var output = Data()
-    private var isFinished = false
+    private struct ReadHandle: @unchecked Sendable {
+        let fileHandle: FileHandle
+    }
+
+    private let readTask: Task<Data, Never>
 
     init(fileHandle: FileHandle) {
-        self.fileHandle = fileHandle
-        fileHandle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData)
+        let readHandle = ReadHandle(fileHandle: fileHandle)
+        readTask = Task.detached(priority: .utility) {
+            let data = readHandle.fileHandle.readDataToEndOfFile()
+            try? readHandle.fileHandle.close()
+            return data
         }
     }
 
     func finish() async -> Data {
-        await withCheckedContinuation { continuation in
-            fileHandle.readabilityHandler = nil
-            let remainingOutput = fileHandle.readDataToEndOfFile()
-            try? fileHandle.close()
-
-            lock.lock()
-            isFinished = true
-            if !remainingOutput.isEmpty {
-                output.append(remainingOutput)
-            }
-            let finalOutput = self.output
-            lock.unlock()
-            continuation.resume(returning: finalOutput)
-        }
-    }
-
-    private func append(_ data: Data) {
-        let shouldClose: Bool
-        lock.lock()
-        if isFinished {
-            shouldClose = false
-        } else if data.isEmpty {
-            isFinished = true
-            shouldClose = true
-        } else {
-            output.append(data)
-            shouldClose = false
-        }
-        lock.unlock()
-
-        if shouldClose {
-            fileHandle.readabilityHandler = nil
-        }
+        await readTask.value
     }
 }
