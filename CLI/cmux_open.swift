@@ -201,7 +201,7 @@ extension CMUXCLI {
         Usage: cmux open <path-or-url>... [options]
 
         Open files, directories, or URLs in cmux.
-        Files open in file preview tabs and infer the preview UI from the file type.
+        Markdown files open in markdown preview tabs; other files open in file preview tabs.
         Multiple files open as tabs in the same target pane.
 
         Options:

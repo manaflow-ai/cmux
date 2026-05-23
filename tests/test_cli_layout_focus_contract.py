@@ -18,6 +18,8 @@ PANE_ID = "22222222-2222-4222-8222-222222222222"
 SURFACE_ID = "33333333-3333-4333-8333-333333333333"
 NEW_PANE_ID = "44444444-4444-4444-8444-444444444444"
 NEW_SURFACE_ID = "55555555-5555-4555-8555-555555555555"
+WINDOW_ID = "66666666-6666-4666-8666-666666666666"
+WINDOW_REF = "window:7"
 
 
 class FakeCmuxState:
@@ -49,6 +51,16 @@ class FakeCmuxState:
                         }
                     },
                 },
+            }
+        if method == "window.list":
+            return {
+                "windows": [
+                    {
+                        "id": WINDOW_ID,
+                        "ref": WINDOW_REF,
+                        "index": 7,
+                    },
+                ],
             }
         if method == "workspace.create":
             return {
@@ -234,6 +246,49 @@ def main() -> int:
             assert_last_call(state, "workspace.create", {"title": "Agent Workspace", "focus": False})
             if "layout" not in state.calls[-1][1]:
                 raise AssertionError(f"layout open did not send layout params: {state.calls[-1]!r}")
+
+            run_cli(
+                cli,
+                socket_path,
+                ["new-workspace", "--name", "caller-target"],
+                env_overrides={
+                    "CMUX_WORKSPACE_ID": WORKSPACE_ID,
+                    "CMUX_SURFACE_ID": SURFACE_ID,
+                },
+            )
+            assert_last_call(
+                state,
+                "workspace.create",
+                {
+                    "title": "caller-target",
+                    "workspace_id": WORKSPACE_ID,
+                    "surface_id": SURFACE_ID,
+                    "focus": False,
+                },
+            )
+
+            run_cli(
+                cli,
+                socket_path,
+                ["new-workspace", "--window", WINDOW_REF, "--name", "explicit-window"],
+                env_overrides={
+                    "CMUX_WORKSPACE_ID": WORKSPACE_ID,
+                    "CMUX_SURFACE_ID": SURFACE_ID,
+                },
+            )
+            assert_last_call(
+                state,
+                "workspace.create",
+                {
+                    "title": "explicit-window",
+                    "window_id": WINDOW_ID,
+                    "focus": False,
+                },
+            )
+            explicit_params = state.calls[-1][1]
+            for caller_key in ["workspace_id", "surface_id"]:
+                if caller_key in explicit_params:
+                    raise AssertionError(f"explicit --window should not include {caller_key}: {explicit_params!r}")
 
             run_cli(
                 cli,
