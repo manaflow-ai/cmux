@@ -452,9 +452,19 @@ extension Workspace {
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
         let panelNotificationSnapshots = notificationSnapshots(surfaceId: panelId)
+        let panelHasUnreadNotification = hasUnreadNotification(panelId: panelId)
         let hasUnreadIndicator =
             restoredUnreadPanelIds.contains(panelId) ||
-            hasUnreadNotification(panelId: panelId)
+            hasVisibleNotificationIndicator(panelId: panelId)
+        let restoredUnreadContributesToWorkspace: Bool? = {
+            if let restoredIndicator = restoredUnreadPanelIndicators[panelId] {
+                return restoredIndicator.contributesToWorkspaceUnread
+            }
+            if hasUnreadIndicator && !panelHasUnreadNotification {
+                return false
+            }
+            return nil
+        }()
         let branchSnapshot = panelGitBranches[panelId].map {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
@@ -581,6 +591,7 @@ extension Workspace {
             isPinned: isPinned,
             isManuallyUnread: isManuallyUnread,
             hasUnreadIndicator: hasUnreadIndicator,
+            restoredUnreadContributesToWorkspace: restoredUnreadContributesToWorkspace,
             notifications: panelNotificationSnapshots.isEmpty ? nil : panelNotificationSnapshots,
             gitBranch: branchSnapshot,
             listeningPorts: listeningPorts,
@@ -1094,9 +1105,14 @@ extension Workspace {
         } else {
             clearManualUnread(panelId: panelId)
         }
-        if snapshot.hasUnreadIndicator == true,
-           snapshot.notifications?.contains(where: { !$0.isRead }) != true {
-            restorePanelUnreadIndicator(panelId)
+        let hasUnreadPanelNotification = snapshot.notifications?.contains(where: { !$0.isRead }) == true
+        if snapshot.hasUnreadIndicator == true, !hasUnreadPanelNotification {
+            let contributesToWorkspaceUnread = snapshot.restoredUnreadContributesToWorkspace
+                ?? (snapshot.notifications?.isEmpty ?? true)
+            restorePanelUnreadIndicator(
+                panelId,
+                contributesToWorkspaceUnread: contributesToWorkspaceUnread
+            )
         } else {
             clearRestoredUnreadIndicator(panelId: panelId)
         }
@@ -5272,6 +5288,7 @@ final class WorkspaceRemoteSessionController {
     // after disconnect teardown; production/debug app code leaves it nil. The
     // override closure owns synchronization for any captured test-only state.
     nonisolated(unsafe) static var runProcessOverrideForTesting: ((String, [String], Data?, TimeInterval) throws -> (status: Int32, stdout: String, stderr: String))?
+    nonisolated(unsafe) static var runProcessReadHandlesDidInstallForTesting: ((FileHandle, FileHandle) -> Void)?
 #endif
 
     enum PortScanKickReason: String {
@@ -6619,25 +6636,61 @@ final class WorkspaceRemoteSessionController {
         let exitSemaphore = DispatchSemaphore(value: 0)
         var stdoutData = Data()
         var stderrData = Data()
+        var stdoutReadError: Error?
+        var stderrReadError: Error?
         let captureGroup = DispatchGroup()
         process.terminationHandler = { _ in
             exitSemaphore.signal()
         }
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            let data = stdoutHandle.readDataToEndOfFile()
+            defer { captureGroup.leave() }
+            let result = Self.readProcessPipeToEnd(stdoutHandle)
             captureQueue.sync {
-                stdoutData = data
+                switch result {
+                case .success(let data):
+                    stdoutData = data
+                case .failure(let error):
+                    stdoutReadError = error
+                }
             }
-            captureGroup.leave()
         }
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            let data = stderrHandle.readDataToEndOfFile()
+            defer { captureGroup.leave() }
+            let result = Self.readProcessPipeToEnd(stderrHandle)
             captureQueue.sync {
-                stderrData = data
+                switch result {
+                case .success(let data):
+                    stderrData = data
+                case .failure(let error):
+                    stderrReadError = error
+                }
             }
-            captureGroup.leave()
+        }
+#if DEBUG
+        Self.runProcessReadHandlesDidInstallForTesting?(stdoutHandle, stderrHandle)
+#endif
+
+        var didFinishCapture = false
+        func finishCaptureAndCloseReadHandles() {
+            guard !didFinishCapture else { return }
+            didFinishCapture = true
+            captureGroup.wait()
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+            if let stdoutReadError {
+                debugLog(
+                    "remote.proc.stdoutReadError exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
+                    "error=\(stdoutReadError.localizedDescription)"
+                )
+            }
+            if let stderrReadError {
+                debugLog(
+                    "remote.proc.stderrReadError exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
+                    "error=\(stderrReadError.localizedDescription)"
+                )
+            }
         }
 
         do {
@@ -6646,6 +6699,7 @@ final class WorkspaceRemoteSessionController {
         } catch {
             try? stdoutPipe.fileHandleForWriting.close()
             try? stderrPipe.fileHandleForWriting.close()
+            finishCaptureAndCloseReadHandles()
             debugLog(
                 "remote.proc.launchFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                 "error=\(error.localizedDescription)"
@@ -6681,9 +6735,11 @@ final class WorkspaceRemoteSessionController {
         if !didExitBeforeTimeout, process.isRunning {
             if operation?.isCancelled == true {
                 terminateProcessAndWait()
+                finishCaptureAndCloseReadHandles()
                 throw TerminalImageTransferExecutionError.cancelled
             }
             terminateProcessAndWait()
+            finishCaptureAndCloseReadHandles()
             debugLog(
                 "remote.proc.timeout exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                 "timeout=\(Int(timeout)) args=\(debugShellCommand(executable: executable, arguments: arguments))"
@@ -6693,9 +6749,7 @@ final class WorkspaceRemoteSessionController {
             ])
         }
 
-        _ = captureGroup.wait(timeout: .now() + 2.0)
-        try? stdoutHandle.close()
-        try? stderrHandle.close()
+        finishCaptureAndCloseReadHandles()
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         if operation?.isCancelled == true {
@@ -6708,6 +6762,37 @@ final class WorkspaceRemoteSessionController {
         )
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
+
+    private static func readProcessPipeToEnd(_ fileHandle: FileHandle) -> Result<Data, Error> {
+        var data = Data()
+        do {
+            while true {
+                guard let chunk = try fileHandle.read(upToCount: 64 * 1024), !chunk.isEmpty else {
+                    return .success(data)
+                }
+                data.append(chunk)
+            }
+        } catch {
+            return .failure(error)
+        }
+    }
+
+#if DEBUG
+    func runProcessForTesting(
+        executable: String,
+        arguments: [String],
+        stdin: Data? = nil,
+        timeout: TimeInterval
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        let result = try runProcess(
+            executable: executable,
+            arguments: arguments,
+            stdin: stdin,
+            timeout: timeout
+        )
+        return (result.status, result.stdout, result.stderr)
+    }
+#endif
 
     private func bootstrapDaemonLocked(requiredCapabilities: [String]) throws -> DaemonHello {
         debugLog("remote.bootstrap.begin \(debugConfigSummary())")
@@ -9018,6 +9103,19 @@ final class Workspace: Identifiable, ObservableObject {
         case terminalFirstResponder
     }
 
+    nonisolated enum RestoredPanelUnreadIndicator: Equatable, Sendable {
+        case visualOnly
+        case workspaceUnread
+
+        init(contributesToWorkspaceUnread: Bool) {
+            self = contributesToWorkspaceUnread ? .workspaceUnread : .visualOnly
+        }
+
+        var contributesToWorkspaceUnread: Bool {
+            self == .workspaceUnread
+        }
+    }
+
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
@@ -9029,7 +9127,15 @@ final class Workspace: Identifiable, ObservableObject {
             syncPanelDerivedWorkspaceUnread()
         }
     }
-    @Published private(set) var restoredUnreadPanelIds: Set<UUID> = []
+    @Published private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] = [:] {
+        didSet {
+            guard restoredUnreadPanelIndicators != oldValue else { return }
+            syncPanelDerivedWorkspaceUnread()
+        }
+    }
+    var restoredUnreadPanelIds: Set<UUID> {
+        Set(restoredUnreadPanelIndicators.keys)
+    }
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
@@ -10190,8 +10296,12 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private func hasUnreadNotification(panelId: UUID) -> Bool {
+    private func hasVisibleNotificationIndicator(panelId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.hasVisibleNotificationIndicator(forTabId: id, surfaceId: panelId) ?? false
+    }
+
+    private func hasUnreadNotification(panelId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
     }
 
     private func attentionPersistentState() -> WorkspaceAttentionPersistentState {
@@ -10228,7 +10338,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func syncPanelDerivedWorkspaceUnread() {
-        AppDelegate.shared?.notificationStore?.setPanelDerivedUnread(!manualUnreadPanelIds.isEmpty, forTabId: id)
+        AppDelegate.shared?.notificationStore?.setPanelDerivedUnread(
+            !manualUnreadPanelIds.isEmpty ||
+                restoredUnreadPanelIndicators.values.contains { $0.contributesToWorkspaceUnread },
+            forTabId: id
+        )
     }
 
     private func normalizePinnedTabs(in paneId: PaneID) {
@@ -10394,7 +10508,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func markPanelUnread(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
-        let didClearRestored = restoredUnreadPanelIds.remove(panelId) != nil
+        let didClearRestored = restoredUnreadPanelIndicators.removeValue(forKey: panelId) != nil
         let didInsertManual = manualUnreadPanelIds.insert(panelId).inserted
         guard didInsertManual || didClearRestored else { return }
         manualUnreadMarkedAt[panelId] = Date()
@@ -10450,7 +10564,7 @@ final class Workspace: Identifiable, ObservableObject {
             .union(restoredUnreadPanelIds)
         guard !affectedPanelIds.isEmpty else { return false }
         manualUnreadPanelIds.removeAll()
-        restoredUnreadPanelIds.removeAll()
+        restoredUnreadPanelIndicators.removeAll()
         manualUnreadMarkedAt.removeAll()
         for panelId in affectedPanelIds {
             syncUnreadBadgeStateForPanel(panelId)
@@ -10464,9 +10578,16 @@ final class Workspace: Identifiable, ObservableObject {
         return didRemoveUnread
     }
 
-    func restorePanelUnreadIndicator(_ panelId: UUID) {
+    func restorePanelUnreadIndicator(
+        _ panelId: UUID,
+        contributesToWorkspaceUnread: Bool = true
+    ) {
         guard panels[panelId] != nil else { return }
-        guard restoredUnreadPanelIds.insert(panelId).inserted else { return }
+        let nextIndicator = RestoredPanelUnreadIndicator(
+            contributesToWorkspaceUnread: contributesToWorkspaceUnread
+        )
+        guard restoredUnreadPanelIndicators[panelId] != nextIndicator else { return }
+        restoredUnreadPanelIndicators[panelId] = nextIndicator
         syncUnreadBadgeStateForPanel(panelId)
     }
 
@@ -10480,8 +10601,12 @@ final class Workspace: Identifiable, ObservableObject {
         restoredUnreadPanelIds.contains(panelId)
     }
 
+    func restoredUnreadIndicatorContributesToWorkspace(panelId: UUID) -> Bool? {
+        restoredUnreadPanelIndicators[panelId]?.contributesToWorkspaceUnread
+    }
+
     private func clearRestoredUnreadIndicatorState(panelId: UUID) -> Bool {
-        restoredUnreadPanelIds.remove(panelId) != nil
+        restoredUnreadPanelIndicators.removeValue(forKey: panelId) != nil
     }
 
     static func shouldShowUnreadIndicator(
@@ -10968,7 +11093,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
-        restoredUnreadPanelIds = restoredUnreadPanelIds.filter { validSurfaceIds.contains($0) }
+        restoredUnreadPanelIndicators = restoredUnreadPanelIndicators.filter { validSurfaceIds.contains($0.key) }
         panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
@@ -13681,10 +13806,10 @@ final class Workspace: Identifiable, ObservableObject {
             manualUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
         }
-        if detached.restoredUnread {
-            restoredUnreadPanelIds.insert(detached.panelId)
+        if let restoredUnreadIndicator = detached.restoredUnreadIndicator {
+            restoredUnreadPanelIndicators[detached.panelId] = restoredUnreadIndicator
         } else {
-            restoredUnreadPanelIds.remove(detached.panelId)
+            restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
         }
 
         guard let newTabId = bonsplitController.createTab(
@@ -13708,7 +13833,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelCustomTitles.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
-            restoredUnreadPanelIds.remove(detached.panelId)
+            restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
 #if DEBUG
@@ -16219,7 +16344,7 @@ extension Workspace: BonsplitDelegate {
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
-                restoredUnread: restoredUnreadPanelIds.contains(panelId),
+                restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 resumeBinding: resumeBinding,
