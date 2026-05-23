@@ -122,6 +122,11 @@ enum CMUXDiffViewerLocalization {
 }
 
 extension CMUXCLI {
+    private enum DiffViewerLimits {
+        static let repoOptions = 4
+        static let branchBaseOptions = 4
+    }
+
     private struct OpenArguments {
         var workspace: String?
         var window: String?
@@ -2646,7 +2651,6 @@ extension CMUXCLI {
         let selectedURL = URL(fileURLWithPath: selectedRepoRoot, isDirectory: true).standardizedFileURL
         var candidateURLs: [URL] = [selectedURL]
         let parentURL = selectedURL.deletingLastPathComponent()
-        candidateURLs.append(contentsOf: gitChildRepoURLs(in: parentURL))
 
         if parentURL.lastPathComponent == "worktrees" {
             let hqURL = parentURL.deletingLastPathComponent()
@@ -2654,7 +2658,11 @@ extension CMUXCLI {
             if diffViewerDirectoryContainsGitMetadata(primaryRepoURL) {
                 candidateURLs.append(primaryRepoURL)
             }
-        } else if selectedURL.lastPathComponent == "repo" {
+        }
+
+        candidateURLs.append(contentsOf: gitChildRepoURLs(in: parentURL))
+
+        if selectedURL.lastPathComponent == "repo" {
             let worktreesURL = parentURL.appendingPathComponent("worktrees", isDirectory: true)
             candidateURLs.append(contentsOf: gitChildRepoURLs(in: worktreesURL))
         }
@@ -2662,7 +2670,7 @@ extension CMUXCLI {
         var seen: Set<String> = []
         var roots: [String] = []
         for candidateURL in candidateURLs {
-            guard roots.count < 24,
+            guard roots.count < DiffViewerLimits.repoOptions,
                   let root = try? gitRepoRoot(startingAt: candidateURL.path),
                   !seen.contains(root) else {
                 continue
@@ -2744,7 +2752,7 @@ extension CMUXCLI {
             ["for-each-ref", "--format=%(refname:short)", "refs/remotes", "refs/heads"],
             in: repoRoot
         ) {
-            for line in listing.split(whereSeparator: \.isNewline).map(String.init) where refs.count < 24 {
+            for line in listing.split(whereSeparator: \.isNewline).map(String.init) where refs.count < DiffViewerLimits.branchBaseOptions {
                 appendRef(line)
             }
         }
