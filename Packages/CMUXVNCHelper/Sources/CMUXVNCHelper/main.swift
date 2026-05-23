@@ -397,25 +397,17 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     }
 
     private func setVisible(_ visible: Bool) {
-        var shouldFail = false
-        let snapshot = frameSnapshotLock.withLock { () -> FrameSnapshot? in
-            guard let refreshSequence = stateLock.withLock({ frameGate.setVisible(visible) }) else { return nil }
-            guard let framebuffer = currentFramebuffer() else { return nil }
+        frameSnapshotLock.withLock {
+            guard let refreshSequence = stateLock.withLock({ frameGate.setVisible(visible) }) else { return }
+            guard let framebuffer = currentFramebuffer() else { return }
             let width = UInt16(clamping: Int(framebuffer.size.width))
             let height = UInt16(clamping: Int(framebuffer.size.height))
             guard let snapshot = snapshotFrame(framebuffer: framebuffer, sequence: refreshSequence, x: 0, y: 0, width: width, height: height) else {
-                shouldFail = true
-                return nil
-            }
-            return snapshot
-        }
-        guard let snapshot else {
-            if shouldFail {
                 failProtocolError()
+                return
             }
-            return
+            sendFrame(snapshot)
         }
-        sendFrame(snapshot)
     }
 
     private func enqueueUpdateFrameIfVisible(
@@ -425,23 +417,13 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         width: UInt16,
         height: UInt16
     ) {
-        var shouldFail = false
-        let snapshot = frameSnapshotLock.withLock { () -> FrameSnapshot? in
-            guard let nextSequence = stateLock.withLock({ frameGate.nextUpdateSequence() }) else { return nil }
+        frameSnapshotLock.withLock {
+            guard let nextSequence = stateLock.withLock({ frameGate.nextUpdateSequence() }) else { return }
             guard let snapshot = snapshotFrame(framebuffer: framebuffer, sequence: nextSequence, x: x, y: y, width: width, height: height) else {
-                shouldFail = true
-                return nil
-            }
-            return snapshot
-        }
-        guard let snapshot else {
-            if shouldFail {
                 failProtocolError()
+                return
             }
-            return
-        }
-        runOnConnectionQueue { [weak self] in
-            self?.sendFrame(snapshot)
+            sendFrame(snapshot)
         }
     }
 

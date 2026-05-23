@@ -1636,6 +1636,58 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(deliveredPayloads, [fullPayload, partialPayload])
     }
 
+    func testVNCPanelConnectionCoalescesPendingFramesWhenMainActorIsBehind() async {
+        let session = MacfleetVNCSession(
+            name: "mac3-1",
+            hostName: "mac3",
+            address: "mac3-1.local",
+            port: 5901,
+            username: "cmuxvnc",
+            tag: "tag:mac-mini-cluster",
+            index: 1
+        )
+        let credential = VNCResolvedCredential(
+            username: "cmuxvnc",
+            password: "password",
+            source: .defaultPassword
+        )
+        let lastFrameDelivered = expectation(description: "latest VNC frame delivered")
+        let frameCount = VNCPanelConnection.maxPendingFramesForTesting + 5
+        var deliveredSequences: [UInt64] = []
+        let connection = VNCPanelConnection(
+            session: session,
+            credential: credential,
+            onControl: { _ in },
+            onFrame: { header, _ in
+                deliveredSequences.append(header.sequence)
+                if header.sequence == UInt64(frameCount) {
+                    lastFrameDelivered.fulfill()
+                }
+            },
+            onExit: { _ in }
+        )
+        defer { connection.close() }
+
+        for sequence in 1...frameCount {
+            let header = VNCFrameHeader(
+                sequence: UInt64(sequence),
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                framebufferWidth: 1,
+                framebufferHeight: 1,
+                stride: 4,
+                pixelFormat: .bgra8
+            )
+            connection.publishForTesting(.frame(header, Data([UInt8(sequence), 0, 0, 255])))
+        }
+
+        await fulfillment(of: [lastFrameDelivered], timeout: 1.0)
+        let expectedFirstSequence = UInt64(frameCount - VNCPanelConnection.maxPendingFramesForTesting + 1)
+        XCTAssertEqual(deliveredSequences, Array(expectedFirstSequence...UInt64(frameCount)))
+    }
+
     func testVNCNamedKeyParserPreservesSocketModifiers() throws {
         XCTAssertEqual(
             VNCPanel.namedKeyStroke(for: "ctrl-c"),

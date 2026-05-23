@@ -21,6 +21,11 @@ final class VNCPanelConnection {
         helperInputQueueFullExitStatus
     ]
     private static let maxPendingControlMessages = 256
+    private static let maxPendingFrames = 3
+
+    #if DEBUG
+    static var maxPendingFramesForTesting: Int { maxPendingFrames }
+    #endif
 
     typealias ControlHandler = @MainActor (VNCControlMessage) -> Void
     typealias FrameHandler = @MainActor (VNCFrameHeader, Data) -> Void
@@ -296,6 +301,9 @@ final class VNCPanelConnection {
         let shouldScheduleDrain = stateLock.withLock { () -> Bool in
             guard !isClosed else { return false }
             pendingFrames.append(frame)
+            if pendingFrames.count > Self.maxPendingFrames {
+                pendingFrames.removeFirst(pendingFrames.count - Self.maxPendingFrames)
+            }
             guard !frameDrainScheduled else { return false }
             frameDrainScheduled = true
             return true
@@ -308,25 +316,40 @@ final class VNCPanelConnection {
 
     @MainActor
     private func drainPendingFramesOnMainActor() {
-        while true {
-            let frames = stateLock.withLock { () -> [PendingFrame] in
-                guard !isClosed else {
-                    pendingFrames.removeAll(keepingCapacity: false)
-                    frameDrainScheduled = false
-                    return []
-                }
-                guard !pendingFrames.isEmpty else {
-                    frameDrainScheduled = false
-                    return []
-                }
-                let frames = pendingFrames
-                pendingFrames.removeAll(keepingCapacity: true)
-                return frames
+        let frames = stateLock.withLock { () -> [PendingFrame] in
+            guard !isClosed else {
+                pendingFrames.removeAll(keepingCapacity: false)
+                frameDrainScheduled = false
+                return []
             }
-            guard !frames.isEmpty else { return }
-            for frame in frames {
-                guard !isCurrentlyClosed() else { return }
-                onFrame(frame.header, frame.payload)
+            guard !pendingFrames.isEmpty else {
+                frameDrainScheduled = false
+                return []
+            }
+            let frames = pendingFrames
+            pendingFrames.removeAll(keepingCapacity: true)
+            return frames
+        }
+        guard !frames.isEmpty else { return }
+        for frame in frames {
+            guard !isCurrentlyClosed() else { return }
+            onFrame(frame.header, frame.payload)
+        }
+        let shouldScheduleNextDrain = stateLock.withLock { () -> Bool in
+            guard !isClosed else {
+                pendingFrames.removeAll(keepingCapacity: false)
+                frameDrainScheduled = false
+                return false
+            }
+            guard !pendingFrames.isEmpty else {
+                frameDrainScheduled = false
+                return false
+            }
+            return true
+        }
+        if shouldScheduleNextDrain {
+            Task { @MainActor [weak self] in
+                self?.drainPendingFramesOnMainActor()
             }
         }
     }
