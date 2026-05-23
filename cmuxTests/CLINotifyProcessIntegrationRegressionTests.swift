@@ -809,6 +809,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let notifyCommands = commands
             .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
         XCTAssertEqual(notifyCommands.count, 1, "Expected the notification send to race with Feed cleanup, saw \(notifyCommands)")
+        XCTAssertTrue(
+            commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
+            "Expected post-send Feed cleanup to clear the queued notification, saw \(commands)"
+        )
+        XCTAssertTrue(
+            commands.contains {
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected post-send Feed cleanup to restore Claude running status, saw \(commands)"
+        )
         XCTAssertFalse(commands.contains { $0.contains("set_status claude_code Needs input") }, commands.joined(separator: "\n"))
 
         let sessionAfterPermission = try readClaudeHookSession(sessionId, context: context)
@@ -1071,6 +1082,58 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
 
         let sessionAfterNotification = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(sessionAfterNotification["lastSubtitle"] as? String, "Permission request")
+        XCTAssertEqual(sessionAfterNotification["lastBody"] as? String, permissionBody)
+        XCTAssertEqual(sessionAfterNotification["pendingNotificationFingerprint"] as? String, "Permission request\n\(permissionBody)")
+    }
+
+    func testClaudeGenericNotificationClearsWhenSpecificPromptRacesInAfterSend() throws {
+        let context = try makeClaudeHookContext(name: "claude-notification-post-send-race")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-notification-post-send-race-session"
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let permissionBody = "Allow Bash to inspect grep error.log?"
+        let commandStart = context.state.commands.count
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#,
+            responseOverride: { line in
+                guard line.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") else {
+                    return nil
+                }
+                try? self.saveClaudeHookPendingNotification(
+                    sessionId,
+                    context: context,
+                    subtitle: "Permission request",
+                    body: permissionBody
+                )
+                return "OK"
+            }
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let commands = Array(context.state.commands.dropFirst(commandStart))
+        let notifyCommands = commands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertEqual(notifyCommands.count, 1, "Expected the generic notification send to race with pending prompt state, saw \(notifyCommands)")
+        XCTAssertTrue(
+            commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
+            "Expected post-send pending prompt detection to clear the stale generic notification, saw \(commands)"
+        )
+
+        let sessionAfterNotification = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(sessionAfterNotification["lastEmittedNotificationFingerprint"])
         XCTAssertEqual(sessionAfterNotification["lastSubtitle"] as? String, "Permission request")
         XCTAssertEqual(sessionAfterNotification["lastBody"] as? String, permissionBody)
         XCTAssertEqual(sessionAfterNotification["pendingNotificationFingerprint"] as? String, "Permission request\n\(permissionBody)")
