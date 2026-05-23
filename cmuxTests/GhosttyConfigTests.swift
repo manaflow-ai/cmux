@@ -246,6 +246,18 @@ final class GhosttyConfigTests: XCTestCase {
 
         XCTAssertTrue(hexColorConfig.hasParsedBackgroundColor)
         XCTAssertEqual(hexColorConfig.backgroundColor.hexString(), "#334455")
+
+        var namedOverrideConfig = GhosttyConfig()
+        namedOverrideConfig.parse("background = #334455\nbackground = black\nforeground = #ddeeff\nforeground = white\n")
+
+        XCTAssertFalse(namedOverrideConfig.hasParsedBackgroundColor)
+        XCTAssertFalse(namedOverrideConfig.hasParsedForegroundColor)
+
+        var invalidScalarOverrideConfig = GhosttyConfig()
+        invalidScalarOverrideConfig.parse("background-opacity = 0.42\nbackground-opacity = invalid\nbackground-blur = true\nbackground-blur = maybe\n")
+
+        XCTAssertFalse(invalidScalarOverrideConfig.hasParsedBackgroundOpacity)
+        XCTAssertFalse(invalidScalarOverrideConfig.hasParsedBackgroundBlur)
     }
 
     func testLoadReadsBackgroundFromRecursiveConfigFile() throws {

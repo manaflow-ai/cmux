@@ -393,41 +393,57 @@ struct GhosttyConfig {
                     if let color = NSColor(hex: value) {
                         backgroundColor = color
                         hasParsedBackgroundColor = true
+                    } else {
+                        hasParsedBackgroundColor = false
                     }
                 case "background-opacity":
                     if let opacity = Double(value) {
                         backgroundOpacity = opacity
                         hasParsedBackgroundOpacity = true
+                    } else {
+                        hasParsedBackgroundOpacity = false
                     }
                 case "background-blur":
                     if let parsedBlur = Self.parseBackgroundBlur(value) {
                         backgroundBlur = parsedBlur
                         hasParsedBackgroundBlur = true
+                    } else {
+                        hasParsedBackgroundBlur = false
                     }
                 case "foreground":
                     if let color = NSColor(hex: value) {
                         foregroundColor = color
                         hasParsedForegroundColor = true
+                    } else {
+                        hasParsedForegroundColor = false
                     }
                 case "cursor-color":
                     if let color = NSColor(hex: value) {
                         cursorColor = color
                         hasParsedCursorColor = true
+                    } else {
+                        hasParsedCursorColor = false
                     }
                 case "cursor-text":
                     if let color = NSColor(hex: value) {
                         cursorTextColor = color
                         hasParsedCursorTextColor = true
+                    } else {
+                        hasParsedCursorTextColor = false
                     }
                 case "selection-background":
                     if let color = NSColor(hex: value) {
                         selectionBackground = color
                         hasParsedSelectionBackground = true
+                    } else {
+                        hasParsedSelectionBackground = false
                     }
                 case "selection-foreground":
                     if let color = NSColor(hex: value) {
                         selectionForeground = color
                         hasParsedSelectionForeground = true
+                    } else {
+                        hasParsedSelectionForeground = false
                     }
                 case "palette":
                     // Parse palette entries like "0=#272822"
