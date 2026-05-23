@@ -7737,28 +7737,17 @@ struct SettingsView: View {
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(browserInsecureHTTPAllowlist)
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
-            if let target = SettingsWindowPresenter.consumePendingContentNavigationTarget() {
-                draftState.didApplyInitialContentNavigation = true
-                applySettingsNavigation(
-                    SettingsNavigationDestination(
-                        target: target,
-                        anchorID: SettingsSearchIndex.sectionID(for: target),
-                        shouldHighlight: false
-                    ),
-                    proxy: proxy
-                )
-            } else if !draftState.didApplyInitialContentNavigation {
-                draftState.didApplyInitialContentNavigation = true
-                let target = SettingsNavigationTarget(rawValue: selectedSettingsSectionRaw) ?? .account
-                applySettingsNavigation(
-                    SettingsNavigationDestination(
-                        target: target,
-                        anchorID: SettingsSearchIndex.sectionID(for: target),
-                        shouldHighlight: false
-                    ),
-                    proxy: proxy
-                )
-            }
+            let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
+                ?? SettingsNavigationTarget(rawValue: selectedSettingsSectionRaw)
+                ?? .account
+            applySettingsNavigation(
+                SettingsNavigationDestination(
+                    target: target,
+                    anchorID: SettingsSearchIndex.sectionID(for: target),
+                    shouldHighlight: false
+                ),
+                proxy: proxy
+            )
         }
         .onChange(of: notificationSound) { _, _ in
             refreshNotificationCustomSoundStatus()
@@ -8821,7 +8810,6 @@ final class SettingsDraftState {
     var socketPasswordDraft = ""
     var settingsColumnVisibility: NavigationSplitViewVisibility = .all
     var settingsSearchText = ""
-    var didApplyInitialContentNavigation = false
 
     func syncBrowserInsecureHTTPAllowlistFromSavedValue(_ savedValue: String) {
         if browserInsecureHTTPAllowlistDraft == browserInsecureHTTPAllowlistSyncedValue {
