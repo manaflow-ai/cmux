@@ -8,8 +8,7 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
-use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
 const VM_CREATE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(16 * 60);
@@ -78,16 +77,7 @@ struct SocketClient {
 
 impl SocketClient {
     fn connect(path: String) -> CliResult<Self> {
-        let deadline = Instant::now() + Duration::from_millis(350);
-        loop {
-            match Self::connect_once(&path) {
-                Ok(stream) => return Ok(Self { stream }),
-                Err(error) if should_retry_connect(&error) && Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(25));
-                }
-                Err(error) => return Err(error),
-            }
-        }
+        Self::connect_once(&path).map(|stream| Self { stream })
     }
 
     fn connect_once(path: &str) -> CliResult<UnixStream> {
@@ -758,12 +748,6 @@ fn response_timeout() -> Duration {
     }
 }
 
-fn should_retry_connect(error: &CliError) -> bool {
-    error.message.contains("Connection refused")
-        || error.message.contains("Resource temporarily unavailable")
-        || error.message.contains("would block")
-}
-
 fn sanitized_auth_error(response: &str, password: &str) -> String {
     let redacted = response.replace(password, "<redacted>");
     format!("Socket authentication failed: {redacted}")
@@ -1229,18 +1213,6 @@ mod tests {
         let message = sanitized_auth_error("ERROR: auth secret-password failed", "secret-password");
         assert!(message.contains("<redacted>"));
         assert!(!message.contains("secret-password"));
-    }
-
-    #[test]
-    fn retryable_connect_errors_are_bounded_to_transient_failures() {
-        assert!(should_retry_connect(&CliError::new("Connection refused")));
-        assert!(should_retry_connect(&CliError::new(
-            "Resource temporarily unavailable"
-        )));
-        assert!(should_retry_connect(&CliError::new(
-            "operation would block"
-        )));
-        assert!(!should_retry_connect(&CliError::new("Socket not found")));
     }
 
     #[test]
