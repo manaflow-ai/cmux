@@ -16,7 +16,9 @@ enum SettingsWindowPresenter {
     private static var pendingNavigationTarget: SettingsNavigationTarget?
     private static var pendingContentNavigationTarget: SettingsNavigationTarget?
     private static var shouldOpenWhenConfigured = false
-    private static var focusHandler: @MainActor (NSWindow) -> Void = { performFocus($0) }
+#if DEBUG
+    private static var focusHandlerForTests: (@MainActor (NSWindow) -> Void)?
+#endif
 
     static func configure(
         openWindow: @escaping @MainActor () -> Void,
@@ -122,11 +124,11 @@ enum SettingsWindowPresenter {
         pendingNavigationTarget = nil
         pendingContentNavigationTarget = nil
         shouldOpenWhenConfigured = false
-        focusHandler = { performFocus($0) }
+        focusHandlerForTests = nil
     }
 
     static func setFocusHandlerForTests(_ handler: @escaping @MainActor (NSWindow) -> Void) {
-        focusHandler = handler
+        focusHandlerForTests = handler
     }
 #endif
 
@@ -140,7 +142,13 @@ enum SettingsWindowPresenter {
     }
 
     private static func focus(_ window: NSWindow) {
-        focusHandler(window)
+#if DEBUG
+        if let focusHandlerForTests {
+            focusHandlerForTests(window)
+            return
+        }
+#endif
+        performFocus(window)
     }
 
     private static func performFocus(_ window: NSWindow) {

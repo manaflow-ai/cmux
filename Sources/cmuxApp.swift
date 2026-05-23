@@ -8791,25 +8791,25 @@ private struct SettingsWindowRootView: View {
 final class SettingsDraftState {
     var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
     var socketPasswordDraft = ""
+    var settingsColumnVisibility: NavigationSplitViewVisibility = .all
+    var settingsSearchText = ""
 }
 
 private struct SettingsRootView: View {
     @Bindable var draftState: SettingsDraftState
     @SceneStorage("selectedSettingsSection") private var selectedSectionRaw = SettingsNavigationTarget.account.rawValue
     @SceneStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID = SettingsSearchIndex.defaultSelectionID
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var searchText = ""
 
     private var selectedSection: SettingsNavigationTarget {
         SettingsNavigationTarget(rawValue: selectedSectionRaw) ?? .account
     }
 
     private var sidebarEntries: [SettingsSearchEntry] {
-        SettingsSearchIndex.entries(matching: searchText)
+        SettingsSearchIndex.entries(matching: draftState.settingsSearchText)
     }
 
     private var isSearching: Bool {
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !draftState.settingsSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var sidebarSelection: Binding<String> {
@@ -8820,7 +8820,7 @@ private struct SettingsRootView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        NavigationSplitView(columnVisibility: $draftState.settingsColumnVisibility) {
             List(selection: sidebarSelection) {
                 if sidebarEntries.isEmpty {
                     Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
@@ -8835,7 +8835,7 @@ private struct SettingsRootView: View {
             .listStyle(.sidebar)
             .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
             .searchable(
-                text: $searchText,
+                text: $draftState.settingsSearchText,
                 placement: .sidebar,
                 prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search"))
             )
@@ -8845,12 +8845,11 @@ private struct SettingsRootView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: SettingsWindowPresenter.minimumSize.width, minHeight: SettingsWindowPresenter.minimumSize.height)
-        .onChange(of: searchText) { _, newValue in
+        .onChange(of: draftState.settingsSearchText) { _, newValue in
             guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             selectedSidebarEntryID = SettingsSearchIndex.sectionID(for: selectedSection)
         }
         .onAppear {
-            searchText = ""
             if let target = SettingsWindowPresenter.consumePendingNavigationTarget() {
                 navigate(to: target, postRequest: true)
             } else {
