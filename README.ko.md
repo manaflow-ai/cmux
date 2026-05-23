@@ -236,15 +236,33 @@ cmux 설정 방법에 대한 자세한 내용은 [문서를 확인해주세요](
 
 cmux NIGHTLY는 자체 번들 ID를 가진 별도의 앱이라 안정 버전과 함께 실행할 수 있어요. 최신 `main` 커밋에서 자동으로 빌드되고, 자체 Sparkle 피드를 통해 자동 업데이트돼요.
 
-## 세션 복원 (현재 동작)
+## 세션 복원
 
-재실행 시 cmux는 현재 앱 레이아웃과 메타데이터만 복원해요:
+cmux를 종료하면 현재 세션을 저장합니다. 다시 실행하면 cmux가 앱이 관리하는 상태를 복원합니다:
 - 창/워크스페이스/패널 레이아웃
 - 작업 디렉토리
 - 터미널 스크롤백 (최선 노력)
 - 브라우저 URL 및 탐색 기록
 
-cmux는 터미널 앱 내부의 라이브 프로세스 상태를 복원하지 **않아요**. 예를 들어 활성 Claude Code/tmux/vim 세션은 재시작 후 아직 복원되지 않아요.
+cmux는 임의의 라이브 프로세스 상태를 체크포인트하지 않습니다. tmux, vim, shell, 지원되지 않는 터미널 앱은 일반 터미널로 다시 열립니다.
+
+지원되는 agent 세션은 hooks가 네이티브 세션 ID를 저장한 경우 다시 시작할 수 있습니다:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+고급 사용자와 통합은 현재 터미널 surface에 사용자 지정 resume 명령을 연결할 수 있습니다. tmux 세션이나 사용자 지정 agent CLI처럼 자체 영구 상태가 있는 도구에 유용합니다:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+이 binding은 cmux surface에 계속 연결됩니다. 공개 CLI나 socket으로 만든 binding은 확인과 수동 resume용으로 저장됩니다. cmux는 실행 중인 프로세스에서 감지한 tmux binding처럼 신뢰됨으로 표시한 resume binding만 자동 실행합니다. 토큰, 비밀번호, 시크릿, API 키 같은 민감한 환경 변수 키는 resume binding을 저장하기 전에 제거됩니다.
 
 ## Star History
 

@@ -98,6 +98,14 @@ export function isVmBillingError(err: unknown): err is VmBillingError {
   return (err as { _tag?: string } | null)?._tag === "VmBillingError";
 }
 
+export function isVmDatabaseError(err: unknown): err is VmDatabaseError {
+  return (err as { _tag?: string } | null)?._tag === "VmDatabaseError";
+}
+
+export function isVmProviderOperationError(err: unknown): err is VmProviderOperationError {
+  return (err as { _tag?: string } | null)?._tag === "VmProviderOperationError";
+}
+
 const vmWorkflowErrorTags = new Set([
   "VmDatabaseError",
   "VmProviderOperationError",

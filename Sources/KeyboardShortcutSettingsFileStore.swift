@@ -1,5 +1,8 @@
 import Combine
 import Foundation
+import os
+
+nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
 @MainActor
 final class KeyboardShortcutSettingsObserver: ObservableObject {
@@ -64,8 +67,10 @@ final class CmuxSettingsFileStore {
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
+    private var activeLegacyDerivedManagedUserDefaultKeys: Set<String> = []
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var isApplyingManagedSettings = false
+    private var deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
     private(set) var activeSourcePath: String?
 
     init(
@@ -84,7 +89,10 @@ final class CmuxSettingsFileStore {
         importedManagedDefaults = Self.loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()
-        reload()
+        // The app init path loads cmux.json before applying language/appearance
+        // itself. Running live default side effects here can initialize UI/runtime
+        // singletons while this store singleton is still in its dispatch_once.
+        reload(applyLiveDefaultSideEffects: false)
         guard startWatching else { return }
 
         primaryWatcher = ShortcutSettingsFileWatcher(path: primaryPath, fileManager: fileManager) { [weak self] in
@@ -116,6 +124,14 @@ final class CmuxSettingsFileStore {
     }
 
     func reload() {
+        reload(applyLiveDefaultSideEffects: true)
+    }
+
+    func applyDeferredManagedDefaultSideEffects() {
+        applyManagedDefaultBatchSideEffects(drainDeferredManagedDefaultSideEffects())
+    }
+
+    private func reload(applyLiveDefaultSideEffects: Bool) {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -130,12 +146,14 @@ final class CmuxSettingsFileStore {
             changedManagedDefaultKeys: newOrChangedManagedDefaultKeys(
                 previous: previousState.importedManagedDefaults,
                 next: resolved.managedUserDefaults
-            )
+            ),
+            applyLiveDefaultSideEffects: applyLiveDefaultSideEffects
         )
         synchronized {
             shortcutsByAction = resolved.shortcuts
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
+            activeLegacyDerivedManagedUserDefaultKeys = resolved.legacyDerivedManagedUserDefaultKeys
             activeManagedCustomSettings = resolved.managedCustomSettings
             activeSourcePath = resolved.path
         }
@@ -179,7 +197,7 @@ final class CmuxSettingsFileStore {
             try contents.write(to: fileURL, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
-            NSLog("[CmuxSettingsFileStore] failed to bootstrap %@: %@", primaryPath, String(describing: error))
+            cmuxSettingsFileStoreLogger.warning("failed to bootstrap \(self.primaryPath, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private(mask: .hash))")
         }
     }
 
@@ -211,6 +229,7 @@ final class CmuxSettingsFileStore {
                     path: activeSourcePath,
                     shortcuts: shortcutsByAction,
                     managedUserDefaults: activeManagedUserDefaults,
+                    legacyDerivedManagedUserDefaultKeys: activeLegacyDerivedManagedUserDefaultKeys,
                     managedCustomSettings: activeManagedCustomSettings
                 ),
                 importedManagedDefaults
@@ -221,7 +240,8 @@ final class CmuxSettingsFileStore {
             snapshot: managedState.snapshot,
             importedManagedDefaults: managedState.importedManagedDefaults,
             changedManagedDefaultKeys: [],
-            updateBackups: false
+            updateBackups: false,
+            applyLiveDefaultSideEffects: true
         )
     }
 
@@ -288,7 +308,7 @@ final class CmuxSettingsFileStore {
             }
             return .parsed(parseSettingsFile(root: root, sourcePath: path))
         } catch {
-            NSLog("[CmuxSettingsFileStore] parse error at %@: %@", path, String(describing: error))
+            cmuxSettingsFileStoreLogger.warning("parse error at \(path, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private(mask: .hash))")
             return .invalid
         }
     }
@@ -296,11 +316,7 @@ final class CmuxSettingsFileStore {
     private func parseSettingsFile(root: [String: Any], sourcePath: String) -> ResolvedSettingsSnapshot {
         let schemaVersion = jsonInt(root["schemaVersion"]) ?? 1
         if schemaVersion > Self.currentSchemaVersion {
-            NSLog(
-                "[CmuxSettingsFileStore] %@ uses future schemaVersion %d; parsing known fields only",
-                sourcePath,
-                schemaVersion
-            )
+            cmuxSettingsFileStoreLogger.warning("\(sourcePath, privacy: .private(mask: .hash)) uses future schemaVersion \(schemaVersion, privacy: .private(mask: .hash)); parsing known fields only")
         }
 
         var snapshot = ResolvedSettingsSnapshot(path: sourcePath)
@@ -374,6 +390,11 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[WorkspacePlacementSettings.placementKey] = .string(placement.rawValue)
         }
+        if let value = jsonBool(section["workspaceInheritWorkingDirectory"]) {
+            snapshot.managedUserDefaults[WorkspaceWorkingDirectoryInheritanceSettings.key] = .bool(value)
+        } else if section.keys.contains("workspaceInheritWorkingDirectory") {
+            logInvalid("app.workspaceInheritWorkingDirectory", sourcePath: sourcePath)
+        }
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)
@@ -387,6 +408,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
         }
+        if let value = jsonBool(section["openSupportedFilesInCmux"]) {
+            snapshot.managedUserDefaults[CmdClickSupportedFileRouteSettings.key] = .bool(value)
+        }
         if let value = jsonBool(section["openMarkdownInCmuxViewer"]) {
             snapshot.managedUserDefaults[CmdClickMarkdownRouteSettings.key] = .bool(value)
         }
@@ -399,8 +423,22 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["sendAnonymousTelemetry"]) {
             snapshot.managedUserDefaults[TelemetrySettings.sendAnonymousTelemetryKey] = .bool(value)
         }
+        var parsedConfirmQuitMode: QuitConfirmationMode?
+        if let raw = jsonString(section["confirmQuit"]) {
+            if let mode = QuitConfirmationMode(rawValue: raw) {
+                parsedConfirmQuitMode = mode
+                snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
+            } else {
+                logInvalid("app.confirmQuit", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonBool(section["warnBeforeQuit"]) {
             snapshot.managedUserDefaults[QuitWarningSettings.warnBeforeQuitKey] = .bool(value)
+            if parsedConfirmQuitMode == nil {
+                let mode: QuitConfirmationMode = value ? .always : .never
+                snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
+                snapshot.legacyDerivedManagedUserDefaultKeys.insert(QuitWarningSettings.confirmQuitKey)
+            }
         }
         if let value = jsonBool(section["warnBeforeClosingTab"]) {
             snapshot.managedUserDefaults[CloseTabWarningSettings.warnBeforeClosingTabKey] = .bool(value)
@@ -457,6 +495,12 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
 
+        if let value = jsonBool(section["copyOnSelect"]) {
+            snapshot.managedUserDefaults[TerminalCopyOnSelectSettings.copyOnSelectKey] = .bool(value)
+        } else if section.keys.contains("copyOnSelect") {
+            logInvalid("terminal.copyOnSelect", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["autoResumeAgentSessions"]) {
             snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
         } else if section.keys.contains("autoResumeAgentSessions") {
@@ -471,6 +515,9 @@ final class CmuxSettingsFileStore {
     ) {
         if let value = jsonBool(section["hideAllDetails"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.hideAllDetailsKey] = .bool(value)
+        }
+        if let value = jsonBool(section["showWorkspaceDescription"]) {
+            snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey] = .bool(value)
         }
         if let raw = jsonString(section["branchLayout"]) {
             switch raw {
@@ -487,6 +534,7 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["showBranchDirectory"]) { snapshot.managedUserDefaults["sidebarShowBranchDirectory"] = .bool(value) }
         if let value = jsonBool(section["showPullRequests"]) { snapshot.managedUserDefaults["sidebarShowPullRequest"] = .bool(value) }
+        if let value = jsonBool(section["watchGitStatus"]) { snapshot.managedUserDefaults[SidebarWorkspaceDetailDefaults.watchGitStatusKey] = .bool(value) }
         if let value = jsonBool(section["makePullRequestsClickable"]) { snapshot.managedUserDefaults[SidebarPullRequestClickabilitySettings.key] = .bool(value) }
         if let value = jsonBool(section["openPullRequestLinksInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey] = .bool(value)
@@ -553,12 +601,12 @@ final class CmuxSettingsFileStore {
             for (rawName, rawValue) in rawColors {
                 let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty else {
-                    NSLog("[CmuxSettingsFileStore] ignoring empty workspace color name in %@", sourcePath)
+                    cmuxSettingsFileStoreLogger.warning("ignoring empty workspace color name in \(sourcePath, privacy: .private(mask: .hash))")
                     continue
                 }
                 guard let hex = jsonString(rawValue),
                       let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
-                    NSLog("[CmuxSettingsFileStore] ignoring invalid workspace color '%@' in %@", name, sourcePath)
+                    cmuxSettingsFileStoreLogger.warning("ignoring invalid workspace color '\(name, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                     continue
                 }
                 normalizedPalette[name] = normalizedHex
@@ -575,12 +623,12 @@ final class CmuxSettingsFileStore {
             )
             for (name, rawValue) in rawOverrides {
                 guard validNames.contains(name) else {
-                    NSLog("[CmuxSettingsFileStore] ignoring unknown workspace color '%@' in %@", name, sourcePath)
+                    cmuxSettingsFileStoreLogger.warning("ignoring unknown workspace color '\(name, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                     continue
                 }
                 guard let hex = jsonString(rawValue),
                       let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
-                    NSLog("[CmuxSettingsFileStore] ignoring invalid workspace color override '%@' in %@", name, sourcePath)
+                    cmuxSettingsFileStoreLogger.warning("ignoring invalid workspace color override '\(name, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                     continue
                 }
                 palette[name] = normalizedHex
@@ -683,6 +731,12 @@ final class CmuxSettingsFileStore {
         if let raw = jsonString(section["claudeBinaryPath"]) {
             snapshot.managedUserDefaults[ClaudeCodeIntegrationSettings.customClaudePathKey] = .string(raw)
         }
+        if let raw = jsonString(section["ripgrepBinaryPath"]) {
+            snapshot.managedUserDefaults[RipgrepIntegrationSettings.customRipgrepPathKey] = .string(raw)
+        }
+        if let value = jsonBool(section["suppressSubagentNotifications"]) {
+            snapshot.managedUserDefaults[AgentSubagentNotificationSettings.suppressNotificationsKey] = .bool(value)
+        }
         if let value = jsonBool(section["cursorIntegration"]) {
             snapshot.managedUserDefaults[CursorIntegrationSettings.hooksEnabledKey] = .bool(value)
         }
@@ -726,6 +780,16 @@ final class CmuxSettingsFileStore {
                 return
             }
             snapshot.managedUserDefaults[BrowserThemeSettings.modeKey] = .string(mode.rawValue)
+        }
+        if let value = jsonBool(section["discardHiddenWebViews"]) {
+            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.enabledKey] = .bool(value)
+        }
+        if let value = jsonDouble(section["hiddenWebViewDiscardDelaySeconds"]) {
+            guard let delay = BrowserHiddenWebViewDiscardPolicy.resolvedHiddenDelay(value) else {
+                logInvalid("browser.hiddenWebViewDiscardDelaySeconds", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
         }
         if let value = jsonBool(section["openTerminalLinksInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey] = .bool(value)
@@ -786,15 +850,11 @@ final class CmuxSettingsFileStore {
 
         for (rawAction, rawBinding) in bindings {
             guard let action = KeyboardShortcutSettings.Action(rawValue: rawAction) else {
-                NSLog("[CmuxSettingsFileStore] ignoring unknown shortcut action '%@' in %@", rawAction, sourcePath)
+                cmuxSettingsFileStoreLogger.warning("ignoring unknown shortcut action '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                 continue
             }
             guard let shortcut = parseShortcutBindingValue(rawBinding, action: action) else {
-                NSLog(
-                    "[CmuxSettingsFileStore] ignoring invalid shortcut binding for '%@' in %@",
-                    rawAction,
-                    sourcePath
-                )
+                cmuxSettingsFileStoreLogger.warning("ignoring invalid shortcut binding for '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                 continue
             }
             snapshot.shortcuts[action] = shortcut
@@ -840,7 +900,8 @@ final class CmuxSettingsFileStore {
         snapshot: ResolvedSettingsSnapshot,
         importedManagedDefaults: [String: ManagedSettingsValue],
         changedManagedDefaultKeys: Set<String>,
-        updateBackups: Bool = true
+        updateBackups: Bool = true,
+        applyLiveDefaultSideEffects: Bool
     ) {
         var backups = loadBackups()
         var sideEffects = ManagedDefaultBatchSideEffects()
@@ -868,7 +929,12 @@ final class CmuxSettingsFileStore {
 
         for identifier in currentManagedIdentifiers.subtracting(nextManagedIdentifiers) {
             guard let backup = backups[identifier] else { continue }
-            sideEffects.merge(restoreBackup(backup, for: identifier))
+            sideEffects.merge(
+                restoreBackup(
+                    backup,
+                    for: identifier
+                )
+            )
             backups.removeValue(forKey: identifier)
         }
 
@@ -878,7 +944,9 @@ final class CmuxSettingsFileStore {
                     value,
                     for: defaultsKey,
                     importedDefault: importedManagedDefaults[defaultsKey],
-                    forceApply: changedManagedDefaultKeys.contains(defaultsKey)
+                    forceApply: changedManagedDefaultKeys.contains(defaultsKey),
+                    isDerivedFromLegacyWarnBeforeQuit: snapshot.legacyDerivedManagedUserDefaultKeys.contains(defaultsKey),
+                    importedLegacyWarnBeforeQuitDefault: importedManagedDefaults[QuitWarningSettings.warnBeforeQuitKey]
                 )
             )
         }
@@ -886,7 +954,28 @@ final class CmuxSettingsFileStore {
         if updateBackups {
             saveBackups(backups)
         }
-        applyManagedDefaultBatchSideEffects(sideEffects)
+        if applyLiveDefaultSideEffects {
+            var sideEffectsToApply = drainDeferredManagedDefaultSideEffects()
+            sideEffectsToApply.merge(sideEffects)
+            applyManagedDefaultBatchSideEffects(sideEffectsToApply)
+        } else {
+            deferManagedDefaultSideEffects(sideEffects)
+        }
+    }
+
+    private func deferManagedDefaultSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
+        guard !sideEffects.isEmpty else { return }
+        synchronized {
+            deferredManagedDefaultSideEffects.merge(sideEffects)
+        }
+    }
+
+    private func drainDeferredManagedDefaultSideEffects() -> ManagedDefaultBatchSideEffects {
+        synchronized {
+            let deferred = deferredManagedDefaultSideEffects
+            deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
+            return deferred
+        }
     }
 
     private func applyManagedCustomSettings(_ settings: ManagedCustomSettings) {
@@ -906,7 +995,10 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func restoreBackup(_ backup: BackupValue, for identifier: String) -> ManagedDefaultBatchSideEffects {
+    private func restoreBackup(
+        _ backup: BackupValue,
+        for identifier: String
+    ) -> ManagedDefaultBatchSideEffects {
         switch identifier {
         case Self.socketPasswordBackupIdentifier:
             switch backup {
@@ -919,7 +1011,10 @@ final class CmuxSettingsFileStore {
             }
             return ManagedDefaultBatchSideEffects()
         default:
-            return restoreUserDefaultsBackup(backup, for: identifier)
+            return restoreUserDefaultsBackup(
+                backup,
+                for: identifier
+            )
         }
     }
 
@@ -1019,10 +1114,7 @@ final class CmuxSettingsFileStore {
         }
 
         if didMutateStoredValue {
-            return applyManagedDefaultSideEffects(
-                for: defaultsKey,
-                source: "cmuxConfig.restoreUserDefault"
-            )
+            return managedDefaultSideEffects(for: defaultsKey)
         }
         return ManagedDefaultBatchSideEffects()
     }
@@ -1031,7 +1123,9 @@ final class CmuxSettingsFileStore {
         _ value: ManagedSettingsValue,
         for defaultsKey: String,
         importedDefault: ManagedSettingsValue?,
-        forceApply: Bool
+        forceApply: Bool,
+        isDerivedFromLegacyWarnBeforeQuit: Bool = false,
+        importedLegacyWarnBeforeQuitDefault: ManagedSettingsValue? = nil
     ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
         guard shouldApplyManagedUserDefaultsValue(
@@ -1039,6 +1133,8 @@ final class CmuxSettingsFileStore {
             for: defaultsKey,
             importedDefault: importedDefault,
             forceApply: forceApply,
+            isDerivedFromLegacyWarnBeforeQuit: isDerivedFromLegacyWarnBeforeQuit,
+            importedLegacyWarnBeforeQuitDefault: importedLegacyWarnBeforeQuitDefault,
             defaults: defaults
         ) else {
             return ManagedDefaultBatchSideEffects()
@@ -1104,10 +1200,7 @@ final class CmuxSettingsFileStore {
         }
 
         if didMutateStoredValue {
-            return applyManagedDefaultSideEffects(
-                for: defaultsKey,
-                source: "cmuxConfig.applyManagedDefault"
-            )
+            return managedDefaultSideEffects(for: defaultsKey)
         }
         return ManagedDefaultBatchSideEffects()
     }
@@ -1117,6 +1210,8 @@ final class CmuxSettingsFileStore {
         for defaultsKey: String,
         importedDefault: ManagedSettingsValue?,
         forceApply: Bool,
+        isDerivedFromLegacyWarnBeforeQuit: Bool,
+        importedLegacyWarnBeforeQuitDefault: ManagedSettingsValue?,
         defaults: UserDefaults
     ) -> Bool {
         guard !forceApply else { return true }
@@ -1129,7 +1224,11 @@ final class CmuxSettingsFileStore {
         ) else {
             return shouldApplyManagedUserDefaultsValueWhenCurrentIsMissing(
                 value,
-                importedDefault: importedDefault
+                for: defaultsKey,
+                importedDefault: importedDefault,
+                isDerivedFromLegacyWarnBeforeQuit: isDerivedFromLegacyWarnBeforeQuit,
+                importedLegacyWarnBeforeQuitDefault: importedLegacyWarnBeforeQuitDefault,
+                defaults: defaults
             )
         }
         return current == importedDefault
@@ -1137,8 +1236,19 @@ final class CmuxSettingsFileStore {
 
     private func shouldApplyManagedUserDefaultsValueWhenCurrentIsMissing(
         _ value: ManagedSettingsValue,
-        importedDefault: ManagedSettingsValue
+        for defaultsKey: String,
+        importedDefault: ManagedSettingsValue,
+        isDerivedFromLegacyWarnBeforeQuit: Bool,
+        importedLegacyWarnBeforeQuitDefault: ManagedSettingsValue?,
+        defaults: UserDefaults
     ) -> Bool {
+        if defaultsKey == QuitWarningSettings.confirmQuitKey,
+           isDerivedFromLegacyWarnBeforeQuit,
+           case .bool(let importedLegacyValue)? = importedLegacyWarnBeforeQuitDefault,
+           let currentLegacyValue = defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool,
+           currentLegacyValue != importedLegacyValue {
+            return false
+        }
         switch (value, importedDefault) {
         case (.nullableString, .nullableString(nil)):
             return true
@@ -1184,46 +1294,49 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func applyManagedDefaultSideEffects(
-        for defaultsKey: String,
-        source: String
-    ) -> ManagedDefaultBatchSideEffects {
-        let notificationCenter = notificationCenter
-        let notifyScrollBar = defaultsKey == TerminalScrollBarSettings.showScrollBarKey
+    private func managedDefaultSideEffects(for defaultsKey: String) -> ManagedDefaultBatchSideEffects {
+        guard defaultsKey != AppearanceSettings.appearanceModeKey else {
+            // The app lifecycle-owned UserDefaults observer applies live
+            // appearance changes after launch. The settings file store only
+            // imports the default so it cannot reenter Ghostty while this
+            // singleton initializes.
+            return ManagedDefaultBatchSideEffects()
+        }
         var sideEffects = ManagedDefaultBatchSideEffects()
-        sideEffects.agentSessionAutoResumeDidChange =
-            defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
-        let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
-        let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
-        let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
-        let appIconMode = defaultsKey == AppIconSettings.modeKey ? AppIconSettings.resolvedMode() : nil
-        let apply = {
-            if notifyScrollBar {
-                TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
-            }
-
-            if let language {
-                LanguageSettings.apply(language)
-            } else if shouldApplyAppearance {
-                AppearanceSettings.applyStoredMode(rawValue: appearanceRawValue, source: source)
-            } else if let appIconMode {
-                AppIconSettings.applyIcon(appIconMode)
-            }
-        }
-
-        if Thread.isMainThread {
-            apply()
-        } else {
-            DispatchQueue.main.async { apply() }
-        }
+        sideEffects.append(defaultsKey: defaultsKey)
         return sideEffects
     }
 
     private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
-        guard sideEffects.agentSessionAutoResumeDidChange else { return }
+        guard !sideEffects.isEmpty else { return }
         let notificationCenter = notificationCenter
+        let changes = sideEffects.changes
         let apply = {
-            AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            var agentSessionAutoResumeDidChange = false
+            for change in changes {
+                if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
+                    TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
+                    TerminalCopyOnSelectSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
+                    agentSessionAutoResumeDidChange = true
+                }
+
+                if change.defaultsKey == LanguageSettings.languageKey {
+                    let rawValue = UserDefaults.standard.string(forKey: change.defaultsKey) ?? ""
+                    LanguageSettings.apply(AppLanguage(rawValue: rawValue) ?? .system)
+                } else if change.defaultsKey == AppIconSettings.modeKey {
+                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                }
+            }
+
+            if agentSessionAutoResumeDidChange {
+                AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
         }
         if Thread.isMainThread {
             apply()
@@ -1247,6 +1360,12 @@ final class CmuxSettingsFileStore {
                forKey: SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey
            ) as? Bool {
             imported[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(legacyValue)
+        }
+        if imported[QuitWarningSettings.confirmQuitKey] == nil,
+           case .bool(let importedLegacyValue)? = imported[QuitWarningSettings.warnBeforeQuitKey] {
+            imported[QuitWarningSettings.confirmQuitKey] = .string(
+                (importedLegacyValue ? QuitConfirmationMode.always : .never).rawValue
+            )
         }
         return imported
     }
@@ -1282,7 +1401,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func logInvalid(_ path: String, sourcePath: String) {
-        NSLog("[CmuxSettingsFileStore] ignoring invalid setting '%@' in %@", path, sourcePath)
+        cmuxSettingsFileStoreLogger.warning("ignoring invalid setting '\(path, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
     }
 
     private func jsonString(_ rawValue: Any?) -> String? {
@@ -1328,6 +1447,7 @@ private struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
+    var legacyDerivedManagedUserDefaultKeys: Set<String> = []
     var managedCustomSettings = ManagedCustomSettings()
 
     mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
@@ -1341,17 +1461,34 @@ private struct ResolvedSettingsSnapshot {
         }
         for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
             managedUserDefaults[key] = value
+            if fallback.legacyDerivedManagedUserDefaultKeys.contains(key) {
+                legacyDerivedManagedUserDefaultKeys.insert(key)
+            }
         }
         managedCustomSettings.fillMissingSettings(from: fallback.managedCustomSettings)
     }
 }
 
+private struct ManagedDefaultSideEffect {
+    let defaultsKey: String
+}
+
 private struct ManagedDefaultBatchSideEffects {
-    var agentSessionAutoResumeDidChange = false
+    var changes: [ManagedDefaultSideEffect] = []
+
+    var isEmpty: Bool {
+        changes.isEmpty
+    }
 
     mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
-        agentSessionAutoResumeDidChange =
-            agentSessionAutoResumeDidChange || other.agentSessionAutoResumeDidChange
+        for change in other.changes {
+            append(defaultsKey: change.defaultsKey)
+        }
+    }
+
+    mutating func append(defaultsKey: String) {
+        changes.removeAll { $0.defaultsKey == defaultsKey }
+        changes.append(ManagedDefaultSideEffect(defaultsKey: defaultsKey))
     }
 }
 

@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Sparkle
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1360,7 +1361,12 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
 
         let focusHost = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        defer { _ = window.makeFirstResponder(nil); focusHost.removeFromSuperview(); window.contentView = nil; window.close() }
+        defer {
+            _ = window.makeFirstResponder(nil)
+            focusHost.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
         contentView.addSubview(focusHost)
         controller.registerRightSidebarHost(focusHost)
 
@@ -1580,6 +1586,211 @@ final class QuitWarningSettingsTests: XCTestCase {
         defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
         XCTAssertTrue(QuitWarningSettings.isEnabled(defaults: defaults))
     }
+
+    func testShouldShowConfirmationFollowsEnabledPreference() {
+        let suiteName = "QuitWarningSettingsTests.ShouldShow.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        XCTAssertTrue(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: false,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
+
+        XCTAssertFalse(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: true,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
+
+        defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        XCTAssertFalse(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: false,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
+        XCTAssertFalse(
+            QuitWarningSettings.shouldShowConfirmation(
+                isQuitWarningConfirmed: true,
+                hasDirtyWorkspaces: true,
+                buildFlavor: .stable,
+                defaults: defaults
+            )
+        )
+    }
+
+    func testSetEnabledWritesConfirmQuitAndLegacyFallback() {
+        let suiteName = "QuitWarningSettingsTests.SetEnabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        QuitWarningSettings.setEnabled(false, defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.never.rawValue)
+        XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, false)
+        XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+
+        QuitWarningSettings.setEnabled(true, defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.always.rawValue)
+        XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, true)
+        XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+    }
+}
+
+final class BuildFlavorTests: XCTestCase {
+    func testDetectsDevFromBundleName() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux DEV noqdlg", bundleIdentifier: "com.cmuxterm.app"),
+            .dev
+        )
+    }
+
+    func testDetectsDevBeforeTagTextCanLookNightly() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux DEV nightly", bundleIdentifier: "com.cmuxterm.app"),
+            .dev
+        )
+    }
+
+    func testDetectsNightlyFromBundleIdentifier() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux", bundleIdentifier: "com.cmuxterm.app.nightly"),
+            .nightly
+        )
+    }
+
+    func testDetectsStableByDefault() {
+        XCTAssertEqual(
+            BuildFlavor.detect(bundleName: "cmux", bundleIdentifier: "com.cmuxterm.app"),
+            .stable
+        )
+    }
+}
+
+final class QuitConfirmationPolicyTests: XCTestCase {
+    func testDevAlwaysSkipsQuitConfirmation() {
+        withIsolatedDefaults { defaults in
+            defaults.set(QuitConfirmationMode.always.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .dev,
+                    defaults: defaults
+                )
+            )
+
+            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .dev,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    func testStableHonorsConfirmQuitModes() {
+        withIsolatedDefaults { defaults in
+            defaults.set(QuitConfirmationMode.always.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertTrue(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: false,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+
+            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: false,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+            XCTAssertTrue(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+
+            defaults.set(QuitConfirmationMode.never.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .stable,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    func testNightlyHonorsConfirmQuitModes() {
+        withIsolatedDefaults { defaults in
+            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertFalse(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: false,
+                    buildFlavor: .nightly,
+                    defaults: defaults
+                )
+            )
+            XCTAssertTrue(
+                QuitWarningSettings.shouldShowConfirmation(
+                    isQuitWarningConfirmed: false,
+                    hasDirtyWorkspaces: true,
+                    buildFlavor: .nightly,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    func testLegacyWarnBeforeQuitMapsWhenConfirmQuitUnset() {
+        withIsolatedDefaults { defaults in
+            defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+
+            defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+        }
+    }
+
+    private func withIsolatedDefaults(_ body: (UserDefaults) -> Void) {
+        let suiteName = "QuitConfirmationPolicyTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        body(defaults)
+    }
 }
 
 
@@ -1678,6 +1889,208 @@ final class UpdateViewModelPresentationTests: XCTestCase {
         XCTAssertTrue(viewModel.showsPill)
         XCTAssertFalse(viewModel.showsDetectedBackgroundUpdate)
         XCTAssertEqual(viewModel.text, "Checking for Updates…")
+    }
+
+    func testDismissDetectedAvailableUpdateRepliesAndClearsState() throws {
+        let viewModel = UpdateViewModel()
+        let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
+        let recorder = UpdateChoiceRecorder()
+
+        viewModel.recordDetectedUpdate(item)
+        viewModel.state = .updateAvailable(.init(
+            appcastItem: item,
+            reply: { recorder.record($0) }
+        ))
+
+        viewModel.dismissDetectedAvailableUpdate()
+
+        XCTAssertEqual(recorder.snapshot(), [.dismiss])
+        XCTAssertEqual(viewModel.state, .idle)
+        XCTAssertNil(viewModel.detectedUpdateVersion)
+        XCTAssertNil(viewModel.detectedUpdateItem)
+        XCTAssertFalse(viewModel.showsPill)
+    }
+
+    func testCancelActiveStateForNewCheckDismissesAndClearsTransientState() throws {
+        let viewModel = UpdateViewModel()
+        let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
+        let recorder = UpdateChoiceRecorder()
+
+        viewModel.state = .updateAvailable(.init(
+            appcastItem: item,
+            reply: { recorder.record($0) }
+        ))
+        viewModel.overrideState = .checking(.init(cancel: {}))
+
+        viewModel.cancelActiveStateForNewCheck()
+
+        XCTAssertEqual(recorder.snapshot(), [.dismiss])
+        XCTAssertEqual(viewModel.state, .idle)
+        XCTAssertNil(viewModel.overrideState)
+    }
+
+    func testApplyDriverStateRecordsDetectedUpdateMetadata() throws {
+        let viewModel = UpdateViewModel()
+        let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
+
+        viewModel.applyDriverState(.updateAvailable(.init(
+            appcastItem: item,
+            reply: { _ in }
+        )))
+        viewModel.state = .idle
+
+        XCTAssertEqual(viewModel.detectedUpdateVersion, "9.9.9")
+        XCTAssertTrue(viewModel.hasCachedDetectedUpdateDetails)
+        XCTAssertTrue(viewModel.showsDetectedBackgroundUpdate)
+    }
+
+    private func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
+        let enclosure: [String: Any] = [
+            "url": "https://example.com/cmux.zip",
+            "length": "1024",
+            "sparkle:version": displayVersion,
+            "sparkle:shortVersionString": displayVersion,
+        ]
+        let dict: [String: Any] = [
+            "title": "cmux \(displayVersion)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": enclosure,
+        ]
+        return SUAppcastItem(dictionary: dict)
+    }
+}
+
+final class UpdateDriverTimeoutTests: XCTestCase {
+    private let timeoutDuration: TimeInterval = 0.05
+
+    func testCheckingTimeoutCancelsAndShowsFailure() {
+        let viewModel = UpdateViewModel()
+        let driver = makeDriver(viewModel: viewModel)
+        var cancelCount = 0
+
+        driver.showUserInitiatedUpdateCheck {
+            cancelCount += 1
+        }
+
+        let error = waitForTimeoutError(viewModel: viewModel)
+        XCTAssertNotNil(error)
+        XCTAssertEqual(cancelCount, 1)
+        XCTAssertEqual(UpdateViewModel.userFacingErrorTitle(for: error!), "Update Timed Out")
+        XCTAssertEqual(
+            UpdateViewModel.userFacingErrorMessage(for: error!),
+            "cmux could not check for updates in time. Check your network and try again."
+        )
+    }
+
+    func testDownloadingTimeoutCancelsAndShowsFailure() {
+        let viewModel = UpdateViewModel()
+        let driver = makeDriver(viewModel: viewModel)
+        var cancelCount = 0
+
+        driver.showUserInitiatedUpdateCheck {}
+        driver.showDownloadInitiated {
+            cancelCount += 1
+        }
+
+        let error = waitForTimeoutError(viewModel: viewModel)
+        XCTAssertNotNil(error)
+        XCTAssertEqual(cancelCount, 1)
+        XCTAssertEqual(
+            UpdateViewModel.userFacingErrorMessage(for: error!),
+            "cmux could not download the update in time. Check your network and try again."
+        )
+    }
+
+    func testPreparingTimeoutShowsFailure() {
+        let viewModel = UpdateViewModel()
+        let driver = makeDriver(viewModel: viewModel)
+
+        driver.showUserInitiatedUpdateCheck {}
+        driver.showDownloadDidStartExtractingUpdate()
+
+        let error = waitForTimeoutError(viewModel: viewModel)
+        XCTAssertNotNil(error)
+        XCTAssertEqual(
+            UpdateViewModel.userFacingErrorMessage(for: error!),
+            "cmux could not prepare the update in time. Try again later, or restart cmux and try again."
+        )
+    }
+
+    func testRestartRequiredStateDoesNotTimeOut() {
+        let viewModel = UpdateViewModel()
+        let driver = makeDriver(viewModel: viewModel)
+        var retryCount = 0
+
+        driver.showUserInitiatedUpdateCheck {}
+        driver.showDownloadDidStartExtractingUpdate()
+        driver.showInstallingUpdate(withApplicationTerminated: false) {
+            retryCount += 1
+        }
+
+        XCTAssertNotNil(waitForState(viewModel: viewModel, timeout: 0.3) { state in
+            if case .installing = state { return true }
+            return false
+        })
+
+        RunLoop.main.run(until: Date().addingTimeInterval(timeoutDuration * 3))
+        guard case .installing = viewModel.state else {
+            XCTFail("Expected restart prompt to remain visible, got \(viewModel.state)")
+            return
+        }
+        XCTAssertEqual(retryCount, 0)
+    }
+
+    private func makeDriver(viewModel: UpdateViewModel) -> UpdateDriver {
+        UpdateDriver(
+            viewModel: viewModel,
+            hostBundle: Bundle.main,
+            minimumCheckDuration: 0,
+            stateTimeoutDuration: timeoutDuration
+        )
+    }
+
+    private func waitForTimeoutError(viewModel: UpdateViewModel) -> (any Error)? {
+        guard let state = waitForState(viewModel: viewModel, timeout: 1.0, predicate: { state in
+            guard case .error(let error) = state else { return false }
+            return UpdateTimeoutError.isTimeout(error.error as NSError)
+        }) else {
+            return nil
+        }
+
+        guard case .error(let error) = state else { return nil }
+        return error.error
+    }
+
+    private func waitForState(viewModel: UpdateViewModel,
+                              timeout: TimeInterval,
+                              predicate: (UpdateState) -> Bool) -> UpdateState? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let state = viewModel.state
+            if predicate(state) {
+                return state
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        let state = viewModel.state
+        return predicate(state) ? state : nil
+    }
+}
+
+private final class UpdateChoiceRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var choices: [SPUUserUpdateChoice] = []
+
+    func record(_ choice: SPUUserUpdateChoice) {
+        lock.lock()
+        choices.append(choice)
+        lock.unlock()
+    }
+
+    func snapshot() -> [SPUUserUpdateChoice] {
+        lock.lock()
+        defer { lock.unlock() }
+        return choices
     }
 }
 

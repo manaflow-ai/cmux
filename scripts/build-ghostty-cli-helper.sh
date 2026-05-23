@@ -169,6 +169,7 @@ build_helper() {
     build
     cli-helper
     -Dapp-runtime=none
+    -Dcrash-report-subdir=cmux/crash
     -Demit-macos-app=false
     -Demit-xcframework=false
     -Doptimize=ReleaseFast
