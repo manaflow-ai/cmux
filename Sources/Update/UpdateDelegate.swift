@@ -47,16 +47,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
     /// Called when an update is scheduled to install silently,
     /// which occurs when automatic download is enabled.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
-        DispatchQueue.main.async { [weak viewModel] in
-            viewModel?.clearDetectedUpdate()
-            viewModel?.state = .installing(.init(
-                isAutoUpdate: true,
-                retryTerminatingApplication: immediateInstallHandler,
-                dismiss: { [weak viewModel] in
-                    viewModel?.state = .idle
-                }
-            ))
-        }
+        showWillInstallUpdateOnQuit(immediateInstallHandler: immediateInstallHandler)
         return true
     }
 
@@ -71,9 +62,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        DispatchQueue.main.async { [weak viewModel] in
-            viewModel?.recordDetectedUpdate(item)
-        }
+        recordDetectedUpdate(item)
         let version = item.displayVersionString
         let fileURL = item.fileURL?.absoluteString ?? ""
         if fileURL.isEmpty {
@@ -84,9 +73,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
-        DispatchQueue.main.async { [weak viewModel] in
-            viewModel?.dismissDetectedAvailableUpdate()
-        }
+        dismissDetectedAvailableUpdate()
         let nsError = error as NSError
         let reasonValue = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue
         let reason = reasonValue.map { SPUNoUpdateFoundReason(rawValue: OSStatus($0)) } ?? nil
@@ -102,9 +89,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, userDidMake _: SPUUserUpdateChoice, forUpdate _: SUAppcastItem, state _: SPUUserUpdateState) {
-        DispatchQueue.main.async { [weak viewModel] in
-            viewModel?.clearDetectedUpdate()
-        }
+        clearDetectedUpdate()
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
