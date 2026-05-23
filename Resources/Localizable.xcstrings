@@ -116338,8 +116338,25 @@
     "textSelection.copyText": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "نسخ النص" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Kopiraj tekst" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Kopiér tekst" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Text kopieren" } },
         "en": { "stringUnit": { "state": "translated", "value": "Copy Text" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "テキストをコピー" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Copiar texto" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Copier le texte" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Copia testo" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "テキストをコピー" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "텍스트 복사" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kopier tekst" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Kopiuj tekst" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Copiar texto" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Скопировать текст" } },
+        "th": { "stringUnit": { "state": "translated", "value": "คัดลอกข้อความ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Metni Kopyala" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Скопіювати текст" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "复制文本" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "複製文字" } }
       }
     },
     "taskManager.windowTitle": {
