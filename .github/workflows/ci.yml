@@ -162,7 +162,7 @@ jobs:
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
       # backtracer until the job timeout. Keep crash handling non-interactive
       # and cheap so xcodebuild can restart/finish the suite.
-      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+      SWIFT_BACKTRACE: "enable=no,interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
