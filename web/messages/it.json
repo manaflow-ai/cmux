@@ -496,7 +496,8 @@
           "warnBeforeQuit": "Fallback booleano legacy per la conferma di uscita. Usa app.confirmQuit per le nuove configurazioni."
         },
         "shortcuts": {
-          "shortcutFirstStroke": "Primo o unico tasto della scorciatoia. La maggior parte delle azioni richiede un modificatore, a meno che il tasto sia Space. Le azioni dell’anteprima Markdown accettano anche primi tasti singoli come h, j, k, l, / e n."
+          "shortcutFirstStroke": "Primo o unico tasto della scorciatoia. Deve includere un modificatore, a meno che il tasto sia Space.",
+          "markdownShortcutFirstStroke": "Primo o unico tasto della scorciatoia dell’anteprima Markdown. Le azioni dell’anteprima Markdown accettano primi tasti singoli come h, j, k, l, / e n perché sono locali al pannello Markdown in focus."
         }
       },
       "bareMarkdownPreviewStrokes": "Le azioni dell’anteprima Markdown accettano primi tasti singoli come <j>j</j> e <slash>/</slash>, perché sono attive solo nel pannello Markdown in focus."

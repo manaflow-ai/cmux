@@ -368,6 +368,51 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
+    func testMarkdownPreviewControlAliasesAreSettingsBacked() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-alias-shortcuts-\(UUID().uuidString).json")
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "markdownFindNextAlternate": "ctrl+j",
+              "markdownFindPreviousAlternate": null
+            }
+          }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: fileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            KeyboardShortcutSettings.resetAll()
+        }
+
+        XCTAssertNil(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("n", keyCode: 45, modifiers: [.control])
+            )
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("j", keyCode: 38, modifiers: [.control])
+            ),
+            .findNext
+        )
+        XCTAssertNil(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("p", keyCode: 35, modifiers: [.control])
+            )
+        )
+    }
+
     func testMarkdownPreviewKeyboardShortcutsCanUseBareCmuxJSONBindings() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-shortcuts-\(UUID().uuidString).json")

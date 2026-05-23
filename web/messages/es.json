@@ -496,7 +496,8 @@
           "warnBeforeQuit": "Alternativa booleana heredada para la confirmación de salida. Usa app.confirmQuit para configuraciones nuevas."
         },
         "shortcuts": {
-          "shortcutFirstStroke": "Primera o única pulsación del atajo. La mayoría de acciones requieren un modificador salvo que la tecla sea Space. Las acciones de vista previa de Markdown también aceptan primeras pulsaciones sueltas como h, j, k, l, / y n."
+          "shortcutFirstStroke": "Primera o única pulsación del atajo. Debe incluir un modificador salvo que la tecla sea Space.",
+          "markdownShortcutFirstStroke": "Primera o única pulsación del atajo de vista previa de Markdown. Las acciones de vista previa de Markdown aceptan primeras pulsaciones sueltas como h, j, k, l, / y n porque son locales al panel Markdown enfocado."
         }
       },
       "bareMarkdownPreviewStrokes": "Las acciones de vista previa de Markdown aceptan primeras pulsaciones sueltas como <j>j</j> y <slash>/</slash> porque solo están activas dentro del panel Markdown enfocado."

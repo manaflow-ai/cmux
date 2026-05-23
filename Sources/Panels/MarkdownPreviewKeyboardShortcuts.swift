@@ -27,17 +27,14 @@ enum MarkdownPreviewKeyboardShortcutResolver {
         (.findBackward, .markdownFindBackward),
         (.findNext, .markdownFindNext),
         (.findPrevious, .markdownFindPrevious),
+        (.findNext, .markdownFindNextAlternate),
+        (.findPrevious, .markdownFindPreviousAlternate),
     ]
 
     private static let globalFindCommandActions: [(MarkdownPreviewKeyCommand, KeyboardShortcutSettings.Action)] = [
         (.findForward, .find),
         (.findNext, .findNext),
         (.findPrevious, .findPrevious),
-    ]
-
-    private static let defaultAliasCommandShortcuts: [(MarkdownPreviewKeyCommand, StoredShortcut)] = [
-        (.findNext, StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)),
-        (.findPrevious, StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)),
     ]
 
     private static var singleStrokeCommandActions: [(MarkdownPreviewKeyCommand, KeyboardShortcutSettings.Action)] {
@@ -64,10 +61,6 @@ enum MarkdownPreviewKeyboardShortcutResolver {
         for (command, action) in singleStrokeCommandActions {
             let shortcut = shortcutForAction(action)
             guard !shortcut.hasChord, shortcut.matches(event: event) else { continue }
-            return command
-        }
-        for (command, shortcut) in defaultAliasCommandShortcuts {
-            guard shortcut.matches(event: event) else { continue }
             return command
         }
         return nil

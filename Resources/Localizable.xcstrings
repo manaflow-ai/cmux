@@ -116085,6 +116085,54 @@
         "uk": { "stringUnit": { "state": "translated", "value": "Перегляд Markdown: Знайти попереднє" } }
       }
     },
+    "shortcut.markdownFindNextAlternate.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Find Next (Control-N)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 次を検索（Control-N）" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Markdown 预览：查找下一个（Control-N）" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Markdown 預覽：尋找下一個（Control-N）" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Markdown 미리보기: 다음 찾기(Control-N)" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Markdown-Vorschau: Nächsten Treffer suchen (Control-N)" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Vista previa de Markdown: Buscar siguiente (Control-N)" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Aperçu Markdown : Résultat suivant (Control-N)" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Anteprima Markdown: Trova successivo (Control-N)" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Markdown-forhåndsvisning: Find næste (Control-N)" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Podgląd Markdown: Znajdź następne (Control-N)" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Предпросмотр Markdown: Найти следующее (Control-N)" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Markdown pregled: Pronađi sljedeće (Control-N)" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "معاينة Markdown: البحث عن التالي (Control-N)" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Markdown-forhåndsvisning: Finn neste (Control-N)" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Prévia de Markdown: Localizar próximo (Control-N)" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ตัวอย่าง Markdown: ค้นหาถัดไป (Control-N)" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Markdown Önizleme: Sonrakini bul (Control-N)" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Перегляд Markdown: Знайти наступне (Control-N)" } }
+      }
+    },
+    "shortcut.markdownFindPreviousAlternate.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Find Previous (Control-P)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 前を検索（Control-P）" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Markdown 预览：查找上一个（Control-P）" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Markdown 預覽：尋找上一個（Control-P）" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Markdown 미리보기: 이전 찾기(Control-P)" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Markdown-Vorschau: Vorherigen Treffer suchen (Control-P)" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Vista previa de Markdown: Buscar anterior (Control-P)" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Aperçu Markdown : Résultat précédent (Control-P)" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Anteprima Markdown: Trova precedente (Control-P)" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Markdown-forhåndsvisning: Find forrige (Control-P)" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Podgląd Markdown: Znajdź poprzednie (Control-P)" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Предпросмотр Markdown: Найти предыдущее (Control-P)" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Markdown pregled: Pronađi prethodno (Control-P)" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "معاينة Markdown: البحث عن السابق (Control-P)" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Markdown-forhåndsvisning: Finn forrige (Control-P)" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Prévia de Markdown: Localizar anterior (Control-P)" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ตัวอย่าง Markdown: ค้นหาก่อนหน้า (Control-P)" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Markdown Önizleme: Öncekini bul (Control-P)" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Перегляд Markdown: Знайти попереднє (Control-P)" } }
+      }
+    },
     "markdown.web.searchPromptForward": {
       "extractionState": "manual",
       "localizations": {

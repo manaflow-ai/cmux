@@ -496,7 +496,8 @@
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer."
         },
         "shortcuts": {
-          "shortcutFirstStroke": "Første eller eneste genvejstast. De fleste handlinger kræver en modifikatortast, medmindre tasten er Space. Markdown-forhåndsvisningshandlinger accepterer også enkelte første tastetryk som h, j, k, l, / og n."
+          "shortcutFirstStroke": "Første eller eneste genvejstast. Skal indeholde en modifikatortast, medmindre tasten er Space.",
+          "markdownShortcutFirstStroke": "Første eller eneste genvejstast til Markdown-forhåndsvisning. Markdown-forhåndsvisningshandlinger accepterer enkelte første tastetryk som h, j, k, l, / og n, fordi de er lokale i det fokuserede Markdown-panel."
         }
       },
       "bareMarkdownPreviewStrokes": "Markdown-forhåndsvisningshandlinger accepterer enkelte første tastetryk som <j>j</j> og <slash>/</slash>, fordi de kun er aktive i det fokuserede Markdown-panel."

@@ -496,7 +496,8 @@
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。"
         },
         "shortcuts": {
-          "shortcutFirstStroke": "第一个或唯一的快捷键按键。除 Space 键外，大多数操作都需要修饰键。Markdown 预览操作还接受 h、j、k、l、/、n 等单独的第一按键。"
+          "shortcutFirstStroke": "第一个或唯一的快捷键按键。除 Space 键外，必须包含修饰键。",
+          "markdownShortcutFirstStroke": "Markdown 预览快捷键的第一个或唯一按键。Markdown 预览操作只在当前聚焦的 Markdown 面板中生效，因此接受 h、j、k、l、/、n 等单独的第一按键。"
         }
       },
       "bareMarkdownPreviewStrokes": "Markdown 预览操作接受 <j>j</j> 和 <slash>/</slash> 等单独的第一按键，因为它们只在当前聚焦的 Markdown 面板中生效。"

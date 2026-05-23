@@ -496,7 +496,8 @@
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit."
         },
         "shortcuts": {
-          "shortcutFirstStroke": "Prva ili jedina tipka prečice. Većina radnji zahtijeva modifikator osim ako je tipka Space. Radnje Markdown pregleda prihvataju i samostalne prve tipke kao što su h, j, k, l, / i n."
+          "shortcutFirstStroke": "Prva ili jedina tipka prečice. Mora sadržavati modifikator osim ako je tipka Space.",
+          "markdownShortcutFirstStroke": "Prva ili jedina tipka prečice Markdown pregleda. Radnje Markdown pregleda prihvataju samostalne prve tipke kao što su h, j, k, l, / i n jer su lokalne za fokusirani Markdown panel."
         }
       },
       "bareMarkdownPreviewStrokes": "Radnje Markdown pregleda prihvataju samostalne prve tipke kao što su <j>j</j> i <slash>/</slash>, jer su aktivne samo u fokusiranom Markdown panelu."

@@ -496,7 +496,8 @@
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın."
         },
         "shortcuts": {
-          "shortcutFirstStroke": "Kısayolun ilk veya tek tuşu. Tuş Space olmadığı sürece çoğu eylem bir değiştirici gerektirir. Markdown önizleme eylemleri h, j, k, l, / ve n gibi tek başına ilk tuşları da kabul eder."
+          "shortcutFirstStroke": "Kısayolun ilk veya tek tuşu. Tuş Space olmadığı sürece bir değiştirici içermelidir.",
+          "markdownShortcutFirstStroke": "Markdown önizleme kısayolunun ilk veya tek tuşu. Markdown önizleme eylemleri h, j, k, l, / ve n gibi tek başına ilk tuşları kabul eder, çünkü odaktaki Markdown paneline yereldir."
         }
       },
       "bareMarkdownPreviewStrokes": "Markdown önizleme eylemleri <j>j</j> ve <slash>/</slash> gibi tek başına ilk tuşları kabul eder, çünkü yalnızca odaktaki Markdown panelinde etkindir."

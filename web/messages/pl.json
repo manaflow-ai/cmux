@@ -496,7 +496,8 @@
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit."
         },
         "shortcuts": {
-          "shortcutFirstStroke": "Pierwszy lub jedyny klawisz skrótu. Większość akcji wymaga modyfikatora, chyba że klawiszem jest Space. Akcje podglądu Markdown akceptują też pojedyncze pierwsze klawisze, takie jak h, j, k, l, / i n."
+          "shortcutFirstStroke": "Pierwszy lub jedyny klawisz skrótu. Musi zawierać modyfikator, chyba że klawiszem jest Space.",
+          "markdownShortcutFirstStroke": "Pierwszy lub jedyny klawisz skrótu podglądu Markdown. Akcje podglądu Markdown akceptują pojedyncze pierwsze klawisze, takie jak h, j, k, l, / i n, ponieważ działają lokalnie w aktywnym panelu Markdown."
         }
       },
       "bareMarkdownPreviewStrokes": "Akcje podglądu Markdown akceptują pojedyncze pierwsze klawisze, takie jak <j>j</j> i <slash>/</slash>, ponieważ działają tylko w aktywnym panelu Markdown."

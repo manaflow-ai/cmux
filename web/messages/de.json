@@ -496,7 +496,8 @@
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen."
         },
         "shortcuts": {
-          "shortcutFirstStroke": "Erster oder einziger Kurzbefehl-Tastenanschlag. Die meisten Aktionen erfordern eine Zusatztaste, außer die Taste ist Space. Markdown-Vorschau-Aktionen akzeptieren auch einzelne erste Tasten wie h, j, k, l, / und n."
+          "shortcutFirstStroke": "Erster oder einziger Kurzbefehl-Tastenanschlag. Muss eine Zusatztaste enthalten, außer die Taste ist Space.",
+          "markdownShortcutFirstStroke": "Erster oder einziger Markdown-Vorschau-Kurzbefehl. Markdown-Vorschau-Aktionen akzeptieren einzelne erste Tasten wie h, j, k, l, / und n, weil sie nur im fokussierten Markdown-Panel gelten."
         }
       },
       "bareMarkdownPreviewStrokes": "Markdown-Vorschau-Aktionen akzeptieren einzelne erste Tasten wie <j>j</j> und <slash>/</slash>, weil sie nur im fokussierten Markdown-Panel aktiv sind."

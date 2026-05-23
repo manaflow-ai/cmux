@@ -61,7 +61,9 @@ extension KeyboardShortcutSettings.Action {
              .markdownFindForward,
              .markdownFindBackward,
              .markdownFindNext,
-             .markdownFindPrevious:
+             .markdownFindPrevious,
+             .markdownFindNextAlternate,
+             .markdownFindPreviousAlternate:
             return .markdownPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus

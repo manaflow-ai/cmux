@@ -496,7 +496,8 @@
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner."
         },
         "shortcuts": {
-          "shortcutFirstStroke": "Første eller eneste snarveistast. De fleste handlinger krever en modifikatortast med mindre tasten er Space. Handlinger for Markdown-forhåndsvisning godtar også enkle første tastetrykk som h, j, k, l, / og n."
+          "shortcutFirstStroke": "Første eller eneste snarveistast. Må inneholde en modifikatortast med mindre tasten er Space.",
+          "markdownShortcutFirstStroke": "Første eller eneste snarveistast for Markdown-forhåndsvisning. Handlinger for Markdown-forhåndsvisning godtar enkle første tastetrykk som h, j, k, l, / og n fordi de er lokale i det fokuserte Markdown-panelet."
         }
       },
       "bareMarkdownPreviewStrokes": "Handlinger for Markdown-forhåndsvisning godtar enkle første tastetrykk som <j>j</j> og <slash>/</slash>, fordi de bare er aktive i det fokuserte Markdown-panelet."

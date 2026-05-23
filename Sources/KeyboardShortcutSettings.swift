@@ -133,6 +133,8 @@ enum KeyboardShortcutSettings {
         case markdownFindBackward
         case markdownFindNext
         case markdownFindPrevious
+        case markdownFindNextAlternate
+        case markdownFindPreviousAlternate
         case openBrowser
         case focusBrowserAddressBar
         case browserBack
@@ -221,6 +223,8 @@ enum KeyboardShortcutSettings {
             case .markdownFindBackward: return String(localized: "shortcut.markdownFindBackward.label", defaultValue: "Markdown Preview: Search Backward")
             case .markdownFindNext: return String(localized: "shortcut.markdownFindNext.label", defaultValue: "Markdown Preview: Find Next")
             case .markdownFindPrevious: return String(localized: "shortcut.markdownFindPrevious.label", defaultValue: "Markdown Preview: Find Previous")
+            case .markdownFindNextAlternate: return String(localized: "shortcut.markdownFindNextAlternate.label", defaultValue: "Markdown Preview: Find Next (Control-N)")
+            case .markdownFindPreviousAlternate: return String(localized: "shortcut.markdownFindPreviousAlternate.label", defaultValue: "Markdown Preview: Find Previous (Control-P)")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .focusBrowserAddressBar: return String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")
             case .browserBack: return String(localized: "menu.view.back", defaultValue: "Back")
@@ -389,6 +393,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "n", command: false, shift: false, option: false, control: false)
             case .markdownFindPrevious:
                 return StoredShortcut(key: "n", command: false, shift: true, option: false, control: false)
+            case .markdownFindNextAlternate:
+                return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
+            case .markdownFindPreviousAlternate:
+                return StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .focusBrowserAddressBar:
@@ -452,7 +460,9 @@ enum KeyboardShortcutSettings {
                  .markdownFindForward,
                  .markdownFindBackward,
                  .markdownFindNext,
-                 .markdownFindPrevious:
+                 .markdownFindPrevious,
+                 .markdownFindNextAlternate,
+                 .markdownFindPreviousAlternate:
                 return true
             default:
                 return false
@@ -470,7 +480,9 @@ enum KeyboardShortcutSettings {
                  .markdownFindForward,
                  .markdownFindBackward,
                  .markdownFindNext,
-                 .markdownFindPrevious:
+                 .markdownFindPrevious,
+                 .markdownFindNextAlternate,
+                 .markdownFindPreviousAlternate:
                 return true
             default:
                 return false

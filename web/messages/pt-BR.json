@@ -496,7 +496,8 @@
           "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações."
         },
         "shortcuts": {
-          "shortcutFirstStroke": "Primeiro ou único toque do atalho. A maioria das ações exige um modificador, exceto quando a tecla é Space. As ações da prévia de Markdown também aceitam primeiros toques isolados, como h, j, k, l, / e n."
+          "shortcutFirstStroke": "Primeiro ou único toque do atalho. Deve incluir um modificador, exceto quando a tecla é Space.",
+          "markdownShortcutFirstStroke": "Primeiro ou único toque do atalho da prévia de Markdown. As ações da prévia de Markdown aceitam primeiros toques isolados, como h, j, k, l, / e n, porque são locais ao painel Markdown em foco."
         }
       },
       "bareMarkdownPreviewStrokes": "As ações da prévia de Markdown aceitam primeiros toques isolados, como <j>j</j> e <slash>/</slash>, porque só ficam ativas no painel Markdown em foco."
