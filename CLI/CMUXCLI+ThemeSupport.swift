@@ -238,8 +238,6 @@ extension CMUXCLI {
         rawThemeValue: String,
         targetBundleIdentifier: String
     ) throws -> URL {
-        try removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: targetBundleIdentifier)
-
         let fileManager = FileManager.default
         let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
         let directoryURL = configURL.deletingLastPathComponent()

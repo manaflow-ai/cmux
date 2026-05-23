@@ -85,12 +85,6 @@ enum CmuxGhosttyConfigPathResolver {
             )
         }
 
-        try? removeStaleReleaseManagedThemeOverrideIfNeeded(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory,
-            fileManager: fileManager
-        )
-
         let currentURLs = preferredExistingConfigURLs(
             for: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectory,
@@ -100,6 +94,12 @@ enum CmuxGhosttyConfigPathResolver {
             return currentURLs
         }
         if allowsReleaseFallback(currentBundleIdentifier) {
+            try? removeStaleReleaseManagedThemeOverrideIfNeeded(
+                currentBundleIdentifier: currentBundleIdentifier,
+                appSupportDirectory: appSupportDirectory,
+                fileManager: fileManager
+            )
+
             let releaseURLs = preferredExistingConfigURLs(
                 for: releaseBundleIdentifier,
                 appSupportDirectory: appSupportDirectory,

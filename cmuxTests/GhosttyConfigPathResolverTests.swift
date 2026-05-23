@@ -319,6 +319,46 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
+    func testCmuxAppSupportConfigURLsLeaveReleaseManagedThemeWhenNightlyConfigExists() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: """
+                # cmux themes start
+                theme = light:Stable Light,dark:Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+            let nightlyConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app.nightly",
+                filename: "config.ghostty",
+                contents: "theme = light:Nightly Light,dark:Nightly Dark\n"
+            )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [nightlyConfigURL]
+            )
+
+            XCTAssertEqual(
+                try String(contentsOf: releaseConfigURL, encoding: .utf8),
+                """
+                # cmux themes start
+                theme = light:Stable Light,dark:Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+        }
+    }
+
     func testCmuxAppSupportConfigURLsUseStagingConfigWhenPresent() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(
