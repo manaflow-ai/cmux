@@ -5605,7 +5605,7 @@ class TerminalController {
     private func workspaceHistoryTabManagementUnavailableMessage() -> String {
         String(
             localized: "socket.workspace.history.tabManagementUnavailable",
-            defaultValue: "tab management is unavailable"
+            defaultValue: "Tab management is unavailable"
         )
     }
 
