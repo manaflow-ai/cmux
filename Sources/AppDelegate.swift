@@ -3964,7 +3964,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let windows: [SessionWindowSnapshot] = contexts
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-            .compactMap { context in
+            .map { context in
                 sessionWindowSnapshot(
                     for: context,
                     includeScrollback: includeScrollback,
@@ -3986,13 +3986,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
-    ) -> SessionWindowSnapshot? {
+    ) -> SessionWindowSnapshot {
         let tabManagerSnapshot = context.tabManager.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
-        guard !tabManagerSnapshot.workspaces.isEmpty else { return nil }
 
         let window = context.window ?? windowForMainWindowId(context.windowId)
         return SessionWindowSnapshot(
@@ -4188,6 +4187,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         notifyMainWindowContextsDidChange()
         return windowId
+    }
+
+    func sessionSnapshotForTesting(includeScrollback: Bool = false) -> AppSessionSnapshot? {
+        buildSessionSnapshot(includeScrollback: includeScrollback)
     }
 
 #endif
@@ -7366,17 +7369,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil
         )
-        var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
-        if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
-            restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(tabManagerSnapshot)
-        }
-        if !closedWindowHistoryWorkspaceIds.isEmpty {
-            tabManager.remapClosedPanelHistoryAfterWindowRestore(
-                originalWorkspaceIds: closedWindowHistoryWorkspaceIds,
-                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
-            )
-        }
-        if sessionWindowSnapshot != nil {
+        if let sessionWindowSnapshot {
+            let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(sessionWindowSnapshot.tabManager)
+            if !closedWindowHistoryWorkspaceIds.isEmpty {
+                tabManager.remapClosedPanelHistoryAfterWindowRestore(
+                    originalWorkspaceIds: closedWindowHistoryWorkspaceIds,
+                    restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+                )
+            }
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
 
@@ -14680,12 +14680,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(context.windowId) != nil
         guard !shouldSuppressClosedWindowHistory,
               !isTerminatingApp,
-              !isApplyingSessionRestore,
-              let snapshot = sessionWindowSnapshot(
-                for: context,
-                includeScrollback: true,
-                restorableAgentIndex: RestorableAgentSessionIndex.load()
-              ) else {
+              !isApplyingSessionRestore else {
+            return
+        }
+        let snapshot = sessionWindowSnapshot(
+            for: context,
+            includeScrollback: true,
+            restorableAgentIndex: RestorableAgentSessionIndex.load()
+        )
+        guard !snapshot.tabManager.workspaces.isEmpty else {
             return
         }
         ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(

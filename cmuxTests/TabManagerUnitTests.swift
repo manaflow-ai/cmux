@@ -312,6 +312,69 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
         XCTAssertFalse(appDelegate.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
     }
+
+    func testSessionSnapshotKeepsWindowWithNoRestorableWorkspaces() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "wss://remote.example.test",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        XCTAssertFalse(workspace.isRestorableInSessionSnapshot)
+        let snapshot = try XCTUnwrap(appDelegate.sessionSnapshotForTesting())
+        XCTAssertEqual(snapshot.windows.count, 1)
+        XCTAssertTrue(snapshot.windows[0].tabManager.workspaces.isEmpty)
+    }
+
+    func testClosedWindowHistorySkipsWindowWithNoRestorableWorkspaces() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "wss://remote.example.test",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
+
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+    }
 }
 
 
