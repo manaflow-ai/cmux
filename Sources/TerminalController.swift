@@ -16525,7 +16525,12 @@ class TerminalController {
         var result = "ERROR: Failed to create workspace"
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            let workspace = tabManager.addWorkspace(title: title, select: focus, eagerLoadTerminal: !focus)
+            let workspace = tabManager.addWorkspace(
+                title: title,
+                select: focus,
+                eagerLoadTerminal: !focus,
+                eagerLoadIdleTerminalsForAutomation: !focus
+            )
             if !focus,
                !workspace.requestBackgroundPrimeTerminalSurfaceStartIfNeeded(includeIdleTerminals: true) {
                 tabManager.closeWorkspace(workspace)

@@ -7,6 +7,7 @@ import glob
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -81,6 +82,28 @@ def _run_cli_json(cli: str, args: List[str]) -> Any:
         return json.loads(output or "{}")
     except Exception as exc:
         raise cmuxError(f"Invalid JSON output: {output!r} ({exc})")
+
+
+def _send_v1(command: str) -> str:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(5.0)
+        sock.connect(SOCKET_PATH)
+        sock.sendall((command + "\n").encode("utf-8"))
+        chunks: list[bytes] = []
+        while True:
+            try:
+                chunk = sock.recv(4096)
+            except socket.timeout:
+                break
+            if not chunk:
+                break
+            chunks.append(chunk)
+            sock.settimeout(0.1)
+
+    payload = b"".join(chunks).decode("utf-8", errors="replace").strip()
+    if not payload.startswith("OK"):
+        raise cmuxError(f"{command!r} failed: {payload!r}")
+    return payload
 
 
 def _extract_ref(output: str, kind: str) -> str:
@@ -176,6 +199,15 @@ def main() -> int:
             initial_surface = _surface_ref_by_index(c, workspace_ref, 0)
             row = _wait_for_terminal_ready(c, workspace_ref, initial_surface, "background workspace initial surface")
             _assert_not_visible_ready(row, "background workspace initial surface")
+
+            v1_created = _send_v1("new_workspace")
+            v1_workspace = v1_created.removeprefix("OK ").strip()
+            _must(bool(v1_workspace), f"v1 new_workspace returned no workspace id: {v1_created!r}")
+            cleanup_workspaces.append(v1_workspace)
+            _must(_current_workspace(c) == baseline_ws, "v1 background new_workspace should not switch selected workspace")
+            v1_initial_surface = _surface_ref_by_index(c, v1_workspace, 0)
+            row = _wait_for_terminal_ready(c, v1_workspace, v1_initial_surface, "v1 background workspace initial surface")
+            _assert_not_visible_ready(row, "v1 background workspace initial surface")
 
             surface_created = _run_cli(
                 cli,
