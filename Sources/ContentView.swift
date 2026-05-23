@@ -9678,6 +9678,16 @@ struct VerticalTabsSidebar: View {
                 tabManager.moveTabsToTop(Set(workspaceIds))
                 syncSelectionAfterMutation()
             },
+            windowMoveTargets: {
+                let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
+                return AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId).map {
+                    SidebarWindowMoveTargetSnapshot(
+                        windowId: $0.windowId,
+                        label: $0.label,
+                        isCurrentWindow: $0.isCurrentWindow
+                    )
+                } ?? []
+            },
             moveWorkspacesToWindow: { workspaceIds, windowId in
                 moveWorkspaces(workspaceIds, toWindow: windowId)
             },
@@ -11273,14 +11283,6 @@ struct VerticalTabsSidebar: View {
             live: livePresentation,
             frozen: frozenPresentation
         )
-        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
-        let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId).map {
-            SidebarWindowMoveTargetSnapshot(
-                windowId: $0.windowId,
-                label: $0.label,
-                isCurrentWindow: $0.isCurrentWindow
-            )
-        } ?? []
         let workspaceSnapshot = SidebarWorkspaceSnapshotBuilder.make(
             for: tab,
             settings: renderContext.tabItemSettings
@@ -11320,7 +11322,6 @@ struct VerticalTabsSidebar: View {
             hasCustomDescription: tab.hasCustomDescription,
             renameSeedTitle: tab.customTitle ?? tab.title,
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab),
-            windowMoveTargets: windowMoveTargets,
             dropIndicator: dropIndicator,
             settings: renderContext.tabItemSettings,
             livePresentation: livePresentation,
@@ -14024,7 +14025,6 @@ private struct SidebarWorkspaceRowSnapshot: Equatable {
     let hasCustomDescription: Bool
     let renameSeedTitle: String
     let finderDirectoryPath: String?
-    let windowMoveTargets: [SidebarWindowMoveTargetSnapshot]
     let dropIndicator: SidebarDropIndicator?
     let settings: SidebarTabItemSettingsSnapshot
     let livePresentation: SidebarTabItemPresentationSnapshot
@@ -14053,6 +14053,7 @@ private struct SidebarWorkspaceRowActions {
     let applyWorkspaceColor: (String?, [UUID]) -> Void
     let moveWorkspaceBy: (UUID, Int, Int) -> Void
     let moveWorkspacesToTop: ([UUID]) -> Void
+    let windowMoveTargets: () -> [SidebarWindowMoveTargetSnapshot]
     let moveWorkspacesToWindow: ([UUID], UUID) -> Void
     let moveWorkspacesToNewWindow: ([UUID]) -> Void
     let closeWorkspaces: ([UUID], Bool) -> Void
@@ -14857,6 +14858,7 @@ private struct TabItemView: View, Equatable {
             path: isMulti ? nil : snapshot.finderDirectoryPath
         )
         let finderDirectoryURL = workspaceFinderDirectoryCache.url(for: finderDirectoryCacheKey)
+        let windowMoveTargets = actions.windowMoveTargets()
         Button(pinLabel) {
             guard let contextMenuPinState = snapshot.contextMenuPinState else {
                 NSSound.beep()
@@ -14995,11 +14997,11 @@ private struct TabItemView: View, Equatable {
             }
             .disabled(targetIds.isEmpty)
 
-            if !snapshot.windowMoveTargets.isEmpty {
+            if !windowMoveTargets.isEmpty {
                 Divider()
             }
 
-            ForEach(snapshot.windowMoveTargets) { target in
+            ForEach(windowMoveTargets) { target in
                 Button(target.label) {
                     actions.moveWorkspacesToWindow(targetIds, target.windowId)
                 }
