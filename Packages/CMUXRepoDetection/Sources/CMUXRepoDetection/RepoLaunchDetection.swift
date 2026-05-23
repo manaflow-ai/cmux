@@ -85,10 +85,8 @@ public enum CMUXRepoDetection {
             }
 
             let suffix = trimmed.dropFirst(targetPrefix.count)
-            guard suffix.first != "=" else {
-                return false
-            }
-            guard !suffix.hasPrefix(":=") else {
+            let assignmentSuffix = suffix.drop { $0 == ":" }
+            guard assignmentSuffix.first != "=" else {
                 return false
             }
             return true

@@ -17,40 +17,15 @@ extension CMUXCLI {
         try fm.copyItem(at: checkoutURL, to: tempURL)
         try? fm.removeItem(at: tempURL.appendingPathComponent(".git", isDirectory: true))
 
-        var backupURLToFinalize: URL?
-        var shouldFinalizeBackup = true
-        defer {
-            if shouldFinalizeBackup, let backupURL = backupURLToFinalize {
-                if fm.fileExists(atPath: installURL.path) {
-                    try? fm.removeItem(at: backupURL)
-                } else if fm.fileExists(atPath: backupURL.path) {
-                    try? fm.moveItem(at: backupURL, to: installURL)
-                }
-            }
-        }
-
         if existed {
-            let backupURL = parentURL.appendingPathComponent(".\(manifest.version).previous.\(UUID().uuidString)", isDirectory: true)
-            try fm.moveItem(at: installURL, to: backupURL)
-            backupURLToFinalize = backupURL
             do {
-                try fm.moveItem(at: tempURL, to: installURL)
+                _ = try fm.replaceItemAt(installURL, withItemAt: tempURL)
             } catch {
-                let installError = error
-                if !fm.fileExists(atPath: installURL.path),
-                   fm.fileExists(atPath: backupURL.path) {
-                    do {
-                        try fm.moveItem(at: backupURL, to: installURL)
-                    } catch {
-                        shouldFinalizeBackup = false
-                        let message = String(
-                            localized: "cli.use.error.replaceRestoreFailed",
-                            defaultValue: "Failed to update the extension. The previous installation could not be restored automatically."
-                        )
-                        throw CLIError(message: message)
-                    }
-                }
-                throw installError
+                let message = String(
+                    localized: "cli.use.error.replaceRestoreFailed",
+                    defaultValue: "Failed to update the extension. The existing installation was left unchanged."
+                )
+                throw CLIError(message: message)
             }
         } else {
             try fm.moveItem(at: tempURL, to: installURL)
