@@ -644,6 +644,11 @@ final class OmnibarStateMachineTests: XCTestCase {
             harness.publishedSelectionRange,
             NSRange(location: "news.ycombinator.".utf16.count, length: 0)
         )
+        XCTAssertTrue(harness.editor.undoManager?.canUndo ?? false)
+
+        harness.editor.undoManager?.undo()
+
+        XCTAssertEqual(harness.editor.string, "news.ycombinator.com")
     }
 
     @MainActor
@@ -948,6 +953,12 @@ private final class OmnibarInlineDeletionHarness {
 @MainActor
 private final class OmnibarPlainDeletionHarness {
     var state = OmnibarState()
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 320, height: 40),
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
     let editor = NSTextView()
     var publishedSelectionRange = NSRange(location: NSNotFound, length: 0)
 
@@ -955,8 +966,13 @@ private final class OmnibarPlainDeletionHarness {
         state.isFocused = true
         state.currentURLString = ""
         state.buffer = text
+        editor.allowsUndo = true
+        editor.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(editor)
+        window.makeFirstResponder(editor)
         editor.string = text
         editor.setSelectedRange(NSRange(location: selectedLocation ?? text.utf16.count, length: 0))
+        editor.undoManager?.removeAllActions()
     }
 
     func dispatchBackspace(

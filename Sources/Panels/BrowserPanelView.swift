@@ -3143,6 +3143,7 @@ func omnibarPrefixAfterDeletingTrailingWord(from text: String) -> String {
 
 struct OmnibarURLWordDeletion: Equatable {
     let text: String
+    let deletedRange: NSRange
     let selectedRange: NSRange
 }
 
@@ -3186,6 +3187,7 @@ func omnibarTextAfterDeletingURLWordBackward(
     let updated = nsText.replacingCharacters(in: deletionRange, with: "")
     return OmnibarURLWordDeletion(
         text: updated,
+        deletedRange: deletionRange,
         selectedRange: NSRange(location: deletionStart, length: 0)
     )
 }
@@ -4357,11 +4359,16 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 return false
             }
 
+            guard editor.shouldChangeText(in: deletion.deletedRange, replacementString: "") else {
+                return false
+            }
+            guard let textStorage = editor.textStorage else { return false }
+
             isProgrammaticMutation = true
-            editor.string = deletion.text
-            parentField?.stringValue = deletion.text
+            defer { isProgrammaticMutation = false }
+            textStorage.replaceCharacters(in: deletion.deletedRange, with: "")
+            editor.didChangeText()
             editor.setSelectedRange(deletion.selectedRange)
-            isProgrammaticMutation = false
 
             parent.text = deletion.text
             parent.onSelectionChanged(deletion.selectedRange, false)
