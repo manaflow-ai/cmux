@@ -767,6 +767,16 @@ struct BrowserPanelView: View {
                 .environment(\.colorScheme, browserChromeColorScheme)
             }
         }
+        .overlay {
+            if isBrowserExtensionsPopoverPresented {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        isBrowserExtensionsPopoverPresented = false
+                    }
+                    .zIndex(1090)
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if isBrowserExtensionsPopoverPresented {
                 browserExtensionsInlinePopover
