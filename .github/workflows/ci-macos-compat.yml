@@ -17,7 +17,7 @@ jobs:
           - os: blacksmith-6vcpu-macos-26
             timeout: 30
             startup_smoke: true
-            virtual_display: false
+            virtual_display: true
             skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout }}
