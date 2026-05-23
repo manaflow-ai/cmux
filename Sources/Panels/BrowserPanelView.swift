@@ -3164,21 +3164,25 @@ func omnibarTextAfterDeletingURLWordBackward(
     }
 
     let caret = selectedRange.location
-    guard !omnibarURLWordBoundaryCharacter(in: nsText, at: caret - 1) else {
-        return nil
+    var scanEnd = caret
+    while scanEnd > 0,
+          omnibarURLWordBoundaryCharacter(in: nsText, at: scanEnd - 1) {
+        scanEnd -= 1
     }
+    guard scanEnd > 0 else { return nil }
 
-    var deletionStart = caret
+    var deletionStart = scanEnd
     while deletionStart > 0,
           !omnibarURLWordBoundaryCharacter(in: nsText, at: deletionStart - 1) {
         deletionStart -= 1
     }
 
-    guard deletionStart < caret else { return nil }
+    guard deletionStart < scanEnd else { return nil }
 
-    var deletionEnd = caret
-    if caret < textLength,
-       omnibarURLWordBoundaryCharacter(in: nsText, at: caret),
+    var deletionEnd = scanEnd == caret ? scanEnd : caret
+    if scanEnd == caret,
+       scanEnd < textLength,
+       omnibarURLWordBoundaryCharacter(in: nsText, at: scanEnd),
        (deletionStart == 0 || omnibarURLWordBoundaryCharacter(in: nsText, at: deletionStart - 1)) {
         deletionEnd += 1
     }
@@ -4134,6 +4138,12 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             case #selector(NSResponder.deleteWordBackward(_:)):
                 if inlineCompletionSelectionIsActive(textView, inline: parent.inlineCompletion) {
                     parent.onDeleteWordBackwardWithInlineSelection()
+#if DEBUG
+                    handled = true
+#endif
+                    return true
+                }
+                if handleOptionDeleteBackward(editor: textView) {
 #if DEBUG
                     handled = true
 #endif
