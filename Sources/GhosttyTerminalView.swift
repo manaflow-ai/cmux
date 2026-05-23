@@ -2000,10 +2000,15 @@ class GhosttyApp {
             primaryConfig,
             preferredColorScheme: initialColorScheme
         )
+        let initialCmuxThemeValue = currentCmuxAppSupportThemeValue()
+        let initialResolvedColorScheme = Self.shouldResolveCmuxThemePairAgainstAppearance(initialCmuxThemeValue)
+            ? initialColorScheme
+            : nil
         updateDefaultBackground(
             from: primaryConfig,
             source: "initialize.primaryConfig",
-            forceNotify: primaryRenderingModeChanged
+            forceNotify: primaryRenderingModeChanged,
+            resolvedColorScheme: initialResolvedColorScheme
         )
         updateDefaultBackgroundFromResolvedGhosttyConfig(
             source: "initialize.primaryConfig",
@@ -3414,7 +3419,8 @@ class GhosttyApp {
             from: newConfig,
             source: "reloadConfiguration(source=\(source))",
             scope: .unscoped,
-            forceNotify: renderingModeChanged
+            forceNotify: renderingModeChanged,
+            resolvedColorScheme: shouldResolveCmuxThemePairAgainstAppearance ? reloadColorScheme : nil
         )
         GhosttyConfig.invalidateLoadCache()
         updateDefaultBackgroundFromResolvedGhosttyConfig(
@@ -3644,7 +3650,8 @@ class GhosttyApp {
             selectionForeground: resolved.selectionForeground,
             source: source,
             scope: scope,
-            forceNotify: forceNotify
+            forceNotify: forceNotify,
+            resolvedColorScheme: resolvedColorScheme
         )
     }
 
