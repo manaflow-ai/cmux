@@ -93,6 +93,7 @@ JSON_DROPPED_KEY_TOKENS = {
 JSON_REDACTED_KEYS = {
     "instructions",
     "system",
+    "system_instruction",
 }
 JSON_REDACTED_KEY_TOKENS = {
     sensitive_key_token(key)
