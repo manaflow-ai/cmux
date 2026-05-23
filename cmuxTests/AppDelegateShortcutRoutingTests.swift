@@ -5278,6 +5278,87 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedCommands.last, .findPrevious)
     }
 
+    func testFocusedMarkdownPreviewDoesNotOwnAuxiliaryWindowTyping() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected test manager, workspace, and focused source panel")
+            return
+        }
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-auxiliary-\(UUID().uuidString).md")
+        try "# Markdown\n\nFind target\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let markdownPanel = try XCTUnwrap(
+            workspace.newMarkdownSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                filePath: fileURL.path,
+                focus: true
+            )
+        )
+        workspace.focusPanel(markdownPanel.id)
+
+        let auxiliaryWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        auxiliaryWindow.isReleasedWhenClosed = false
+        auxiliaryWindow.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
+
+        let auxiliaryResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 100, height: 24))
+        let contentView = NSView(frame: auxiliaryWindow.contentRect(forFrameRect: auxiliaryWindow.frame))
+        contentView.addSubview(auxiliaryResponder)
+        auxiliaryWindow.contentView = contentView
+        auxiliaryWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(auxiliaryWindow.makeFirstResponder(auxiliaryResponder))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        defer {
+            if auxiliaryWindow.isVisible {
+                auxiliaryWindow.performClose(nil)
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            }
+        }
+
+        var observedCommands: [MarkdownPreviewKeyCommand] = []
+#if DEBUG
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = { command in
+            observedCommands.append(command)
+        }
+#else
+        XCTFail("keyboardCommandObserver is only available in DEBUG")
+#endif
+
+        let event = try XCTUnwrap(
+            makeKeyDownEvent(
+                key: "j",
+                modifiers: [],
+                keyCode: 38,
+                windowNumber: auxiliaryWindow.windowNumber
+            )
+        )
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertTrue(observedCommands.isEmpty, "Markdown preview shortcuts should not consume auxiliary-window typing")
+        XCTAssertTrue(auxiliaryWindow.firstResponder === auxiliaryResponder)
+    }
+
     // MARK: - Browser find shortcut routing tests
 
     func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {

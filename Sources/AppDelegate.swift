@@ -14482,19 +14482,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleFocusedMarkdownPreviewShortcut(_ event: NSEvent) -> Bool {
-        let shortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        if let responder = shortcutWindow?.firstResponder,
+        guard let shortcutWindow = markdownPreviewShortcutWindow(for: event) else {
+            return false
+        }
+        if let responder = shortcutWindow.firstResponder,
            cmuxOwningGhosttyView(for: responder) != nil {
             return false
         }
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: shortcutWindow),
-              context.keyboardFocusCoordinator.findShortcutTarget(currentResponder: shortcutWindow?.firstResponder) == .mainPanelFind,
+              context.keyboardFocusCoordinator.findShortcutTarget(currentResponder: shortcutWindow.firstResponder) == .mainPanelFind,
               let workspace = context.tabManager.selectedWorkspace,
               let focusedPanelId = workspace.focusedPanelId,
               let markdownPanel = workspace.markdownPanel(for: focusedPanelId) else {
             return false
         }
         return markdownPanel.handlePreviewKeyboardShortcut(event)
+    }
+
+    private func markdownPreviewShortcutWindow(for event: NSEvent) -> NSWindow? {
+        if let eventWindow = resolvedShortcutEventWindow(event) {
+            return isMainTerminalWindow(eventWindow) ? eventWindow : nil
+        }
+        if let keyWindow = NSApp.keyWindow {
+            return isMainTerminalWindow(keyWindow) ? keyWindow : nil
+        }
+        if let mainWindow = NSApp.mainWindow, isMainTerminalWindow(mainWindow) {
+            return mainWindow
+        }
+        return nil
     }
 
     private func browserPanelOwning(_ webView: CmuxWebView) -> BrowserPanel? {
