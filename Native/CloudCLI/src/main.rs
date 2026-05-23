@@ -5,7 +5,7 @@ use std::fs;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::thread;
@@ -48,6 +48,7 @@ struct CloudContext {
     socket_path: String,
     socket_password: Option<String>,
     json_output: bool,
+    id_format: Option<String>,
     window_override: Option<String>,
     parent_cli: String,
 }
@@ -280,6 +281,7 @@ impl CloudContext {
         let socket_password = normalized_env("CMUX_CLOUD_SOCKET_PASSWORD")
             .or_else(|| normalized_env("CMUX_SOCKET_PASSWORD"));
         let json_output = json_from_args || env_flag("CMUX_CLOUD_JSON");
+        let id_format = normalized_env("CMUX_CLOUD_ID_FORMAT");
         let window_override = normalized_env("CMUX_CLOUD_WINDOW");
         let parent_cli =
             normalized_env("CMUX_CLOUD_PARENT_CLI").unwrap_or_else(|| "cmux".to_string());
@@ -287,6 +289,7 @@ impl CloudContext {
             socket_path,
             socket_password,
             json_output,
+            id_format,
             window_override,
             parent_cli,
         })
@@ -415,14 +418,13 @@ fn run_new(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
     println!("Created {id}  [{provider_text}]  {image_text}");
     drop(client);
 
-    // Keep the idempotency record if delegated attach fails, so a retry
-    // reuses the VM that was already created instead of provisioning another.
     let mut vm_args = vec!["shell".to_string(), id];
     if let Some(window) = target_window {
         vm_args.push("--window".to_string());
         vm_args.push(window);
     }
-    exec_parent_vm(ctx, &vm_args)
+    run_parent_vm_session(ctx, &vm_args)?;
+    clear_vm_create_idempotency(&idempotency)
 }
 
 fn run_destroy(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
@@ -484,7 +486,10 @@ fn run_exec(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
     if ctx.json_output {
         println!("{}", Value::Object(response));
         if exit_code != 0 {
-            return Err(CliError::exit(format!("exit {exit_code}"), 1));
+            return Err(CliError::exit(
+                format!("exit {exit_code}"),
+                process_exit_code(exit_code),
+            ));
         }
         return Ok(());
     }
@@ -506,7 +511,10 @@ fn run_exec(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
         }
     }
     if exit_code != 0 {
-        return Err(CliError::exit(format!("exit {exit_code}"), 1));
+        return Err(CliError::exit(
+            format!("exit {exit_code}"),
+            process_exit_code(exit_code),
+        ));
     }
     Ok(())
 }
@@ -588,14 +596,40 @@ fn exec_parent_vm(ctx: &CloudContext, vm_args: &[String]) -> CliResult<()> {
     }
     let error = command.exec();
     Err(CliError::new(format!(
-        "Failed to launch cmux vm helper: {error}"
+        "Could not open the Cloud VM session: {error}"
     )))
+}
+
+fn run_parent_vm_session(ctx: &CloudContext, vm_args: &[String]) -> CliResult<()> {
+    let mut command = Command::new(&ctx.parent_cli);
+    command.args(parent_vm_args(ctx, vm_args));
+    for (key, value) in parent_vm_env(ctx) {
+        command.env(key, value);
+    }
+    let status = command
+        .status()
+        .map_err(|error| CliError::new(format!("Could not open the Cloud VM session: {error}")))?;
+    if status.success() {
+        return Ok(());
+    }
+    if let Some(code) = status.code() {
+        return Err(CliError::exit(format!("exit {code}"), code));
+    }
+    if let Some(signal) = status.signal() {
+        let code = 128 + signal;
+        return Err(CliError::exit(format!("signal {signal}"), code));
+    }
+    Err(CliError::new("cmux vm helper exited unsuccessfully"))
 }
 
 fn parent_vm_args(ctx: &CloudContext, vm_args: &[String]) -> Vec<String> {
     let mut args = vec!["--socket".to_string(), ctx.socket_path.clone()];
     if ctx.json_output {
         args.push("--json".to_string());
+    }
+    if let Some(id_format) = &ctx.id_format {
+        args.push("--id-format".to_string());
+        args.push(id_format.clone());
     }
     args.push("vm".to_string());
     args.extend(vm_args.iter().cloned());
@@ -825,6 +859,14 @@ fn is_flag_token(value: &str) -> bool {
 
 fn is_unknown_flag_token(value: &str, allowed_short_flags: &[&str]) -> bool {
     is_flag_token(value) && !allowed_short_flags.contains(&value)
+}
+
+fn process_exit_code(exit_code: i64) -> i32 {
+    if (0..=255).contains(&exit_code) {
+        exit_code as i32
+    } else {
+        1
+    }
 }
 
 fn idempotency_signature(image: Option<&str>, provider: Option<&str>) -> String {
@@ -1156,6 +1198,7 @@ mod tests {
             socket_path: "/tmp/cmux.sock".to_string(),
             socket_password: Some("secret-password".to_string()),
             json_output: true,
+            id_format: Some("short".to_string()),
             window_override: None,
             parent_cli: "cmux".to_string(),
         };
@@ -1166,6 +1209,8 @@ mod tests {
                 "--socket",
                 "/tmp/cmux.sock",
                 "--json",
+                "--id-format",
+                "short",
                 "vm",
                 "ssh",
                 "vm_123"
@@ -1196,5 +1241,14 @@ mod tests {
             "operation would block"
         )));
         assert!(!should_retry_connect(&CliError::new("Socket not found")));
+    }
+
+    #[test]
+    fn remote_exec_exit_codes_are_preserved_when_valid() {
+        assert_eq!(process_exit_code(0), 0);
+        assert_eq!(process_exit_code(2), 2);
+        assert_eq!(process_exit_code(255), 255);
+        assert_eq!(process_exit_code(-1), 1);
+        assert_eq!(process_exit_code(300), 1);
     }
 }
