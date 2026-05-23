@@ -8428,7 +8428,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 #if DEBUG
         if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
-            _ = debugTextInputEventHandler(self, textInputEvent)
+            let handled = debugTextInputEventHandler(self, textInputEvent)
+            if !handled {
+                interpretKeyEvents([textInputEvent])
+            }
         } else {
             interpretKeyEvents([textInputEvent])
         }
