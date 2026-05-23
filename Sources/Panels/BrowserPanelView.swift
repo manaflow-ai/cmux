@@ -1395,7 +1395,9 @@ struct BrowserPanelView: View {
                     set: { newValue in
                         let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(newValue))
                         applyOmnibarEffects(effects)
-                        refreshInlineCompletion()
+                        if !effects.shouldClearInlineCompletion {
+                            refreshInlineCompletion()
+                        }
                     }
                 ),
                 isFocused: $addressBarFocused,
@@ -2169,7 +2171,9 @@ struct BrowserPanelView: View {
         let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(updated))
         applyOmnibarEffects(effects)
         omnibarSelectionRange = NSRange(location: updated.utf16.count, length: 0)
-        refreshInlineCompletion()
+        if !effects.shouldClearInlineCompletion {
+            refreshInlineCompletion()
+        }
     }
 
     private func handleInlineClearTypedPrefix() {
@@ -2458,6 +2462,9 @@ struct BrowserPanelView: View {
     }
 
     private func applyOmnibarEffects(_ effects: OmnibarEffects) {
+        if effects.shouldClearInlineCompletion {
+            inlineCompletion = nil
+        }
         if effects.shouldRefreshSuggestions {
             omnibarSuggestionRefreshScheduler.scheduleRefresh()
         }
@@ -3256,6 +3263,7 @@ struct OmnibarEffects: Equatable {
     var shouldSelectAll: Bool = false
     var shouldBlurToWebView: Bool = false
     var shouldRefreshSuggestions: Bool = false
+    var shouldClearInlineCompletion: Bool = false
 }
 
 @discardableResult
@@ -3304,12 +3312,14 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         }
 
     case .bufferChanged(let newValue):
+        let bufferChanged = state.buffer != newValue
         state.buffer = newValue
         if state.isFocused {
             state.isUserEditing = (newValue != state.currentURLString)
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
             effects.shouldRefreshSuggestions = true
+            effects.shouldClearInlineCompletion = bufferChanged
         }
 
     case .suggestionsUpdated(let items):
