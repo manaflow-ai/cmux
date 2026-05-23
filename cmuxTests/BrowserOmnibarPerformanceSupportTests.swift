@@ -42,6 +42,28 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         )
     }
 
+    func testSuggestionRefreshSchedulerCancelsPendingRefresh() {
+        let scheduler = OmnibarSuggestionRefreshScheduler(debounceDelay: .milliseconds(40))
+        let settled = expectation(description: "pending refresh cancellation settled")
+        var refreshCount = 0
+
+        scheduler.refreshPublisher
+            .sink {
+                refreshCount += 1
+            }
+            .store(in: &cancellables)
+
+        scheduler.scheduleRefresh()
+        scheduler.cancelPendingRefresh()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 1)
+
+        XCTAssertEqual(refreshCount, 0)
+    }
+
     func testOpenTabSuggestionSeedSnapshotsAreEvaluatedOnlyOnce() {
         let workspaceId = UUID()
         let panelId = UUID()

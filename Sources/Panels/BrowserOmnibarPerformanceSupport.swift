@@ -151,21 +151,49 @@ final class BrowserOpenTabSuggestionIndex {
     }
 }
 
+private final class OmnibarSuggestionRefreshGeneration {
+    private let lock = NSLock()
+    private var value: UInt64 = 0
+
+    func next() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        value &+= 1
+        return value
+    }
+
+    func isCurrent(_ generation: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value == generation
+    }
+}
+
 final class OmnibarSuggestionRefreshScheduler: ObservableObject {
     let refreshPublisher: AnyPublisher<Void, Never>
 
-    private let refreshSubject = PassthroughSubject<Void, Never>()
+    private let refreshSubject: PassthroughSubject<UInt64, Never>
+    private let refreshGeneration: OmnibarSuggestionRefreshGeneration
 
     init(debounceDelay: RunLoop.SchedulerTimeType.Stride = .milliseconds(80)) {
-        _ = debounceDelay
-        refreshPublisher = refreshSubject.eraseToAnyPublisher()
+        let subject = PassthroughSubject<UInt64, Never>()
+        let generation = OmnibarSuggestionRefreshGeneration()
+        refreshSubject = subject
+        refreshGeneration = generation
+        refreshPublisher = subject
+            .debounce(for: debounceDelay, scheduler: RunLoop.main)
+            .filter { generation.isCurrent($0) }
+            .map { _ in () }
+            .eraseToAnyPublisher()
     }
 
     func scheduleRefresh() {
-        refreshSubject.send(())
+        refreshSubject.send(refreshGeneration.next())
     }
 
-    func cancelPendingRefresh() {}
+    func cancelPendingRefresh() {
+        _ = refreshGeneration.next()
+    }
 }
 
 private var browserOpenTabSuggestionIndexesByManagerId: [ObjectIdentifier: BrowserOpenTabSuggestionIndex] = [:]
