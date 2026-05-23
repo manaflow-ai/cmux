@@ -9525,6 +9525,7 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    @State private var workspaceFinderDirectoryCaches: [UUID: WorkspaceFinderDirectoryCache] = [:]
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
@@ -10798,6 +10799,23 @@ struct VerticalTabsSidebar: View {
             frozen: frozenPresentation
         )
 
+        let precomputedTabCount = tabManager.tabs.count
+        let precomputedHasLatestNotifications = contextMenuWorkspaceIds.contains { notificationStore.latestNotification(forTabId: $0) != nil }
+        let canMarkWorkspaceRead = notificationStore.canMarkWorkspaceRead(forTabIds: contextMenuWorkspaceIds)
+        let canMarkWorkspaceUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: contextMenuWorkspaceIds)
+        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
+        let precomputedHasCustomColorInSelection = contextMenuWorkspaceIds.contains { id in
+            tabManager.tabs.first(where: { $0.id == id })?.customColor != nil
+        }
+
+        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
+        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
+        let isMulti = contextMenuWorkspaceIds.count > 1
+        let lookupKey = WorkspaceFinderDirectoryCacheKey(
+            path: isMulti ? nil : finderDirectoryPath
+        )
+        let finderDirectoryURL = workspaceFinderDirectoryCaches[tab.id]?.url(for: lookupKey)
+
         return TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -10827,11 +10845,23 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
             contextMenuPinState: contextMenuPinState,
+            tabCount: precomputedTabCount,
+            canMarkWorkspaceRead: canMarkWorkspaceRead,
+            canMarkWorkspaceUnread: canMarkWorkspaceUnread,
+            hasLatestNotifications: precomputedHasLatestNotifications,
+            referenceWindowId: referenceWindowId,
+            hasCustomColorInSelection: precomputedHasCustomColorInSelection,
             settings: renderContext.tabItemSettings,
             livePresentation: livePresentation,
-            frozenPresentation: $frozenTabItemPresentation
+            frozenPresentation: $frozenTabItemPresentation,
+            finderDirectoryURL: finderDirectoryURL
         )
         .equatable()
+        .task(id: finderDirectoryCacheKey) {
+            let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
+            guard !Task.isCancelled else { return }
+            workspaceFinderDirectoryCaches[tab.id] = cache
+        }
         .id(tab.id)
         .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
         .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
@@ -13291,7 +13321,15 @@ private struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
-        lhs.settings == rhs.settings
+        lhs.tabCount == rhs.tabCount &&
+        lhs.canMarkWorkspaceRead == rhs.canMarkWorkspaceRead &&
+        lhs.canMarkWorkspaceUnread == rhs.canMarkWorkspaceUnread &&
+        lhs.hasLatestNotifications == rhs.hasLatestNotifications &&
+        lhs.referenceWindowId == rhs.referenceWindowId &&
+        lhs.hasCustomColorInSelection == rhs.hasCustomColorInSelection &&
+        lhs.settings == rhs.settings &&
+        lhs.frozenPresentation == rhs.frozenPresentation &&
+        lhs.finderDirectoryURL == rhs.finderDirectoryURL
     }
 
     // Use plain references instead of @EnvironmentObject to avoid subscribing
@@ -13323,14 +13361,20 @@ private struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let allContextMenuWorkspacesHideTerminalScrollBar: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
+    let tabCount: Int
+    let canMarkWorkspaceRead: Bool
+    let canMarkWorkspaceUnread: Bool
+    let hasLatestNotifications: Bool
+    let referenceWindowId: UUID?
+    let hasCustomColorInSelection: Bool
     let settings: SidebarTabItemSettingsSnapshot
     let livePresentation: SidebarTabItemPresentationSnapshot
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
+    let finderDirectoryURL: URL?
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
-    @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     var isMultiSelected: Bool {
@@ -13914,11 +13958,6 @@ private struct TabItemView: View, Equatable {
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
         }
-        .task(id: finderDirectoryCacheKey) {
-            let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
-            guard !Task.isCancelled else { return }
-            workspaceFinderDirectoryCache = cache
-        }
         .task(id: workspaceFinderDirectoryOpenRequest) {
             guard let request = workspaceFinderDirectoryOpenRequest else { return }
             await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
@@ -14002,20 +14041,44 @@ private struct TabItemView: View, Equatable {
         .accessibilityAction(named: Text(moveDownActionText)) {
             moveBy(1)
         }
-        .contextMenu {
-            workspaceContextMenu
-                .onAppear {
+        .overlay(
+            WorkspaceContextMenuOverlay(
+                isPinned: tab.isPinned,
+                referenceWindowId: referenceWindowId,
+                hasCustomColorInSelection: hasCustomColorInSelection,
+                index: index,
+                tabCount: tabCount,
+                contextMenuWorkspaceIds: contextMenuWorkspaceIds,
+                remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
+                allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
+                allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
+                allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
+                contextMenuPinState: contextMenuPinState,
+                hasCustomTitle: tab.hasCustomTitle,
+                hasCustomDescription: tab.hasCustomDescription,
+                copyableSidebarSSHError: workspaceSnapshot.copyableSidebarSSHError,
+                finderDirectoryURL: finderDirectoryURL,
+                hasLatestNotifications: hasLatestNotifications,
+                canMarkWorkspaceRead: canMarkWorkspaceRead,
+                canMarkWorkspaceUnread: canMarkWorkspaceUnread,
+                colorScheme: colorScheme,
+                activeTabIndicatorStyle: activeTabIndicatorStyle,
+                onAction: { action in
+                    handleMenuAction(action)
+                },
+                onMenuWillOpen: {
                     rowInteractionState.contextMenuDidAppear()
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
                     contextMenuState.pendingWorkspaceSnapshot = nil
                     frozenPresentation = livePresentation
-                }
-                .onDisappear {
+                },
+                onMenuDidClose: {
                     rowInteractionState.contextMenuDidDisappear()
                     frozenPresentation = nil
                     flushDeferredWorkspaceObservationInvalidation()
                 }
-        }
+            )
+        )
     }
 
     private func refreshWorkspaceSnapshot(force: Bool = false) {
@@ -14047,10 +14110,6 @@ private struct TabItemView: View, Equatable {
         contextMenuState.pendingWorkspaceSnapshot = nil
     }
 
-    private func contextMenuLabel(multi: String, single: String, isMulti: Bool) -> String {
-        isMulti ? multi : single
-    }
-
     private func remoteContextMenuWorkspaces() -> [Workspace] {
         guard !remoteContextMenuWorkspaceIds.isEmpty else { return [] }
         return remoteContextMenuWorkspaceIds.compactMap { workspaceId in
@@ -14058,57 +14117,10 @@ private struct TabItemView: View, Equatable {
         }
     }
 
-    @ViewBuilder
-    private var workspaceContextMenu: some View {
+    private func handleMenuAction(_ action: WorkspaceContextMenuAction) {
         let targetIds = contextMenuWorkspaceIds
-        let isMulti = targetIds.count > 1
-        let tabColorPalette = WorkspaceTabColorSettings.palette()
-        let shouldPin = contextMenuPinState?.pinned ?? !tab.isPinned
-        let reconnectLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
-            single: String(localized: "contextMenu.reconnectWorkspace", defaultValue: "Reconnect Workspace"),
-            isMulti: isMulti)
-        let disconnectLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.disconnectWorkspaces", defaultValue: "Disconnect Workspaces"),
-            single: String(localized: "contextMenu.disconnectWorkspace", defaultValue: "Disconnect Workspace"),
-            isMulti: isMulti)
-        let pinLabel = shouldPin
-            ? contextMenuLabel(
-                multi: String(localized: "contextMenu.pinWorkspaces", defaultValue: "Pin Workspaces"),
-                single: String(localized: "contextMenu.pinWorkspace", defaultValue: "Pin Workspace"),
-                isMulti: isMulti)
-            : contextMenuLabel(
-                multi: String(localized: "contextMenu.unpinWorkspaces", defaultValue: "Unpin Workspaces"),
-                single: String(localized: "contextMenu.unpinWorkspace", defaultValue: "Unpin Workspace"),
-                isMulti: isMulti)
-        let closeLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.closeWorkspaces", defaultValue: "Close Workspaces"),
-            single: String(localized: "contextMenu.closeWorkspace", defaultValue: "Close Workspace"),
-            isMulti: isMulti)
-        let markReadLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.markWorkspacesRead", defaultValue: "Mark Workspaces as Read"),
-            single: String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read"),
-            isMulti: isMulti)
-        let markUnreadLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.markWorkspacesUnread", defaultValue: "Mark Workspaces as Unread"),
-            single: String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread"),
-            isMulti: isMulti)
-        let clearLatestNotificationLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
-            single: String(localized: "contextMenu.clearLatestNotification", defaultValue: "Clear Latest Notification"),
-            isMulti: isMulti)
-        let copyWorkspaceIDLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.copyWorkspaceIDs", defaultValue: "Copy Workspace IDs"),
-            single: String(localized: "contextMenu.copyWorkspaceID", defaultValue: "Copy Workspace ID"),
-            isMulti: isMulti)
-        let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
-        let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
-        let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(
-            path: isMulti ? nil : WorkspaceFinderDirectoryResolver.path(for: tab)
-        )
-        let finderDirectoryURL = workspaceFinderDirectoryCache.url(for: finderDirectoryCacheKey)
-        Button(pinLabel) {
+        switch action {
+        case .togglePin:
             guard let contextMenuPinState else {
                 NSSound.beep()
                 return
@@ -14118,217 +14130,86 @@ private struct TabItemView: View, Equatable {
                 refreshWorkspaceSnapshot(force: true)
             }
             syncSelectionAfterMutation()
-        }
-        .disabled(contextMenuPinState == nil)
-
-        if let key = renameWorkspaceShortcut.keyEquivalent {
-            Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
+            
+        case .rename:
+            promptRename()
+            
+        case .removeCustomName:
+            tabManager.clearCustomTitle(tabId: tab.id)
+            
+        case .editDescription:
+            beginWorkspaceDescriptionEditFromContextMenu()
+            
+        case .clearDescription:
+            tabManager.clearCustomDescription(tabId: tab.id)
+            
+        case .reconnectRemote:
+            for workspace in remoteContextMenuWorkspaces() {
+                workspace.reconnectRemoteConnection()
             }
-            .keyboardShortcut(key, modifiers: renameWorkspaceShortcut.eventModifiers)
-        } else {
-            Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
+            
+        case .disconnectRemote:
+            for workspace in remoteContextMenuWorkspaces() {
+                workspace.disconnectRemoteConnection(clearConfiguration: false)
             }
-        }
-
-        if tab.hasCustomTitle {
-            Button(String(localized: "contextMenu.removeCustomWorkspaceName", defaultValue: "Remove Custom Workspace Name")) {
-                tabManager.clearCustomTitle(tabId: tab.id)
-            }
-        }
-
-        if !isMulti {
-            if let key = editWorkspaceDescriptionShortcut.keyEquivalent {
-                Button(String(localized: "contextMenu.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
-                    beginWorkspaceDescriptionEditFromContextMenu()
-                }
-                .keyboardShortcut(key, modifiers: editWorkspaceDescriptionShortcut.eventModifiers)
-            } else {
-                Button(String(localized: "contextMenu.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
-                    beginWorkspaceDescriptionEditFromContextMenu()
-                }
-            }
-
-            if tab.hasCustomDescription {
-                Button(String(localized: "contextMenu.clearWorkspaceDescription", defaultValue: "Clear Workspace Description")) {
-                    tabManager.clearCustomDescription(tabId: tab.id)
-                }
-            }
-
-        }
-
-        if !remoteContextMenuWorkspaceIds.isEmpty {
-            Divider()
-
-            Button(reconnectLabel) {
-                for workspace in remoteContextMenuWorkspaces() {
-                    workspace.reconnectRemoteConnection()
-                }
-            }
-            .disabled(allRemoteContextMenuTargetsConnecting)
-
-            Button(disconnectLabel) {
-                for workspace in remoteContextMenuWorkspaces() {
-                    workspace.disconnectRemoteConnection(clearConfiguration: false)
-                }
-            }
-            .disabled(allRemoteContextMenuTargetsDisconnected)
-        }
-
-        Menu(String(localized: "contextMenu.workspaceSettings", defaultValue: "Workspace Settings")) {
-            Button {
-                toggleWorkspaceTerminalScrollBarHidden(targetIds: targetIds)
-            } label: {
-                Label {
-                    Text(String(localized: "contextMenu.workspaceSettings.hideTerminalScrollBar", defaultValue: "Hide Terminal Scroll Bar"))
-                } icon: {
-                    if allContextMenuWorkspacesHideTerminalScrollBar {
-                        Image(systemName: "checkmark")
-                    }
-                }
-            }
-        }
-
-        Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
-            if tab.customColor != nil {
-                Button {
-                    applyTabColor(nil, targetIds: targetIds)
-                } label: {
-                    Label(String(localized: "contextMenu.clearColor", defaultValue: "Clear Color"), systemImage: "xmark.circle")
-                }
-            }
-
-            Button {
-                promptCustomColor(targetIds: targetIds)
-            } label: {
-                Label(String(localized: "contextMenu.chooseCustomColor", defaultValue: "Choose Custom Color…"), systemImage: "paintpalette")
-            }
-
-            if !tabColorPalette.isEmpty {
-                Divider()
-            }
-
-            ForEach(tabColorPalette, id: \.id) { entry in
-                Button {
-                    applyTabColor(entry.hex, targetIds: targetIds)
-                } label: {
-                    Label {
-                        Text(entry.name)
-                    } icon: {
-                        Image(nsImage: coloredCircleImage(color: tabColorSwatchColor(for: entry.hex)))
-                    }
-                }
-            }
-        }
-
-        if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
-            Button(String(localized: "contextMenu.copySshError", defaultValue: "Copy SSH Error")) {
-                WorkspaceSurfaceIdentifierClipboardText.copy(copyableSidebarSSHError)
-            }
-        }
-
-        Divider()
-
-        Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
+            
+        case .toggleHideTerminalScrollBar:
+            toggleWorkspaceTerminalScrollBarHidden(targetIds: targetIds)
+            
+        case .clearColor:
+            applyTabColor(nil, targetIds: targetIds)
+            
+        case .chooseCustomColor:
+            promptCustomColor(targetIds: targetIds)
+            
+        case .applyColor(let hex):
+            applyTabColor(hex, targetIds: targetIds)
+            
+        case .copySshError(let error):
+            WorkspaceSurfaceIdentifierClipboardText.copy(error)
+            
+        case .moveUp:
             moveBy(-1)
-        }
-        .disabled(index == 0)
-
-        Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
+            
+        case .moveDown:
             moveBy(1)
-        }
-        .disabled(index >= tabManager.tabs.count - 1)
-
-        Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
+            
+        case .moveToTop:
             tabManager.moveTabsToTop(Set(targetIds))
             syncSelectionAfterMutation()
-        }
-        .disabled(targetIds.isEmpty)
-
-        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
-        let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
-        let moveMenuTitle = targetIds.count > 1
-            ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
-            : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")
-        Menu(moveMenuTitle) {
-            Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
-                moveWorkspacesToNewWindow(targetIds)
-            }
-            .disabled(targetIds.isEmpty)
-
-            if !windowMoveTargets.isEmpty {
-                Divider()
-            }
-
-            ForEach(windowMoveTargets) { target in
-                Button(target.label) {
-                    moveWorkspaces(targetIds, toWindow: target.windowId)
-                }
-                .disabled(target.isCurrentWindow || targetIds.isEmpty)
-            }
-        }
-        .disabled(targetIds.isEmpty)
-
-        Divider()
-
-        if let key = closeWorkspaceShortcut.keyEquivalent {
-            Button(closeLabel) {
-                closeTabs(targetIds, allowPinned: true)
-            }
-            .keyboardShortcut(key, modifiers: closeWorkspaceShortcut.eventModifiers)
-            .disabled(targetIds.isEmpty)
-        } else {
-            Button(closeLabel) {
-                closeTabs(targetIds, allowPinned: true)
-            }
-            .disabled(targetIds.isEmpty)
-        }
-
-        Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
+            
+        case .moveToNewWindow:
+            moveWorkspacesToNewWindow(targetIds)
+            
+        case .moveToWindow(let windowId):
+            moveWorkspaces(targetIds, toWindow: windowId)
+            
+        case .close:
+            closeTabs(targetIds, allowPinned: true)
+            
+        case .closeOthers:
             closeOtherTabs(targetIds)
-        }
-        .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
-
-        Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
+            
+        case .closeBelow:
             closeTabsBelow(tabId: tab.id)
-        }
-        .disabled(index >= tabManager.tabs.count - 1)
-
-        Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
+            
+        case .closeAbove:
             closeTabsAbove(tabId: tab.id)
-        }
-        .disabled(index == 0)
-
-        Divider()
-
-        Button(markReadLabel) {
+            
+        case .markRead:
             markTabsRead(targetIds)
-        }
-        .disabled(!notificationStore.canMarkWorkspaceRead(forTabIds: targetIds))
-
-        Button(markUnreadLabel) {
+            
+        case .markUnread:
             markTabsUnread(targetIds)
-        }
-        .disabled(!notificationStore.canMarkWorkspaceUnread(forTabIds: targetIds))
-
-        Button(clearLatestNotificationLabel) {
+            
+        case .clearLatestNotification:
             clearLatestNotifications(targetIds)
-        }
-        .disabled(!hasLatestNotifications(in: targetIds))
-
-        Divider()
-
-        Button(copyWorkspaceIDLabel) {
+            
+        case .copyWorkspaceID:
             copyWorkspaceIdsToPasteboard(targetIds)
-        }
-        .disabled(targetIds.isEmpty)
-
-        if !isMulti {
-            Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
-            }
-            .disabled(finderDirectoryURL == nil)
+            
+        case .showInFinder:
+            workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
         }
     }
 

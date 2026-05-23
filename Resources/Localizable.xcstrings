@@ -38307,6 +38307,7 @@
         }
       }
     },
+    "contextMenu.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Workspace Context Menu"}}, "ja": {"stringUnit": {"state": "translated", "value": "ワークスペース コンテキスト メニュー"}}}},
     "contextMenu.workspaceColor": {
       "extractionState": "manual",
       "localizations": {
