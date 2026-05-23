@@ -34,7 +34,7 @@ enum CMUXSudoApprovalPresenter {
         )
         alert.addButton(withTitle: String(localized: "sudo.prompt.authenticate", defaultValue: "Authenticate"))
         alert.addButton(withTitle: String(localized: "sudo.prompt.deny", defaultValue: "Deny"))
-        alert.accessoryView = commandAccessoryView(for: request.displayCommand)
+        alert.accessoryView = commandAccessoryView(for: request)
 
         let response = await withCheckedContinuation { continuation in
             alert.beginSheetModal(for: window) { modalResponse in
@@ -111,7 +111,7 @@ enum CMUXSudoApprovalPresenter {
     }
 
     @MainActor
-    private static func commandAccessoryView(for command: String) -> NSView {
+    private static func commandAccessoryView(for request: CMUXSudoCommandRequest) -> NSView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -122,7 +122,7 @@ enum CMUXSudoApprovalPresenter {
         label.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
 
         let commandView = NSTextView(frame: NSRect(x: 0, y: 0, width: 520, height: 140))
-        commandView.string = command
+        commandView.string = request.displayCommand
         commandView.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         commandView.textColor = .labelColor
         commandView.backgroundColor = .textBackgroundColor
@@ -150,6 +150,7 @@ enum CMUXSudoApprovalPresenter {
             cwdField.textColor = .secondaryLabelColor
             cwdField.lineBreakMode = .byTruncatingMiddle
             cwdField.maximumNumberOfLines = 1
+            cwdField.translatesAutoresizingMaskIntoConstraints = false
             cwdField.widthAnchor.constraint(equalToConstant: 520).isActive = true
             stack.addArrangedSubview(cwdLabel)
             stack.addArrangedSubview(cwdField)

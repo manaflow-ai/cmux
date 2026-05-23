@@ -35,6 +35,7 @@ struct HelperError: LocalizedError {
 struct PeerIdentity {
     let pid: pid_t
     let uid: uid_t
+    let auditTokenData: Data
 }
 
 struct HelperEnvelope {
@@ -83,7 +84,7 @@ enum CMUXSudoHelper {
         let response: [String: Any]
         do {
             let peer = try peerIdentity(for: client)
-            try validatePeerApp(pid: peer.pid)
+            try validatePeerApp(peer: peer)
             let envelope = try readEnvelope(from: client)
             try verifyEnvelope(envelope)
             response = try execute(envelope: envelope, peer: peer)
@@ -166,22 +167,22 @@ enum CMUXSudoHelper {
     }
 
     private static func peerIdentity(for fd: Int32) throws -> PeerIdentity {
-        var pid: pid_t = 0
-        var pidSize = socklen_t(MemoryLayout<pid_t>.size)
-        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &pidSize) == 0, pid > 0 else {
-            throw HelperError(code: "peer_pid_unavailable", message: errnoMessage("LOCAL_PEERPID"))
+        var auditToken = audit_token_t()
+        var auditTokenSize = socklen_t(MemoryLayout<audit_token_t>.size)
+        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, &auditToken, &auditTokenSize) == 0 else {
+            throw HelperError(code: "peer_audit_unavailable", message: errnoMessage("LOCAL_PEERTOKEN"))
         }
-
-        var cred = xucred()
-        var credSize = socklen_t(MemoryLayout<xucred>.size)
-        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERCRED, &cred, &credSize) == 0 else {
-            throw HelperError(code: "peer_uid_unavailable", message: errnoMessage("LOCAL_PEERCRED"))
+        let pid = audit_token_to_pid(auditToken)
+        let uid = audit_token_to_euid(auditToken)
+        guard pid > 0 else {
+            throw HelperError(code: "peer_pid_unavailable", message: "Peer audit token did not include a process id")
         }
-        return PeerIdentity(pid: pid, uid: cred.cr_uid)
+        let auditTokenData = withUnsafeBytes(of: auditToken) { Data($0) }
+        return PeerIdentity(pid: pid, uid: uid, auditTokenData: auditTokenData)
     }
 
-    private static func validatePeerApp(pid: pid_t) throws {
-        let attributes = [kSecGuestAttributePid as String: pid] as CFDictionary
+    private static func validatePeerApp(peer: PeerIdentity) throws {
+        let attributes = [String(kSecGuestAttributeAudit): peer.auditTokenData] as CFDictionary
         var code: SecCode?
         let guestStatus = SecCodeCopyGuestWithAttributes(nil, attributes, SecCSFlags(), &code)
         guard guestStatus == errSecSuccess, let code else {
@@ -224,9 +225,11 @@ enum CMUXSudoHelper {
             throw HelperError(code: "peer_code_rejected", message: "Unable to build cmux code-signing requirement")
         }
 
-        let checkStatus = SecStaticCodeCheckValidity(staticCode, SecCSFlags(), requirement)
+        var errors: Unmanaged<CFError>?
+        let checkStatus = SecStaticCodeCheckValidityWithErrors(staticCode, SecCSFlags(), requirement, &errors)
         guard checkStatus == errSecSuccess else {
-            throw HelperError(code: "peer_code_rejected", message: "Requesting process signature does not match cmux")
+            let detail = errors?.takeRetainedValue().localizedDescription ?? "Requesting process signature does not match cmux"
+            throw HelperError(code: "peer_code_rejected", message: detail)
         }
     }
 

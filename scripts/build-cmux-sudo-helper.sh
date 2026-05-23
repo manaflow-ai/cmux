@@ -59,6 +59,7 @@ for ARCH in $ARCH_LIST; do
     -sdk "$SDKROOT" \
     -target "$TARGET_TRIPLE" \
     "${EXTRA_FLAGS[@]}" \
+    -lbsm \
     -o "$OUT" \
     "$HELPER_SRC"
   BUILT_HELPERS+=("$OUT")
