@@ -237,6 +237,9 @@ extension CMUXCLI {
         explicitPassword: String?
     ) throws {
         let targetBundleIdentifier = themeTargetBundleIdentifier(socketPath: socketPath)
+        try removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+            targetBundleIdentifier: targetBundleIdentifier
+        )
         if commandArgs.isEmpty {
             if shouldUseInteractiveThemePicker(jsonOutput: jsonOutput) {
                 try runInteractiveThemes(
@@ -301,6 +304,31 @@ extension CMUXCLI {
                 explicitPassword: explicitPassword
             )
         }
+    }
+
+    private func removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+        targetBundleIdentifier: String
+    ) throws {
+        let normalizedBundleIdentifier = targetBundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedBundleIdentifier.isEmpty,
+              normalizedBundleIdentifier != Self.cmuxThemeOverrideBundleIdentifier else {
+            return
+        }
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            throw CLIError(message: "Unable to resolve Application Support directory")
+        }
+
+        let currentURLs = CmuxGhosttyConfigPathResolver.existingConfigURLs(
+            for: normalizedBundleIdentifier,
+            appSupportDirectory: appSupport
+        )
+        guard currentURLs.isEmpty else {
+            return
+        }
+
+        try removeStaleReleaseManagedThemeOverrideIfNeeded(
+            activeBundleIdentifier: normalizedBundleIdentifier
+        )
     }
 
     private func printThemesList(

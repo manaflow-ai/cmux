@@ -756,6 +756,65 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertFalse(releaseContents.contains("Old Stable"), releaseContents)
     }
 
+    func testThemesSetNightlyPartialLightFailsWhenRequiredStaleReleaseCleanupFails() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-nightly-cleanup-fails-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            let releaseDirectory = root
+                .appendingPathComponent("Library/Application Support/com.cmuxterm.app", isDirectory: true)
+            try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: releaseDirectory.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Catppuccin Latte", background: "#eff1f5", to: themesURL)
+
+        let appSupportDirectory = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        let releaseDirectory = appSupportDirectory.appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+        let releaseConfigURL = releaseDirectory.appendingPathComponent("config.ghostty", isDirectory: false)
+        let nightlyConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try fileManager.createDirectory(at: releaseDirectory, withIntermediateDirectories: true)
+        try """
+        # cmux themes start
+        theme = light:Old Stable Light,dark:Old Stable Dark
+        # cmux themes end
+        """.appending("\n").write(to: releaseConfigURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: releaseDirectory.path)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-nightly.sock"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let setResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "set", "--light", "Catppuccin Latte"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(setResult.timedOut, setResult.stdout)
+        XCTAssertNotEqual(setResult.status, 0, setResult.stdout)
+        XCTAssertTrue(setResult.stdout.contains("Unable to clean stale cmux theme override."), setResult.stdout)
+        XCTAssertFalse(setResult.stdout.contains("Old Stable"), setResult.stdout)
+        XCTAssertFalse(setResult.stdout.contains(root.path), setResult.stdout)
+        XCTAssertFalse(fileManager.fileExists(atPath: nightlyConfigURL.path), setResult.stdout)
+    }
+
     func testThemesClearNightlyRemovesStaleReleaseManagedBlock() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default

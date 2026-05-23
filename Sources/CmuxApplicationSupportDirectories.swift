@@ -141,6 +141,18 @@ enum CmuxGhosttyConfigPathResolver {
         return []
     }
 
+    static func existingConfigURLs(
+        for bundleIdentifier: String,
+        appSupportDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> [URL] {
+        preferredExistingConfigURLs(
+            for: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        )
+    }
+
     private static func isNonEmptyConfigFile(_ url: URL, fileManager: FileManager) -> Bool {
         var isDirectory = ObjCBool(false)
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
