@@ -240,6 +240,9 @@
 		A5001201 /* UpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001211 /* UpdateController.swift */; };
 		A5001202 /* UpdateDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001212 /* UpdateDelegate.swift */; };
 		A5001203 /* UpdateDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001213 /* UpdateDriver.swift */; };
+		A50012AA /* UpdateOperationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012AD /* UpdateOperationCoordinator.swift */; };
+		A50012AB /* UpdateOperationTimeoutError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012AE /* UpdateOperationTimeoutError.swift */; };
+		A50012AC /* UpdateOperationTimeoutScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012AF /* UpdateOperationTimeoutScheduler.swift */; };
 		A5001204 /* UpdateViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001214 /* UpdateViewModel.swift */; };
 		A5001205 /* UpdatePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001215 /* UpdatePill.swift */; };
 		A5001206 /* UpdateBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001216 /* UpdateBadge.swift */; };
@@ -815,6 +818,9 @@
 		A5001211 /* UpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateController.swift; sourceTree = "<group>"; };
 		A5001212 /* UpdateDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateDelegate.swift; sourceTree = "<group>"; };
 		A5001213 /* UpdateDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateDriver.swift; sourceTree = "<group>"; };
+		A50012AD /* UpdateOperationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateOperationCoordinator.swift; sourceTree = "<group>"; };
+		A50012AE /* UpdateOperationTimeoutError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateOperationTimeoutError.swift; sourceTree = "<group>"; };
+		A50012AF /* UpdateOperationTimeoutScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateOperationTimeoutScheduler.swift; sourceTree = "<group>"; };
 		A5001214 /* UpdateViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateViewModel.swift; sourceTree = "<group>"; };
 		A5001215 /* UpdatePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdatePill.swift; sourceTree = "<group>"; };
 		A5001216 /* UpdateBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateBadge.swift; sourceTree = "<group>"; };
@@ -1455,6 +1461,9 @@
 				A5001211 /* UpdateController.swift */,
 				A5001212 /* UpdateDelegate.swift */,
 				A5001213 /* UpdateDriver.swift */,
+				A50012AD /* UpdateOperationCoordinator.swift */,
+				A50012AE /* UpdateOperationTimeoutError.swift */,
+				A50012AF /* UpdateOperationTimeoutScheduler.swift */,
 				A5001214 /* UpdateViewModel.swift */,
 				A5001215 /* UpdatePill.swift */,
 				A5001216 /* UpdateBadge.swift */,
@@ -2211,6 +2220,9 @@
 				A5001201 /* UpdateController.swift in Sources */,
 				A5001202 /* UpdateDelegate.swift in Sources */,
 				A5001203 /* UpdateDriver.swift in Sources */,
+				A50012AA /* UpdateOperationCoordinator.swift in Sources */,
+				A50012AB /* UpdateOperationTimeoutError.swift in Sources */,
+				A50012AC /* UpdateOperationTimeoutScheduler.swift in Sources */,
 				A5001204 /* UpdateViewModel.swift in Sources */,
 				A5001205 /* UpdatePill.swift in Sources */,
 				A5001206 /* UpdateBadge.swift in Sources */,

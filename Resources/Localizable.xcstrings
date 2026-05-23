@@ -101266,6 +101266,40 @@
         }
       }
     },
+    "update.error.checkTimedOut.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't finish checking for updates in time. Try again in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は時間内にアップデート確認を完了できませんでした。しばらくしてからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "update.error.downloadStalled.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update download stopped making progress. Check your connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートのダウンロードが進まなくなりました。接続を確認してもう一度お試しください。"
+          }
+        }
+      }
+    },
     "update.error.timedOut.message": {
       "extractionState": "manual",
       "localizations": {

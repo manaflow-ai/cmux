@@ -1868,6 +1868,7 @@ final class UpdateSettingsTests: XCTestCase {
     }
 }
 
+@MainActor
 final class UpdateViewModelPresentationTests: XCTestCase {
     func testDetectedBackgroundUpdateShowsPillWhileIdle() {
         let viewModel = UpdateViewModel()
@@ -1957,6 +1958,178 @@ final class UpdateViewModelPresentationTests: XCTestCase {
             "enclosure": enclosure,
         ]
         return SUAppcastItem(dictionary: dict)
+    }
+}
+
+private final class ManualUpdateOperationTimeoutScheduler: UpdateOperationTimeoutScheduling {
+    private struct ScheduledAction {
+        let token: Token
+        let action: @MainActor () -> Void
+    }
+
+    private final class Token: UpdateOperationTimeoutCancellable {
+        private(set) var isCancelled = false
+
+        @MainActor
+        func cancel() {
+            isCancelled = true
+        }
+    }
+
+    private var scheduledActions: [ScheduledAction] = []
+    private(set) var intervals: [TimeInterval] = []
+
+    @MainActor
+    func schedule(
+        after interval: TimeInterval,
+        action: @escaping @MainActor () -> Void
+    ) -> any UpdateOperationTimeoutCancellable {
+        let token = Token()
+        intervals.append(interval)
+        scheduledActions.append(.init(token: token, action: action))
+        return token
+    }
+
+    @MainActor
+    func fireNext() {
+        guard !scheduledActions.isEmpty else { return }
+        let scheduledAction = scheduledActions.removeFirst()
+        guard !scheduledAction.token.isCancelled else { return }
+        scheduledAction.action()
+    }
+
+    @MainActor
+    func fireAll() {
+        while !scheduledActions.isEmpty {
+            fireNext()
+        }
+    }
+}
+
+@MainActor
+final class UpdateOperationCoordinatorTimeoutTests: XCTestCase {
+    func testCheckingTimeoutCancelsAndShowsRetryableError() async throws {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationTimeoutScheduler()
+        let coordinator = UpdateOperationCoordinator(
+            viewModel: viewModel,
+            minimumCheckDuration: 0,
+            checkTimeoutDuration: 0.01,
+            downloadStallTimeoutDuration: 1,
+            timeoutScheduler: scheduler
+        )
+        let cancelCount = ThreadSafeCounter()
+        let retryCount = ThreadSafeCounter()
+
+        coordinator.beginChecking(
+            cancel: { cancelCount.increment() },
+            retry: { retryCount.increment() }
+        )
+
+        scheduler.fireNext()
+
+        XCTAssertEqual(cancelCount.value(), 1)
+        guard case .error(let errorState) = viewModel.state else {
+            XCTFail("Expected checking timeout to show an error")
+            return
+        }
+
+        let nsError = errorState.error as NSError
+        XCTAssertEqual(nsError.domain, UpdateOperationTimeoutError.domain)
+        XCTAssertEqual(nsError.code, UpdateOperationTimeoutError.Code.checking.rawValue)
+        XCTAssertEqual(UpdateViewModel.userFacingErrorTitle(for: errorState.error), "Update Timed Out")
+        XCTAssertEqual(
+            UpdateViewModel.userFacingErrorMessage(for: errorState.error),
+            "cmux couldn't finish checking for updates in time. Try again in a moment."
+        )
+
+        errorState.retry()
+        await Task.yield()
+        XCTAssertEqual(retryCount.value(), 1)
+    }
+
+    func testDownloadStallTimeoutCancelsAndShowsRetryableError() async throws {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationTimeoutScheduler()
+        let coordinator = UpdateOperationCoordinator(
+            viewModel: viewModel,
+            minimumCheckDuration: 0,
+            checkTimeoutDuration: 1,
+            downloadStallTimeoutDuration: 0.01,
+            timeoutScheduler: scheduler
+        )
+        let cancelCount = ThreadSafeCounter()
+        let retryCount = ThreadSafeCounter()
+
+        coordinator.showDownloadInitiated(
+            cancellation: { cancelCount.increment() },
+            retry: { retryCount.increment() }
+        )
+
+        scheduler.fireNext()
+
+        XCTAssertEqual(cancelCount.value(), 1)
+        guard case .error(let errorState) = viewModel.state else {
+            XCTFail("Expected download stall timeout to show an error")
+            return
+        }
+
+        let nsError = errorState.error as NSError
+        XCTAssertEqual(nsError.domain, UpdateOperationTimeoutError.domain)
+        XCTAssertEqual(nsError.code, UpdateOperationTimeoutError.Code.downloading.rawValue)
+        XCTAssertEqual(
+            UpdateViewModel.userFacingErrorMessage(for: errorState.error),
+            "The update download stopped making progress. Check your connection and try again."
+        )
+
+        errorState.retry()
+        await Task.yield()
+        XCTAssertEqual(retryCount.value(), 1)
+    }
+
+    func testCompletedCheckCancelsTimeout() async throws {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationTimeoutScheduler()
+        let coordinator = UpdateOperationCoordinator(
+            viewModel: viewModel,
+            minimumCheckDuration: 0,
+            checkTimeoutDuration: 0.01,
+            downloadStallTimeoutDuration: 1,
+            timeoutScheduler: scheduler
+        )
+        let cancelCount = ThreadSafeCounter()
+        let acknowledgementCount = ThreadSafeCounter()
+
+        coordinator.beginChecking(
+            cancel: { cancelCount.increment() },
+            retry: {}
+        )
+        coordinator.showUpdateNotFound {
+            acknowledgementCount.increment()
+        }
+
+        scheduler.fireAll()
+
+        XCTAssertEqual(cancelCount.value(), 0)
+        XCTAssertEqual(acknowledgementCount.value(), 0)
+        XCTAssertEqual(viewModel.state, .notFound(.init(acknowledgement: {})))
+    }
+}
+
+private final class ThreadSafeCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    func value() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
     }
 }
 

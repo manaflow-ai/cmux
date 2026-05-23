@@ -48,6 +48,7 @@ enum UpdateSettings {
 }
 
 /// Controller for managing Sparkle updates in cmux.
+@MainActor
 class UpdateController {
     private(set) var updater: SPUUpdater
     private let userDriver: UpdateDriver

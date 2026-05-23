@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import Sparkle
 
+@MainActor
 class UpdateViewModel: ObservableObject {
     @Published var state: UpdateState = .idle
     @Published var overrideState: UpdateState?
@@ -248,8 +249,11 @@ class UpdateViewModel: ObservableObject {
         }
     }
 
-    static func userFacingErrorTitle(for error: Swift.Error) -> String {
+    nonisolated static func userFacingErrorTitle(for error: Swift.Error) -> String {
         let nsError = error as NSError
+        if nsError.domain == UpdateOperationTimeoutError.domain {
+            return String(localized: "update.error.timedOut.title", defaultValue: "Update Timed Out")
+        }
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
@@ -295,8 +299,11 @@ class UpdateViewModel: ObservableObject {
         return String(localized: "update.error.failed.title", defaultValue: "Update Failed")
     }
 
-    static func userFacingErrorMessage(for error: Swift.Error) -> String {
+    nonisolated static func userFacingErrorMessage(for error: Swift.Error) -> String {
         let nsError = error as NSError
+        if nsError.domain == UpdateOperationTimeoutError.domain {
+            return nsError.localizedDescription
+        }
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
@@ -340,17 +347,13 @@ class UpdateViewModel: ObservableObject {
         return nsError.localizedDescription
     }
 
-    static func errorDetails(for error: Swift.Error, technicalDetails: String?, feedURLString: String?) -> String {
+    nonisolated static func errorDetails(for error: Swift.Error, technicalDetails: String?, feedURLString: String?) -> String {
         let nsError = error as NSError
         var lines: [String] = []
         lines.append("Message: \(nsError.localizedDescription)")
-        lines.append("Domain: \(nsError.domain)")
-        if nsError.domain == SUSparkleErrorDomain,
-           let sparkleName = sparkleErrorCodeName(for: nsError.code) {
-            lines.append("Code: \(sparkleName) (\(nsError.code))")
-        } else {
-            lines.append("Code: \(nsError.code)")
-        }
+        let domain = nsError.domain == SUSparkleErrorDomain ? "cmux.update" : nsError.domain
+        lines.append("Domain: \(domain)")
+        lines.append("Code: \(nsError.code)")
 
         if let url = nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
             lines.append("URL: \(url.absoluteString)")
@@ -379,7 +382,7 @@ class UpdateViewModel: ObservableObject {
         return lines.joined(separator: "\n")
     }
 
-    private static func networkError(from error: NSError) -> NSError? {
+    nonisolated private static func networkError(from error: NSError) -> NSError? {
         if error.domain == NSURLErrorDomain {
             return error
         }
@@ -390,26 +393,7 @@ class UpdateViewModel: ObservableObject {
         return nil
     }
 
-    private static func sparkleErrorCodeName(for code: Int) -> String? {
-        switch code {
-        case 1: return "SUNoPublicDSAFoundError"
-        case 2: return "SUInsufficientSigningError"
-        case 3: return "SUInsecureFeedURLError"
-        case 4: return "SUInvalidFeedURLError"
-        case 1000: return "SUAppcastParseError"
-        case 1001: return "SUNoUpdateError"
-        case 1002: return "SUAppcastError"
-        case 1003: return "SURunningFromDiskImageError"
-        case 1005: return "SURunningTranslocated"
-        case 2001: return "SUDownloadError"
-        case 3001: return "SUSignatureError"
-        case 3002: return "SUValidationError"
-        default:
-            return nil
-        }
-    }
-
-    static func normalizedDetectedUpdateVersion(from version: String) -> String? {
+    nonisolated static func normalizedDetectedUpdateVersion(from version: String) -> String? {
         let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
