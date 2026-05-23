@@ -5389,6 +5389,11 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
+    private enum RemotePortPollTimerState {
+        case running
+        case suspendedForWorkspaceUnmount
+    }
+
     private struct PendingPTYBridgeStart {
         let sessionID: String
         let attachmentID: String
@@ -5415,7 +5420,9 @@ final class WorkspaceRemoteSessionController {
     private var remotePortScanGeneration: UInt64 = 0
     private var remotePortScanCoalesceWorkItem: DispatchWorkItem?
     private var remotePortPollTimer: DispatchSourceTimer?
+    private var remotePortPollTimerState: RemotePortPollTimerState?
     private var remotePortPollMode: RemotePortPollingMode?
+    private var workspaceSchedulersSuspended = false
     private var polledRemotePorts: [Int] = []
     private var remotePortPollBaselinePorts: Set<Int>?
     private var keepPolledRemotePortsUntilTTYScan = false
@@ -5434,10 +5441,16 @@ final class WorkspaceRemoteSessionController {
 
     private static let reverseRelayStartupGracePeriod: TimeInterval = 0.5
 
-    init(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, controllerID: UUID) {
+    init(
+        workspace: Workspace,
+        configuration: WorkspaceRemoteConfiguration,
+        controllerID: UUID,
+        workspaceSchedulersEnabled: Bool = true
+    ) {
         self.workspace = workspace
         self.configuration = configuration
         self.controllerID = controllerID
+        self.workspaceSchedulersSuspended = !workspaceSchedulersEnabled
         queue.setSpecific(key: queueKey, value: ())
     }
 
@@ -5457,6 +5470,12 @@ final class WorkspaceRemoteSessionController {
         }
         queue.async { [self] in
             stopAllLocked()
+        }
+    }
+
+    func setWorkspaceSchedulersEnabled(_ enabled: Bool) {
+        queue.async { [weak self] in
+            self?.setWorkspaceSchedulersEnabledLocked(enabled)
         }
     }
 
@@ -5743,6 +5762,23 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
+    private func setWorkspaceSchedulersEnabledLocked(_ enabled: Bool) {
+        if enabled {
+            guard workspaceSchedulersSuspended else { return }
+            workspaceSchedulersSuspended = false
+            resumeRemotePortPollingForWorkspaceRemountLocked()
+            updateRemotePortPollingStateLocked()
+            if remotePortScanPendingReason != nil && remotePortScanCoalesceWorkItem == nil {
+                scheduleRemotePortScanCoalesceLocked()
+            }
+        } else {
+            guard !workspaceSchedulersSuspended else { return }
+            workspaceSchedulersSuspended = true
+            suspendRemotePortPollingForWorkspaceUnmountLocked()
+            suspendRemotePortScanBurstForWorkspaceUnmountLocked()
+        }
+    }
+
     func uploadDroppedFiles(
         _ fileURLs: [URL],
         operation: TerminalImageTransferOperation,
@@ -5832,6 +5868,32 @@ final class WorkspaceRemoteSessionController {
         publishProxyEndpoint(nil)
         publishPortsSnapshotLocked()
     }
+
+#if DEBUG
+    struct DebugWorkspaceSchedulerState: Equatable {
+        let workspaceSchedulersSuspended: Bool
+        let remotePortPollTimerExists: Bool
+        let remotePortPollTimerSuspendedForWorkspaceUnmount: Bool
+    }
+
+    func debugActivateRemotePortPollingForTesting(timeout: TimeInterval = 2.0) throws {
+        try runOnControllerQueue(timeout: timeout) {
+            self.daemonReady = true
+            self.updateRemotePortPollingStateLocked()
+        }
+    }
+
+    func debugWorkspaceSchedulerStateForTesting(timeout: TimeInterval = 2.0) throws -> DebugWorkspaceSchedulerState {
+        try runOnControllerQueue(timeout: timeout) {
+            DebugWorkspaceSchedulerState(
+                workspaceSchedulersSuspended: self.workspaceSchedulersSuspended,
+                remotePortPollTimerExists: self.remotePortPollTimer != nil,
+                remotePortPollTimerSuspendedForWorkspaceUnmount:
+                    self.remotePortPollTimerState == .suspendedForWorkspaceUnmount
+            )
+        }
+    }
+#endif
 
     private func beginConnectionAttemptLocked() {
         guard !isStopping else { return }
@@ -7943,6 +8005,10 @@ final class WorkspaceRemoteSessionController {
         guard !isStopping else { return }
         guard daemonReady else { return }
         guard remotePortScanTTYNames[panelId] != nil else { return }
+        if workspaceSchedulersSuspended {
+            remotePortScanPendingReason = remotePortScanPendingReason?.merged(with: reason) ?? reason
+            return
+        }
         if remotePortScanBurstActive, remotePortScanActiveReason == .command, reason == .refresh {
             return
         }
@@ -7951,6 +8017,7 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func scheduleRemotePortScanCoalesceLocked() {
+        guard !workspaceSchedulersSuspended else { return }
         guard !remotePortScanBurstActive else { return }
         guard remotePortScanCoalesceWorkItem == nil else { return }
 
@@ -7976,6 +8043,14 @@ final class WorkspaceRemoteSessionController {
         burstStart: DispatchTime? = nil
     ) {
         guard remotePortScanGeneration == generation else { return }
+        guard !workspaceSchedulersSuspended else {
+            remotePortScanBurstActive = false
+            remotePortScanActiveReason = nil
+            if !remotePortScanTTYNames.isEmpty {
+                remotePortScanPendingReason = remotePortScanPendingReason?.merged(with: .refresh) ?? .refresh
+            }
+            return
+        }
 
         let burstOffsets = reason.burstOffsets
         guard index < burstOffsets.count else {
@@ -8048,7 +8123,9 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func startRemotePortPollingLocked(mode: RemotePortPollingMode) {
+        guard !workspaceSchedulersSuspended else { return }
         if remotePortPollTimer != nil, remotePortPollMode == mode {
+            resumeRemotePortPollingForWorkspaceRemountLocked()
             return
         }
         stopRemotePortPollingLocked()
@@ -8061,13 +8138,21 @@ final class WorkspaceRemoteSessionController {
         remotePortPollTimer = timer
         remotePortPollMode = mode
         timer.resume()
+        remotePortPollTimerState = .running
         pollRemotePortsLocked()
     }
 
     private func stopRemotePortPollingLocked() {
-        remotePortPollTimer?.setEventHandler {}
-        remotePortPollTimer?.cancel()
+        if let timer = remotePortPollTimer {
+            timer.setEventHandler {}
+            timer.cancel()
+            // Balance the workspace-unmount suspend before releasing the source.
+            if remotePortPollTimerState == .suspendedForWorkspaceUnmount {
+                timer.resume()
+            }
+        }
         remotePortPollTimer = nil
+        remotePortPollTimerState = nil
         remotePortPollMode = nil
     }
 
@@ -8080,7 +8165,39 @@ final class WorkspaceRemoteSessionController {
             remotePortPollBaselinePorts = nil
             return
         }
+        guard !workspaceSchedulersSuspended else {
+            if remotePortPollTimer != nil, remotePortPollMode != pollingMode {
+                stopRemotePortPollingLocked()
+            }
+            return
+        }
         startRemotePortPollingLocked(mode: pollingMode)
+    }
+
+    private func suspendRemotePortPollingForWorkspaceUnmountLocked() {
+        guard let timer = remotePortPollTimer else { return }
+        guard remotePortPollTimerState == .running else { return }
+        timer.suspend()
+        remotePortPollTimerState = .suspendedForWorkspaceUnmount
+    }
+
+    private func resumeRemotePortPollingForWorkspaceRemountLocked() {
+        guard let timer = remotePortPollTimer else { return }
+        guard remotePortPollTimerState == .suspendedForWorkspaceUnmount else { return }
+        remotePortPollTimerState = .running
+        timer.resume()
+    }
+
+    private func suspendRemotePortScanBurstForWorkspaceUnmountLocked() {
+        guard remotePortScanCoalesceWorkItem != nil || remotePortScanBurstActive else { return }
+        remotePortScanGeneration &+= 1
+        remotePortScanCoalesceWorkItem?.cancel()
+        remotePortScanCoalesceWorkItem = nil
+        remotePortScanBurstActive = false
+        remotePortScanActiveReason = nil
+        if !remotePortScanTTYNames.isEmpty {
+            remotePortScanPendingReason = remotePortScanPendingReason?.merged(with: .refresh) ?? .refresh
+        }
     }
 
     private func pollRemotePortsLocked() {
@@ -11365,7 +11482,8 @@ final class Workspace: Identifiable, ObservableObject {
         let controller = WorkspaceRemoteSessionController(
             workspace: self,
             configuration: configuration,
-            controllerID: controllerID
+            controllerID: controllerID,
+            workspaceSchedulersEnabled: portalRenderingEnabled
         )
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller
@@ -13016,10 +13134,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels() {
-        portalRenderingEnabled = false
-        clearLayoutFollowUp()
-        hideAllTerminalPortalViews()
-        hideAllBrowserPortalViews()
+        setPortalRenderingEnabled(false, reason: "workspaceTeardown")
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
             discardClosedPanelLifecycleState(
@@ -14166,6 +14281,7 @@ final class Workspace: Identifiable, ObservableObject {
     func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
         let changed = portalRenderingEnabled != enabled
         portalRenderingEnabled = enabled
+        remoteSessionController?.setWorkspaceSchedulersEnabled(enabled)
         if enabled {
             if changed {
                 beginEventDrivenLayoutFollowUp(

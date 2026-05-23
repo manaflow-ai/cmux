@@ -378,6 +378,85 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemotePortPollingTimerFollowsWorkspaceMountLifecycle() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let controller = WorkspaceRemoteSessionController(
+            workspace: workspace,
+            configuration: configuration,
+            controllerID: UUID(),
+            workspaceSchedulersEnabled: false
+        )
+
+        let previousOverride = WorkspaceRemoteSessionController.runProcessOverrideForTesting
+        let processRunLock = NSLock()
+        var processRunCount = 0
+        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { _, _, _, _ in
+            processRunLock.lock()
+            processRunCount += 1
+            processRunLock.unlock()
+            (status: 0, stdout: "", stderr: "")
+        }
+        let currentProcessRunCount = {
+            processRunLock.lock()
+            defer { processRunLock.unlock() }
+            return processRunCount
+        }
+        defer {
+            controller.stop()
+            _ = try? controller.debugWorkspaceSchedulerStateForTesting()
+            WorkspaceRemoteSessionController.runProcessOverrideForTesting = previousOverride
+        }
+
+        try controller.debugActivateRemotePortPollingForTesting()
+        var state = try controller.debugWorkspaceSchedulerStateForTesting()
+        XCTAssertTrue(state.workspaceSchedulersSuspended)
+        XCTAssertFalse(state.remotePortPollTimerExists)
+        XCTAssertFalse(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+        XCTAssertEqual(currentProcessRunCount(), 0)
+
+        controller.setWorkspaceSchedulersEnabled(true)
+        state = try controller.debugWorkspaceSchedulerStateForTesting()
+        XCTAssertFalse(state.workspaceSchedulersSuspended)
+        XCTAssertTrue(state.remotePortPollTimerExists)
+        XCTAssertFalse(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+        XCTAssertEqual(currentProcessRunCount(), 1)
+
+        controller.setWorkspaceSchedulersEnabled(false)
+        state = try controller.debugWorkspaceSchedulerStateForTesting()
+        XCTAssertTrue(state.workspaceSchedulersSuspended)
+        XCTAssertTrue(state.remotePortPollTimerExists)
+        XCTAssertTrue(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+
+        controller.setWorkspaceSchedulersEnabled(false)
+        state = try controller.debugWorkspaceSchedulerStateForTesting()
+        XCTAssertTrue(state.workspaceSchedulersSuspended)
+        XCTAssertTrue(state.remotePortPollTimerExists)
+        XCTAssertTrue(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+
+        controller.setWorkspaceSchedulersEnabled(true)
+        state = try controller.debugWorkspaceSchedulerStateForTesting()
+        XCTAssertFalse(state.workspaceSchedulersSuspended)
+        XCTAssertTrue(state.remotePortPollTimerExists)
+        XCTAssertFalse(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+#else
+        throw XCTSkip("Debug-only scheduler lifecycle test")
+#endif
+    }
+
+    @MainActor
     func testWebSocketVMWithoutDaemonEndpointSkipsProxyStartup() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
