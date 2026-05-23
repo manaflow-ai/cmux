@@ -180,10 +180,21 @@ class UpdateController {
         stopAttemptUpdateMonitoring()
         didObserveAttemptUpdateProgress = false
 
+        var isFirstStateEmission = true
         attemptInstallCancellable = viewModel.$state
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 guard let self else { return }
+
+                if isFirstStateEmission {
+                    isFirstStateEmission = false
+                    switch state {
+                    case .error, .notFound:
+                        return
+                    default:
+                        break
+                    }
+                }
 
                 if state.isInstallable || !state.isIdle {
                     self.didObserveAttemptUpdateProgress = true
@@ -247,8 +258,8 @@ class UpdateController {
             performCheckForUpdates()
             return
         }
-        if viewModel.state.isIdle {
-            viewModel.state = .checking(.init(cancel: {}))
+        if retries == nil || viewModel.state.isIdle {
+            viewModel.cancelActiveStateForNewCheck()
         }
         guard remainingRetries > 0 else {
             UpdateLogStore.shared.append("checkForUpdatesWhenReady timed out")

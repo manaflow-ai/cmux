@@ -119,8 +119,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
         UpdateLogStore.shared.append("show updater error: \(details)")
         setState(.error(.init(
             error: error,
-            retry: { [weak viewModel] in
-                viewModel?.state = .idle
+            retry: {
                 DispatchQueue.main.async {
                     guard let delegate = NSApp.delegate as? AppDelegate else { return }
                     delegate.checkForUpdates(nil)
@@ -393,8 +392,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
         cancellation?()
         applyState(.error(.init(
             error: UpdateTimeoutError.make(stage: stage.errorStage),
-            retry: { [weak viewModel] in
-                viewModel?.state = .idle
+            retry: {
                 DispatchQueue.main.async {
                     guard let delegate = NSApp.delegate as? AppDelegate else { return }
                     delegate.checkForUpdates(nil)

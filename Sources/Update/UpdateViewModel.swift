@@ -99,8 +99,8 @@ class UpdateViewModel: ObservableObject {
 
     func cancelActiveStateForNewCheck() {
         state.cancel()
-        state = .idle
         overrideState = nil
+        state = .checking(.init(cancel: {}))
     }
 
     func applyDriverState(_ newState: UpdateState) {

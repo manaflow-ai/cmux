@@ -1911,7 +1911,7 @@ final class UpdateViewModelPresentationTests: XCTestCase {
         XCTAssertFalse(viewModel.showsPill)
     }
 
-    func testCancelActiveStateForNewCheckDismissesAndClearsTransientState() throws {
+    func testCancelActiveStateForNewCheckDismissesAndShowsCheckingState() throws {
         let viewModel = UpdateViewModel()
         let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
         let recorder = UpdateChoiceRecorder()
@@ -1925,7 +1925,7 @@ final class UpdateViewModelPresentationTests: XCTestCase {
         viewModel.cancelActiveStateForNewCheck()
 
         XCTAssertEqual(recorder.snapshot(), [.dismiss])
-        XCTAssertEqual(viewModel.state, .idle)
+        XCTAssertEqual(viewModel.state, .checking(.init(cancel: {})))
         XCTAssertNil(viewModel.overrideState)
     }
 
