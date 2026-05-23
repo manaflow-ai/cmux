@@ -1972,7 +1972,7 @@ final class CmuxConfigStore: ObservableObject {
 
     // MARK: - Public API
 
-    func wireDirectoryTracking(tabManager: TabManager) {
+    func wireDirectoryTracking(tabManager: TabManager, loadsInitialConfiguration: Bool = true) {
         trackingCancellables.removeAll()
         self.tabManager = tabManager
 
@@ -1999,7 +1999,10 @@ final class CmuxConfigStore: ObservableObject {
             }
             .store(in: &trackingCancellables)
 
-        updateLocalConfigPath(tabManager.selectedWorkspace?.surfaceTabBarDirectory)
+        updateLocalConfigPath(
+            tabManager.selectedWorkspace?.surfaceTabBarDirectory,
+            loadsConfiguration: loadsInitialConfiguration
+        )
     }
 
     func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {
@@ -2018,7 +2021,7 @@ final class CmuxConfigStore: ObservableObject {
         )
     }
 
-    private func updateLocalConfigPath(_ directory: String?) {
+    private func updateLocalConfigPath(_ directory: String?, loadsConfiguration: Bool = true) {
         let newPath: String?
         if let directory, !directory.isEmpty {
             localConfigSearchDirectory = directory
@@ -2034,7 +2037,9 @@ final class CmuxConfigStore: ObservableObject {
         if fileWatchingEnabled, newPath != nil {
             startLocalFileWatcher()
         }
-        loadAll()
+        if loadsConfiguration {
+            loadAll()
+        }
     }
 
     private func resolvedLocalConfigPath(startingFrom directory: String) -> String {

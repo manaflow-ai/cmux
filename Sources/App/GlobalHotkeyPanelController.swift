@@ -51,6 +51,7 @@ final class GlobalHotkeyPanelController: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         panel.makeKey()
         appDelegate?.setActiveMainWindow(panel)
+        contentState.scheduleConfigLoadAfterFirstDisplay()
 
 #if DEBUG
         cmuxDebugLog("globalHotkey.panel.show window=\(panel.identifier?.rawValue ?? "<nil>")")

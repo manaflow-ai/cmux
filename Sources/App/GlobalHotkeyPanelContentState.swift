@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-struct GlobalHotkeyPanelContentState {
+final class GlobalHotkeyPanelContentState {
     let windowId: UUID
     let tabManager: TabManager
     let notificationStore: TerminalNotificationStore
@@ -9,6 +9,7 @@ struct GlobalHotkeyPanelContentState {
     let sidebarSelectionState: SidebarSelectionState
     let fileExplorerState: FileExplorerState
     let cmuxConfigStore: CmuxConfigStore
+    private var didScheduleConfigLoad = false
 
     init(
         windowId: UUID = UUID(),
@@ -29,8 +30,18 @@ struct GlobalHotkeyPanelContentState {
         self.sidebarSelectionState = sidebarSelectionState ?? SidebarSelectionState()
         self.fileExplorerState = fileExplorerState ?? FileExplorerState()
         self.cmuxConfigStore = resolvedConfigStore
+    }
 
-        resolvedConfigStore.wireDirectoryTracking(tabManager: resolvedTabManager)
-        resolvedConfigStore.loadAll()
+    func scheduleConfigLoadAfterFirstDisplay() {
+        guard !didScheduleConfigLoad else { return }
+        didScheduleConfigLoad = true
+        cmuxConfigStore.wireDirectoryTracking(
+            tabManager: tabManager,
+            loadsInitialConfiguration: false
+        )
+        let cmuxConfigStore = cmuxConfigStore
+        DispatchQueue.main.async { [weak cmuxConfigStore] in
+            cmuxConfigStore?.loadAll()
+        }
     }
 }
