@@ -3,13 +3,30 @@ import Foundation
 struct CmuxTaskManagerSnapshot {
     static let empty = CmuxTaskManagerSnapshot(
         rows: [],
+        agentRows: [],
+        aggregateRows: [],
+        childMemoryRows: [],
         total: .zero,
-        sampledAt: nil
+        sampledAt: nil,
+        memoryDiagnostic: nil
     )
 
     let rows: [CmuxTaskManagerRow]
+    let agentRows: [CmuxTaskManagerRow]
+    let aggregateRows: [CmuxTaskManagerRow]
+    let childMemoryRows: [CmuxTaskManagerRow]
     let total: CmuxTaskManagerResources
     let sampledAt: Date?
+    let memoryDiagnostic: CmuxTaskManagerMemoryDiagnostic?
+
+    var hasLoadedResourceUsage: Bool {
+        sampledAt != nil
+            || !rows.isEmpty
+            || !agentRows.isEmpty
+            || !aggregateRows.isEmpty
+            || !childMemoryRows.isEmpty
+            || memoryDiagnostic != nil
+    }
 
     var updatedText: String {
         guard let sampledAt else {
@@ -18,10 +35,40 @@ struct CmuxTaskManagerSnapshot {
         return CmuxTaskManagerFormat.time(sampledAt)
     }
 
-    init(rows: [CmuxTaskManagerRow], total: CmuxTaskManagerResources, sampledAt: Date?) {
+    init(
+        rows: [CmuxTaskManagerRow],
+        agentRows: [CmuxTaskManagerRow] = [],
+        aggregateRows: [CmuxTaskManagerRow],
+        childMemoryRows: [CmuxTaskManagerRow] = [],
+        total: CmuxTaskManagerResources,
+        sampledAt: Date?,
+        memoryDiagnostic: CmuxTaskManagerMemoryDiagnostic? = nil
+    ) {
         self.rows = rows
+        self.agentRows = agentRows
+        self.aggregateRows = aggregateRows
+        self.childMemoryRows = childMemoryRows
         self.total = total
         self.sampledAt = sampledAt
+        self.memoryDiagnostic = memoryDiagnostic
+    }
+
+    init(
+        rows: [CmuxTaskManagerRow],
+        agentRows: [CmuxTaskManagerRow] = [],
+        total: CmuxTaskManagerResources,
+        sampledAt: Date?,
+        memoryDiagnostic: CmuxTaskManagerMemoryDiagnostic? = nil
+    ) {
+        self.init(
+            rows: rows,
+            agentRows: agentRows,
+            aggregateRows: Self.programAggregateRows(from: rows),
+            childMemoryRows: Self.childMemoryRows(from: memoryDiagnostic),
+            total: total,
+            sampledAt: sampledAt,
+            memoryDiagnostic: memoryDiagnostic
+        )
     }
 
     init(payload: [String: Any]) {
@@ -34,7 +81,259 @@ struct CmuxTaskManagerSnapshot {
         for window in windows {
             Self.appendWindow(window, to: &rows)
         }
-        self.rows = rows
+        let agentRows = Self.agentRows(from: payload["coding_agents"] as? [[String: Any]] ?? [])
+        self.rows = Self.rowsWithAgentAssets(
+            rows,
+            assetNameByProcessID: Self.agentAssetNameByProcessID(from: agentRows)
+        )
+        self.agentRows = agentRows
+        let programTotalPayloads = payload["program_totals"] as? [[String: Any]] ?? []
+        self.aggregateRows = programTotalPayloads.isEmpty
+            ? Self.programAggregateRows(from: self.rows)
+            : Self.programAggregateRows(fromPayloads: programTotalPayloads)
+        let memoryDiagnostic = CmuxTaskManagerMemoryDiagnostic(payload["memory_diagnostic"] as? [String: Any])
+        self.memoryDiagnostic = memoryDiagnostic
+        self.childMemoryRows = Self.childMemoryRows(from: memoryDiagnostic)
+    }
+
+    private static func childMemoryRows(from diagnostic: CmuxTaskManagerMemoryDiagnostic?) -> [CmuxTaskManagerRow] {
+        guard let diagnostic else { return [] }
+        return diagnostic.groups.map { group in
+            let attribution = group.topAttribution
+            let workspaceId = attribution?.workspaceId
+            let surfaceId = attribution?.surfaceId
+            let surfaceType = attribution?.surfaceType?.lowercased()
+            let detailParts = [
+                processCountDetail(group.processCount),
+                attributionDetail(attribution)
+            ].compactMap { $0 }
+            return CmuxTaskManagerRow(
+                id: "childMemoryAggregate:\(group.id)",
+                kind: .childMemoryAggregate,
+                level: 0,
+                title: group.name,
+                detail: detailParts.joined(separator: " / "),
+                resources: CmuxTaskManagerResources(
+                    cpuPercent: 0,
+                    residentBytes: group.rssBytes,
+                    memoryBytes: group.rssBytes,
+                    processCount: group.processCount,
+                    processIds: group.processIds
+                ),
+                isDimmed: false,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                terminalSurfaceId: surfaceType == "terminal" ? surfaceId : nil,
+                processId: nil,
+                rootProcessIds: group.processIds,
+                foregroundProcessGroupIds: [],
+                agentAssetName: agentAssetName(for: [group.name])
+            )
+        }
+    }
+
+    private static func attributionDetail(_ attribution: CmuxTaskManagerMemoryAttribution?) -> String? {
+        guard let attribution else {
+            return String(localized: "taskManager.memory.unattributed", defaultValue: "Unattributed")
+        }
+        var parts: [String] = []
+        if let workspace = attribution.workspaceRef ?? attribution.workspaceId?.uuidString {
+            parts.append(String(format: String(
+                localized: "taskManager.memory.workspace",
+                defaultValue: "Workspace %@"
+            ), workspace))
+        }
+        if let pane = attribution.paneRef ?? attribution.paneId?.uuidString {
+            parts.append(String(format: String(
+                localized: "taskManager.memory.pane",
+                defaultValue: "Pane %@"
+            ), pane))
+        }
+        if let surface = attribution.surfaceRef ?? attribution.surfaceId?.uuidString {
+            parts.append(String(format: String(
+                localized: "taskManager.memory.surface",
+                defaultValue: "Surface %@"
+            ), surface))
+        }
+        if parts.isEmpty {
+            return String(localized: "taskManager.memory.unattributed", defaultValue: "Unattributed")
+        }
+        return parts.joined(separator: " / ")
+    }
+
+    private static func agentRows(from payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {
+        payloads.compactMap { payload in
+            guard let id = nonEmptyString(payload["id"]),
+                  let title = nonEmptyString(payload["display_name"]) else { return nil }
+            let resources = CmuxTaskManagerResources(payload["resources"] as? [String: Any] ?? [:])
+            guard resources.processCount > 0 else { return nil }
+            return CmuxTaskManagerRow(
+                id: "codingAgentAggregate:\(id)",
+                kind: .codingAgentAggregate,
+                level: 0,
+                title: title,
+                detail: processCountDetail(resources.processCount),
+                resources: resources,
+                isDimmed: false,
+                workspaceId: nil,
+                surfaceId: nil,
+                terminalSurfaceId: nil,
+                processId: nil,
+                rootProcessIds: resources.processIds,
+                foregroundProcessGroupIds: [],
+                agentAssetName: nonEmptyString(payload["asset_name"])
+            )
+        }
+    }
+
+    private static func agentAssetNameByProcessID(from agentRows: [CmuxTaskManagerRow]) -> [Int: String] {
+        var assetNameByProcessID: [Int: String] = [:]
+        for row in agentRows {
+            guard let assetName = row.agentAssetName else { continue }
+            for processID in row.resources.processIds {
+                assetNameByProcessID[processID] = assetName
+            }
+        }
+        return assetNameByProcessID
+    }
+
+    private static func rowsWithAgentAssets(
+        _ rows: [CmuxTaskManagerRow],
+        assetNameByProcessID: [Int: String]
+    ) -> [CmuxTaskManagerRow] {
+        guard !assetNameByProcessID.isEmpty else { return rows }
+        return rows.map { row in
+            if row.agentAssetName != nil {
+                return row
+            }
+            guard row.kind != .window else {
+                return row
+            }
+
+            var assetNames = Set<String>()
+            for processID in row.resources.processIds {
+                if let assetName = assetNameByProcessID[processID] {
+                    assetNames.insert(assetName)
+                }
+            }
+            if let processID = row.processId,
+               let assetName = assetNameByProcessID[processID] {
+                assetNames.insert(assetName)
+            }
+            for processID in row.rootProcessIds {
+                if let assetName = assetNameByProcessID[processID] {
+                    assetNames.insert(assetName)
+                }
+            }
+
+            guard assetNames.count == 1, let assetName = assetNames.first else {
+                return row
+            }
+            return row.withAgentAssetName(assetName)
+        }
+    }
+
+    private struct ProgramAggregate {
+        let title: String
+        var cpuPercent: Double = 0
+        var memoryBytes: Int64 = 0
+        var residentBytes: Int64 = 0
+        var processIds: [Int] = []
+
+        mutating func append(_ row: CmuxTaskManagerRow) {
+            guard let processId = row.processId else { return }
+            cpuPercent += row.resources.cpuPercent
+            memoryBytes = Self.clampedAdd(memoryBytes, row.resources.memoryBytes)
+            residentBytes = Self.clampedAdd(residentBytes, row.resources.residentBytes)
+            processIds.append(processId)
+        }
+
+        private static func clampedAdd(_ lhs: Int64, _ rhs: Int64) -> Int64 {
+            let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+            return overflow ? Int64.max : sum
+        }
+    }
+
+    private static func programAggregateRows(from rows: [CmuxTaskManagerRow]) -> [CmuxTaskManagerRow] {
+        var aggregatesByKey: [String: ProgramAggregate] = [:]
+        var seenProcessIds: Set<Int> = []
+
+        for row in rows where row.kind == .process {
+            guard let processId = row.processId,
+                  seenProcessIds.insert(processId).inserted else { continue }
+
+            let title = row.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { continue }
+            let key = title.lowercased()
+            if aggregatesByKey[key] == nil {
+                aggregatesByKey[key] = ProgramAggregate(title: title)
+            }
+            aggregatesByKey[key]?.append(row)
+        }
+
+        return aggregatesByKey.values
+            .filter { $0.processIds.count > 1 }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            .map { aggregate in
+                let processIds = aggregate.processIds.sorted()
+                return CmuxTaskManagerRow(
+                    id: "programAggregate:\(aggregate.title.lowercased())",
+                    kind: .programAggregate,
+                    level: 0,
+                    title: aggregate.title,
+                    detail: processCountDetail(processIds.count),
+                    resources: CmuxTaskManagerResources(
+                        cpuPercent: aggregate.cpuPercent,
+                        residentBytes: aggregate.residentBytes,
+                        memoryBytes: aggregate.memoryBytes,
+                        processCount: processIds.count,
+                        processIds: processIds
+                    ),
+                    isDimmed: false,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    terminalSurfaceId: nil,
+                    processId: nil,
+                    rootProcessIds: processIds,
+                    foregroundProcessGroupIds: [],
+                    agentAssetName: agentAssetName(for: [aggregate.title])
+                )
+            }
+    }
+
+    private static func programAggregateRows(fromPayloads payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {
+        payloads.compactMap { payload in
+            guard let title = nonEmptyString(payload["name"]) else { return nil }
+            let resources = CmuxTaskManagerResources(payload["resources"] as? [String: Any] ?? [:])
+            guard resources.processCount > 0 else { return nil }
+            let id = nonEmptyString(payload["id"]) ?? title.lowercased()
+            return CmuxTaskManagerRow(
+                id: "programAggregate:\(id)",
+                kind: .programAggregate,
+                level: 0,
+                title: title,
+                detail: processCountDetail(resources.processCount),
+                resources: resources,
+                isDimmed: false,
+                workspaceId: nil,
+                surfaceId: nil,
+                terminalSurfaceId: nil,
+                processId: nil,
+                rootProcessIds: resources.processIds,
+                foregroundProcessGroupIds: [],
+                agentAssetName: agentAssetName(for: [title])
+            )
+        }
+    }
+
+    private static func processCountDetail(_ processCount: Int) -> String {
+        if processCount == 1 {
+            return String(localized: "taskManager.aggregate.processCount.one", defaultValue: "1 process")
+        }
+        return String(format: String(
+            localized: "taskManager.aggregate.processCount.other",
+            defaultValue: "%lld processes"
+        ), Int64(processCount))
     }
 
     private static func appendWindow(_ window: [String: Any], to rows: inout [CmuxTaskManagerRow]) {
@@ -53,6 +352,12 @@ struct CmuxTaskManagerSnapshot {
             title: String(localized: "taskManager.row.window", defaultValue: "Window \(handle)"),
             detail: detailParts.joined(separator: " / ")
         ))
+
+        let processes = window["processes"] as? [[String: Any]] ?? []
+        let context = rowID(window, kind: .window)
+        for process in processes {
+            appendProcess(process, level: 1, context: context, workspaceId: nil, terminalSurfaceId: nil, to: &rows)
+        }
 
         let workspaces = window["workspaces"] as? [[String: Any]] ?? []
         for workspace in workspaces {

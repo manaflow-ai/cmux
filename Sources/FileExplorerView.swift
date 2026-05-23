@@ -10,6 +10,71 @@ private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
 }
 #endif
 
+private final class FileExplorerExternalOpenRequest: NSObject {
+    let fileURL: URL
+    let applicationURL: URL?
+
+    init(fileURL: URL, applicationURL: URL?) {
+        self.fileURL = fileURL
+        self.applicationURL = applicationURL
+    }
+}
+
+private func addFileExplorerExternalOpenItems(
+    to menu: NSMenu,
+    fileURL: URL,
+    target: AnyObject,
+    action: Selector
+) {
+    let applications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
+    let primaryApplication = applications.first { $0.isDefault } ?? applications.first
+    let otherApplications = applications.filter { application in
+        application.id != primaryApplication?.id
+    }
+
+    if let primaryApplication {
+        let openItem = NSMenuItem(
+            title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
+            action: action,
+            keyEquivalent: ""
+        )
+        openItem.target = target
+        openItem.representedObject = FileExplorerExternalOpenRequest(
+            fileURL: fileURL,
+            applicationURL: primaryApplication.url
+        )
+        menu.addItem(openItem)
+
+        guard !otherApplications.isEmpty else { return }
+        let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+        for application in otherApplications {
+            let appItem = NSMenuItem(
+                title: application.displayName,
+                action: action,
+                keyEquivalent: ""
+            )
+            appItem.target = target
+            appItem.representedObject = FileExplorerExternalOpenRequest(
+                fileURL: fileURL,
+                applicationURL: application.url
+            )
+            openWithMenu.addItem(appItem)
+        }
+        let openWithItem = NSMenuItem(title: FileExternalOpenText.openWithMenu, action: nil, keyEquivalent: "")
+        openWithItem.submenu = openWithMenu
+        menu.addItem(openWithItem)
+    } else {
+        let openItem = NSMenuItem(
+            title: FileExternalOpenText.openExternally,
+            action: action,
+            keyEquivalent: ""
+        )
+        openItem.target = target
+        openItem.representedObject = FileExplorerExternalOpenRequest(fileURL: fileURL, applicationURL: nil)
+        menu.addItem(openItem)
+    }
+}
+
 // MARK: - File Explorer Panel (single NSViewRepresentable)
 
 enum FileExplorerPanelPresentation: Equatable {
@@ -24,6 +89,11 @@ enum FileExplorerPanelPresentation: Equatable {
     }
 }
 
+enum FileExplorerPanelPlacement: Equatable {
+    case rightSidebar
+    case pane
+}
+
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
@@ -31,14 +101,25 @@ struct FileExplorerPanelView: NSViewRepresentable {
     @ObservedObject var state: FileExplorerState
     let onOpenFilePreview: (String) -> Void
     var presentation: FileExplorerPanelPresentation = .files
+    var placement: FileExplorerPanelPlacement = .rightSidebar
+    var onFocus: (() -> Void)?
+    var onContainerChange: ((FileExplorerContainerView?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(store: store, state: state, onOpenFilePreview: onOpenFilePreview)
+        Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: onOpenFilePreview,
+            placement: placement,
+            onFocus: onFocus,
+            onContainerChange: onContainerChange
+        )
     }
 
     func makeNSView(context: Context) -> FileExplorerContainerView {
         let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
         context.coordinator.containerView = container
+        context.coordinator.onContainerChange?(container)
         return container
     }
 
@@ -46,10 +127,19 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.store = store
         context.coordinator.state = state
         context.coordinator.onOpenFilePreview = onOpenFilePreview
+        context.coordinator.placement = placement
+        context.coordinator.onFocus = onFocus
+        context.coordinator.onContainerChange = onContainerChange
+        context.coordinator.onContainerChange?(container)
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
         container.registerWithKeyboardFocusCoordinatorIfNeeded()
+    }
+
+    static func dismantleNSView(_ nsView: FileExplorerContainerView, coordinator: Coordinator) {
+        _ = nsView
+        coordinator.onContainerChange?(nil)
     }
 
     // MARK: - Coordinator
@@ -58,6 +148,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
         var store: FileExplorerStore
         var state: FileExplorerState
         var onOpenFilePreview: (String) -> Void
+        var placement: FileExplorerPanelPlacement
+        var onFocus: (() -> Void)?
+        var onContainerChange: ((FileExplorerContainerView?) -> Void)?
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
@@ -68,11 +161,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
         init(
             store: FileExplorerStore,
             state: FileExplorerState,
-            onOpenFilePreview: @escaping (String) -> Void
+            onOpenFilePreview: @escaping (String) -> Void,
+            placement: FileExplorerPanelPlacement = .rightSidebar,
+            onFocus: (() -> Void)? = nil,
+            onContainerChange: ((FileExplorerContainerView?) -> Void)? = nil
         ) {
             self.store = store
             self.state = state
             self.onOpenFilePreview = onOpenFilePreview
+            self.placement = placement
+            self.onFocus = onFocus
+            self.onContainerChange = onContainerChange
             super.init()
             observeStore()
             styleObserver = NotificationCenter.default.addObserver(
@@ -87,6 +186,29 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
                     self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
                 }
+            }
+        }
+
+        @MainActor
+        @discardableResult
+        func handleModeShortcut(_ mode: RightSidebarMode, in window: NSWindow?) -> Bool {
+            guard placement == .rightSidebar else { return false }
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: true,
+                preferredWindow: window
+            )
+            return true
+        }
+
+        @MainActor
+        func noteKeyboardFocus(mode: RightSidebarMode, in window: NSWindow?) {
+            switch placement {
+            case .rightSidebar:
+                guard let window else { return }
+                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: mode, in: window)
+            case .pane:
+                onFocus?()
             }
         }
 
@@ -510,14 +632,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let isLocal = store.provider is LocalFileExplorerProvider
 
             if !node.isDirectory && isLocal {
-                let openItem = NSMenuItem(
-                    title: String(localized: "fileExplorer.contextMenu.openDefault", defaultValue: "Open in Default Editor"),
-                    action: #selector(contextMenuOpenInDefaultEditor(_:)),
-                    keyEquivalent: ""
+                addFileExplorerExternalOpenItems(
+                    to: menu,
+                    fileURL: URL(fileURLWithPath: node.path),
+                    target: self,
+                    action: #selector(contextMenuOpenExternally(_:))
                 )
-                openItem.target = self
-                openItem.representedObject = node
-                menu.addItem(openItem)
             }
 
             if isLocal {
@@ -554,9 +674,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
             menu.addItem(copyRelItem)
         }
 
-        @objc private func contextMenuOpenInDefaultEditor(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? FileExplorerNode else { return }
-            NSWorkspace.shared.open(URL(fileURLWithPath: node.path))
+        @objc private func contextMenuOpenExternally(_ sender: NSMenuItem) {
+            guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
+            FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
         }
 
         @objc private func contextMenuRevealInFinder(_ sender: NSMenuItem) {
@@ -679,9 +799,7 @@ final class FileExplorerContainerView: NSView {
         searchField.onFocus = { [weak self] in
             guard let self else { return }
             self.isSearchVisible = true
-            if let window = self.window {
-                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: self.representedRightSidebarMode(), in: window)
-            }
+            self.coordinator.noteKeyboardFocus(mode: self.representedRightSidebarMode(), in: self.window)
             self.updateSearchLayout()
         }
         searchBarView.addSubview(searchField)
@@ -774,8 +892,11 @@ final class FileExplorerContainerView: NSView {
             self?.openSelectedSearchResult()
         }
         searchResultsView.onFocus = { [weak self] in
-            guard let self, let window = self.window else { return }
-            AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: self.representedRightSidebarMode(), in: window)
+            guard let self else { return }
+            self.coordinator.noteKeyboardFocus(mode: self.representedRightSidebarMode(), in: self.window)
+        }
+        searchResultsView.onModeShortcut = { [weak coordinator] mode, window in
+            coordinator?.handleModeShortcut(mode, in: window) ?? false
         }
         let searchColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("searchResult"))
         searchColumn.isEditable = false
@@ -859,7 +980,9 @@ final class FileExplorerContainerView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window else { return }
-        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFileExplorerHost(self)
+        if coordinator.placement == .rightSidebar {
+            AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFileExplorerHost(self)
+        }
 #if DEBUG
         dlog(
             "file.focus.host.attach win=\(window.windowNumber) canAccept=\(cmuxCanAcceptRightSidebarKeyboardFocus ? 1 : 0) " +
@@ -870,6 +993,7 @@ final class FileExplorerContainerView: NSView {
     }
 
     func registerWithKeyboardFocusCoordinatorIfNeeded() {
+        guard coordinator.placement == .rightSidebar else { return }
         guard let window else { return }
         AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFileExplorerHost(self)
     }
@@ -1372,9 +1496,9 @@ final class FileExplorerContainerView: NSView {
         coordinator.onOpenFilePreview(result.path)
     }
 
-    @objc private func contextMenuOpenSearchResultInDefaultEditor(_ sender: NSMenuItem) {
-        guard let result = searchResult(forMenuItem: sender) else { return }
-        PreferredEditorSettings.open(URL(fileURLWithPath: result.path))
+    @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {
+        guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
+        FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
     }
 
     @objc private func contextMenuRevealSearchResultInFinder(_ sender: NSMenuItem) {
@@ -1510,14 +1634,12 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         openInCmuxItem.representedObject = NSNumber(value: row)
         menu.addItem(openInCmuxItem)
 
-        let openDefaultItem = NSMenuItem(
-            title: String(localized: "fileExplorer.contextMenu.openDefault", defaultValue: "Open in Default Editor"),
-            action: #selector(contextMenuOpenSearchResultInDefaultEditor(_:)),
-            keyEquivalent: ""
+        addFileExplorerExternalOpenItems(
+            to: menu,
+            fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
+            target: self,
+            action: #selector(contextMenuOpenSearchResultExternally(_:))
         )
-        openDefaultItem.target = self
-        openDefaultItem.representedObject = NSNumber(value: row)
-        menu.addItem(openDefaultItem)
 
         let revealItem = NSMenuItem(
             title: String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder"),
@@ -1607,6 +1729,7 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     var onMoveSelection: ((Int) -> Void)?
     var onCommit: (() -> Void)?
     var onFocus: (() -> Void)?
+    var onModeShortcut: ((RightSidebarMode, NSWindow?) -> Bool)?
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
@@ -1627,12 +1750,9 @@ final class FileExplorerSearchResultsTableView: NSTableView {
 
     override func keyDown(with event: NSEvent) {
         if let mode = RightSidebarMode.modeShortcut(for: event) {
-            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                mode: mode,
-                focusFirstItem: true,
-                preferredWindow: window
-            )
-            return
+            if onModeShortcut?(mode, window) == true {
+                return
+            }
         }
         if event.keyCode == 53 {
             onCancel?()
@@ -1970,12 +2090,9 @@ final class FileExplorerNSOutlineView: NSOutlineView {
 
     override func keyDown(with event: NSEvent) {
         if let mode = RightSidebarMode.modeShortcut(for: event) {
-            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                mode: mode,
-                focusFirstItem: true,
-                preferredWindow: window
-            )
-            return
+            if fileExplorerCoordinator?.handleModeShortcut(mode, in: window) == true {
+                return
+            }
         }
 
         if quickSearchActive, handleQuickSearchKey(event) {

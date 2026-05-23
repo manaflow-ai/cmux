@@ -6,6 +6,7 @@ TAG="${CMUX_TAG:-ca-main-thread}"
 SOCKET_PATH="${CMUX_SOCKET_PATH:-/tmp/cmux-debug-${TAG}.sock}"
 LOG_PATH="${CMUX_CA_ASSERT_LOG:-/tmp/cmux-ca-main-thread-${TAG}.log}"
 HOLD_SECONDS="${CMUX_CA_ASSERT_HOLD_SECONDS:-8}"
+READY_TIMEOUT_SECONDS="${CMUX_CA_ASSERT_READY_TIMEOUT_SECONDS:-60}"
 APP_PID_FILE="${CMUX_CA_ASSERT_PID_FILE:-/tmp/cmux-ca-main-thread-${TAG}.pid}"
 
 if [ -z "$APP_PATH" ]; then
@@ -84,9 +85,7 @@ CMUX_ALLOW_SOCKET_OVERRIDE=1 \
 APP_PID=$!
 echo "$APP_PID" >"$APP_PID_FILE"
 
-deadline=$((SECONDS + HOLD_SECONDS))
-socket_ready=0
-while [ "$SECONDS" -lt "$deadline" ]; do
+wait_for_app_alive() {
   if ! kill -0 "$APP_PID" >/dev/null 2>&1; then
     wait "$APP_PID" >/dev/null 2>&1 || true
     echo "FAIL: cmux exited while CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 was active" >&2
@@ -94,9 +93,15 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     tail -80 "$LOG_PATH" >&2 2>/dev/null || true
     exit 1
   fi
+}
 
+ready_deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
+socket_ready=0
+while [ "$SECONDS" -lt "$ready_deadline" ]; do
+  wait_for_app_alive
   if [ -S "$SOCKET_PATH" ]; then
     socket_ready=1
+    break
   fi
   sleep 0.25
 done
@@ -107,6 +112,12 @@ if [ "$socket_ready" -ne 1 ]; then
   tail -80 "$LOG_PATH" >&2 2>/dev/null || true
   exit 1
 fi
+
+hold_deadline=$((SECONDS + HOLD_SECONDS))
+while [ "$SECONDS" -lt "$hold_deadline" ]; do
+  wait_for_app_alive
+  sleep 0.25
+done
 
 if grep -E "uncommitted CATransaction|implicit transaction wasn't created|CoreAnimation.*thread|CATransaction.*thread" "$LOG_PATH" >/dev/null 2>&1; then
   echo "FAIL: CoreAnimation reported a worker-thread transaction" >&2
