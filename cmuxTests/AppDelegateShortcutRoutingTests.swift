@@ -5359,6 +5359,70 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(auxiliaryWindow.firstResponder === auxiliaryResponder)
     }
 
+    func testFocusedMarkdownPreviewDoesNotOwnMainWindowTextInput() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected test window, manager, workspace, and focused source panel")
+            return
+        }
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-main-text-input-\(UUID().uuidString).md")
+        try "# Markdown\n\nFind target\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let markdownPanel = try XCTUnwrap(
+            workspace.newMarkdownSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                filePath: fileURL.path,
+                focus: true
+            )
+        )
+        workspace.focusPanel(markdownPanel.id)
+
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 180, height: 32))
+        textView.isEditable = true
+        window.contentView?.addSubview(textView)
+        defer { textView.removeFromSuperview() }
+        XCTAssertTrue(window.makeFirstResponder(textView))
+
+        var observedCommands: [MarkdownPreviewKeyCommand] = []
+#if DEBUG
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = { command in
+            observedCommands.append(command)
+        }
+#else
+        XCTFail("keyboardCommandObserver is only available in DEBUG")
+#endif
+
+        let event = try XCTUnwrap(
+            makeKeyDownEvent(
+                key: "j",
+                modifiers: [],
+                keyCode: 38,
+                windowNumber: window.windowNumber
+            )
+        )
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertTrue(observedCommands.isEmpty, "Markdown preview shortcuts should not consume main-window text input")
+        XCTAssertTrue(window.firstResponder === textView)
+    }
+
     // MARK: - Browser find shortcut routing tests
 
     func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {

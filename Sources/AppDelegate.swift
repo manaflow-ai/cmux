@@ -14485,8 +14485,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let shortcutWindow = markdownPreviewShortcutWindow(for: event) else {
             return false
         }
-        if let responder = shortcutWindow.firstResponder,
-           cmuxOwningGhosttyView(for: responder) != nil {
+        if shouldBypassFocusedMarkdownPreviewShortcut(
+            responder: shortcutWindow.firstResponder,
+            in: shortcutWindow
+        ) {
             return false
         }
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: shortcutWindow),
@@ -14497,6 +14499,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         return markdownPanel.handlePreviewKeyboardShortcut(event)
+    }
+
+    private func shouldBypassFocusedMarkdownPreviewShortcut(
+        responder: NSResponder?,
+        in window: NSWindow
+    ) -> Bool {
+        if isCommandPaletteEffectivelyVisible(in: window) {
+            return true
+        }
+        guard let responder else { return false }
+        if cmuxOwningGhosttyView(for: responder) != nil {
+            return true
+        }
+        if responder is NSText || responder is NSTextField {
+            return true
+        }
+        if isRightSidebarFocusResponder(responder, in: window) {
+            return true
+        }
+        return false
     }
 
     private func markdownPreviewShortcutWindow(for event: NSEvent) -> NSWindow? {
