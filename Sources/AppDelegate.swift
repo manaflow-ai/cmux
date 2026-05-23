@@ -3465,6 +3465,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return (mode: mode, path: SocketControlSettings.socketPath())
     }
 
+    private func reserveInitialSocketPathIfNeeded() {
+        guard let config = socketListenerConfigurationIfEnabled() else { return }
+        let startupPath = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: config.path,
+            stableDefaultSocketCanBeReclaimed: TerminalController.socketPathCanBeReclaimedForStartup
+        )
+        TerminalController.shared.reserveStartupSocketPath(startupPath)
+    }
+
     private func startSocketListenerIfEnabled(tabManager: TabManager, source: String) {
         guard let config = socketListenerConfigurationIfEnabled() else {
             TerminalController.shared.stop()
@@ -5709,6 +5718,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return NSApp.window(withWindowNumber: eventWindowNumber)
     }
 
+    private func mainWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
+        // Close shortcuts are focused-window commands. Some AppKit key-equivalent
+        // paths can preserve stale event window metadata after a new window becomes
+        // key, so prefer the actual focused window before falling back to event data.
+        if let keyWindow = NSApp.keyWindow, isMainTerminalWindow(keyWindow) {
+            return keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow, isMainTerminalWindow(mainWindow) {
+            return mainWindow
+        }
+        return mainWindowForShortcutEvent(event)
+    }
+
+    private func tabManagerForFocusedCloseShortcut(event: NSEvent) -> TabManager? {
+        if let targetWindow = mainWindowForFocusedCloseShortcut(event: event) {
+            return synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
+        }
+        return preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+    }
+
+    private func auxiliaryWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
+        [
+            NSApp.keyWindow,
+            NSApp.mainWindow,
+            resolvedShortcutEventWindow(event),
+        ]
+        .compactMap { $0 }
+        .first { cmuxWindowShouldOwnCloseShortcut($0) }
+    }
+
     /// Re-sync app-level active window pointers from the currently focused main terminal window.
     /// This keeps menu/shortcut actions window-scoped even if the cached `tabManager` drifts.
     @discardableResult
@@ -6441,6 +6480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func bootstrapInitialMainWindowIfNeeded(debugSource: String, shouldActivate: Bool = true) -> UUID {
+        reserveInitialSocketPathIfNeeded()
         let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: shouldActivate)
         if let manager = tabManagerFor(windowId: windowId) {
             startSocketListenerIfEnabled(
@@ -7325,6 +7365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil
     ) -> UUID {
+        reserveInitialSocketPathIfNeeded()
         let windowId = UUID()
         let tabManager = TabManager(
             initialWorkspaceTitle: initialWorkspaceTitle,
@@ -12201,22 +12242,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // The Close Tab shortcut must close the focused panel even if first-responder
         // momentarily lags on a browser NSTextView during split focus transitions.
         if matchConfiguredShortcut(event: event, action: .closeTab) {
-            let targetWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            let routedManager = tabManagerForFocusedCloseShortcut(event: event)
             // Browser popup windows primarily intercept the configured Close Tab shortcut
             // in BrowserPopupPanel. This AppDelegate path is a fallback for cases where
             // AppKit routes the event through the global shortcut handler first.
-            if let targetWindow = [targetWindow, NSApp.keyWindow]
-                .compactMap({ $0 })
-                .first(where: { $0.identifier?.rawValue == "cmux.browser-popup" }) {
+            if let targetWindow = auxiliaryWindowForFocusedCloseShortcut(event: event) {
 #if DEBUG
-                cmuxDebugLog("shortcut.closeTab route=browserPopup")
+                let route = targetWindow.identifier?.rawValue == "cmux.browser-popup" ? "browserPopup" : "auxWindow"
+                cmuxDebugLog("shortcut.closeTab route=\(route)")
 #endif
                 targetWindow.performClose(nil)
                 return true
-            } else if let targetWindow,
-               cmuxWindowShouldOwnCloseShortcut(targetWindow) {
-                targetWindow.performClose(nil)
             } else {
                 if let routedManager {
 #if DEBUG
@@ -12239,15 +12275,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .closeWorkspace) {
-            tabManager?.closeCurrentWorkspaceWithConfirmation()
+            tabManagerForFocusedCloseShortcut(event: event)?.closeCurrentWorkspaceWithConfirmation()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .closeWindow) {
-            guard let targetWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+            guard let targetWindow = mainWindowForFocusedCloseShortcut(event: event) else {
                 NSSound.beep()
                 return true
             }
+            _ = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
             closeWindowWithConfirmation(targetWindow)
             return true
         }
