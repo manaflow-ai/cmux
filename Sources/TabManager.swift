@@ -9358,6 +9358,7 @@ extension Notification.Name {
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
+    static let browserFocusModeStateDidChange = Notification.Name("cmux.browserFocusModeStateDidChange")
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")

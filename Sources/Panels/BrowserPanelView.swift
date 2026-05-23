@@ -449,6 +449,7 @@ struct BrowserPanelView: View {
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
     @State private var isBrowserImportHintPopoverPresented = false
+    @State private var focusModeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var omnibarSelectAllRequestId: UInt64 = 0
     @State private var suppressNextFocusGainedSelectAll: Bool = false
@@ -713,9 +714,20 @@ struct BrowserPanelView: View {
     }
 
     private var browserFocusModeButtonHelp: String {
-        panel.isBrowserFocusModeActive
+        let title = panel.isBrowserFocusModeActive
             ? String(localized: "browser.focusMode.exit.help", defaultValue: "Exit browser focus mode")
             : String(localized: "browser.focusMode.enter.help", defaultValue: "Enter browser focus mode")
+        let format = String(localized: "browser.focusMode.helpWithShortcut.format", defaultValue: "%@ (%@)")
+        return String(format: format, title, browserFocusModeShortcutHint)
+    }
+
+    private var browserFocusModeShortcutHint: String {
+        String(localized: "browser.focusMode.shortcutHint", defaultValue: "Esc Esc")
+    }
+
+    private var shouldShowBrowserFocusModeShortcutHint: Bool {
+        panel.canToggleBrowserFocusMode &&
+            (ShortcutHintDebugSettings.alwaysShowHints() || focusModeShortcutHintMonitor.isModifierPressed)
     }
 
     var body: some View {
@@ -850,8 +862,10 @@ struct BrowserPanelView: View {
 #if DEBUG
             logBrowserFocusState(event: "view.onAppear")
 #endif
+            focusModeShortcutHintMonitor.start()
         }
         .onDisappear {
+            focusModeShortcutHintMonitor.stop()
             screenshotPageCopiedTimer?.invalidate()
             screenshotPageCopiedTimer = nil
             screenshotPageCopied = false
@@ -1042,7 +1056,7 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
-                browserFocusModeButton
+                browserFocusModeButtonWithShortcutHint
                 screenshotPageButton
                 reactGrabButton
                 browserProfileButton
@@ -1053,6 +1067,11 @@ struct BrowserPanelView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
         .background(browserChromeBackground)
+        .background(
+            WindowAccessor { window in
+                focusModeShortcutHintMonitor.setHostWindow(window)
+            }
+        )
         .background {
             GeometryReader { geo in
                 Color.clear
@@ -1162,6 +1181,21 @@ struct BrowserPanelView: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: screenshotPageCopied)
+    }
+
+    private var browserFocusModeButtonWithShortcutHint: some View {
+        ZStack(alignment: .top) {
+            browserFocusModeButton
+            if shouldShowBrowserFocusModeShortcutHint {
+                ShortcutHintPill(text: browserFocusModeShortcutHint, fontSize: 9, emphasis: 1.05)
+                    .offset(y: -22)
+                    .shortcutHintTransition()
+                    .accessibilityIdentifier("BrowserFocusModeShortcutHint")
+                    .allowsHitTesting(false)
+                    .zIndex(10)
+            }
+        }
+        .shortcutHintVisibilityAnimation(value: shouldShowBrowserFocusModeShortcutHint)
     }
 
     private var browserFocusModeButton: some View {

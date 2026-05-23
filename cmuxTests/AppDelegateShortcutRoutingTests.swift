@@ -6545,9 +6545,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let baseTimestamp = ProcessInfo.processInfo.systemUptime
         guard let enterFirstEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.01),
+              let enterRepeatEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, isARepeat: true, timestamp: baseTimestamp + 0.015),
               let enterSecondEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.02),
               let preActivationEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.03),
               let activeFirstEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.04),
+              let activeRepeatEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, isARepeat: true, timestamp: baseTimestamp + 0.045),
               let activeSecondEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.05),
               let commandS = makeKeyDownEvent(key: "s", modifiers: [.command], keyCode: 1, windowNumber: harness.window.windowNumber) else {
             XCTFail("Failed to construct browser focus mode key events")
@@ -6558,6 +6560,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(
             appDelegate.handleBrowserFocusModeKeyEvent(enterFirstEscape, webView: harness.webView, source: "unit.enterFirstEscape"),
             .forwardToWebView
+        )
+        XCTAssertTrue(harness.panel.isBrowserFocusModeEnterArmed)
+        XCTAssertFalse(harness.panel.isBrowserFocusModeActive)
+        XCTAssertEqual(
+            appDelegate.handleBrowserFocusModeKeyEvent(enterRepeatEscape, webView: harness.webView, source: "unit.enterRepeatEscape"),
+            .consume
         )
         XCTAssertTrue(harness.panel.isBrowserFocusModeEnterArmed)
         XCTAssertFalse(harness.panel.isBrowserFocusModeActive)
@@ -6609,6 +6617,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertTrue(harness.panel.isBrowserFocusModeExitArmed)
         XCTAssertEqual(
+            appDelegate.handleBrowserFocusModeKeyEvent(activeRepeatEscape, webView: harness.webView, source: "unit.activeRepeatEscape"),
+            .consume
+        )
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+        XCTAssertTrue(harness.panel.isBrowserFocusModeExitArmed)
+        XCTAssertEqual(
             appDelegate.handleBrowserFocusModeKeyEvent(activeFirstEscape, webView: harness.webView, source: "unit.firstEscapeAgain.duplicate"),
             .consume
         )
@@ -6621,6 +6635,34 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertFalse(harness.panel.isBrowserFocusModeActive)
         XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
+    }
+
+    func testBrowserFocusModeClearsWhenWebViewLeavesInteractiveHost() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        XCTAssertTrue(
+            harness.panel.setBrowserFocusModeActive(true, reason: "unit.staleHost", focusWebView: false)
+        )
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+        harness.webView.removeFromSuperview()
+
+        guard let commandS = makeKeyDownEvent(key: "s", modifiers: [.command], keyCode: 1, windowNumber: harness.window.windowNumber) else {
+            XCTFail("Failed to construct Cmd+S event")
+            return
+        }
+
+        XCTAssertEqual(
+            appDelegate.handleBrowserFocusModeKeyEvent(commandS, webView: harness.webView, source: "unit.staleHost"),
+            .inactive
+        )
+        XCTAssertFalse(harness.panel.isBrowserFocusModeActive)
+        XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
+        XCTAssertFalse(harness.panel.isBrowserFocusModeEnterArmed)
     }
 
     func testBrowserFocusModeCommandEquivalentSkipsAppMenuFallback() {

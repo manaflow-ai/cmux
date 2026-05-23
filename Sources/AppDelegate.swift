@@ -15929,11 +15929,11 @@ private extension NSWindow {
 
         if let firstResponderWebView,
            AppDelegate.shared?.isBrowserFocusModeActive(for: firstResponderWebView) == true {
-            _ = firstResponderWebView.performKeyEquivalent(with: event)
+            let handled = firstResponderWebView.performKeyEquivalent(with: event)
 #if DEBUG
-            cmuxDebugLog("  → browser focus mode consumed before cmux/menu fallback")
+            cmuxDebugLog("  → browser focus mode routed before cmux/menu fallback handled=\(handled ? 1 : 0)")
 #endif
-            return true
+            return handled
         }
 
         if let firstResponderWebView,

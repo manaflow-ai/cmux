@@ -125,6 +125,8 @@ final class CmuxWebView: WKWebView {
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
     private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
+    private static let browserFocusModeContextMenuItemIdentifier =
+        NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
     private static let pasteAsPlainTextSharedHelpersScriptSource = """
     const __cmuxPasteAsPlainTextHelpers = (() => {
@@ -1567,16 +1569,26 @@ final class CmuxWebView: WKWebView {
         let state = AppDelegate.shared?.browserFocusModeContextMenuState(for: self) ?? (isActive: false, canToggle: false)
         guard state.isActive || state.canToggle else { return }
 
+        let title = state.isActive
+            ? String(localized: "browser.focusMode.context.exit", defaultValue: "Exit Browser Focus Mode")
+            : String(localized: "browser.focusMode.context.enter", defaultValue: "Enter Browser Focus Mode")
+        if let item = menu.item(withIdentifier: Self.browserFocusModeContextMenuItemIdentifier) {
+            item.title = title
+            item.target = self
+            item.action = #selector(contextMenuToggleBrowserFocusMode(_:))
+            item.state = state.isActive ? .on : .off
+            return
+        }
+
         if menu.items.last?.isSeparatorItem == false {
             menu.addItem(.separator())
         }
         let item = NSMenuItem(
-            title: state.isActive
-                ? String(localized: "browser.focusMode.context.exit", defaultValue: "Exit Browser Focus Mode")
-                : String(localized: "browser.focusMode.context.enter", defaultValue: "Enter Browser Focus Mode"),
+            title: title,
             action: #selector(contextMenuToggleBrowserFocusMode(_:)),
             keyEquivalent: ""
         )
+        item.identifier = Self.browserFocusModeContextMenuItemIdentifier
         item.target = self
         item.state = state.isActive ? .on : .off
         menu.addItem(item)

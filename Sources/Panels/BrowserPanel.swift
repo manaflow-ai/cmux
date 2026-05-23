@@ -2810,6 +2810,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// A first plain Escape outside browser focus mode is forwarded to the page and arms entry.
     @Published private(set) var isBrowserFocusModeEnterArmed: Bool = false
 
+    private static let browserFocusModeExitArmTimeout: TimeInterval = 1.6
+    private var browserFocusModeExitArmTimeoutWorkItem: DispatchWorkItem?
     private var lastBrowserFocusModePlainEscapeEventFingerprint: BrowserFocusModePlainEscapeEventFingerprint?
 
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
@@ -6334,7 +6336,7 @@ extension BrowserPanel {
 
     var canEnterBrowserFocusMode: Bool {
         shouldRenderWebView &&
-            webView.window != nil &&
+            browserInteractiveModalHostWindow(for: webView) != nil &&
             !webView.isHiddenOrHasHiddenAncestor &&
             searchState == nil
     }
@@ -6390,17 +6392,21 @@ extension BrowserPanel {
 #if DEBUG
         cmuxDebugLog("browser.focusMode.activate panel=\(id.uuidString.prefix(5)) reason=\(reason)")
 #endif
+        NotificationCenter.default.post(name: .browserFocusModeStateDidChange, object: id)
         return true
     }
 
     func clearBrowserFocusMode(reason: String) {
         guard isBrowserFocusModeActive || isBrowserFocusModeExitArmed || isBrowserFocusModeEnterArmed else { return }
+        browserFocusModeExitArmTimeoutWorkItem?.cancel()
+        browserFocusModeExitArmTimeoutWorkItem = nil
         isBrowserFocusModeExitArmed = false
         isBrowserFocusModeEnterArmed = false
         isBrowserFocusModeActive = false
 #if DEBUG
         cmuxDebugLog("browser.focusMode.clear panel=\(id.uuidString.prefix(5)) reason=\(reason)")
 #endif
+        NotificationCenter.default.post(name: .browserFocusModeStateDidChange, object: id)
     }
 
     func clearBrowserFocusModeEscapeArms(reason: String) {
@@ -6410,6 +6416,8 @@ extension BrowserPanel {
 
     func clearBrowserFocusModeExitArm(reason: String) {
         guard isBrowserFocusModeExitArmed else { return }
+        browserFocusModeExitArmTimeoutWorkItem?.cancel()
+        browserFocusModeExitArmTimeoutWorkItem = nil
         isBrowserFocusModeExitArmed = false
 #if DEBUG
         cmuxDebugLog("browser.focusMode.escape.disarm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
@@ -6424,13 +6432,39 @@ extension BrowserPanel {
 #endif
     }
 
+    private func scheduleBrowserFocusModeExitArmTimeout(reason: String) {
+        browserFocusModeExitArmTimeoutWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.isBrowserFocusModeExitArmed else { return }
+            self.clearBrowserFocusModeExitArm(reason: "\(reason).timeout")
+        }
+        browserFocusModeExitArmTimeoutWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.browserFocusModeExitArmTimeout,
+            execute: workItem
+        )
+    }
+
     func handleBrowserFocusModeKeyEvent(_ event: NSEvent, reason: String) -> BrowserFocusModeKeyDecision {
+        guard canEnterBrowserFocusMode else {
+            clearBrowserFocusMode(reason: "\(reason).ineligible")
+            return .inactive
+        }
+
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let isPlainEscape = flags.isEmpty && event.keyCode == 53
         guard isPlainEscape else {
             lastBrowserFocusModePlainEscapeEventFingerprint = nil
             clearBrowserFocusModeEscapeArms(reason: "\(reason).nonEscape")
             return isBrowserFocusModeActive ? .forwardToWebView : .inactive
+        }
+
+        guard !event.isARepeat else {
+#if DEBUG
+            cmuxDebugLog("browser.focusMode.escape.repeat panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+            return (isBrowserFocusModeActive || isBrowserFocusModeEnterArmed) ? .consume : .inactive
         }
 
         let eventFingerprint = BrowserFocusModePlainEscapeEventFingerprint(event)
@@ -6467,6 +6501,7 @@ extension BrowserPanel {
         }
 
         isBrowserFocusModeExitArmed = true
+        scheduleBrowserFocusModeExitArmTimeout(reason: reason)
 #if DEBUG
         cmuxDebugLog("browser.focusMode.escape.arm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
 #endif
