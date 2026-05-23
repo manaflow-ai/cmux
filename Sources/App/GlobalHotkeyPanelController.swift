@@ -44,9 +44,8 @@ final class GlobalHotkeyPanelController: NSObject, NSWindowDelegate {
             return
         }
 
-        if NSApp.isHidden {
-            NSApp.unhide(nil)
-        }
+        // Keep the overlay showable while the app remains hidden; calling unhide restores normal windows.
+        panel.canHide = !NSApp.isHidden
         position(panel)
         panel.orderFrontRegardless()
         panel.makeKey()
@@ -61,6 +60,7 @@ final class GlobalHotkeyPanelController: NSObject, NSWindowDelegate {
     func hide() {
         guard let panel else { return }
         panel.orderOut(nil)
+        panel.canHide = true
 #if DEBUG
         cmuxDebugLog("globalHotkey.panel.hide window=\(panel.identifier?.rawValue ?? "<nil>")")
 #endif
