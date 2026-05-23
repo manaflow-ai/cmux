@@ -1445,6 +1445,109 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testPackSharedDependenciesDoNotReportCycle() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let cmuxDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        let baseDirectory = cmuxDirectory.appendingPathComponent("packs/base", isDirectory: true)
+        let teamDirectory = cmuxDirectory.appendingPathComponent("packs/team", isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: teamDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = cmuxDirectory.appendingPathComponent("cmux.json")
+        let basePackURL = baseDirectory.appendingPathComponent("cmux.pack.json")
+        let teamPackURL = teamDirectory.appendingPathComponent("cmux.pack.json")
+        try """
+        {
+          "packs": ["./packs/base", "./packs/team"]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "base.shared": { "type": "command", "command": "echo base" }
+          }
+        }
+        """.write(to: basePackURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "packs": ["../base"],
+          "actions": {
+            "team.tests": { "type": "command", "command": "npm test" }
+          }
+        }
+        """.write(to: teamPackURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.resolvedAction(id: "base.shared")?.terminalCommand, "echo base")
+        XCTAssertEqual(store.resolvedAction(id: "team.tests")?.terminalCommand, "npm test")
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testPackRecursiveDependencyReportsCycle() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let cmuxDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        let baseDirectory = cmuxDirectory.appendingPathComponent("packs/base", isDirectory: true)
+        let teamDirectory = cmuxDirectory.appendingPathComponent("packs/team", isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: teamDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = cmuxDirectory.appendingPathComponent("cmux.json")
+        let basePackURL = baseDirectory.appendingPathComponent("cmux.pack.json")
+        let teamPackURL = teamDirectory.appendingPathComponent("cmux.pack.json")
+        try """
+        {
+          "packs": ["./packs/team"]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "packs": ["../team"],
+          "actions": {
+            "base.shared": { "type": "command", "command": "echo base" }
+          }
+        }
+        """.write(to: basePackURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "packs": ["../base"],
+          "actions": {
+            "team.tests": { "type": "command", "command": "npm test" }
+          }
+        }
+        """.write(to: teamPackURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.resolvedAction(id: "base.shared")?.terminalCommand, "echo base")
+        XCTAssertEqual(store.resolvedAction(id: "team.tests")?.terminalCommand, "npm test")
+        XCTAssertTrue(store.configurationIssues.contains {
+            $0.kind == .schemaError && ($0.message?.contains("pack cycle ignored") ?? false)
+        })
+    }
+
+    @MainActor
     func testConfigDirectEntriesOverridePackEntries() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-pack-\(UUID().uuidString)",

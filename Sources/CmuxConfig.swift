@@ -2515,13 +2515,13 @@ final class CmuxConfigStore: ObservableObject {
         watchPaths: inout [String]
     ) -> [ConfigEntry] {
         guard let config, let sourcePath else { return [] }
-        var visited = Set<String>()
+        var pathStack = Set<String>()
         return packEntries(
             references: config.packs,
             declaringConfigPath: sourcePath,
             inheritedSourcePath: inheritedSourcePath,
             depth: 0,
-            visited: &visited,
+            pathStack: &pathStack,
             issues: &issues,
             watchPaths: &watchPaths
         )
@@ -2532,7 +2532,7 @@ final class CmuxConfigStore: ObservableObject {
         declaringConfigPath: String,
         inheritedSourcePath: String?,
         depth: Int,
-        visited: inout Set<String>,
+        pathStack: inout Set<String>,
         issues: inout [CmuxConfigIssue],
         watchPaths: inout [String]
     ) -> [ConfigEntry] {
@@ -2545,7 +2545,7 @@ final class CmuxConfigStore: ObservableObject {
         for reference in references {
             let path = resolvedPackPath(reference.path, relativeToConfig: declaringConfigPath)
             let canonical = Self.canonicalPath(path)
-            guard !visited.contains(canonical) else {
+            guard !pathStack.contains(canonical) else {
                 issues.append(schemaIssue(path: declaringConfigPath, message: "pack cycle ignored: \(path)"))
                 continue
             }
@@ -2558,26 +2558,28 @@ final class CmuxConfigStore: ObservableObject {
             }
             watchPaths.append(path)
 
-            visited.insert(canonical)
+            pathStack.insert(canonical)
             let result = parseConfig(at: path)
             if let issue = result.issue {
                 issues.append(issue)
             }
-            guard let packConfig = result.config else { continue }
-            entries.append(contentsOf: packEntries(
-                references: packConfig.packs,
-                declaringConfigPath: path,
-                inheritedSourcePath: inheritedSourcePath,
-                depth: depth + 1,
-                visited: &visited,
-                issues: &issues,
-                watchPaths: &watchPaths
-            ))
-            entries.append(ConfigEntry(
-                path: path,
-                sourcePath: inheritedSourcePath ?? path,
-                config: packConfig
-            ))
+            if let packConfig = result.config {
+                entries.append(contentsOf: packEntries(
+                    references: packConfig.packs,
+                    declaringConfigPath: path,
+                    inheritedSourcePath: inheritedSourcePath,
+                    depth: depth + 1,
+                    pathStack: &pathStack,
+                    issues: &issues,
+                    watchPaths: &watchPaths
+                ))
+                entries.append(ConfigEntry(
+                    path: path,
+                    sourcePath: inheritedSourcePath ?? path,
+                    config: packConfig
+                ))
+            }
+            pathStack.remove(canonical)
         }
         return entries
     }
