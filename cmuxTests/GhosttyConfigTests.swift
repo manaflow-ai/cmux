@@ -233,6 +233,21 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(loaded.fontSize, CGFloat(15), accuracy: 0.0001)
     }
 
+    func testColorParseFlagsOnlyTrackValuesResolvedBySwiftParser() {
+        var namedColorConfig = GhosttyConfig()
+        namedColorConfig.parse("background = black\nforeground = #ddeeff\n")
+
+        XCTAssertFalse(namedColorConfig.hasParsedBackgroundColor)
+        XCTAssertTrue(namedColorConfig.hasParsedForegroundColor)
+        XCTAssertEqual(namedColorConfig.foregroundColor.hexString(), "#DDEEFF")
+
+        var hexColorConfig = GhosttyConfig()
+        hexColorConfig.parse("background = #334455\n")
+
+        XCTAssertTrue(hexColorConfig.hasParsedBackgroundColor)
+        XCTAssertEqual(hexColorConfig.backgroundColor.hexString(), "#334455")
+    }
+
     func testLoadReadsBackgroundFromRecursiveConfigFile() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

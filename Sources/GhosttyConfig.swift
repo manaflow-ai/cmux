@@ -27,13 +27,21 @@ struct GhosttyConfig {
 
     // Colors (from theme or config)
     var backgroundColor: NSColor = NSColor(hex: "#272822")!
+    var hasParsedBackgroundColor = false
     var backgroundOpacity: Double = 1.0
+    var hasParsedBackgroundOpacity = false
     var backgroundBlur: GhosttyBackgroundBlur = .disabled
+    var hasParsedBackgroundBlur = false
     var foregroundColor: NSColor = NSColor(hex: "#fdfff1")!
+    var hasParsedForegroundColor = false
     var cursorColor: NSColor = NSColor(hex: "#c0c1b5")!
+    var hasParsedCursorColor = false
     var cursorTextColor: NSColor = NSColor(hex: "#8d8e82")!
+    var hasParsedCursorTextColor = false
     var selectionBackground: NSColor = NSColor(hex: "#57584f")!
+    var hasParsedSelectionBackground = false
     var selectionForeground: NSColor = NSColor(hex: "#fdfff1")!
+    var hasParsedSelectionForeground = false
 
     // Sidebar appearance
     var rawSidebarBackground: String?
@@ -384,34 +392,42 @@ struct GhosttyConfig {
                 case "background":
                     if let color = NSColor(hex: value) {
                         backgroundColor = color
+                        hasParsedBackgroundColor = true
                     }
                 case "background-opacity":
                     if let opacity = Double(value) {
                         backgroundOpacity = opacity
+                        hasParsedBackgroundOpacity = true
                     }
                 case "background-blur":
                     if let parsedBlur = Self.parseBackgroundBlur(value) {
                         backgroundBlur = parsedBlur
+                        hasParsedBackgroundBlur = true
                     }
                 case "foreground":
                     if let color = NSColor(hex: value) {
                         foregroundColor = color
+                        hasParsedForegroundColor = true
                     }
                 case "cursor-color":
                     if let color = NSColor(hex: value) {
                         cursorColor = color
+                        hasParsedCursorColor = true
                     }
                 case "cursor-text":
                     if let color = NSColor(hex: value) {
                         cursorTextColor = color
+                        hasParsedCursorTextColor = true
                     }
                 case "selection-background":
                     if let color = NSColor(hex: value) {
                         selectionBackground = color
+                        hasParsedSelectionBackground = true
                     }
                 case "selection-foreground":
                     if let color = NSColor(hex: value) {
                         selectionForeground = color
+                        hasParsedSelectionForeground = true
                     }
                 case "palette":
                     // Parse palette entries like "0=#272822"

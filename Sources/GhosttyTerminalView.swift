@@ -2008,6 +2008,7 @@ class GhosttyApp {
         updateDefaultBackgroundFromResolvedGhosttyConfig(
             source: "initialize.primaryConfig",
             preferredColorScheme: initialColorScheme,
+            baselineConfig: primaryConfig,
             forceNotify: primaryRenderingModeChanged
         )
 
@@ -2162,6 +2163,7 @@ class GhosttyApp {
             updateDefaultBackgroundFromResolvedGhosttyConfig(
                 source: "initialize.fallbackConfig",
                 preferredColorScheme: initialColorScheme,
+                baselineConfig: fallbackConfig,
                 forceNotify: fallbackRenderingModeChanged
             )
 
@@ -3327,6 +3329,7 @@ class GhosttyApp {
         updateDefaultBackgroundFromResolvedGhosttyConfig(
             source: "reloadConfiguration(source=\(source))",
             preferredColorScheme: reloadColorScheme,
+            baselineConfig: newConfig,
             scope: .unscoped,
             forceNotify: renderingModeChanged
         )
@@ -3518,7 +3521,48 @@ class GhosttyApp {
     ) {
         guard let config else { return }
 
+        let resolved = defaultBackgroundValues(from: config)
+        applyDefaultBackground(
+            color: resolved.backgroundColor,
+            opacity: resolved.backgroundOpacity,
+            backgroundBlur: resolved.backgroundBlur,
+            foregroundColor: resolved.foregroundColor,
+            cursorColor: resolved.cursorColor,
+            cursorTextColor: resolved.cursorTextColor,
+            selectionBackground: resolved.selectionBackground,
+            selectionForeground: resolved.selectionForeground,
+            source: source,
+            scope: scope,
+            forceNotify: forceNotify
+        )
+    }
+
+    private struct DefaultBackgroundValues {
+        var backgroundColor: NSColor
+        var backgroundOpacity: Double
+        var backgroundBlur: GhosttyBackgroundBlur
+        var foregroundColor: NSColor
+        var cursorColor: NSColor
+        var cursorTextColor: NSColor
+        var selectionBackground: NSColor
+        var selectionForeground: NSColor
+    }
+
+    private func defaultBackgroundValues(from config: ghostty_config_t?) -> DefaultBackgroundValues {
         let baseline = Self.fallbackAppearanceConfig
+        guard let config else {
+            return DefaultBackgroundValues(
+                backgroundColor: baseline.backgroundColor,
+                backgroundOpacity: baseline.backgroundOpacity,
+                backgroundBlur: baseline.backgroundBlur,
+                foregroundColor: baseline.foregroundColor,
+                cursorColor: baseline.cursorColor,
+                cursorTextColor: baseline.cursorTextColor,
+                selectionBackground: baseline.selectionBackground,
+                selectionForeground: baseline.selectionForeground
+            )
+        }
+
         let resolvedColor = ghosttyColorValue(from: config, key: "background", fallback: baseline.backgroundColor)
         let resolvedForeground = ghosttyColorValue(from: config, key: "foreground", fallback: baseline.foregroundColor)
         let resolvedCursor = ghosttyColorValue(from: config, key: "cursor-color", fallback: baseline.cursorColor)
@@ -3530,37 +3574,36 @@ class GhosttyApp {
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
         opacity = min(1.0, max(0.0, opacity))
         let backgroundBlur = defaultBackgroundBlurValue(from: config)
-        applyDefaultBackground(
-            color: resolvedColor,
-            opacity: opacity,
+        return DefaultBackgroundValues(
+            backgroundColor: resolvedColor,
+            backgroundOpacity: opacity,
             backgroundBlur: backgroundBlur,
             foregroundColor: resolvedForeground,
             cursorColor: resolvedCursor,
             cursorTextColor: resolvedCursorText,
             selectionBackground: resolvedSelectionBackground,
-            selectionForeground: resolvedSelectionForeground,
-            source: source,
-            scope: scope,
-            forceNotify: forceNotify
+            selectionForeground: resolvedSelectionForeground
         )
     }
 
     private func updateDefaultBackgroundFromResolvedGhosttyConfig(
         source: String,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
+        baselineConfig: ghostty_config_t?,
         scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
         forceNotify: Bool = false
     ) {
+        let baseline = defaultBackgroundValues(from: baselineConfig)
         let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
         applyDefaultBackground(
-            color: resolved.backgroundColor,
-            opacity: resolved.backgroundOpacity,
-            backgroundBlur: resolved.backgroundBlur,
-            foregroundColor: resolved.foregroundColor,
-            cursorColor: resolved.cursorColor,
-            cursorTextColor: resolved.cursorTextColor,
-            selectionBackground: resolved.selectionBackground,
-            selectionForeground: resolved.selectionForeground,
+            color: resolved.hasParsedBackgroundColor ? resolved.backgroundColor : baseline.backgroundColor,
+            opacity: resolved.hasParsedBackgroundOpacity ? resolved.backgroundOpacity : baseline.backgroundOpacity,
+            backgroundBlur: resolved.hasParsedBackgroundBlur ? resolved.backgroundBlur : baseline.backgroundBlur,
+            foregroundColor: resolved.hasParsedForegroundColor ? resolved.foregroundColor : baseline.foregroundColor,
+            cursorColor: resolved.hasParsedCursorColor ? resolved.cursorColor : baseline.cursorColor,
+            cursorTextColor: resolved.hasParsedCursorTextColor ? resolved.cursorTextColor : baseline.cursorTextColor,
+            selectionBackground: resolved.hasParsedSelectionBackground ? resolved.selectionBackground : baseline.selectionBackground,
+            selectionForeground: resolved.hasParsedSelectionForeground ? resolved.selectionForeground : baseline.selectionForeground,
             source: "\(source).resolvedGhosttyConfig",
             scope: scope,
             forceNotify: forceNotify
