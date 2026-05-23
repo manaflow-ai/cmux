@@ -645,6 +645,24 @@ final class OmnibarStateMachineTests: XCTestCase {
             NSRange(location: "news.ycombinator.".utf16.count, length: 0)
         )
     }
+
+    @MainActor
+    func testOptionBackspaceInMiddleDoesNotLeaveDoubleURLSeparators() throws {
+        let harness = OmnibarPlainDeletionHarness(
+            text: "news.ycombinator.com",
+            selectedLocation: "news.ycombinator".utf16.count
+        )
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(harness.state.buffer, "news.com")
+        XCTAssertEqual(harness.editor.string, "news.com")
+        XCTAssertEqual(
+            harness.editor.selectedRange(),
+            NSRange(location: "news.".utf16.count, length: 0)
+        )
+    }
 }
 
 @MainActor
@@ -933,12 +951,12 @@ private final class OmnibarPlainDeletionHarness {
     let editor = NSTextView()
     var publishedSelectionRange = NSRange(location: NSNotFound, length: 0)
 
-    init(text: String) {
+    init(text: String, selectedLocation: Int? = nil) {
         state.isFocused = true
         state.currentURLString = ""
         state.buffer = text
         editor.string = text
-        editor.setSelectedRange(NSRange(location: text.utf16.count, length: 0))
+        editor.setSelectedRange(NSRange(location: selectedLocation ?? text.utf16.count, length: 0))
     }
 
     func dispatchBackspace(
