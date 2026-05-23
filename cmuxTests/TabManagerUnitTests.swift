@@ -1296,8 +1296,17 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         )
     }
 
-    func testTabCloseButtonWarnBeforeClosingTabXButtonDefaultsToDisabledWhenUnset() throws {
+    func testTabCloseButtonWarnBeforeClosingTabXButtonInheritsShortcutWarningWhenUnset() throws {
         try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTabXButton: nil,
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
+        )
+    }
+
+    func testTabCloseButtonWarnBeforeClosingTabXButtonInheritsShortcutWarningDisabledWhenUnset() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTab: false,
             warnBeforeClosingTabXButton: nil,
             expectedPromptCount: 0,
             expectedPanelClosed: true
@@ -1625,6 +1634,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     }
 
     private func assertTabCloseButtonConfirmation(
+        warnBeforeClosingTab: Bool? = true,
         warnBeforeClosingTabXButton: Bool?,
         expectedPromptCount: Int,
         expectedPanelClosed: Bool,
@@ -1632,7 +1642,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         line: UInt = #line
     ) throws {
         try withCloseTabWarningConfig(
-            warnBeforeClosingTab: true,
+            warnBeforeClosingTab: warnBeforeClosingTab,
             warnBeforeClosingTabXButton: warnBeforeClosingTabXButton
         ) {
             let manager = TabManager()

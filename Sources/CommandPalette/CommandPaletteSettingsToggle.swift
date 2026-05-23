@@ -335,8 +335,10 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.warnBeforeClosingTabXButton", "warn", "close", "tab", "confirmation", "x", "button"],
-                defaultValue: CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton,
-                defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey
+                isOn: { defaults in CloseTabWarningSettings.isXButtonWarningEnabled(defaults: defaults) },
+                setOn: { newValue, defaults, _ in
+                    CloseTabWarningSettings.setXButtonWarningEnabled(newValue, defaults: defaults)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "renameSelectsExistingName",
