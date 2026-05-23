@@ -1876,6 +1876,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNotEqual(workspace.focusedPanelId, initialPanelId)
     }
 
+    func testCmdWTargetsFocusedWindowWhenEventWindowMetadataIsStale() {
+        assertCloseShortcutTargetsFocusedWindowWhenEventWindowMetadataIsStale(
+            actionName: "Cmd+W",
+            modifiers: [.command],
+            expectedAction: .closeTab
+        )
+    }
+
+    func testCmdShiftWTargetsFocusedWindowWhenEventWindowMetadataIsStale() {
+        assertCloseShortcutTargetsFocusedWindowWhenEventWindowMetadataIsStale(
+            actionName: "Cmd+Shift+W",
+            modifiers: [.command, .shift],
+            expectedAction: .closeWorkspace
+        )
+    }
+
     func testRemappedCloseTabDoesNotLetCmdWReachGhosttyCloseSurfaceFallback() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -6334,6 +6350,111 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.orderOut(nil)
         window.close()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private func assertCloseShortcutTargetsFocusedWindowWhenEventWindowMetadataIsStale(
+        actionName: String,
+        modifiers: NSEvent.ModifierFlags,
+        expectedAction: KeyboardShortcutSettings.Action,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared", file: file, line: line)
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let originalLastSurfaceCloseSetting = defaults.object(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
+        defaults.set(true, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
+        defer {
+            restoreDefaultsValue(
+                originalLastSurfaceCloseSetting,
+                forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey,
+                defaults: defaults
+            )
+        }
+
+        let originalWindowId = UUID()
+        let focusedWindowId = UUID()
+        let originalManager = TabManager(autoWelcomeIfNeeded: false)
+        let focusedManager = TabManager(autoWelcomeIfNeeded: false)
+        let originalWindow = makeRegisteredShortcutRoutingWindow(id: originalWindowId)
+        let focusedWindow = makeRegisteredShortcutRoutingWindow(id: focusedWindowId)
+
+        appDelegate.registerMainWindow(
+            originalWindow,
+            windowId: originalWindowId,
+            tabManager: originalManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.registerMainWindow(
+            focusedWindow,
+            windowId: focusedWindowId,
+            tabManager: focusedManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        defer {
+            closeRegisteredShortcutRoutingWindow(originalWindow, id: originalWindowId)
+            closeRegisteredShortcutRoutingWindow(focusedWindow, id: focusedWindowId)
+        }
+
+        originalManager.addWorkspace(title: "original target", select: true, autoWelcomeIfNeeded: false)
+        focusedManager.addWorkspace(title: "focused target", select: true, autoWelcomeIfNeeded: false)
+
+        originalWindow.orderFront(nil)
+        focusedWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        // Model the observed bug: the user-visible focused window is the new window,
+        // but the key event still carries the original window number.
+        appDelegate.tabManager = originalManager
+
+        let originalCountBefore = originalManager.tabs.count
+        let focusedCountBefore = focusedManager.tabs.count
+
+        guard let event = makeKeyDownEvent(
+            key: "w",
+            modifiers: modifiers,
+            keyCode: 13,
+            windowNumber: originalWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct \(actionName) event", file: file, line: line)
+            return
+        }
+
+        XCTAssertTrue(
+            KeyboardShortcutSettings.shortcut(for: expectedAction).matches(event: event),
+            "\(actionName) should match \(expectedAction)",
+            file: file,
+            line: line
+        )
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event), file: file, line: line)
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG", file: file, line: line)
+#endif
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(
+            originalManager.tabs.count,
+            originalCountBefore,
+            "\(actionName) must not close a workspace in the original window when another window is focused",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            focusedManager.tabs.count,
+            focusedCountBefore - 1,
+            "\(actionName) should close the selected workspace in the focused window",
+            file: file,
+            line: line
+        )
     }
 
     @discardableResult
