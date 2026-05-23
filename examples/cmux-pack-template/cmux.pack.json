@@ -1,0 +1,60 @@
+{
+  "actions": {
+    "team.tests": {
+      "type": "command",
+      "title": "Team Tests",
+      "subtitle": "Run the shared test command",
+      "command": "npm test",
+      "target": "currentTerminal",
+      "icon": { "type": "symbol", "name": "checkmark.circle" },
+      "keywords": ["test", "ci", "team"]
+    },
+    "team.dev-workspace": {
+      "type": "workspaceCommand",
+      "title": "Team Dev Workspace",
+      "commandName": "Team Dev"
+    }
+  },
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "newTerminal",
+        "newBrowser",
+        { "action": "team.tests" },
+        { "action": "team.dev-workspace" }
+      ]
+    },
+    "newWorkspace": {
+      "contextMenu": [
+        "cmux.newWorkspace",
+        "team.dev-workspace",
+        "-",
+        "team.tests"
+      ]
+    }
+  },
+  "commands": [
+    {
+      "name": "Team Dev",
+      "description": "Start the team's default dev layout.",
+      "workspace": {
+        "name": "Team Dev",
+        "layout": {
+          "split": "horizontal",
+          "children": [
+            {
+              "type": "terminal",
+              "name": "App",
+              "command": "npm run dev"
+            },
+            {
+              "type": "terminal",
+              "name": "Tests",
+              "command": "npm test -- --watch"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

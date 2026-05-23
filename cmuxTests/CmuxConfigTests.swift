@@ -1336,6 +1336,148 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(config.commands.isEmpty)
     }
 
+    func testDecodePacksAcceptsStringsAndObjects() throws {
+        let json = """
+        {
+          "packs": [
+            "./packs/team",
+            { "path": "~/.config/cmux/packs/personal/cmux.pack.json" }
+          ]
+        }
+        """
+        let config = try decode(json)
+
+        XCTAssertEqual(config.packs.map(\.path), [
+            "./packs/team",
+            "~/.config/cmux/packs/personal/cmux.pack.json"
+        ])
+    }
+
+    func testDecodePacksRejectsRemotePaths() {
+        let json = """
+        {
+          "packs": ["https://example.com/cmux-pack.json"]
+        }
+        """
+
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    @MainActor
+    func testConfigStoreLoadsActionsCommandsAndButtonsFromPack() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let cmuxDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        let packDirectory = cmuxDirectory.appendingPathComponent("packs/team", isDirectory: true)
+        try FileManager.default.createDirectory(at: packDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = cmuxDirectory.appendingPathComponent("cmux.json")
+        let packURL = packDirectory.appendingPathComponent("cmux.pack.json")
+        try """
+        {
+          "packs": ["./packs/team"]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "team.tests": {
+              "type": "command",
+              "title": "Team Tests",
+              "command": "npm test",
+              "target": "currentTerminal"
+            }
+          },
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                {
+                  "action": "team.tests",
+                  "icon": { "type": "symbol", "name": "checkmark.circle" }
+                }
+              ]
+            }
+          },
+          "commands": [
+            { "name": "Team Shell", "command": "echo team" }
+          ]
+        }
+        """.write(to: packURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let action = try XCTUnwrap(store.resolvedAction(id: "team.tests"))
+        XCTAssertEqual(action.terminalCommand, "npm test")
+        XCTAssertEqual(action.actionSourcePath, packURL.path)
+        XCTAssertEqual(store.loadedCommands.map(\.name), ["Team Shell"])
+        XCTAssertEqual(store.commandSourcePaths[store.loadedCommands[0].id], packURL.path)
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), ["team.tests"])
+        XCTAssertEqual(store.surfaceTabBarButtons.first?.terminalCommand, "npm test")
+        XCTAssertEqual(store.surfaceTabBarButtonSourcePath, packURL.path)
+        XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["team.tests"], packURL.path)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testConfigDirectEntriesOverridePackEntries() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let packDirectory = root.appendingPathComponent("packs/team", isDirectory: true)
+        try FileManager.default.createDirectory(at: packDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let packURL = packDirectory.appendingPathComponent("cmux.pack.json")
+        try """
+        {
+          "packs": ["./packs/team"],
+          "actions": {
+            "team.tests": { "type": "command", "command": "npm run local-test" }
+          },
+          "commands": [
+            { "name": "Dev", "command": "echo local" }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "team.tests": { "type": "command", "command": "npm test" }
+          },
+          "commands": [
+            { "name": "Dev", "command": "echo pack" },
+            { "name": "Lint", "command": "npm run lint" }
+          ]
+        }
+        """.write(to: packURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let action = try XCTUnwrap(store.resolvedAction(id: "team.tests"))
+        XCTAssertEqual(action.terminalCommand, "npm run local-test")
+        XCTAssertEqual(action.actionSourcePath, configURL.path)
+        XCTAssertEqual(store.loadedCommands.map(\.name), ["Dev", "Lint"])
+        XCTAssertEqual(store.commandSourcePaths[store.loadedCommands[0].id], configURL.path)
+        XCTAssertEqual(store.commandSourcePaths[store.loadedCommands[1].id], packURL.path)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
     func testDecodeEmptyCommandsArray() throws {
         let json = """
         { "commands": [] }

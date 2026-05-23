@@ -18,6 +18,34 @@
       "default": 1,
       "description": "Schema version for forward-compatible migrations. Newer versions are parsed on a best-effort basis."
     },
+    "packs": {
+      "title": "packs",
+      "description": "Local cmux pack files or directories to load before this config. Directory entries resolve to cmux.pack.json. Entries may be strings or objects with a path field.",
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!https?://).+"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!https?://).+",
+                "description": "Local file or directory path, relative to this config file unless absolute."
+              }
+            }
+          }
+        ]
+      },
+      "default": []
+    },
     "actions": {
       "title": "actions",
       "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu.",
