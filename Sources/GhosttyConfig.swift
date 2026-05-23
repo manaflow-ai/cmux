@@ -940,9 +940,9 @@ struct GhosttyConfig {
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {
-        guard let newConfigFileSize, newConfigFileSize == 0 else { return false }
         guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
-        return true
+        guard let newConfigFileSize else { return true }
+        return newConfigFileSize == 0
     }
 }
 
