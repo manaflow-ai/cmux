@@ -4191,7 +4191,8 @@ final class WindowBrowserPortal: NSObject {
             containerHidden: entry.containerView?.isHidden ?? true,
             frameInWindow: frameInWindow,
             containerBounds: entry.containerView?.bounds ?? .zero,
-            webViewFrame: entry.webView?.frame ?? .zero
+            webViewFrame: entry.webView?.frame ?? .zero,
+            paneTopChromeHeight: entry.paneTopChromeHeight
         )
     }
 
@@ -4233,6 +4234,7 @@ enum BrowserWindowPortalRegistry {
         let frameInWindow: CGRect
         let containerBounds: CGRect
         let webViewFrame: CGRect
+        let paneTopChromeHeight: CGFloat
     }
 
     private static var portalsByWindowId: [ObjectIdentifier: WindowBrowserPortal] = [:]

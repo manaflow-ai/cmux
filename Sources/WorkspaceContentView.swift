@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 import CMUXCanvas
 import CMUXLayout
+import WebKit
 
 private let workspaceCanvasFreeformCoordinateSpace = "WorkspaceCanvasFreeformCoordinateSpace"
 
@@ -12,7 +13,8 @@ private enum WorkspaceCanvasSurfaceMountManager {
         panel: (any Panel)?,
         frameInWindow: CGRect?,
         nativeContentSize: CGSize,
-        scale: CGFloat
+        scale: CGFloat,
+        frameIncludesPanelChrome: Bool = false
     ) {
         let presentation = frameInWindow.map {
             CanvasSurfacePresentation(
@@ -32,16 +34,61 @@ private enum WorkspaceCanvasSurfaceMountManager {
         }
 
         if let browserPanel = panel as? BrowserPanel {
+            let browserPresentation = presentation.map {
+                browserCanvasPresentation(
+                    $0,
+                    webView: browserPanel.webView,
+                    frameIncludesPanelChrome: frameIncludesPanelChrome
+                )
+            }
             BrowserWindowPortalRegistry.updateEntryVisibility(
                 for: browserPanel.webView,
-                visibleInUI: presentation != nil,
-                zPriority: presentation == nil ? 0 : 10
+                visibleInUI: browserPresentation != nil,
+                zPriority: browserPresentation == nil ? 0 : 10
             )
             BrowserWindowPortalRegistry.setCanvasSurfacePresentation(
                 webView: browserPanel.webView,
-                presentation: presentation
+                presentation: browserPresentation
             )
         }
+    }
+
+    private static func browserCanvasPresentation(
+        _ presentation: CanvasSurfacePresentation,
+        webView: WebKit.WKWebView,
+        frameIncludesPanelChrome: Bool
+    ) -> CanvasSurfacePresentation {
+        guard frameIncludesPanelChrome else {
+            return presentation
+        }
+
+        let measuredChromeHeight = BrowserWindowPortalRegistry.debugSnapshot(for: webView)?.paneTopChromeHeight ?? 0
+        let fallbackChromeHeight: CGFloat = 42
+        let chromeHeight = min(
+            max(measuredChromeHeight, fallbackChromeHeight),
+            max(0, presentation.frameInWindow.height - 1)
+        )
+        guard chromeHeight > 0.5 else {
+            return presentation
+        }
+
+        let webFrame = CGRect(
+            x: presentation.frameInWindow.minX,
+            y: presentation.frameInWindow.minY,
+            width: presentation.frameInWindow.width,
+            height: max(1, presentation.frameInWindow.height - chromeHeight)
+        )
+        let nativeChromeHeight = chromeHeight / presentation.scale
+        let nativeWebSize = CGSize(
+            width: presentation.nativeContentSize.width,
+            height: max(1, presentation.nativeContentSize.height - nativeChromeHeight)
+        )
+        return CanvasSurfacePresentation(
+            frameInWindow: webFrame,
+            nativeContentSize: nativeWebSize,
+            scale: presentation.scale,
+            nativeContentOrigin: presentation.nativeContentOrigin
+        )
     }
 
     static func park(panel: (any Panel)?) {
@@ -2704,7 +2751,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                                             for: item,
                                             frameInWindow: frameInWindow,
                                             nativeContentSize: nativeContentSize,
-                                            scale: presentationScale
+                                            scale: presentationScale,
+                                            frameIncludesPanelChrome: true
                                         )
                                     }
                                 )
@@ -3185,7 +3233,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         for item: CanvasItem,
         frameInWindow: CGRect?,
         nativeContentSize: CGSize,
-        scale: CGFloat
+        scale: CGFloat,
+        frameIncludesPanelChrome: Bool = false
     ) {
         guard let selected = selectedTab(for: item),
               let panel = workspace.panel(for: selected.id) else { return }
@@ -3193,7 +3242,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             panel: panel,
             frameInWindow: frameInWindow,
             nativeContentSize: nativeContentSize,
-            scale: scale
+            scale: scale,
+            frameIncludesPanelChrome: frameIncludesPanelChrome
         )
     }
 
