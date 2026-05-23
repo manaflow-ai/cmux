@@ -778,6 +778,8 @@ final class BrowserWebExtensionInstallStore {
                 try? persist()
             }
         } catch {
+            records = []
+            unsupportedPersistedRecordObjects = []
             quarantineCorruptRegistry(after: error)
         }
     }
@@ -2116,12 +2118,18 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     private func modalHostWindow() -> NSWindow? {
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow, window.isVisible {
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow,
+           isInteractiveModalHostWindow(window) {
             return window
         }
-        return NSApp.windows.first { window in
-            window.isVisible && !window.isMiniaturized
-        }
+        return NSApp.windows.first(where: isInteractiveModalHostWindow)
+    }
+
+    private func isInteractiveModalHostWindow(_ window: NSWindow) -> Bool {
+        window.isVisible &&
+            !window.isMiniaturized &&
+            window.alphaValue > 0.001 &&
+            !window.ignoresMouseEvents
     }
 
     private func cancelBackgroundLoadTask(recordID: UUID, runtimeKey: BrowserWebExtensionRuntimeKey) {
@@ -2721,8 +2729,26 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 @available(macOS 15.4, *)
 @MainActor
 private final class BrowserWebExtensionActionPopupWindow: NSPanel {
+    weak var popupPresentation: BrowserWebExtensionActionPopupPresentation?
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func performClose(_ sender: Any?) {
+        guard let popupPresentation else {
+            super.performClose(sender)
+            return
+        }
+        popupPresentation.close()
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        guard let popupPresentation else {
+            super.cancelOperation(sender)
+            return
+        }
+        popupPresentation.close()
+    }
 }
 
 @available(macOS 15.4, *)
@@ -2857,6 +2883,8 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSWind
             backing: .buffered,
             defer: false
         )
+        popupWindow.identifier = NSUserInterfaceItemIdentifier("cmux.browser-extension-action-popup")
+        popupWindow.popupPresentation = self
         popupWindow.isReleasedWhenClosed = false
         popupWindow.isOpaque = false
         popupWindow.backgroundColor = .clear

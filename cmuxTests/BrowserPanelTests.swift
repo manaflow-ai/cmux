@@ -608,7 +608,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         }
     }
 
-    func testReloadKeepsExistingRecordsAndQuarantinesCorruptRegistry() throws {
+    func testReloadClearsExistingRecordsAndQuarantinesCorruptRegistry() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -628,7 +628,8 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         try Data("{ broken json".utf8).write(to: registryURL)
         store.reload()
 
-        XCTAssertEqual(store.records, [record])
+        XCTAssertFalse(store.records.contains(record))
+        XCTAssertTrue(store.records.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: registryURL.path))
         let quarantinedFiles = try FileManager.default.contentsOfDirectory(
             at: root,
