@@ -1876,6 +1876,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNotEqual(workspace.focusedPanelId, initialPanelId)
     }
 
+    func testCmdWTargetsFocusedWindowWhenEventWindowMetadataIsStale() {
+        assertCloseShortcutTargetsFocusedWindowWhenEventWindowMetadataIsStale(
+            actionName: "Cmd+W",
+            modifiers: [.command],
+            expectedAction: .closeTab
+        )
+    }
+
+    func testCmdShiftWTargetsFocusedWindowWhenEventWindowMetadataIsStale() {
+        assertCloseShortcutTargetsFocusedWindowWhenEventWindowMetadataIsStale(
+            actionName: "Cmd+Shift+W",
+            modifiers: [.command, .shift],
+            expectedAction: .closeWorkspace
+        )
+    }
+
     func testRemappedCloseTabDoesNotLetCmdWReachGhosttyCloseSurfaceFallback() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -6334,6 +6350,166 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.orderOut(nil)
         window.close()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private func assertCloseShortcutTargetsFocusedWindowWhenEventWindowMetadataIsStale(
+        actionName: String,
+        modifiers: NSEvent.ModifierFlags,
+        expectedAction: KeyboardShortcutSettings.Action,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared", file: file, line: line)
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let originalLastSurfaceCloseSetting = defaults.object(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
+        let previousTabManager = appDelegate.tabManager
+        defaults.set(true, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
+        defer {
+            appDelegate.tabManager = previousTabManager
+            restoreDefaultsValue(
+                originalLastSurfaceCloseSetting,
+                forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey,
+                defaults: defaults
+            )
+        }
+
+        let originalWindowId = UUID()
+        let focusedWindowId = UUID()
+        let originalManager = TabManager(autoWelcomeIfNeeded: false)
+        let focusedManager = TabManager(autoWelcomeIfNeeded: false)
+        let originalWindow = makeRegisteredShortcutRoutingWindow(id: originalWindowId)
+        let focusedWindow = makeRegisteredShortcutRoutingWindow(id: focusedWindowId)
+
+        appDelegate.registerMainWindow(
+            originalWindow,
+            windowId: originalWindowId,
+            tabManager: originalManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.registerMainWindow(
+            focusedWindow,
+            windowId: focusedWindowId,
+            tabManager: focusedManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        defer {
+            closeRegisteredShortcutRoutingWindow(originalWindow, id: originalWindowId)
+            closeRegisteredShortcutRoutingWindow(focusedWindow, id: focusedWindowId)
+        }
+
+        let originalWorkspace = originalManager.addWorkspace(title: "original target", select: true, autoWelcomeIfNeeded: false)
+        let focusedWorkspace = focusedManager.addWorkspace(title: "focused target", select: true, autoWelcomeIfNeeded: false)
+
+        switch expectedAction {
+        case .closeTab:
+            guard let originalPanelId = originalWorkspace.focusedPanelId,
+                  originalWorkspace.newTerminalSplit(from: originalPanelId, orientation: .horizontal) != nil,
+                  let focusedPanelId = focusedWorkspace.focusedPanelId,
+                  focusedWorkspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal) != nil else {
+                XCTFail("Expected split panels for \(actionName)", file: file, line: line)
+                return
+            }
+        case .closeWorkspace:
+            originalManager.addWorkspace(title: "original survivor", select: false, autoWelcomeIfNeeded: false)
+            focusedManager.addWorkspace(title: "focused survivor", select: false, autoWelcomeIfNeeded: false)
+        default:
+            XCTFail("Unexpected close shortcut action \(expectedAction)", file: file, line: line)
+            return
+        }
+
+        originalWindow.orderFront(nil)
+        focusedWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        // Model the observed bug: the user-visible focused window is the new window,
+        // but the key event still carries the original window number.
+        appDelegate.tabManager = originalManager
+
+        let originalTabCountBefore = originalManager.tabs.count
+        let focusedTabCountBefore = focusedManager.tabs.count
+        let originalPanelCountBefore = originalWorkspace.panels.count
+        let focusedPanelCountBefore = focusedWorkspace.panels.count
+
+        guard let event = makeKeyDownEvent(
+            key: "w",
+            modifiers: modifiers,
+            keyCode: 13,
+            windowNumber: originalWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct \(actionName) event", file: file, line: line)
+            return
+        }
+
+        XCTAssertTrue(
+            KeyboardShortcutSettings.shortcut(for: expectedAction).matches(event: event),
+            "\(actionName) should match \(expectedAction)",
+            file: file,
+            line: line
+        )
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event), file: file, line: line)
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG", file: file, line: line)
+#endif
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(
+            originalManager.tabs.count,
+            originalTabCountBefore,
+            "\(actionName) must not close a workspace in the original window when another window is focused",
+            file: file,
+            line: line
+        )
+
+        switch expectedAction {
+        case .closeTab:
+            XCTAssertEqual(
+                originalWorkspace.panels.count,
+                originalPanelCountBefore,
+                "\(actionName) must not close a panel in the original window when another window is focused",
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(
+                focusedManager.tabs.count,
+                focusedTabCountBefore,
+                "\(actionName) should keep the focused workspace open when closing one of multiple panels",
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(
+                focusedWorkspace.panels.count,
+                focusedPanelCountBefore - 1,
+                "\(actionName) should close the selected panel in the focused window",
+                file: file,
+                line: line
+            )
+        case .closeWorkspace:
+            XCTAssertEqual(
+                focusedManager.tabs.count,
+                focusedTabCountBefore - 1,
+                "\(actionName) should close the selected workspace in the focused window",
+                file: file,
+                line: line
+            )
+            XCTAssertFalse(
+                focusedManager.tabs.contains { $0.id == focusedWorkspace.id },
+                "\(actionName) should remove the selected workspace in the focused window",
+                file: file,
+                line: line
+            )
+        default:
+            break
+        }
     }
 
     @discardableResult
