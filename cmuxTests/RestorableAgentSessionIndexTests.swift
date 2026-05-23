@@ -31,6 +31,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let startupOnlyWithTranscriptSessionId = "33333333-3333-3333-3333-333333333333"
         let startupOnlyMissingSessionId = "44444444-4444-4444-4444-444444444444"
         let explicitTranscriptSessionId = "55555555-5555-5555-5555-555555555555"
+        let selfParentSessionId = "66666666-6666-6666-6666-666666666666"
         let validWorkspaceId = UUID()
         let validPanelId = UUID()
         let missingWorkspaceId = UUID()
@@ -41,9 +42,12 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let startupOnlyMissingPanelId = UUID()
         let explicitTranscriptWorkspaceId = UUID()
         let explicitTranscriptPanelId = UUID()
+        let selfParentWorkspaceId = UUID()
+        let selfParentPanelId = UUID()
 
         try writeClaudeTranscript(sessionId: validSessionId, cwd: cwd, projectsDir: projectsDir)
         try writeClaudeTranscript(sessionId: startupOnlyWithTranscriptSessionId, cwd: cwd, projectsDir: projectsDir)
+        try writeClaudeTranscript(sessionId: selfParentSessionId, cwd: cwd, projectsDir: projectsDir)
         let explicitTranscriptURL = root
             .appendingPathComponent("other-transcripts", isDirectory: true)
             .appendingPathComponent("\(explicitTranscriptSessionId).jsonl", isDirectory: false)
@@ -100,6 +104,19 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                     isRestorable: false,
                     updatedAt: 60
                 ),
+                selfParentSessionId: {
+                    var record = hookRecord(
+                        sessionId: selfParentSessionId,
+                        workspaceId: selfParentWorkspaceId,
+                        panelId: selfParentPanelId,
+                        cwd: cwd.path,
+                        configDir: configDir.path,
+                        isRestorable: false,
+                        updatedAt: 70
+                    )
+                    record["parentSessionId"] = selfParentSessionId
+                    return record
+                }(),
             ]
         )
 
@@ -133,6 +150,11 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             index.snapshot(workspaceId: explicitTranscriptWorkspaceId, panelId: explicitTranscriptPanelId)?.sessionId,
             explicitTranscriptSessionId,
             "When Claude provides transcript_path, restore eligibility should use that exact file before reconstructing from cwd."
+        )
+        XCTAssertEqual(
+            index.snapshot(workspaceId: selfParentWorkspaceId, panelId: selfParentPanelId)?.sessionId,
+            selfParentSessionId,
+            "Self-parent metadata is not subagent metadata and must not hide a transcript-backed Claude session."
         )
     }
 

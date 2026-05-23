@@ -19413,6 +19413,56 @@ struct CMUXCLI {
             return parentSessionId
         }
 
+        func repairClaudeSubagentResumeBinding(
+            workspaceId: String,
+            surfaceId: String,
+            sessionId: String,
+            parentSessionId: String
+        ) {
+            var ancestorSessionId = parentSessionId
+            var seenSessionIds: Set<String> = [sessionId]
+            var restorableAncestor: ClaudeHookSessionRecord?
+            for _ in 0..<8 {
+                guard seenSessionIds.insert(ancestorSessionId).inserted,
+                      let candidate = try? sessionStore.lookup(sessionId: ancestorSessionId),
+                      normalizedHookValue(candidate.surfaceId) == normalizedHookValue(surfaceId) else {
+                    break
+                }
+                if candidate.isRestorable != false {
+                    restorableAncestor = candidate
+                    break
+                }
+                guard let nextAncestor = normalizedHookValue(candidate.parentSessionId),
+                      nextAncestor != candidate.sessionId else {
+                    break
+                }
+                ancestorSessionId = nextAncestor
+            }
+            if let parent = restorableAncestor {
+                let publishedParentBinding = publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: "claude",
+                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                    sessionId: parent.sessionId,
+                    cwd: parent.cwd,
+                    launchCommand: parent.launchCommand,
+                    expectedCurrentSessionId: sessionId,
+                    expectedCurrentSource: "agent-hook"
+                )
+                if publishedParentBinding {
+                    return
+                }
+            }
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            )
+        }
+
         @discardableResult
         func suppressClaudeSubagentRestore(
             mappedSession: ClaudeHookSessionRecord?,
@@ -19442,6 +19492,12 @@ struct CMUXCLI {
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody
             )
+            repairClaudeSubagentResumeBinding(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId,
+                parentSessionId: parentSessionId
+            )
             return true
         }
 
@@ -19459,6 +19515,7 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 client: client
             )
+            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -19478,7 +19535,7 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 telemetry: telemetry
             )
-            let startupParentSessionId = claudeSubagentParentSessionId(mappedSession: nil)
+            let startupParentSessionId = claudeSubagentParentSessionId(mappedSession: mappedSession)
             let isClaudeSubagentSessionStart = startupParentSessionId != nil
             let shouldPromoteActiveSession =
                 !isClaudeSubagentSessionStart &&
@@ -19489,7 +19546,7 @@ struct CMUXCLI {
                 // establishes a new active boundary.
                 try? sessionStore.upsert(
                     sessionId: sessionId,
-                    parentSessionId: parsedInput.parentSessionId,
+                    parentSessionId: startupParentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
@@ -19510,6 +19567,13 @@ struct CMUXCLI {
                         sessionId: sessionId,
                         cwd: parsedInput.cwd,
                         launchCommand: launchCommand
+                    )
+                } else if let startupParentSessionId {
+                    repairClaudeSubagentResumeBinding(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        sessionId: sessionId,
+                        parentSessionId: startupParentSessionId
                     )
                 }
             }
@@ -19534,7 +19598,7 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if isClearSessionStart, !suppressVisibleMutations {
+            if isClearSessionStart, !isClaudeSubagentSessionStart, !suppressVisibleMutations {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
                 try setClaudeStatus(
                     client: client,

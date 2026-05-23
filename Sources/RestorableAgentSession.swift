@@ -838,7 +838,8 @@ struct RestorableAgentSessionIndex: Sendable {
             return record.isRestorable != false
         }
         if record.isRestorable == false,
-           normalizedNonEmptyValue(record.parentSessionId) != nil {
+           let parentSessionId = normalizedNonEmptyValue(record.parentSessionId),
+           parentSessionId != normalizedNonEmptyValue(record.sessionId) {
             return false
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),

@@ -79,7 +79,26 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let parentSessionId = "claude-parent-session"
         let childSessionId = "claude-child-session"
+        let parentTranscriptPath = "\(context.root.path)/projects/claude-parent-session.jsonl"
         let childTranscriptPath = "\(context.root.path)/projects/claude-child-session.jsonl"
+
+        let parentPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","transcript_path":"\#(parentTranscriptPath)","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, parentSessionId)
+        _ = context.state.setResumeBinding(
+            [
+                "checkpoint_id": childSessionId,
+                "source": "agent-hook",
+            ],
+            expectedCheckpointId: nil,
+            expectedSource: nil
+        )
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, childSessionId)
 
         let start = runClaudeHook(
             context: context,
@@ -93,6 +112,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["isRestorable"] as? Bool, false)
         XCTAssertEqual(record["parentSessionId"] as? String, parentSessionId)
         XCTAssertEqual(record["transcriptPath"] as? String, childTranscriptPath)
+        XCTAssertEqual(
+            context.state.resumeBindingCheckpointId,
+            parentSessionId,
+            "Claude subagent SessionStart should repair stale child resume bindings back to the parent."
+        )
 
         let promptCommandIndex = context.state.commands.count
         let prompt = runClaudeHook(
@@ -116,6 +140,38 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return params["checkpoint_id"] as? String == childSessionId
             },
             "Claude subagent prompts must not publish child resume bindings, saw \(promptCommands)"
+        )
+
+        let lateStartCommandIndex = context.state.commands.count
+        let lateStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"clear","cwd":"\#(context.root.path)","transcript_path":"\#(childTranscriptPath)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(lateStart.timedOut, lateStart.stderr)
+        XCTAssertEqual(lateStart.status, 0, lateStart.stderr)
+
+        let lateRecord = try readClaudeHookSession(childSessionId, context: context)
+        XCTAssertEqual(lateRecord["isRestorable"] as? Bool, false)
+        XCTAssertEqual(lateRecord["parentSessionId"] as? String, parentSessionId)
+        let lateStartCommands = Array(context.state.commands.dropFirst(lateStartCommandIndex))
+        XCTAssertFalse(
+            lateStartCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "A later Claude SessionStart without parent metadata must still not publish the stored child binding, saw \(lateStartCommands)"
+        )
+        XCTAssertFalse(
+            lateStartCommands.contains {
+                $0 == "clear_notifications --tab=\(context.workspaceId)" ||
+                    $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+            },
+            "A later Claude subagent SessionStart must not mutate visible parent state, saw \(lateStartCommands)"
         )
     }
 
