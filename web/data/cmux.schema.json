@@ -298,8 +298,8 @@
         },
         "warnBeforeClosingTabXButton": {
           "type": "boolean",
-          "default": true,
-          "description": "Show the same close-tab confirmation before a tab-strip X button closes a tab. When unset, inherits app.warnBeforeClosingTab."
+          "default": false,
+          "description": "Show the same close-tab confirmation before a tab-strip X button closes a tab."
         },
         "renameSelectsExistingName": {
           "type": "boolean",
