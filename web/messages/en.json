@@ -595,8 +595,12 @@
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "First or only shortcut stroke. Most actions require a modifier unless the key is Space. Markdown preview actions also accept bare first strokes such as h, j, k, l, /, and n."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Bare first strokes such as <j>j</j> and <slash>/</slash> are accepted for Markdown preview actions because they are only active inside the focused Markdown panel."
     },
     "customCommands": {
       "title": "Custom Commands",

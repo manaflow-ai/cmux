@@ -494,8 +494,12 @@
         "app": {
           "confirmQuit": "Controlla quando cmux chiede conferma prima di uscire. Le build DEV escono sempre immediatamente indipendentemente da questa impostazione. Il vecchio app.warnBeforeQuit è ancora accettato come fallback booleano.",
           "warnBeforeQuit": "Fallback booleano legacy per la conferma di uscita. Usa app.confirmQuit per le nuove configurazioni."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Primo o unico tasto della scorciatoia. La maggior parte delle azioni richiede un modificatore, a meno che il tasto sia Space. Le azioni dell’anteprima Markdown accettano anche primi tasti singoli come h, j, k, l, / e n."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Le azioni dell’anteprima Markdown accettano primi tasti singoli come <j>j</j> e <slash>/</slash>, perché sono attive solo nel pannello Markdown in focus."
     },
     "customCommands": {
       "title": "Comandi personalizzati",

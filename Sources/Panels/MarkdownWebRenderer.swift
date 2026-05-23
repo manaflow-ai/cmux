@@ -297,7 +297,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     for: event,
                     pendingFirstStroke: pendingShortcutChord
                 ) else {
-                    return !ShortcutStroke.isEscapeCancelEvent(event)
+                    return true
                 }
                 performKeyboardCommand(command)
                 return true

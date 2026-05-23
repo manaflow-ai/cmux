@@ -494,8 +494,12 @@
         "app": {
           "confirmQuit": "Controla cuándo cmux pide confirmación antes de salir. Las compilaciones DEV siempre se cierran inmediatamente sin importar esta opción. El app.warnBeforeQuit heredado aún se acepta como alternativa booleana.",
           "warnBeforeQuit": "Alternativa booleana heredada para la confirmación de salida. Usa app.confirmQuit para configuraciones nuevas."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Primera o única pulsación del atajo. La mayoría de acciones requieren un modificador salvo que la tecla sea Space. Las acciones de vista previa de Markdown también aceptan primeras pulsaciones sueltas como h, j, k, l, / y n."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Las acciones de vista previa de Markdown aceptan primeras pulsaciones sueltas como <j>j</j> y <slash>/</slash> porque solo están activas dentro del panel Markdown enfocado."
     },
     "customCommands": {
       "title": "Comandos personalizados",

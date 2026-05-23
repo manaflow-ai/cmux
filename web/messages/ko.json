@@ -494,8 +494,12 @@
         "app": {
           "confirmQuit": "cmux가 종료 전에 확인을 요청하는 시점을 제어합니다. DEV 빌드는 이 설정과 관계없이 항상 즉시 종료됩니다. 기존 app.warnBeforeQuit도 boolean 대체값으로 계속 허용됩니다.",
           "warnBeforeQuit": "종료 확인을 위한 기존 boolean 대체값입니다. 새 구성에는 app.confirmQuit을 사용하세요."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "첫 번째 또는 유일한 단축키 입력입니다. 키가 Space가 아닌 경우 대부분의 동작에는 보조 키가 필요합니다. Markdown 미리보기 동작은 h, j, k, l, /, n 같은 단일 첫 번째 키 입력도 허용합니다."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Markdown 미리보기 동작은 포커스된 Markdown 패널 안에서만 활성화되므로 <j>j</j> 및 <slash>/</slash> 같은 단일 첫 번째 키 입력을 사용할 수 있습니다."
     },
     "customCommands": {
       "title": "사용자 정의 명령어",

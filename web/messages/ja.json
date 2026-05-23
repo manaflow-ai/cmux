@@ -554,8 +554,12 @@
         "app": {
           "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
           "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。"
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "最初または唯一のショートカットストローク。ほとんどの操作では、キーが Space の場合を除き修飾キーが必要です。Markdown プレビュー操作では h、j、k、l、/、n などの単独の第1ストロークも使えます。"
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Markdown プレビューの操作では、フォーカス中の Markdown パネル内でのみ有効なため、<j>j</j> や <slash>/</slash> などの単独の第1ストロークを使えます。"
     },
     "customCommands": {
       "title": "カスタムコマンド",

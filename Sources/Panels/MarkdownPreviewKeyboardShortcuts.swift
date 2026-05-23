@@ -40,7 +40,7 @@ enum MarkdownPreviewKeyboardShortcutResolver {
         (.findPrevious, StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)),
     ]
 
-    private static var configuredCommandActions: [(MarkdownPreviewKeyCommand, KeyboardShortcutSettings.Action)] {
+    private static var singleStrokeCommandActions: [(MarkdownPreviewKeyCommand, KeyboardShortcutSettings.Action)] {
         commandActions + globalFindCommandActions
     }
 
@@ -61,7 +61,7 @@ enum MarkdownPreviewKeyboardShortcutResolver {
             )
         }
 
-        for (command, action) in configuredCommandActions {
+        for (command, action) in singleStrokeCommandActions {
             let shortcut = shortcutForAction(action)
             guard !shortcut.hasChord, shortcut.matches(event: event) else { continue }
             return command
@@ -77,7 +77,7 @@ enum MarkdownPreviewKeyboardShortcutResolver {
         for event: NSEvent,
         shortcutForAction: ShortcutProvider = KeyboardShortcutSettings.shortcut(for:)
     ) -> ShortcutStroke? {
-        for (_, action) in configuredCommandActions {
+        for (_, action) in commandActions {
             let shortcut = shortcutForAction(action)
             guard shortcut.hasChord,
                   shortcut.firstStroke.matches(event: event) else { continue }
@@ -91,7 +91,7 @@ enum MarkdownPreviewKeyboardShortcutResolver {
         pendingFirstStroke: ShortcutStroke,
         shortcutForAction: ShortcutProvider
     ) -> MarkdownPreviewKeyCommand? {
-        for (command, action) in configuredCommandActions {
+        for (command, action) in commandActions {
             let shortcut = shortcutForAction(action)
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == pendingFirstStroke,

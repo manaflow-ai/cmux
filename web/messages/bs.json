@@ -494,8 +494,12 @@
         "app": {
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Prva ili jedina tipka prečice. Većina radnji zahtijeva modifikator osim ako je tipka Space. Radnje Markdown pregleda prihvataju i samostalne prve tipke kao što su h, j, k, l, / i n."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Radnje Markdown pregleda prihvataju samostalne prve tipke kao što su <j>j</j> i <slash>/</slash>, jer su aktivne samo u fokusiranom Markdown panelu."
     },
     "customCommands": {
       "title": "Prilagođene komande",

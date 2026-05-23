@@ -494,8 +494,12 @@
         "app": {
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Kısayolun ilk veya tek tuşu. Tuş Space olmadığı sürece çoğu eylem bir değiştirici gerektirir. Markdown önizleme eylemleri h, j, k, l, / ve n gibi tek başına ilk tuşları da kabul eder."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Markdown önizleme eylemleri <j>j</j> ve <slash>/</slash> gibi tek başına ilk tuşları kabul eder, çünkü yalnızca odaktaki Markdown panelinde etkindir."
     },
     "customCommands": {
       "title": "Özel Komutlar",

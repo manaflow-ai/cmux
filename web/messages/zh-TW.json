@@ -494,8 +494,12 @@
         "app": {
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。"
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "第一個或唯一的快捷鍵按鍵。除了 Space 鍵之外，大多數操作都需要修飾鍵。Markdown 預覽操作也接受 h、j、k、l、/、n 等單獨的第一按鍵。"
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Markdown 預覽操作可接受 <j>j</j> 和 <slash>/</slash> 等單獨的第一按鍵，因為它們只會在目前聚焦的 Markdown 面板中作用。"
     },
     "customCommands": {
       "title": "自訂指令",

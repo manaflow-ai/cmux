@@ -1510,59 +1510,6 @@ html { scroll-behavior: smooth; }
     }
   };
 
-  function markdownPreviewShouldHandleKeyboardEvent(ev) {
-    if (!ev || ev.defaultPrevented || ev.isComposing) { return false; }
-    var target = ev.target;
-    if (target && target.closest && target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) {
-      return false;
-    }
-    return true;
-  }
-
-  function markdownPreviewCommandForKeyboardEvent(ev) {
-    if (!markdownPreviewShouldHandleKeyboardEvent(ev)) { return null; }
-    var key = String(ev.key || '').toLowerCase();
-    var hasCommand = !!ev.metaKey;
-    var hasControl = !!ev.ctrlKey;
-    var hasOption = !!ev.altKey;
-    var hasShift = !!ev.shiftKey;
-
-    if (hasCommand && !hasControl && !hasOption && !hasShift && key === 'f') { return 'findForward'; }
-    if (hasCommand && !hasControl && !hasOption && !hasShift && key === 'g') { return 'findNext'; }
-    if (hasCommand && !hasControl && hasOption && !hasShift && key === 'g') { return 'findPrevious'; }
-    if (!hasCommand && hasControl && !hasOption && !hasShift && key === 'n') { return 'findNext'; }
-    if (!hasCommand && hasControl && !hasOption && !hasShift && key === 'p') { return 'findPrevious'; }
-    if (!hasCommand && hasControl && !hasOption && !hasShift && key === 'u') { return 'pageUp'; }
-    if (!hasCommand && hasControl && !hasOption && !hasShift && key === 'd') { return 'pageDown'; }
-    if (!hasCommand && !hasControl && !hasOption && !hasShift) {
-      switch (key) {
-      case 'h': return 'scrollLeft';
-      case 'j': return 'scrollDown';
-      case 'k': return 'scrollUp';
-      case 'l': return 'scrollRight';
-      case '/': return 'findForward';
-      case 'n': return 'findNext';
-      default: break;
-      }
-    }
-    if (!hasCommand && !hasControl && !hasOption && hasShift) {
-      switch (key) {
-      case '?': return 'findBackward';
-      case 'n': return 'findPrevious';
-      default: break;
-      }
-    }
-    return null;
-  }
-
-  document.addEventListener('keydown', function(ev) {
-    var command = markdownPreviewCommandForKeyboardEvent(ev);
-    if (!command) { return; }
-    ev.preventDefault();
-    ev.stopPropagation();
-    window.__cmuxMarkdownPreviewHandleKeyCommand(command);
-  }, true);
-
   window.__cmuxRenderMarkdown = function(md) {
     try {
       headingSlugCounts = Object.create(null);

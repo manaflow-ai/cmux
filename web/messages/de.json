@@ -494,8 +494,12 @@
         "app": {
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen."
+        },
+        "shortcuts": {
+          "shortcutFirstStroke": "Erster oder einziger Kurzbefehl-Tastenanschlag. Die meisten Aktionen erfordern eine Zusatztaste, außer die Taste ist Space. Markdown-Vorschau-Aktionen akzeptieren auch einzelne erste Tasten wie h, j, k, l, / und n."
         }
-      }
+      },
+      "bareMarkdownPreviewStrokes": "Markdown-Vorschau-Aktionen akzeptieren einzelne erste Tasten wie <j>j</j> und <slash>/</slash>, weil sie nur im fokussierten Markdown-Panel aktiv sind."
     },
     "customCommands": {
       "title": "Benutzerdefinierte Befehle",

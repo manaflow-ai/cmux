@@ -104849,18 +104849,25 @@
     "markdown.preview.dialog.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Markdown Preview"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Markdown プレビュー"
-          }
-        }
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Markdown 预览" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Markdown 預覽" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Markdown 미리보기" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Markdown-Vorschau" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Vista previa de Markdown" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Aperçu Markdown" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Anteprima Markdown" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Markdown-forhåndsvisning" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Podgląd Markdown" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Предпросмотр Markdown" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Markdown pregled" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "معاينة Markdown" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Markdown-forhåndsvisning" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Prévia de Markdown" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ตัวอย่าง Markdown" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Markdown Önizleme" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Перегляд Markdown" } }
       }
     },
     "markdown.mode.showPreview": {

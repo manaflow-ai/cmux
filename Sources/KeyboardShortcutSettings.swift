@@ -2231,9 +2231,10 @@ extension ShortcutStroke {
             }
         }
 
-        guard let key = parseConfigKeyToken(lastRawPart) else { return nil }
+        guard let parsedKey = parseConfigKeyToken(lastRawPart) else { return nil }
+        shift = shift || parsedKey.shift
         return ShortcutStroke(
-            key: key,
+            key: parsedKey.key,
             command: command,
             shift: shift,
             option: option,
@@ -2261,74 +2262,82 @@ extension ShortcutStroke {
         return key
     }
 
-    private static func parseConfigKeyToken(_ rawValue: String) -> String? {
+    private static func parseConfigKeyToken(_ rawValue: String) -> (key: String, shift: Bool)? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            return rawValue == " " ? "space" : nil
+            return rawValue == " " ? ("space", false) : nil
         }
 
         let lowered = trimmed.lowercased()
         switch lowered {
         case "left", "arrowleft", "leftarrow", "←":
-            return "←"
+            return ("←", false)
         case "right", "arrowright", "rightarrow", "→":
-            return "→"
+            return ("→", false)
         case "up", "arrowup", "uparrow", "↑":
-            return "↑"
+            return ("↑", false)
         case "down", "arrowdown", "downarrow", "↓":
-            return "↓"
+            return ("↓", false)
         case "tab":
-            return "\t"
+            return ("\t", false)
         case "return", "enter", "↩":
-            return "\r"
+            return ("\r", false)
         case "space", "spacebar", "<space>":
-            return "space"
+            return ("space", false)
         case "comma":
-            return ","
+            return (",", false)
         case "period", "dot":
-            return "."
+            return (".", false)
         case "slash":
-            return "/"
+            return ("/", false)
         case "backslash":
-            return "\\"
+            return ("\\", false)
         case "semicolon":
-            return ";"
+            return (";", false)
         case "quote", "apostrophe":
-            return "'"
+            return ("'", false)
         case "backtick", "grave":
-            return "`"
+            return ("`", false)
         case "minus", "hyphen":
-            return "-"
+            return ("-", false)
         case "plus", "equals":
-            return "="
+            return ("=", false)
         case "leftbracket", "openbracket":
-            return "["
+            return ("[", false)
         case "rightbracket", "closebracket":
-            return "]"
+            return ("]", false)
         case "volumeup", "mediavolumeup", "media.volumeup":
-            return "media.volumeUp"
+            return ("media.volumeUp", false)
         case "volumedown", "mediavolumedown", "media.volumedown":
-            return "media.volumeDown"
+            return ("media.volumeDown", false)
         case "brightnessup", "mediabrightnessup", "media.brightnessup":
-            return "media.brightnessUp"
+            return ("media.brightnessUp", false)
         case "brightnessdown", "mediabrightnessdown", "media.brightnessdown":
-            return "media.brightnessDown"
+            return ("media.brightnessDown", false)
         case "mute", "mediamute", "media.mute":
-            return "media.mute"
+            return ("media.mute", false)
         case "playpause", "mediaplaypause", "media.playpause":
-            return "media.playPause"
+            return ("media.playPause", false)
         case "nexttrack", "medianext", "media.next", "media.nexttrack":
-            return "media.next"
+            return ("media.next", false)
         case "previoustrack", "mediaprevious", "media.previous", "media.previoustrack":
-            return "media.previous"
+            return ("media.previous", false)
         default:
+            if trimmed == "?" {
+                return ("/", true)
+            }
+            if trimmed.count == 1,
+               let scalar = trimmed.unicodeScalars.first,
+               CharacterSet.uppercaseLetters.contains(scalar) {
+                return (lowered, true)
+            }
             if lowered.hasPrefix("f"),
                let number = Int(lowered.dropFirst()),
                (1...20).contains(number) {
-                return "f\(number)"
+                return ("f\(number)", false)
             }
             guard lowered.count == 1 else { return nil }
-            return lowered
+            return (lowered, false)
         }
     }
 }

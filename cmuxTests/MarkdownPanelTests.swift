@@ -333,6 +333,41 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
+    func testMarkdownPreviewDoesNotTreatGlobalFindChordAsPreviewPrefix() throws {
+        let globalFindChord = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "f"
+        )
+        let provider: MarkdownPreviewKeyboardShortcutResolver.ShortcutProvider = { action in
+            action == .find ? globalFindChord : action.defaultShortcut
+        }
+        let prefixStroke = ShortcutStroke(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true
+        )
+
+        XCTAssertNil(
+            MarkdownPreviewKeyboardShortcutResolver.chordPrefix(
+                for: try keyDownEvent("b", keyCode: 11, modifiers: [.control]),
+                shortcutForAction: provider
+            )
+        )
+        XCTAssertNil(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("f", keyCode: 3),
+                pendingFirstStroke: prefixStroke,
+                shortcutForAction: provider
+            )
+        )
+    }
+
     func testMarkdownPreviewKeyboardShortcutsCanUseBareCmuxJSONBindings() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-shortcuts-\(UUID().uuidString).json")
@@ -414,6 +449,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(
             coordinator.handleKeyboardShortcut(try keyDownEvent("b", keyCode: 11, modifiers: [.control]))
         )
+        XCTAssertTrue(coordinator.handleKeyboardShortcut(try keyDownEvent("x", keyCode: 7)))
         XCTAssertTrue(coordinator.handleKeyboardShortcut(try keyDownEvent("j", keyCode: 38)))
     }
 
@@ -603,13 +639,13 @@ final class MarkdownPanelTests: XCTestCase {
             """,
             in: webView
         )
-        XCTAssertEqual(domShortcutSnapshot["cmdFCanceled"] ?? 0, 1)
-        XCTAssertEqual(domShortcutSnapshot["ctrlNCanceled"] ?? 0, 1)
-        XCTAssertEqual(domShortcutSnapshot["ctrlPCanceled"] ?? 0, 1)
-        XCTAssertEqual(domShortcutSnapshot["calls"] ?? 0, 3)
-        XCTAssertEqual(domShortcutSnapshot["firstBackwards"] ?? -1, 0)
-        XCTAssertEqual(domShortcutSnapshot["secondBackwards"] ?? -1, 0)
-        XCTAssertEqual(domShortcutSnapshot["thirdBackwards"] ?? -1, 1)
+        XCTAssertEqual(domShortcutSnapshot["cmdFCanceled"] ?? 1, 0)
+        XCTAssertEqual(domShortcutSnapshot["ctrlNCanceled"] ?? 1, 0)
+        XCTAssertEqual(domShortcutSnapshot["ctrlPCanceled"] ?? 1, 0)
+        XCTAssertEqual(domShortcutSnapshot["calls"] ?? -1, 0)
+        XCTAssertEqual(domShortcutSnapshot["firstBackwards"] ?? -1, -1)
+        XCTAssertEqual(domShortcutSnapshot["secondBackwards"] ?? -1, -1)
+        XCTAssertEqual(domShortcutSnapshot["thirdBackwards"] ?? -1, -1)
     }
 
     func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {
