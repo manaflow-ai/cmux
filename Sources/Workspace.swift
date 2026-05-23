@@ -1213,15 +1213,30 @@ extension Workspace {
         // subsequent leaves were created via newTerminalSplit which also seeds
         // a placeholder terminal.
         var focusPanelId: UUID?
+        var selectedTabIdByPaneId: [PaneID: TabID] = [:]
         for leaf in leaves {
-            populateCustomPane(leaf.paneId, surfaces: leaf.surfaces, baseCwd: baseCwd, focusPanelId: &focusPanelId)
+            populateCustomPane(
+                leaf.paneId,
+                surfaces: leaf.surfaces,
+                baseCwd: baseCwd,
+                focusPanelId: &focusPanelId,
+                selectedTabIdByPaneId: &selectedTabIdByPaneId
+            )
         }
 
         let liveRoot = bonsplitController.treeSnapshot()
         applyCustomDividerPositions(configNode: layout, liveNode: liveRoot)
 
         if let focusPanelId {
+            let focusedPaneId = paneId(forPanelId: focusPanelId)
             focusPanel(focusPanelId)
+            // `focusPanel` selects the focused surface; re-apply an explicit selected
+            // marker for the same pane so imported presets can keep selection metadata.
+            if let focusedPaneId,
+               let selectedTabId = selectedTabIdByPaneId[focusedPaneId],
+               selectedTabId != surfaceIdFromPanelId(focusPanelId) {
+                bonsplitController.selectTab(selectedTabId)
+            }
         }
     }
 
@@ -1273,7 +1288,8 @@ extension Workspace {
         _ paneId: PaneID,
         surfaces: [CmuxSurfaceDefinition],
         baseCwd: String,
-        focusPanelId: inout UUID?
+        focusPanelId: inout UUID?,
+        selectedTabIdByPaneId: inout [PaneID: TabID]
     ) {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
@@ -1288,7 +1304,8 @@ extension Workspace {
                 inPane: paneId,
                 surface: firstSurface,
                 baseCwd: baseCwd,
-                focusPanelId: &focusPanelId
+                focusPanelId: &focusPanelId,
+                selectedTabIdByPaneId: &selectedTabIdByPaneId
             )
         }
 
@@ -1297,7 +1314,8 @@ extension Workspace {
                 inPane: paneId,
                 surface: surfaces[surfaceIndex],
                 baseCwd: baseCwd,
-                focusPanelId: &focusPanelId
+                focusPanelId: &focusPanelId,
+                selectedTabIdByPaneId: &selectedTabIdByPaneId
             )
         }
     }
@@ -1307,7 +1325,8 @@ extension Workspace {
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
-        focusPanelId: inout UUID?
+        focusPanelId: inout UUID?,
+        selectedTabIdByPaneId: inout [PaneID: TabID]
     ) {
         switch surface.type {
         case .terminal where surface.cwd != nil || surface.env != nil:
@@ -1321,13 +1340,25 @@ extension Workspace {
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                applyCustomSurfaceSelection(panelId: panel.id, surface: surface, focusPanelId: &focusPanelId)
+                applyCustomSurfaceSelection(
+                    panelId: panel.id,
+                    inPane: paneId,
+                    surface: surface,
+                    focusPanelId: &focusPanelId,
+                    selectedTabIdByPaneId: &selectedTabIdByPaneId
+                )
                 if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
             }
 
         case .terminal:
             if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
-            applyCustomSurfaceSelection(panelId: panelId, surface: surface, focusPanelId: &focusPanelId)
+            applyCustomSurfaceSelection(
+                panelId: panelId,
+                inPane: paneId,
+                surface: surface,
+                focusPanelId: &focusPanelId,
+                selectedTabIdByPaneId: &selectedTabIdByPaneId
+            )
             if let command = surface.command, let terminal = terminalPanel(for: panelId) {
                 sendInputWhenReady(command + "\n", to: terminal)
             }
@@ -1342,7 +1373,13 @@ extension Workspace {
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                applyCustomSurfaceSelection(panelId: panel.id, surface: surface, focusPanelId: &focusPanelId)
+                applyCustomSurfaceSelection(
+                    panelId: panel.id,
+                    inPane: paneId,
+                    surface: surface,
+                    focusPanelId: &focusPanelId,
+                    selectedTabIdByPaneId: &selectedTabIdByPaneId
+                )
             }
         }
     }
@@ -1351,7 +1388,8 @@ extension Workspace {
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
-        focusPanelId: inout UUID?
+        focusPanelId: inout UUID?,
+        selectedTabIdByPaneId: inout [PaneID: TabID]
     ) {
         switch surface.type {
         case .terminal:
@@ -1363,7 +1401,13 @@ extension Workspace {
                 startupEnvironment: surface.env ?? [:]
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                applyCustomSurfaceSelection(panelId: panel.id, surface: surface, focusPanelId: &focusPanelId)
+                applyCustomSurfaceSelection(
+                    panelId: panel.id,
+                    inPane: paneId,
+                    surface: surface,
+                    focusPanelId: &focusPanelId,
+                    selectedTabIdByPaneId: &selectedTabIdByPaneId
+                )
                 if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
             }
 
@@ -1376,18 +1420,27 @@ extension Workspace {
                 creationPolicy: .restoration
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                applyCustomSurfaceSelection(panelId: panel.id, surface: surface, focusPanelId: &focusPanelId)
+                applyCustomSurfaceSelection(
+                    panelId: panel.id,
+                    inPane: paneId,
+                    surface: surface,
+                    focusPanelId: &focusPanelId,
+                    selectedTabIdByPaneId: &selectedTabIdByPaneId
+                )
             }
         }
     }
 
     private func applyCustomSurfaceSelection(
         panelId: UUID,
+        inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
-        focusPanelId: inout UUID?
+        focusPanelId: inout UUID?,
+        selectedTabIdByPaneId: inout [PaneID: TabID]
     ) {
         if surface.selected == true,
            let tabId = surfaceIdFromPanelId(panelId) {
+            selectedTabIdByPaneId[paneId] = tabId
             bonsplitController.selectTab(tabId)
         }
         if surface.focus == true {
@@ -1450,6 +1503,7 @@ extension Workspace {
         switch node {
         case .pane(let pane):
             var surfaces: [CmuxSurfaceDefinition] = []
+            let unsupportedCountBefore = unsupportedSurfaces.count
             for tab in pane.tabs {
                 guard let tabUUID = UUID(uuidString: tab.id),
                       let panelId = panelIdFromSurfaceId(TabID(uuid: tabUUID)),
@@ -1468,6 +1522,10 @@ extension Workspace {
             }
 
             guard !surfaces.isEmpty else {
+                let paneUnsupportedSurfaces = Array(unsupportedSurfaces[unsupportedCountBefore...])
+                if !paneUnsupportedSurfaces.isEmpty {
+                    throw CustomLayoutExportError.unsupportedSurfaceTypes(paneUnsupportedSurfaces)
+                }
                 throw CustomLayoutExportError.emptyPane(pane.id)
             }
             return .pane(CmuxPaneDefinition(surfaces: surfaces))
