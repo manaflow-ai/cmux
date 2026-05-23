@@ -19441,6 +19441,7 @@ struct CMUXCLI {
                 // establishes a new active boundary.
                 try? sessionStore.upsert(
                     sessionId: sessionId,
+                    parentSessionId: parsedInput.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
@@ -19545,6 +19546,7 @@ struct CMUXCLI {
                 if let sessionId = parsedInput.sessionId {
                     try? sessionStore.upsert(
                         sessionId: sessionId,
+                        parentSessionId: parsedInput.parentSessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: parsedInput.cwd,
@@ -19639,6 +19641,7 @@ struct CMUXCLI {
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
+                    parentSessionId: parsedInput.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
@@ -19722,6 +19725,7 @@ struct CMUXCLI {
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
+                    parentSessionId: parsedInput.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
@@ -19862,6 +19866,7 @@ struct CMUXCLI {
                 let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
                 try? sessionStore.upsert(
                     sessionId: sessionId,
+                    parentSessionId: parsedInput.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
