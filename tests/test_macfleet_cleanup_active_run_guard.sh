@@ -15,9 +15,11 @@ trap cleanup EXIT
 home="$tmp/cmuxvnc1"
 mkdir -p \
   "$home/cmux-ci/DerivedData/active-run" \
+  "$home/cmux-ci/postgres-active-run-5432" \
   "$home/Library/Developer/Xcode/DerivedData/active-run" \
   "$home/cmux-ci/tmp/active-run" \
   "$tmp/system-tmp"
+touch -t 200001010000 "$home/cmux-ci/postgres-active-run-5432"
 
 fake_runner="$tmp/run-ci.sh"
 cat > "$fake_runner" <<'SH'
@@ -55,6 +57,12 @@ fi
 
 if [ ! -d "$home/Library/Developer/Xcode/DerivedData/active-run" ]; then
   echo "cleanup removed active user DerivedData" >&2
+  cat "$tmp/cleanup.log" >&2
+  exit 1
+fi
+
+if [ ! -d "$home/cmux-ci/postgres-active-run-5432" ]; then
+  echo "cleanup removed active Postgres data" >&2
   cat "$tmp/cleanup.log" >&2
   exit 1
 fi

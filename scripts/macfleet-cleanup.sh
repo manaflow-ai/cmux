@@ -187,8 +187,8 @@ for home in $home_glob; do
   # build artifacts that grow per run.
   if [ "$active" -eq 0 ]; then
     rm_old_children "$home/cmux-ci/tmp" "$tmp_max_age_minutes"
+    find "$home/cmux-ci" -maxdepth 1 -type d -name 'postgres-*' -mmin +"$postgres_max_age_minutes" -print -exec rm -rf {} + 2>/dev/null || true
   fi
-  find "$home/cmux-ci" -maxdepth 1 -type d -name 'postgres-*' -mmin +"$postgres_max_age_minutes" -print -exec rm -rf {} + 2>/dev/null || true
   log "checked $user"
 done
 
