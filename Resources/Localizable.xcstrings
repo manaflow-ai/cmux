@@ -79157,8 +79157,8 @@
         }
     },
     "settings.search.alias.setting.terminal.scrollbar": {
-        "extractionState": "manual",
-        "localizations": {
+      "extractionState": "manual",
+      "localizations": {
             "en": {
                 "stringUnit": {
                     "state": "translated",
@@ -79272,12 +79272,137 @@
                     "state": "translated",
                     "value": "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui програма загальні параметри поведінка док рядок меню статус бічна панель термінал shell історія прокручування смуга екран імпорт міграція закладки cookies профілі • %@"
                 }
-            }
         }
+      }
+    },
+    "settings.search.alias.setting.terminal.copy-on-select": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm 選択 コピー クリップボード マウス ダブルクリック トリプルクリック"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm نسخ تحديد حافظة فأرة نقرة مزدوجة نقرة ثلاثية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopiraj odabir međuspremnik miš dvoklik troklik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopier markering udklipsholder mus dobbeltklik tredobbeltklik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopieren auswahl zwischenablage maus doppelklick dreifachklick"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm copiar selección portapapeles ratón doble clic triple clic"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm copier sélection presse-papiers souris double-clic triple-clic"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm copia selezione appunti mouse doppio clic triplo clic"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm ចម្លង ជ្រើស ក្ដារតម្រៀប កណ្ដុរ ចុចពីរដង ចុចបីដង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm 복사 선택 클립보드 마우스 더블클릭 트리플클릭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopier markering utklippstavle mus dobbeltklikk trippelklikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopiuj zaznaczenie schowek mysz dwuklik potrójne kliknięcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm copiar seleção área de transferência mouse clique duplo clique triplo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm копировать выделение буфер обмена мышь двойной щелчок тройной щелчок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm คัดลอก เลือก คลิปบอร์ด เมาส์ ดับเบิลคลิก ทริปเปิลคลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm kopyala seçim pano fare çift tıklama üçlü tıklama"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm копіювати виділення буфер обміну миша подвійне клацання потрійне клацання"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm 复制 选择 剪贴板 鼠标 双击 三击"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm 複製 選取 剪貼簿 滑鼠 按兩下 按三下"
+          }
+        }
+      }
     },
     "settings.search.alias.setting.sidebarAppearance.match-terminal": {
-        "extractionState": "manual",
-        "localizations": {
+      "extractionState": "manual",
+      "localizations": {
             "en": {
                 "stringUnit": {
                     "state": "translated",
@@ -109773,6 +109898,381 @@
           "stringUnit": {
             "state": "translated",
             "value": "シェルのスクロールバックでは右端のターミナルスクロールバーを表示します。cmux は代替画面系の TUI では自動的に隠し、ワークスペースごとにも無効化できます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.copyOnSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy on Selection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択時にコピー"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النسخ عند التحديد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj pri odabiru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér ved markering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Auswählen kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar al seleccionar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier à la sélection"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia alla selezione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លងពេលជ្រើស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택 시 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier ved markering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj po zaznaczeniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar ao selecionar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать при выделении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกเมื่อเลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçimde kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копіювати під час виділення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择时复制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取時複製"
+          }
+        }
+      }
+    },
+    "settings.terminal.copyOnSelect.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal selections do not replace the system clipboard. Use Cmd+C to copy manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルで選択してもシステムクリップボードは置き換えません。コピーするには Cmd+C を使います。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديدات الطرفية لا تستبدل حافظة النظام. استخدم Cmd+C للنسخ يدويًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odabiri u terminalu ne zamjenjuju sistemski međuspremnik. Koristite Cmd+C za ručno kopiranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalmarkeringer erstatter ikke systemets udklipsholder. Brug Cmd+C for at kopiere manuelt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalauswahlen ersetzen nicht die Systemzwischenablage. Verwende Cmd+C, um manuell zu kopieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las selecciones del terminal no reemplazan el portapapeles del sistema. Usa Cmd+C para copiar manualmente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les sélections du terminal ne remplacent pas le presse-papiers système. Utilisez Cmd+C pour copier manuellement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le selezioni del terminale non sostituiscono gli appunti di sistema. Usa Cmd+C per copiare manualmente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជ្រើសក្នុង terminal មិនជំនួសក្ដារតម្រៀបរបស់ប្រព័ន្ធទេ។ ប្រើ Cmd+C ដើម្បីចម្លងដោយដៃ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 선택은 시스템 클립보드를 바꾸지 않습니다. 수동으로 복사하려면 Cmd+C를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalmarkeringer erstatter ikke systemutklippstavlen. Bruk Cmd+C for å kopiere manuelt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaznaczenia w terminalu nie zastępują schowka systemowego. Użyj Cmd+C, aby skopiować ręcznie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As seleções do terminal não substituem a área de transferência do sistema. Use Cmd+C para copiar manualmente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выделения в терминале не заменяют системный буфер обмена. Используйте Cmd+C, чтобы копировать вручную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเลือกในเทอร์มินัลจะไม่แทนที่คลิปบอร์ดของระบบ ใช้ Cmd+C เพื่อคัดลอกด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal seçimleri sistem panosunun yerini almaz. Elle kopyalamak için Cmd+C kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виділення в терміналі не замінюють системний буфер обміну. Використовуйте Cmd+C, щоб копіювати вручну."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端选择不会替换系统剪贴板。请使用 Cmd+C 手动复制。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機選取不會取代系統剪貼簿。請使用 Cmd+C 手動複製。"
+          }
+        }
+      }
+    },
+    "settings.terminal.copyOnSelect.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected terminal text is copied to the system clipboard when the selection is committed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択が確定したとき、ターミナルで選択したテキストをシステムクリップボードへコピーします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم نسخ نص الطرفية المحدد إلى حافظة النظام عند تثبيت التحديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odabrani tekst iz terminala kopira se u sistemski međuspremnik kada se odabir potvrdi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markeret terminaltekst kopieres til systemets udklipsholder, når markeringen bekræftes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewählter Terminaltext wird in die Systemzwischenablage kopiert, sobald die Auswahl bestätigt wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El texto seleccionado del terminal se copia al portapapeles del sistema cuando se confirma la selección."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le texte sélectionné dans le terminal est copié dans le presse-papiers système lorsque la sélection est validée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អត្ថបទ terminal ដែលបានជ្រើស នឹងត្រូវចម្លងទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택이 확정되면 선택한 터미널 텍스트가 시스템 클립보드에 복사됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markert terminaltekst kopieres til systemutklippstavlen når markeringen bekreftes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O texto selecionado no terminal é copiado para a área de transferência do sistema quando a seleção é confirmada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выделенный текст терминала копируется в системный буфер обмена после подтверждения выделения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความเทอร์มินัลที่เลือกจะถูกคัดลอกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вибраний текст термінала копіюється до системного буфера обміну після підтвердження виділення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认选择后，所选终端文本会复制到系统剪贴板。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認選取後，所選終端機文字會複製到系統剪貼簿。"
           }
         }
       }
