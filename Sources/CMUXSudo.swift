@@ -169,13 +169,17 @@ struct CMUXSudoCallerValidationResult: Sendable {
     let reason: String?
 }
 
+struct CMUXSudoTrustedSurfaceScope: Hashable, Sendable {
+    let workspaceID: UUID
+    let surfaceID: UUID
+}
+
 enum CMUXSudoCallerValidator {
     static func validate(
         request: CMUXSudoCommandRequest,
         peerIdentity: CMUXSocketPeerIdentity,
         isDescendant: (pid_t) -> Bool,
-        processArguments: (pid_t) -> CmuxTopProcessArguments?,
-        surfaceExists: (UUID, UUID) -> Bool
+        trustedSurfaceScope: (pid_t) -> CMUXSudoTrustedSurfaceScope?
     ) -> CMUXSudoCallerValidationResult {
         guard let peerPID = peerIdentity.pid, peerPID > 0 else {
             return .init(allowed: false, reason: String(localized: "sudo.error.peerPIDUnavailable", defaultValue: "socket peer pid is unavailable"))
@@ -195,18 +199,11 @@ enum CMUXSudoCallerValidator {
         guard isDescendant(peerPID) else {
             return .init(allowed: false, reason: String(localized: "sudo.error.notCmuxChild", defaultValue: "requesting process is not a cmux child"))
         }
-        guard let process = processArguments(peerPID),
-              let scope = CmuxTopProcessSnapshot.cmuxScope(
-                arguments: process.arguments,
-                environment: process.environment
-              ) else {
-            return .init(allowed: false, reason: String(localized: "sudo.error.noScope", defaultValue: "requesting process has no cmux terminal scope"))
+        guard let scope = trustedSurfaceScope(peerPID) else {
+            return .init(allowed: false, reason: String(localized: "sudo.error.noTrustedScope", defaultValue: "requesting process has no trusted cmux terminal scope"))
         }
         guard scope.workspaceID == request.workspaceID, scope.surfaceID == request.surfaceID else {
-            return .init(allowed: false, reason: String(localized: "sudo.error.scopeMismatch", defaultValue: "request scope does not match requesting process environment"))
-        }
-        guard surfaceExists(request.workspaceID, request.surfaceID) else {
-            return .init(allowed: false, reason: String(localized: "sudo.error.surfaceInactive", defaultValue: "workspace or terminal surface is not active"))
+            return .init(allowed: false, reason: String(localized: "sudo.error.trustedScopeMismatch", defaultValue: "request scope does not match requesting terminal surface"))
         }
         return .init(allowed: true, reason: nil)
     }

@@ -53,13 +53,7 @@ final class CMUXSudoTests: XCTestCase {
         let workspaceID = UUID()
         let surfaceID = UUID()
         let request = try parsedRequest(workspaceID: workspaceID, surfaceID: surfaceID)
-        let matchingProcess = CmuxTopProcessArguments(
-            arguments: ["/usr/bin/cmux", "sudo"],
-            environment: [
-                "CMUX_WORKSPACE_ID": workspaceID.uuidString,
-                "CMUX_SURFACE_ID": surfaceID.uuidString,
-            ]
-        )
+        let matchingScope = CMUXSudoTrustedSurfaceScope(workspaceID: workspaceID, surfaceID: surfaceID)
 
         let allowed = CMUXSudoCallerValidator.validate(
             request: request,
@@ -69,8 +63,7 @@ final class CMUXSudoTests: XCTestCase {
                 processStartTime: 1
             ),
             isDescendant: { $0 == request.callerPID },
-            processArguments: { _ in matchingProcess },
-            surfaceExists: { _, _ in true }
+            trustedSurfaceScope: { _ in matchingScope }
         )
         XCTAssertTrue(allowed.allowed, allowed.reason ?? "")
 
@@ -82,8 +75,7 @@ final class CMUXSudoTests: XCTestCase {
                 processStartTime: 1
             ),
             isDescendant: { _ in true },
-            processArguments: { _ in matchingProcess },
-            surfaceExists: { _, _ in true }
+            trustedSurfaceScope: { _ in matchingScope }
         )
         XCTAssertFalse(mismatchedPeer.allowed)
         XCTAssertTrue(mismatchedPeer.reason?.contains("uid") == true)
@@ -92,8 +84,7 @@ final class CMUXSudoTests: XCTestCase {
             request: request,
             peerIdentity: CMUXSocketPeerIdentity(pid: request.callerPID, uid: request.callerUID),
             isDescendant: { _ in true },
-            processArguments: { _ in matchingProcess },
-            surfaceExists: { _, _ in true }
+            trustedSurfaceScope: { _ in matchingScope }
         )
         XCTAssertFalse(missingProcessIdentity.allowed)
         XCTAssertTrue(missingProcessIdentity.reason?.contains("process identity") == true)
@@ -106,13 +97,12 @@ final class CMUXSudoTests: XCTestCase {
                 processStartTime: 1
             ),
             isDescendant: { _ in true },
-            processArguments: { _ in CmuxTopProcessArguments(arguments: ["/bin/zsh"], environment: [:]) },
-            surfaceExists: { _, _ in true }
+            trustedSurfaceScope: { _ in nil }
         )
         XCTAssertFalse(missingScope.allowed)
         XCTAssertTrue(missingScope.reason?.contains("scope") == true)
 
-        let missingSurface = CMUXSudoCallerValidator.validate(
+        let mismatchedScope = CMUXSudoCallerValidator.validate(
             request: request,
             peerIdentity: CMUXSocketPeerIdentity(
                 pid: request.callerPID,
@@ -120,11 +110,12 @@ final class CMUXSudoTests: XCTestCase {
                 processStartTime: 1
             ),
             isDescendant: { _ in true },
-            processArguments: { _ in matchingProcess },
-            surfaceExists: { _, _ in false }
+            trustedSurfaceScope: { _ in
+                CMUXSudoTrustedSurfaceScope(workspaceID: UUID(), surfaceID: UUID())
+            }
         )
-        XCTAssertFalse(missingSurface.allowed)
-        XCTAssertTrue(missingSurface.reason?.contains("active") == true)
+        XCTAssertFalse(mismatchedScope.allowed)
+        XCTAssertTrue(mismatchedScope.reason?.contains("surface") == true)
     }
 
     func testSudoHelperEnvelopeSignsCanonicalPayload() throws {
@@ -653,17 +644,8 @@ final class CMUXSudoTests: XCTestCase {
 #if DEBUG
         CMUXSudoTestHooks.auditLogURLOverride = logURL
         CMUXSudoTestHooks.isDescendantOverride = { $0 == getpid() }
-        CMUXSudoTestHooks.processArgumentsOverride = { _ in
-            CmuxTopProcessArguments(
-                arguments: ["/usr/bin/cmux", "sudo"],
-                environment: [
-                    "CMUX_WORKSPACE_ID": workspaceID.uuidString,
-                    "CMUX_SURFACE_ID": surfaceID.uuidString,
-                ]
-            )
-        }
-        CMUXSudoTestHooks.surfaceExistsOverride = { requestedWorkspaceID, requestedSurfaceID in
-            requestedWorkspaceID == workspaceID && requestedSurfaceID == surfaceID
+        CMUXSudoTestHooks.trustedSurfaceScopeOverride = { _ in
+            CMUXSudoTrustedSurfaceScope(workspaceID: workspaceID, surfaceID: surfaceID)
         }
         CMUXSudoTestHooks.workingDirectoryOverride = { _ in "/tmp" }
         CMUXSudoTestHooks.helperAvailabilityOverride = { .available }

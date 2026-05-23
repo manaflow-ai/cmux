@@ -27,21 +27,13 @@ extension TerminalController {
 #endif
                 return self?.isDescendant(pid) ?? false
             },
-            processArguments: { pid in
+            trustedSurfaceScope: { [weak self] pid in
 #if DEBUG
-                if let override = CMUXSudoTestHooks.processArgumentsOverride {
+                if let override = CMUXSudoTestHooks.trustedSurfaceScopeOverride {
                     return override(pid)
                 }
 #endif
-                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: Int(pid))
-            },
-            surfaceExists: { [weak self] workspaceID, surfaceID in
-#if DEBUG
-                if let override = CMUXSudoTestHooks.surfaceExistsOverride {
-                    return override(workspaceID, surfaceID)
-                }
-#endif
-                return self?.v2SudoSurfaceExists(workspaceID: workspaceID, surfaceID: surfaceID) ?? false
+                return self?.v2SudoTrustedSurfaceScope(forPeerPID: pid)
             }
         )
         let auditLogURL = sudoAuditLogURL()
@@ -420,20 +412,53 @@ extension TerminalController {
         }
     }
 
-    private nonisolated func v2SudoSurfaceExists(workspaceID: UUID, surfaceID: UUID) -> Bool {
-        v2MainSync {
-            guard let app = AppDelegate.shared else { return false }
+    private nonisolated func v2SudoTrustedSurfaceScope(forPeerPID pid: pid_t) -> CMUXSudoTrustedSurfaceScope? {
+        guard pid > 0 else { return nil }
+        let processSnapshot = CmuxTopProcessSnapshot.capture()
+        guard let peerTTYDevice = processSnapshot.process(pid: Int(pid))?.ttyDevice else {
+            return nil
+        }
+
+        return v2MainSync {
+            guard let app = AppDelegate.shared else { return nil }
+            var matches = Set<CMUXSudoTrustedSurfaceScope>()
             for summary in app.listMainWindowSummaries() {
-                guard let tabManager = app.tabManagerFor(windowId: summary.windowId),
-                      let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+                guard let tabManager = app.tabManagerFor(windowId: summary.windowId) else {
                     continue
                 }
-                if workspace.terminalPanel(for: surfaceID) != nil {
-                    return true
+                for workspace in tabManager.tabs {
+                    for panel in workspace.panels.values {
+                        guard let terminalPanel = panel as? TerminalPanel,
+                              let ttyName = Self.v2SudoLiveTTYName(for: terminalPanel.surface),
+                              CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName) == peerTTYDevice else {
+                            continue
+                        }
+                        matches.insert(
+                            CMUXSudoTrustedSurfaceScope(
+                                workspaceID: workspace.id,
+                                surfaceID: terminalPanel.id
+                            )
+                        )
+                    }
                 }
             }
-            return false
+            return matches.count == 1 ? matches.first : nil
         }
+    }
+
+    @MainActor
+    private static func v2SudoLiveTTYName(for terminalSurface: TerminalSurface) -> String? {
+        guard let surface = terminalSurface.liveSurfaceForGhosttyAccess(reason: "sudo.trustedSurfaceScope") else {
+            return nil
+        }
+        let rawTTYName = ghostty_surface_tty_name(surface)
+        defer { ghostty_string_free(rawTTYName) }
+        guard let pointer = rawTTYName.ptr else { return nil }
+        let data = Data(bytes: pointer, count: Int(rawTTYName.len))
+        let ttyName = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let ttyName, !ttyName.isEmpty else { return nil }
+        return ttyName
     }
 
     private nonisolated func v2SudoWorkingDirectory(for pid: pid_t) -> String? {
