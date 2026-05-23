@@ -1038,7 +1038,10 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.typeKey("l", modifierFlags: [.command])
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
-        XCTAssertTrue(omnibar.waitForExistence(timeout: 8.0), "Expected browser omnibar after Cmd+L")
+        XCTAssertTrue(
+            omnibar.waitForExistence(timeout: 8.0),
+            "Expected browser omnibar after Cmd+L. data=\(String(describing: loadData()))"
+        )
 
         app.typeKey("a", modifierFlags: [.command])
         app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])

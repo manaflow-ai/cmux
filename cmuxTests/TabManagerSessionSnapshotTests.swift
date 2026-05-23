@@ -437,7 +437,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             terminalScrollBarHidden: nil,
             currentDirectory: NSHomeDirectory(),
             focusedPanelId: focusedPanelId,
-            layout: .pane(SessionPaneLayoutSnapshot(
+            layout: .pane(SessionPanePaneLayoutSnapshot(
                 panelIds: [focusedPanelId],
                 selectedPanelId: focusedPanelId
             )),

@@ -12570,22 +12570,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Open browser: Cmd+Shift+L
         if matchConfiguredShortcut(event: event, action: .openBrowser) {
-            _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            _ = openBrowserAndFocusAddressBar(insertAtEnd: true, tabManager: routedManager)
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .focusBrowserAddressBar) {
-            if let focusedPanel = tabManager?.focusedBrowserPanel {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if let focusedPanel = routedManager?.focusedBrowserPanel {
                 focusBrowserAddressBar(in: focusedPanel)
                 return true
             }
 
             if let browserAddressBarFocusedPanelId,
-               focusBrowserAddressBar(panelId: browserAddressBarFocusedPanelId) {
+               focusBrowserAddressBar(panelId: browserAddressBarFocusedPanelId, tabManager: routedManager) {
                 return true
             }
 
-            if openBrowserAndFocusAddressBar(insertAtEnd: true) != nil {
+            if openBrowserAndFocusAddressBar(insertAtEnd: true, tabManager: routedManager) != nil {
                 return true
             }
         }
@@ -12837,9 +12839,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     @discardableResult
-    private func focusBrowserAddressBar(panelId: UUID) -> Bool {
-        guard let tabManager,
-              let workspace = tabManager.selectedWorkspace,
+    private func focusBrowserAddressBar(panelId: UUID, tabManager targetTabManager: TabManager? = nil) -> Bool {
+        let targetTabManager = targetTabManager ?? tabManager
+        guard let workspace = targetTabManager?.selectedWorkspace,
               let panel = workspace.browserPanel(for: panelId) else {
 #if DEBUG
             cmuxDebugLog(
@@ -12868,7 +12870,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func openBrowserAndFocusAddressBar(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
+    func openBrowserAndFocusAddressBar(
+        url: URL? = nil,
+        insertAtEnd: Bool = false,
+        tabManager targetTabManager: TabManager? = nil
+    ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else {
 #if DEBUG
             cmuxDebugLog(
@@ -12879,10 +12885,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
+        let targetTabManager = targetTabManager ?? tabManager
         let preferredProfileID =
-            tabManager?.focusedBrowserPanel?.profileID
-            ?? tabManager?.selectedWorkspace?.preferredBrowserProfileID
-        guard let panelId = tabManager?.openBrowser(
+            targetTabManager?.focusedBrowserPanel?.profileID
+            ?? targetTabManager?.selectedWorkspace?.preferredBrowserProfileID
+        guard let panelId = targetTabManager?.openBrowser(
             url: url,
             preferredProfileID: preferredProfileID,
             insertAtEnd: insertAtEnd
@@ -12902,13 +12909,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 #if DEBUG
-        let didFocus = focusBrowserAddressBar(panelId: panelId)
+        let didFocus = focusBrowserAddressBar(panelId: panelId, tabManager: targetTabManager)
         cmuxDebugLog(
             "browser.focus.openAndFocus result=focus_request panel=\(panelId.uuidString.prefix(5)) " +
             "focused=\(didFocus ? 1 : 0) \(browserFocusStateSnapshot())"
         )
 #else
-        _ = focusBrowserAddressBar(panelId: panelId)
+        _ = focusBrowserAddressBar(panelId: panelId, tabManager: targetTabManager)
 #endif
         return panelId
     }
