@@ -93,6 +93,30 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["isRestorable"] as? Bool, false)
         XCTAssertEqual(record["parentSessionId"] as? String, parentSessionId)
         XCTAssertEqual(record["transcriptPath"] as? String, childTranscriptPath)
+
+        let promptCommandIndex = context.state.commands.count
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(childSessionId)","parent_session_id":"\#(parentSessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(childTranscriptPath)","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let updatedRecord = try readClaudeHookSession(childSessionId, context: context)
+        XCTAssertEqual(updatedRecord["isRestorable"] as? Bool, false)
+        let promptCommands = Array(context.state.commands.dropFirst(promptCommandIndex))
+        XCTAssertFalse(
+            promptCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Claude subagent prompts must not publish child resume bindings, saw \(promptCommands)"
+        )
     }
 
     func testLateClaudeSessionStartDoesNotClearRestorablePromptSession() throws {
