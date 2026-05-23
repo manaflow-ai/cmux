@@ -754,6 +754,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             fingerprint: "Permission request\n\(permissionBody)"
         )
 
+        let resumeResult = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo resumed"}}"#
+        )
+        XCTAssertFalse(resumeResult.timedOut, resumeResult.stderr)
+        XCTAssertEqual(resumeResult.status, 0, resumeResult.stderr)
+
+        let sessionAfterResume = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(
+            sessionAfterResume["pendingNotificationClearedFingerprint"] as? String,
+            "Permission request\n\(permissionBody)"
+        )
+        XCTAssertNotNil(sessionAfterResume["resolvedPendingNotificationAt"])
+
         let commandStart = context.state.commands.count
         let result = runClaudeHook(
             context: context,

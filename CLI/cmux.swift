@@ -812,7 +812,11 @@ private final class ClaudeHookSessionStore {
         record.updatedAt = now
     }
 
-    func clearNotificationEmission(sessionId: String, clearSummary: Bool = false) throws {
+    func clearNotificationEmission(
+        sessionId: String,
+        clearSummary: Bool = false,
+        preserveClearedPromptMarker: Bool = false
+    ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
@@ -822,9 +826,11 @@ private final class ClaudeHookSessionStore {
             record.lastEmittedNotificationAt = nil
             record.pendingNotificationFingerprint = nil
             record.pendingNotificationStartedAt = nil
-            record.pendingNotificationClearedFingerprint = nil
-            record.pendingNotificationClearedAt = now
-            record.resolvedPendingNotificationAt = nil
+            if !preserveClearedPromptMarker {
+                record.pendingNotificationClearedFingerprint = nil
+                record.pendingNotificationClearedAt = now
+                record.resolvedPendingNotificationAt = nil
+            }
             if clearSummary {
                 record.lastSubtitle = nil
                 record.lastBody = nil
@@ -19287,7 +19293,11 @@ struct CMUXCLI {
             }
 
             if let sessionId = parsedInput.sessionId {
-                try? sessionStore.clearNotificationEmission(sessionId: sessionId, clearSummary: true)
+                try? sessionStore.clearNotificationEmission(
+                    sessionId: sessionId,
+                    clearSummary: true,
+                    preserveClearedPromptMarker: true
+                )
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
 
