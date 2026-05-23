@@ -19858,12 +19858,15 @@ struct CMUXCLI {
             // AskUserQuestion means Claude is about to ask the user something.
             // Save question text in session so the Notification handler can use it
             // instead of the generic "Claude Code needs your attention".
-            if let toolName = parsedInput.object?["tool_name"] as? String,
+            let preToolUseToolName = parsedInput.object.flatMap {
+                firstString(in: $0, keys: ["tool_name", "toolName"])
+            }
+            if let toolName = preToolUseToolName,
                toolName == "AskUserQuestion",
                let summary = summarizeClaudePendingNotification(
                     hookEventName: "AskUserQuestion",
                     toolName: toolName,
-                    toolInput: parsedInput.object?["tool_input"]
+                    toolInput: parsedInput.object?["tool_input"] ?? parsedInput.object?["toolInput"]
                ),
                let sessionId = parsedInput.sessionId {
                 // Preserve a non-empty surfaceId from SessionStart; passing ""

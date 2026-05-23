@@ -396,6 +396,75 @@ def main() -> int:
                 print(f"commands={server.commands!r}")
                 return 1
 
+        question_tool_session_id = f"sess-{uuid.uuid4().hex}"
+        question_tool_payload = {
+            "session_id": question_tool_session_id,
+            "hookEventName": "PreToolUse",
+            "toolName": "AskUserQuestion",
+            "toolInput": {
+                "questions": [
+                    {
+                        "question": "Which follow-up agent should run next?",
+                        "options": [
+                            {"label": "Codex"},
+                            {"label": "OpenCode"},
+                        ],
+                    }
+                ],
+            },
+        }
+        question_tool_proc = subprocess.run(
+            [cli_path, "--socket", server.socket_path, "claude-hook", "pre-tool-use"],
+            input=json.dumps(question_tool_payload),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=8,
+            check=False,
+        )
+        if question_tool_proc.returncode != 0:
+            print("FAIL: AskUserQuestion pre-tool-use failed")
+            print(f"stdout={question_tool_proc.stdout!r}")
+            print(f"stderr={question_tool_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+        before_count = len([line for line in server.commands if line.startswith("notify_target_async ")])
+        question_tool_notification = {
+            "session_id": question_tool_session_id,
+            "hook_event_name": "Notification",
+            "message": "Claude needs your input",
+        }
+        question_tool_notify_proc = subprocess.run(
+            [cli_path, "--socket", server.socket_path, "claude-hook", "notification"],
+            input=json.dumps(question_tool_notification),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=8,
+            check=False,
+        )
+        if question_tool_notify_proc.returncode != 0:
+            print("FAIL: AskUserQuestion notification failed")
+            print(f"stdout={question_tool_notify_proc.stdout!r}")
+            print(f"stderr={question_tool_notify_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+        notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
+        if len(notify_commands) <= before_count:
+            print("FAIL: expected notify_target_async command for AskUserQuestion")
+            print(f"commands={server.commands!r}")
+            return 1
+        expected_question_tool = (
+            f"notify_target_async {workspace_id} {surface_id} "
+            "Claude Code|Question|Which follow-up agent should run next? [Codex] [OpenCode]"
+        )
+        if notify_commands[-1] != expected_question_tool:
+            print("FAIL: AskUserQuestion notification should include question detail")
+            print(f"expected={expected_question_tool!r}")
+            print(f"actual={notify_commands[-1]!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
         direct_cases = [
             {
                 "name": "direct snake-case",
