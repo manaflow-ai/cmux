@@ -86,6 +86,25 @@ jobs:
       - name: Build tagged app
         run: ./scripts/reload.sh --tag "$PERF_TAG"
 
+      - name: Create virtual display
+        run: |
+          set -euo pipefail
+          READY_PATH="/tmp/cmux-virtual-display-ready"
+          rm -f "$READY_PATH"
+          clang -framework Foundation -framework CoreGraphics \
+            -o /tmp/create-virtual-display scripts/create-virtual-display.m
+          /tmp/create-virtual-display --ready-path "$READY_PATH" &
+          VDISPLAY_PID=$!
+          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+          for attempt in 1 2 3 4 5; do
+            if [ -f "$READY_PATH" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Virtual display was not ready" >&2
+          exit 1
+
       - name: Run activation session benchmark
         run: |
           set -euo pipefail
@@ -173,5 +192,8 @@ jobs:
       - name: Cleanup tagged app
         if: always()
         run: |
+          if [ -n "${VDISPLAY_PID:-}" ]; then
+            kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+          fi
           pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
           rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
