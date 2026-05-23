@@ -8738,7 +8738,7 @@ private struct GlobalHotkeySection: View {
 
 private struct SettingsWindowRootView: View {
     @State private var draftState = SettingsDraftState()
-    @State private var window: NSWindow?
+    @State private var windowReference = WeakSettingsWindowReference()
     @State private var shouldRenderSettingsContent = true
 
     var body: some View {
@@ -8754,36 +8754,52 @@ private struct SettingsWindowRootView: View {
             }
         }
         .background(WindowAccessor { window in
-            self.window = window
+            windowReference.window = window
             SettingsWindowPresenter.configure(window: window)
             setContentVisibility(!window.isMiniaturized)
         })
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { notification in
-            guard notification.object as? NSWindow === window else { return }
+            guard isObservedWindow(notification.object) else { return }
             setContentVisibility(false)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didDeminiaturizeNotification)) { notification in
-            guard notification.object as? NSWindow === window else { return }
+            guard isObservedWindow(notification.object) else { return }
             setContentVisibility(true)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            guard notification.object as? NSWindow === window else { return }
+            guard isObservedWindow(notification.object) else { return }
             setContentVisibility(true)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeMainNotification)) { notification in
-            guard notification.object as? NSWindow === window else { return }
+            guard isObservedWindow(notification.object) else { return }
             setContentVisibility(true)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
-            guard notification.object as? NSWindow === window else { return }
+            guard isObservedWindow(notification.object) else { return }
             setContentVisibility(false)
+            windowReference.window = nil
         }
+    }
+
+    private func isObservedWindow(_ object: Any?) -> Bool {
+        guard
+            let notificationWindow = object as? NSWindow,
+            let window = windowReference.window
+        else {
+            return false
+        }
+        return notificationWindow === window
     }
 
     private func setContentVisibility(_ isVisible: Bool) {
         guard shouldRenderSettingsContent != isVisible else { return }
         shouldRenderSettingsContent = isVisible
     }
+}
+
+@MainActor
+private final class WeakSettingsWindowReference {
+    weak var window: NSWindow?
 }
 
 @MainActor
