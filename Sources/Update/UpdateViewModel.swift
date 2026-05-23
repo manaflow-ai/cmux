@@ -16,13 +16,13 @@ enum UpdateTimeoutError {
         var localizedDescription: String {
             switch self {
             case .starting:
-                return String(localized: "update.error.timeout.starting.message", defaultValue: "Updating failed because the updater took too long to start.")
+                return String(localized: "update.error.timeout.starting.message", defaultValue: "cmux could not start the update check in time. Restart cmux and try again.")
             case .checking:
-                return String(localized: "update.error.timeout.checking.message", defaultValue: "Updating failed because checking for updates took too long.")
+                return String(localized: "update.error.timeout.checking.message", defaultValue: "cmux could not check for updates in time. Check your network and try again.")
             case .downloading:
-                return String(localized: "update.error.timeout.downloading.message", defaultValue: "Updating failed because downloading the update took too long.")
+                return String(localized: "update.error.timeout.downloading.message", defaultValue: "cmux could not download the update in time. Check your network and try again.")
             case .preparing:
-                return String(localized: "update.error.timeout.preparing.message", defaultValue: "Updating failed because preparing the update took too long.")
+                return String(localized: "update.error.timeout.preparing.message", defaultValue: "cmux could not prepare the update in time. Try again later, or restart cmux and try again.")
             }
         }
     }

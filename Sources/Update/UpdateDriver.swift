@@ -158,30 +158,44 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) {
         UpdateLogStore.shared.append("download expected length: \(expectedContentLength)")
-        guard case let .downloading(downloading) = viewModel.state else {
-            return
-        }
+        runOnMain { [weak self] in
+            guard let self else { return }
+            guard !operationHasTimedOut else {
+                UpdateLogStore.shared.append("ignoring download expected length after timeout")
+                return
+            }
+            guard case let .downloading(downloading) = viewModel.state else {
+                return
+            }
 
-        setState(.downloading(.init(
-            cancel: downloading.cancel,
-            expectedLength: expectedContentLength,
-            progress: 0)),
-            timeoutStage: .downloading,
-            timeoutCancellation: downloading.cancel)
+            setState(.downloading(.init(
+                cancel: downloading.cancel,
+                expectedLength: expectedContentLength,
+                progress: 0)),
+                timeoutStage: .downloading,
+                timeoutCancellation: downloading.cancel)
+        }
     }
 
     func showDownloadDidReceiveData(ofLength length: UInt64) {
         UpdateLogStore.shared.append("download received data: \(length)")
-        guard case let .downloading(downloading) = viewModel.state else {
-            return
-        }
+        runOnMain { [weak self] in
+            guard let self else { return }
+            guard !operationHasTimedOut else {
+                UpdateLogStore.shared.append("ignoring download data after timeout")
+                return
+            }
+            guard case let .downloading(downloading) = viewModel.state else {
+                return
+            }
 
-        setState(.downloading(.init(
-            cancel: downloading.cancel,
-            expectedLength: downloading.expectedLength,
-            progress: downloading.progress + length)),
-            timeoutStage: .downloading,
-            timeoutCancellation: downloading.cancel)
+            setState(.downloading(.init(
+                cancel: downloading.cancel,
+                expectedLength: downloading.expectedLength,
+                progress: downloading.progress + length)),
+                timeoutStage: .downloading,
+                timeoutCancellation: downloading.cancel)
+        }
     }
 
     func showDownloadDidStartExtractingUpdate() {
