@@ -40,6 +40,20 @@ final class TerminalControllerSocketWriteTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(startedAt), 2.0)
     }
 
+    func testSocketWriteAllNonBlockingReturnsWhenPeerDoesNotReadWithoutSendTimeout() throws {
+        let sockets = try makeSocketPair()
+        defer {
+            Darwin.close(sockets.reader)
+            Darwin.close(sockets.writer)
+        }
+
+        try fillSocketSendBuffer(sockets.writer)
+
+        let startedAt = Date()
+        XCTAssertFalse(TerminalController.writeAllToSocketNonBlocking(Data("PONG\n".utf8), to: sockets.writer))
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 0.5)
+    }
+
     func testEventsStreamReturnsWhenClientSocketIsBackpressured() throws {
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }

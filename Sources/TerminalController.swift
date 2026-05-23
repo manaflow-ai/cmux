@@ -1716,6 +1716,46 @@ class TerminalController {
         }
     }
 
+    nonisolated static func writeAllToSocketNonBlocking(_ data: Data, to socket: Int32) -> Bool {
+        let originalFlags = fcntl(socket, F_GETFL, 0)
+        guard originalFlags >= 0 else { return false }
+
+        let shouldRestoreBlocking = originalFlags & O_NONBLOCK == 0
+        if shouldRestoreBlocking {
+            guard fcntl(socket, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else {
+                return false
+            }
+        }
+        defer {
+            if shouldRestoreBlocking {
+                _ = fcntl(socket, F_SETFL, originalFlags)
+            }
+        }
+
+        return data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return true }
+            var offset = 0
+
+            while offset < rawBuffer.count {
+                let written = write(
+                    socket,
+                    baseAddress.advanced(by: offset),
+                    rawBuffer.count - offset
+                )
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written < 0, errno == EINTR {
+                    continue
+                }
+                return false
+            }
+
+            return true
+        }
+    }
+
     private nonisolated func writeSocketResponse(_ response: String, to socket: Int32) -> Bool {
         let payload = response + "\n"
         return Self.writeAllToSocket(Data(payload.utf8), to: socket)
