@@ -2,63 +2,6 @@ import AppKit
 import SwiftUI
 
 @MainActor
-enum GlobalHotkeyPanelLayout {
-    static func panelFrame(in screenFrame: NSRect) -> NSRect {
-        let margin = max(20, min(56, screenFrame.height * 0.045))
-        let width = min(max(960, screenFrame.width * 0.88), screenFrame.width - (margin * 2))
-        let height = min(max(560, screenFrame.height * 0.78), screenFrame.height - (margin * 2))
-        let origin = NSPoint(
-            x: screenFrame.midX - (width / 2),
-            y: screenFrame.maxY - height - margin
-        )
-        return NSRect(origin: origin, size: NSSize(width: width, height: height)).integral
-    }
-
-    static func preferredScreen(for point: NSPoint = NSEvent.mouseLocation) -> NSScreen? {
-        NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main ?? NSScreen.screens.first
-    }
-}
-
-@MainActor
-enum GlobalHotkeyPanelConfiguration {
-    static let windowIdentifier = "cmux.hotkeyPanel"
-
-    static let styleMask: NSWindow.StyleMask = [
-        .nonactivatingPanel,
-        .titled,
-        .resizable,
-        .fullSizeContentView,
-    ]
-
-    static let collectionBehavior: NSWindow.CollectionBehavior = [
-        .canJoinAllSpaces,
-        .fullScreenAuxiliary,
-        .transient,
-        .ignoresCycle,
-    ]
-
-    static var windowLevel: NSWindow.Level {
-        NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.mainMenuWindow)) - 2)
-    }
-
-    static func apply(to panel: NSPanel) {
-        panel.level = windowLevel
-        panel.collectionBehavior = collectionBehavior
-        panel.isFloatingPanel = true
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.hidesOnDeactivate = false
-        panel.isExcludedFromWindowsMenu = true
-        panel.animationBehavior = .utilityWindow
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isMovableByWindowBackground = false
-        panel.isMovable = true
-        panel.isRestorable = false
-        panel.isReleasedWhenClosed = false
-    }
-}
-
-@MainActor
 final class GlobalHotkeyPanel: NSPanel {
     var onCancel: (() -> Void)?
 
@@ -74,16 +17,12 @@ final class GlobalHotkeyPanel: NSPanel {
 @MainActor
 final class GlobalHotkeyPanelController: NSObject, NSWindowDelegate {
     private weak var appDelegate: AppDelegate?
+    private let contentState: GlobalHotkeyPanelContentState
     private var windowController: NSWindowController?
-    private var windowId: UUID?
-    private var tabManager: TabManager?
-    private var sidebarState: SidebarState?
-    private var sidebarSelectionState: SidebarSelectionState?
-    private var fileExplorerState: FileExplorerState?
-    private var cmuxConfigStore: CmuxConfigStore?
 
-    init(appDelegate: AppDelegate) {
+    init(appDelegate: AppDelegate, contentState: GlobalHotkeyPanelContentState) {
         self.appDelegate = appDelegate
+        self.contentState = contentState
         super.init()
     }
 
@@ -142,24 +81,14 @@ final class GlobalHotkeyPanelController: NSObject, NSWindowDelegate {
 
         guard let appDelegate else { return nil }
 
-        let windowId = UUID()
-        let tabManager = TabManager(autoWelcomeIfNeeded: true)
-        let notificationStore = TerminalNotificationStore.shared
-        let sidebarState = SidebarState()
-        let sidebarSelectionState = SidebarSelectionState()
-        let fileExplorerState = FileExplorerState()
-        let cmuxConfigStore = CmuxConfigStore()
-        cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
-        cmuxConfigStore.loadAll()
-
-        let root = ContentView(updateViewModel: appDelegate.updateViewModel, windowId: windowId)
+        let root = ContentView(updateViewModel: appDelegate.updateViewModel, windowId: contentState.windowId)
             .mainWindowContextRole(.globalHotkeyPanel)
-            .environmentObject(tabManager)
-            .environmentObject(notificationStore)
-            .environmentObject(sidebarState)
-            .environmentObject(sidebarSelectionState)
-            .environmentObject(fileExplorerState)
-            .environmentObject(cmuxConfigStore)
+            .environmentObject(contentState.tabManager)
+            .environmentObject(contentState.notificationStore)
+            .environmentObject(contentState.sidebarState)
+            .environmentObject(contentState.sidebarSelectionState)
+            .environmentObject(contentState.fileExplorerState)
+            .environmentObject(contentState.cmuxConfigStore)
 
         let initialFrame = GlobalHotkeyPanelLayout.preferredScreen()
             .map { GlobalHotkeyPanelLayout.panelFrame(in: $0.frame) }
@@ -183,23 +112,17 @@ final class GlobalHotkeyPanelController: NSObject, NSWindowDelegate {
         appDelegate.applyWindowDecorations(to: panel)
         appDelegate.registerMainWindow(
             panel,
-            windowId: windowId,
-            tabManager: tabManager,
-            sidebarState: sidebarState,
-            sidebarSelectionState: sidebarSelectionState,
-            fileExplorerState: fileExplorerState,
-            cmuxConfigStore: cmuxConfigStore,
+            windowId: contentState.windowId,
+            tabManager: contentState.tabManager,
+            sidebarState: contentState.sidebarState,
+            sidebarSelectionState: contentState.sidebarSelectionState,
+            fileExplorerState: contentState.fileExplorerState,
+            cmuxConfigStore: contentState.cmuxConfigStore,
             role: .globalHotkeyPanel
         )
-        appDelegate.publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "global_hotkey")
-        installFileDropOverlay(on: panel, tabManager: tabManager)
+        appDelegate.publishCmuxWindowLifecycle(name: "window.created", windowId: contentState.windowId, origin: "global_hotkey")
+        installFileDropOverlay(on: panel, tabManager: contentState.tabManager)
 
-        self.windowId = windowId
-        self.tabManager = tabManager
-        self.sidebarState = sidebarState
-        self.sidebarSelectionState = sidebarSelectionState
-        self.fileExplorerState = fileExplorerState
-        self.cmuxConfigStore = cmuxConfigStore
         windowController = NSWindowController(window: panel)
         return panel
     }

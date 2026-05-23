@@ -734,7 +734,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
-    private lazy var globalHotkeyPanelController = GlobalHotkeyPanelController(appDelegate: self)
+    private lazy var globalHotkeyPanelController = GlobalHotkeyPanelController(
+        appDelegate: self,
+        contentState: GlobalHotkeyPanelContentState()
+    )
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
     private struct PendingConfiguredShortcutChord {
