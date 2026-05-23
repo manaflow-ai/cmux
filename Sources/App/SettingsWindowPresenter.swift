@@ -16,6 +16,7 @@ enum SettingsWindowPresenter {
     private static var pendingNavigationTarget: SettingsNavigationTarget?
     private static var pendingContentNavigationTarget: SettingsNavigationTarget?
     private static var shouldOpenWhenConfigured = false
+    private static var focusHandler: @MainActor (NSWindow) -> Void = { performFocus($0) }
 
     static func configure(
         openWindow: @escaping @MainActor () -> Void,
@@ -33,6 +34,7 @@ enum SettingsWindowPresenter {
     }
 
     static func configure(window: NSWindow) {
+        let shouldFocusAfterConfiguration = settingsWindow !== window
         settingsWindow = window
         window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
         window.isRestorable = false
@@ -40,9 +42,11 @@ enum SettingsWindowPresenter {
         window.contentMinSize = minimumSize
         clampToVisibleAreaIfNeeded(window)
         attachToPreferredParent(window)
-        Task { @MainActor in
-            guard settingsWindow === window else { return }
-            focus(window)
+        if shouldFocusAfterConfiguration {
+            Task { @MainActor in
+                guard settingsWindow === window else { return }
+                focus(window)
+            }
         }
     }
 
@@ -115,6 +119,11 @@ enum SettingsWindowPresenter {
         pendingNavigationTarget = nil
         pendingContentNavigationTarget = nil
         shouldOpenWhenConfigured = false
+        focusHandler = { performFocus($0) }
+    }
+
+    static func setFocusHandlerForTests(_ handler: @escaping @MainActor (NSWindow) -> Void) {
+        focusHandler = handler
     }
 #endif
 
@@ -128,6 +137,10 @@ enum SettingsWindowPresenter {
     }
 
     private static func focus(_ window: NSWindow) {
+        focusHandler(window)
+    }
+
+    private static func performFocus(_ window: NSWindow) {
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }

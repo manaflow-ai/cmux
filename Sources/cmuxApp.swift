@@ -634,11 +634,8 @@ struct cmuxApp: App {
         }
 
         Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
-            SettingsRootView()
+            SettingsWindowRootView()
                 .cmuxAppearanceColorScheme(appearanceMode)
-                .background(WindowAccessor { window in
-                    SettingsWindowPresenter.configure(window: window)
-                })
         }
         .defaultSize(width: 980, height: 680)
         .windowResizability(.contentMinSize)
@@ -8736,6 +8733,55 @@ private struct GlobalHotkeySection: View {
         if latestManagedState != isManagedBySettingsFile {
             isManagedBySettingsFile = latestManagedState
         }
+    }
+}
+
+private struct SettingsWindowRootView: View {
+    @State private var window: NSWindow?
+    @State private var shouldRenderSettingsContent = true
+
+    var body: some View {
+        Group {
+            if shouldRenderSettingsContent {
+                SettingsRootView()
+            } else {
+                Color.clear
+                    .frame(
+                        minWidth: SettingsWindowPresenter.minimumSize.width,
+                        minHeight: SettingsWindowPresenter.minimumSize.height
+                    )
+            }
+        }
+        .background(WindowAccessor { window in
+            self.window = window
+            SettingsWindowPresenter.configure(window: window)
+            setContentVisibility(!window.isMiniaturized)
+        })
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { notification in
+            guard notification.object as? NSWindow === window else { return }
+            setContentVisibility(false)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didDeminiaturizeNotification)) { notification in
+            guard notification.object as? NSWindow === window else { return }
+            setContentVisibility(true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            guard notification.object as? NSWindow === window else { return }
+            setContentVisibility(true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeMainNotification)) { notification in
+            guard notification.object as? NSWindow === window else { return }
+            setContentVisibility(true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard notification.object as? NSWindow === window else { return }
+            setContentVisibility(false)
+        }
+    }
+
+    private func setContentVisibility(_ isVisible: Bool) {
+        guard shouldRenderSettingsContent != isVisible else { return }
+        shouldRenderSettingsContent = isVisible
     }
 }
 

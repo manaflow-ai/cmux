@@ -35,6 +35,26 @@ final class SettingsWindowPresenterTests: XCTestCase {
         XCTAssertNil(SettingsWindowPresenter.consumePendingContentNavigationTarget())
     }
 
+    func testRepeatedConfigureForSameSettingsWindowDoesNotRefocus() async {
+        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        var focusedWindows: [NSWindow] = []
+        defer {
+            settingsWindow.orderOut(nil)
+        }
+
+        SettingsWindowPresenter.setFocusHandlerForTests { window in
+            focusedWindows.append(window)
+        }
+
+        SettingsWindowPresenter.configure(window: settingsWindow)
+        await Task.yield()
+        SettingsWindowPresenter.configure(window: settingsWindow)
+        await Task.yield()
+
+        XCTAssertEqual(focusedWindows.count, 1)
+        XCTAssertTrue(focusedWindows.first === settingsWindow)
+    }
+
     func testParentsSettingsAbovePreferredMainWindow() {
         let parentWindow = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
