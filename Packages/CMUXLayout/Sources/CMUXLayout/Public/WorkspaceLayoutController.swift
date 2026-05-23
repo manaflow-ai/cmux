@@ -213,14 +213,27 @@ public final class WorkspaceLayoutController {
 
     /// Request the delegate to handle a tab context-menu action.
     public func requestSurfaceContextAction(_ action: SurfaceContextAction, for tabId: SurfaceID, inPane pane: PaneID) {
+        guard isSurfaceContextActionAllowed(action) else { return }
         guard let tab = tab(tabId) else { return }
         delegate?.splitTabBar(self, didRequestSurfaceContextAction: action, for: tab, inPane: pane)
     }
 
     /// Request the delegate to move a tab to a host-provided destination.
     public func requestTabMove(toDestination destinationId: String, for tabId: SurfaceID, inPane pane: PaneID) {
+        guard configuration.allowCrossPaneTabMove else { return }
         guard let tab = tab(tabId) else { return }
         delegate?.splitTabBar(self, didRequestTabMoveToDestination: destinationId, for: tab, inPane: pane)
+    }
+
+    private func isSurfaceContextActionAllowed(_ action: SurfaceContextAction) -> Bool {
+        switch action {
+        case .closeToLeft, .closeToRight, .closeOthers:
+            return configuration.allowCloseTabs
+        case .move, .moveToNewWorkspace, .moveToLeftPane, .moveToRightPane:
+            return configuration.allowCrossPaneTabMove
+        default:
+            return true
+        }
     }
 
     /// Update an existing tab's metadata
@@ -304,6 +317,8 @@ public final class WorkspaceLayoutController {
     /// - Parameter tabIndex: The position of the tab within the pane
     /// - Parameter pane: The pane in which to close the tab
     private func closeTab(_ tabId: SurfaceID, with tabIndex: Int, in pane: PaneState) -> Bool {
+        guard configuration.allowCloseTabs else { return false }
+
         let tabItem = pane.tabs[tabIndex]
         let tab = SurfaceTab(from: tabItem)
         let paneId = pane.id
@@ -352,6 +367,8 @@ public final class WorkspaceLayoutController {
         let sourcePaneId = sourcePane.id
 
         if sourcePaneId == targetPane.id {
+            guard configuration.allowTabReordering else { return false }
+
             // Reorder within same pane.
             let destinationIndex: Int = {
                 if let index { return max(0, min(index, sourcePane.tabs.count)) }
@@ -364,6 +381,8 @@ public final class WorkspaceLayoutController {
             notifyGeometryChange()
             return true
         }
+
+        guard configuration.allowCrossPaneTabMove else { return false }
 
         internalController.moveTab(tabItem, from: sourcePaneId, to: targetPane.id, atIndex: index)
         syncCanvasDocumentWithCurrentLayout()
@@ -379,6 +398,7 @@ public final class WorkspaceLayoutController {
     /// - Returns: true if reordered.
     @discardableResult
     public func reorderTab(_ tabId: SurfaceID, toIndex: Int) -> Bool {
+        guard configuration.allowTabReordering else { return false }
         guard let (pane, sourceIndex) = findTabInternal(tabId) else { return false }
         let destinationIndex = max(0, min(toIndex, pane.tabs.count))
         pane.moveTab(from: sourceIndex, to: destinationIndex)

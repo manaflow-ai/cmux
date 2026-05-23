@@ -1119,6 +1119,7 @@ struct TabBarView: View {
             trailingSeparatorBottomInset: isImmediatelyBeforeSelected
                 ? TabBarMetrics.selectedTabLeftSeparatorBottomInset
                 : 0,
+            canClose: controller.configuration.allowCloseTabs,
             controlShortcutDigit: tabControlShortcutDigit(for: index, tabCount: pane.tabs.count),
             allowsShortcutHints: isFocused && splitViewController.tabShortcutHintsEnabled,
             showsControlShortcutHint: showsControlShortcutHints,
@@ -1136,7 +1137,7 @@ struct TabBarView: View {
                 }
             },
             onClose: {
-                guard !tab.isPinned else { return }
+                guard !tab.isPinned, controller.configuration.allowCloseTabs else { return }
                 // Close should be instant (no fade-out/removal animation).
 #if DEBUG
                 dlog("tab.close pane=\(pane.id.id.uuidString.prefix(5)) tab=\(tab.id.uuidString.prefix(5)) title=\"\(tab.title)\"")
@@ -1193,15 +1194,17 @@ struct TabBarView: View {
     }
 
     private func contextMenuState(for tab: SurfaceItem, at index: Int) -> TabContextMenuState {
+        let canCloseTabs = controller.configuration.allowCloseTabs
+        let canMoveTabs = controller.configuration.allowCrossPaneTabMove
         let leftTabs = pane.tabs.prefix(index)
-        let canCloseToLeft = leftTabs.contains(where: { !$0.isPinned })
+        let canCloseToLeft = canCloseTabs && leftTabs.contains(where: { !$0.isPinned })
         let canCloseToRight: Bool
-        if (index + 1) < pane.tabs.count {
+        if canCloseTabs, (index + 1) < pane.tabs.count {
             canCloseToRight = pane.tabs.suffix(from: index + 1).contains(where: { !$0.isPinned })
         } else {
             canCloseToRight = false
         }
-        let canCloseOthers = pane.tabs.enumerated().contains { itemIndex, item in
+        let canCloseOthers = canCloseTabs && pane.tabs.enumerated().contains { itemIndex, item in
             itemIndex != index && !item.isPinned
         }
         return TabContextMenuState(
@@ -1213,12 +1216,12 @@ struct TabBarView: View {
             canCloseToLeft: canCloseToLeft,
             canCloseToRight: canCloseToRight,
             canCloseOthers: canCloseOthers,
-            canMoveToNewWorkspace: controller.allTabIds.count > 1,
-            canMoveToLeftPane: controller.adjacentPane(to: pane.id, direction: .left) != nil,
-            canMoveToRightPane: controller.adjacentPane(to: pane.id, direction: .right) != nil,
+            canMoveToNewWorkspace: canMoveTabs && controller.allTabIds.count > 1,
+            canMoveToLeftPane: canMoveTabs && controller.adjacentPane(to: pane.id, direction: .left) != nil,
+            canMoveToRightPane: canMoveTabs && controller.adjacentPane(to: pane.id, direction: .right) != nil,
             isZoomed: splitViewController.zoomedPaneId == pane.id,
             hasSplits: splitViewController.rootNode.allPaneIds.count > 1,
-            moveDestinations: controller.tabContextMoveDestinationsProvider?(SurfaceID(id: tab.id), pane.id) ?? [],
+            moveDestinations: canMoveTabs ? controller.tabContextMoveDestinationsProvider?(SurfaceID(id: tab.id), pane.id) ?? [] : [],
             shortcuts: controller.contextMenuShortcuts
         )
     }
@@ -1226,6 +1229,10 @@ struct TabBarView: View {
     // MARK: - Item Provider
 
     private func createItemProvider(for tab: SurfaceItem) -> NSItemProvider {
+        guard controller.configuration.allowTabReordering || controller.configuration.allowCrossPaneTabMove else {
+            return NSItemProvider()
+        }
+
         #if DEBUG
         NSLog("[CMUXLayout Drag] createItemProvider for tab: \(tab.title)")
         #endif
@@ -3092,6 +3099,7 @@ struct TabDropDelegate: DropDelegate {
               let sourcePaneId = controller.activeDragSourcePaneId ?? controller.dragSourcePaneId else {
             if let transfer = decodeTransfer(from: info),
                transfer.isFromCurrentProcess {
+                guard canMoveTab(from: PaneID(id: transfer.sourcePaneId)) else { return false }
                 let request = WorkspaceLayoutController.ExternalTabDropRequest(
                     tabId: SurfaceID(id: transfer.tab.id),
                     sourcePaneId: PaneID(id: transfer.sourcePaneId),
@@ -3107,17 +3115,17 @@ struct TabDropDelegate: DropDelegate {
             return performFileDrop(info: info)
         }
 
+        guard canMoveTab(from: sourcePaneId) else {
+            clearDragState()
+            return false
+        }
+
         // Execute synchronously when possible so the dragged tab disappears immediately.
         let applyMove = {
             // Ensure the move itself doesn't animate.
             withTransaction(Transaction(animation: nil)) {
                 if sourcePaneId == pane.id {
-                    guard let sourceIndex = pane.tabs.firstIndex(where: { $0.id == draggedTab.id }) else { return }
-                    // Same-pane no-op: don't mutate the model (and don't show an indicator).
-                    if targetIndex == sourceIndex || targetIndex == sourceIndex + 1 {
-                        return
-                    }
-                    pane.moveTab(from: sourceIndex, to: targetIndex)
+                    _ = layoutController.reorderTab(SurfaceID(id: draggedTab.id), toIndex: targetIndex)
                 } else {
                     _ = layoutController.moveTab(
                         SurfaceID(id: draggedTab.id),
@@ -3133,11 +3141,7 @@ struct TabDropDelegate: DropDelegate {
         // Clear visual state immediately to prevent lingering indicators.
         // Must happen synchronously before returning, not in async callback.
         // Setting dropLifecycle to idle prevents dropUpdated from re-setting dropTargetIndex.
-        clearDropState()
-        controller.draggingTab = nil
-        controller.dragSourcePaneId = nil
-        controller.activeDragTab = nil
-        controller.activeDragSourcePaneId = nil
+        clearDragState()
 
         return true
     }
@@ -3214,12 +3218,18 @@ struct TabDropDelegate: DropDelegate {
 
         // Local drags use in-memory state and are always same-process.
         if controller.activeDragTab != nil || controller.draggingTab != nil {
-            return true
+            guard let sourcePaneId = controller.activeDragSourcePaneId ?? controller.dragSourcePaneId else {
+                return false
+            }
+            return canMoveTab(from: sourcePaneId)
         }
 
         // External drags (another CMUXLayout controller) must include a payload from this process.
         guard let transfer = decodeTransfer(from: info),
               transfer.isFromCurrentProcess else {
+            return false
+        }
+        guard canMoveTab(from: PaneID(id: transfer.sourcePaneId)) else {
             return false
         }
 #if DEBUG
@@ -3236,6 +3246,21 @@ struct TabDropDelegate: DropDelegate {
     private func clearDropState() {
         dropLifecycle = .idle
         dropTargetIndex = nil
+    }
+
+    private func clearDragState() {
+        clearDropState()
+        controller.draggingTab = nil
+        controller.dragSourcePaneId = nil
+        controller.activeDragTab = nil
+        controller.activeDragSourcePaneId = nil
+    }
+
+    private func canMoveTab(from sourcePaneId: PaneID) -> Bool {
+        if sourcePaneId == pane.id {
+            return layoutController.configuration.allowTabReordering
+        }
+        return layoutController.configuration.allowCrossPaneTabMove
     }
 
     private func dropOperation(for info: DropInfo) -> DropOperation {

@@ -171,6 +171,17 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testCloseTabRespectsConfiguration() {
+        let controller = WorkspaceLayoutController(configuration: .readOnly)
+        let tabId = controller.createTab(title: "Test Surface", icon: "doc")!
+
+        let closed = controller.closeTab(tabId)
+
+        XCTAssertFalse(closed)
+        XCTAssertNotNil(controller.tab(tabId))
+    }
+
+    @MainActor
     func testCloseSelectedTabKeepsIndexStableWhenPossible() {
         do {
             let config = WorkspaceLayoutConfiguration(newTabPosition: .end)
@@ -1134,6 +1145,37 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testControllerRejectsReorderWhenDisabled() {
+        let controller = WorkspaceLayoutController(
+            configuration: WorkspaceLayoutConfiguration(allowTabReordering: false)
+        )
+        _ = controller.createTab(title: "First")!
+        let second = controller.createTab(title: "Second")!
+        let pane = controller.focusedPaneId!
+        let originalOrder = controller.tabs(inPane: pane).map(\.id)
+
+        XCTAssertFalse(controller.reorderTab(second, toIndex: 0))
+        XCTAssertFalse(controller.moveTab(second, toPane: pane, atIndex: 0))
+        XCTAssertEqual(controller.tabs(inPane: pane).map(\.id), originalOrder)
+    }
+
+    @MainActor
+    func testControllerRejectsCrossPaneMoveWhenDisabled() {
+        let controller = WorkspaceLayoutController(
+            configuration: WorkspaceLayoutConfiguration(allowCrossPaneTabMove: false)
+        )
+        let sourcePane = controller.focusedPaneId!
+        let movingTab = controller.createTab(title: "Moving")!
+        guard let targetPane = controller.splitPane(sourcePane, orientation: .horizontal) else {
+            return XCTFail("Expected splitPane to create a target pane")
+        }
+
+        XCTAssertFalse(controller.moveTab(movingTab, toPane: targetPane))
+        XCTAssertTrue(controller.tabs(inPane: sourcePane).map(\.id).contains(movingTab))
+        XCTAssertFalse(controller.tabs(inPane: targetPane).map(\.id).contains(movingTab))
+    }
+
+    @MainActor
     func testPinnedTabInsertionsStayAheadOfUnpinnedTabs() {
         let unpinnedA = SurfaceItem(title: "A", isPinned: false)
         let unpinnedB = SurfaceItem(title: "B", isPinned: false)
@@ -1377,6 +1419,27 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(spy.action, .markAsRead)
         XCTAssertEqual(spy.tabId, tabId)
         XCTAssertEqual(spy.paneId, pane)
+    }
+
+    @MainActor
+    func testReadOnlyConfigurationBlocksDestructiveContextRequests() {
+        let controller = WorkspaceLayoutController(configuration: .readOnly)
+        let pane = controller.focusedPaneId!
+        let tabId = controller.createTab(title: "Test", kind: "terminal")!
+        let spy = SurfaceContextActionDelegateSpy()
+        controller.delegate = spy
+
+        controller.requestSurfaceContextAction(.closeOthers, for: tabId, inPane: pane)
+        XCTAssertNil(spy.action)
+
+        controller.requestSurfaceContextAction(.moveToNewWorkspace, for: tabId, inPane: pane)
+        XCTAssertNil(spy.action)
+
+        controller.requestTabMove(toDestination: "workspace:abc", for: tabId, inPane: pane)
+        XCTAssertNil(spy.moveDestinationId)
+
+        controller.requestSurfaceContextAction(.markAsRead, for: tabId, inPane: pane)
+        XCTAssertEqual(spy.action, .markAsRead)
     }
 
     @MainActor

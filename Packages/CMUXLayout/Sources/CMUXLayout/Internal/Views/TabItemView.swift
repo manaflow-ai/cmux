@@ -53,6 +53,7 @@ struct SurfaceItemView: View {
     let appearance: WorkspaceLayoutConfiguration.Appearance
     let saturation: Double
     let trailingSeparatorBottomInset: CGFloat
+    let canClose: Bool
     let controlShortcutDigit: Int?
     let allowsShortcutHints: Bool
     let showsControlShortcutHint: Bool
@@ -189,7 +190,7 @@ struct SurfaceItemView: View {
         // Middle click to close (macOS convention).
         // Uses an AppKit event monitor so it doesn't interfere with left click selection or drag/reorder.
         .background(MiddleClickMonitorView(onMiddleClick: {
-            guard !tab.isPinned else { return }
+            guard canClose, !tab.isPinned else { return }
             onClose()
         }))
         .background(TabContextMenuPresenter(
@@ -402,7 +403,7 @@ struct SurfaceItemView: View {
                         .frame(width: accessorySlotSize, height: accessorySlotSize)
                         .saturation(saturation)
                 }
-            } else if isSelected || isHovered || isCloseHovered {
+            } else if canClose && (isSelected || isHovered || isCloseHovered) {
                 // Close button (always visible on active tab, shown on hover for others)
                 Button {
                     onClose()

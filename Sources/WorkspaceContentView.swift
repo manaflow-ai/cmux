@@ -640,6 +640,7 @@ private final class CanvasDragEventMonitorView: NSView {
 }
 
 private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
+    var scrollPassthroughFrames: [CGRect]
     var onPan: (CGSize) -> Void
     var onZoom: (Double, CGPoint) -> Void
     var onMagnify: (Double, CGPoint) -> Void
@@ -652,6 +653,7 @@ private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: CanvasPanEventMonitorView, context: Context) {
+        nsView.scrollPassthroughFrames = scrollPassthroughFrames
         nsView.onPan = onPan
         nsView.onZoom = onZoom
         nsView.onMagnify = onMagnify
@@ -665,6 +667,7 @@ private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
 }
 
 private final class CanvasPanEventMonitorView: NSView {
+    var scrollPassthroughFrames: [CGRect] = []
     var onPan: ((CGSize) -> Void)?
     var onZoom: ((Double, CGPoint) -> Void)?
     var onMagnify: ((Double, CGPoint) -> Void)?
@@ -751,6 +754,11 @@ private final class CanvasPanEventMonitorView: NSView {
             let isMomentum = event.momentumPhase != [] && event.momentumPhase != .mayBegin
             let didEndMomentum = event.momentumPhase == .ended || event.momentumPhase == .cancelled
             let isCommandWheel = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+            if !isCommandWheel,
+               !wheelGestureState.isConsumingCommandWheelMomentum,
+               scrollPassthroughFrames.contains(where: { $0.contains(localPoint) }) {
+                return event
+            }
 
             switch wheelGestureState.action(
                 hasCommandModifier: isCommandWheel,
@@ -2088,6 +2096,10 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 padding: canvasPadding,
                 documentOrigin: viewportOrigin
             )
+            let scrollPassthroughFrames = visibleItems.compactMap { item -> CGRect? in
+                guard renderModes[item.id] == .liveNative1x else { return nil }
+                return transform.canvasRect(forDocumentFrame: item.frame)
+            }
 
             ZStack(alignment: .topLeading) {
                 canvasGridOverlay(transform: transform, contentSize: proxy.size)
@@ -2113,6 +2125,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 canvasAlignmentGuideOverlay(activeAlignmentGuides, transform: transform)
 
                 CanvasPanEventMonitorLayer(
+                    scrollPassthroughFrames: scrollPassthroughFrames,
                     onPan: { delta in
                         controller.panCanvasViewport(
                             screenDelta: delta,
