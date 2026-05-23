@@ -72044,7 +72044,24 @@
             "state": "translated",
             "value": "글로벌 단축키"
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "الاختصار العام" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Globalna prečica" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Global genvejstast" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Globaler Hotkey" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Tecla rápida global" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Raccourci global" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Tasto rapido globale" } },
+        "km": { "stringUnit": { "state": "translated", "value": "គ្រាប់ចុចផ្លូវកាត់សកល" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Global hurtigtast" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Globalny skrót" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Tecla de atalho global" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Глобальная горячая клавиша" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ปุ่มลัดส่วนกลาง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Genel kısayol" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Глобальна гаряча клавіша" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "全局热键" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "全域熱鍵" } }
       }
     },
     "settings.section.keyboardShortcuts": {
@@ -72742,7 +72759,24 @@
             "state": "translated",
             "value": "시스템 전체 단축키 활성화"
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "تفعيل الاختصار على مستوى النظام" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Omogući sistemsku prečicu" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Slå systemdækkende genvejstast til" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Systemweiten Hotkey aktivieren" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Activar tecla rápida en todo el sistema" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Activer le raccourci système" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Abilita tasto rapido a livello di sistema" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បើកគ្រាប់ចុចផ្លូវកាត់ទូទាំងប្រព័ន្ធ" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Aktiver systemomfattende hurtigtast" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Włącz skrót systemowy" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ativar tecla de atalho em todo o sistema" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Включить системную горячую клавишу" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปิดใช้ปุ่มลัดทั้งระบบ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Sistem genelinde kısayolu etkinleştir" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Увімкнути загальносистемну гарячу клавішу" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "启用系统级热键" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "啟用全系統熱鍵" } }
       }
     },
     "settings.globalHotkey.enable.subtitleOff": {
@@ -72765,7 +72799,24 @@
             "state": "translated",
             "value": "이 옵션을 켜면 전체 화면 Spaces를 포함해 어떤 앱에서든 cmux 오버레이를 표시하거나 숨길 수 있습니다."
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "شغّل هذا الخيار لإظهار أو إخفاء تراكب cmux من أي تطبيق، بما في ذلك مساحات ملء الشاشة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Uključite ovo da prikažete ili sakrijete cmux preklop iz bilo koje aplikacije, uključujući prostore preko cijelog ekrana." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Slå dette til for at vise eller skjule en cmux-overlejring fra enhver app, også fuldskærmsområder." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Aktivieren, um ein cmux-Overlay aus jeder App ein- oder auszublenden, auch in Vollbild-Spaces." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Activa esto para mostrar u ocultar una superposición de cmux desde cualquier app, incluidos los espacios de pantalla completa." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Activez cette option pour afficher ou masquer une superposition cmux depuis n'importe quelle app, y compris les espaces plein écran." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Attivalo per mostrare o nascondere un overlay cmux da qualsiasi app, inclusi gli spazi a schermo intero." } },
+        "km": { "stringUnit": { "state": "translated", "value": "បើកជម្រើសនេះ ដើម្បីបង្ហាញ ឬលាក់ស្រទាប់ cmux ពីកម្មវិធីណាមួយ រួមទាំង Spaces ពេញអេក្រង់។" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Slå dette på for å vise eller skjule et cmux-overlegg fra hvilken som helst app, også fullskjermsområder." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Włącz, aby pokazywać lub ukrywać nakładkę cmux z dowolnej aplikacji, także w przestrzeniach pełnoekranowych." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ative isto para mostrar ou ocultar uma sobreposição do cmux a partir de qualquer app, incluindo espaços em tela cheia." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Включите, чтобы показывать или скрывать оверлей cmux из любого приложения, включая полноэкранные пространства." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปิดตัวเลือกนี้เพื่อแสดงหรือซ่อนโอเวอร์เลย์ cmux จากแอปใดก็ได้ รวมถึง Spaces แบบเต็มหน้าจอ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Tam ekran alanlar dahil herhangi bir uygulamadan cmux katmanını göstermek veya gizlemek için bunu açın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Увімкніть, щоб показувати або приховувати накладку cmux з будь-якої програми, зокрема в повноекранних просторах." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "开启后可从任何 App 显示或隐藏 cmux 覆盖层，包括全屏空间。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟後可從任何 App 顯示或隱藏 cmux 覆蓋層，包括全螢幕空間。" } }
       }
     },
     "settings.globalHotkey.enable.subtitleOn": {
@@ -72788,7 +72839,24 @@
             "state": "translated",
             "value": "어떤 앱에서든 단축키를 눌러 cmux 핫키 윈도우를 표시하거나 숨깁니다."
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "اضغط على الاختصار من أي تطبيق لإظهار أو إخفاء نافذة اختصار cmux." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Pritisnite prečicu iz bilo koje aplikacije da prikažete ili sakrijete cmux prozor prečice." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Tryk på genvejen fra enhver app for at vise eller skjule cmux-hotkeyvinduet." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Drücken Sie den Kurzbefehl aus jeder App, um das cmux-Hotkey-Fenster ein- oder auszublenden." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Pulsa el atajo desde cualquier app para mostrar u ocultar la ventana de tecla rápida de cmux." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Appuyez sur le raccourci depuis n'importe quelle app pour afficher ou masquer la fenêtre de raccourci cmux." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Premi la scorciatoia da qualsiasi app per mostrare o nascondere la finestra tasto rapido cmux." } },
+        "km": { "stringUnit": { "state": "translated", "value": "ចុចគ្រាប់ចុចផ្លូវកាត់ពីកម្មវិធីណាមួយ ដើម្បីបង្ហាញ ឬលាក់បង្អួចគ្រាប់ចុចផ្លូវកាត់ cmux។" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Trykk på snarveien fra hvilken som helst app for å vise eller skjule cmux-hurtigtastvinduet." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Naciśnij skrót w dowolnej aplikacji, aby pokazać lub ukryć okno skrótu cmux." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Pressione o atalho em qualquer app para mostrar ou ocultar a janela de tecla de atalho do cmux." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Нажмите сочетание в любом приложении, чтобы показать или скрыть окно горячей клавиши cmux." } },
+        "th": { "stringUnit": { "state": "translated", "value": "กดปุ่มลัดจากแอปใดก็ได้เพื่อแสดงหรือซ่อนหน้าต่างปุ่มลัด cmux" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux kısayol penceresini göstermek veya gizlemek için herhangi bir uygulamada kısayola basın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Натисніть комбінацію в будь-якій програмі, щоб показати або приховати вікно гарячої клавіші cmux." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在任何 App 中按下快捷键即可显示或隐藏 cmux 热键窗口。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在任何 App 中按下快捷鍵即可顯示或隱藏 cmux 熱鍵視窗。" } }
       }
     },
     "settings.globalHotkey.note": {
@@ -72811,7 +72879,24 @@
             "state": "translated",
             "value": "Command, Option 또는 Control과 다른 키를 함께 사용하세요. 이 오버레이는 전체 화면 앱 위에 표시될 수 있는 네이티브 패널을 사용합니다."
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "استخدم Command أو Option أو Control مع مفتاح آخر. يستخدم التراكب لوحة أصلية يمكن أن تظهر فوق تطبيقات ملء الشاشة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Koristite Command, Option ili Control s drugom tipkom. Preklop koristi izvorni panel koji se može pojaviti iznad aplikacija preko cijelog ekrana." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug Command, Option eller Control sammen med en anden tast. Overlejringen bruger et indbygget panel, der kan vises over fuldskærmsapps." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwenden Sie Command, Option oder Control mit einer weiteren Taste. Das Overlay nutzt ein natives Panel, das über Vollbild-Apps erscheinen kann." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Usa Command, Option o Control con otra tecla. La superposición usa un panel nativo que puede aparecer sobre apps de pantalla completa." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisez Command, Option ou Control avec une autre touche. La superposition utilise un panneau natif qui peut apparaître au-dessus des apps plein écran." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Usa Command, Option o Control con un altro tasto. L'overlay usa un pannello nativo che può apparire sopra le app a schermo intero." } },
+        "km": { "stringUnit": { "state": "translated", "value": "ប្រើ Command, Option ឬ Control ជាមួយគ្រាប់ចុចមួយទៀត។ ស្រទាប់នេះប្រើផ្ទាំងដើម ដែលអាចបង្ហាញលើកម្មវិធីពេញអេក្រង់។" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk Command, Option eller Control sammen med en annen tast. Overlegget bruker et innebygd panel som kan vises over fullskjermsapper." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użyj Command, Option lub Control z innym klawiszem. Nakładka używa natywnego panelu, który może pojawić się nad aplikacjami pełnoekranowymi." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Use Command, Option ou Control com outra tecla. A sobreposição usa um painel nativo que pode aparecer sobre apps em tela cheia." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Используйте Command, Option или Control с другой клавишей. Оверлей использует нативную панель, которая может появляться поверх полноэкранных приложений." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ใช้ Command, Option หรือ Control ร่วมกับปุ่มอื่น โอเวอร์เลย์นี้ใช้แผงแบบเนทีฟที่แสดงเหนือแอปเต็มหน้าจอได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Command, Option veya Control tuşunu başka bir tuşla kullanın. Katman, tam ekran uygulamaların üzerinde görünebilen yerel bir panel kullanır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використовуйте Command, Option або Control з іншою клавішею. Накладка використовує нативну панель, яка може з'являтися поверх повноекранних програм." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将 Command、Option 或 Control 与另一个按键组合使用。该覆盖层使用原生面板，可显示在全屏 App 上方。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "將 Command、Option 或 Control 與另一個按鍵組合使用。此覆蓋層使用原生面板，可顯示在全螢幕 App 上方。" } }
       }
     },
     "settings.globalHotkey.shortcut": {
@@ -72834,7 +72919,24 @@
             "state": "translated",
             "value": "핫키 윈도우 표시/숨기기"
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "إظهار/إخفاء نافذة الاختصار" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prikaži/sakrij prozor prečice" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Vis/skjul hotkeyvindue" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Hotkey-Fenster ein-/ausblenden" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Mostrar/ocultar ventana de tecla rápida" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Afficher/masquer la fenêtre de raccourci" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Mostra/nascondi finestra tasto rapido" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បង្ហាញ/លាក់បង្អួចគ្រាប់ចុចផ្លូវកាត់" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Vis/skjul hurtigtastvindu" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pokaż/ukryj okno skrótu" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Mostrar/ocultar janela de tecla de atalho" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Показать/скрыть окно горячей клавиши" } },
+        "th": { "stringUnit": { "state": "translated", "value": "แสดง/ซ่อนหน้าต่างปุ่มลัด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kısayol penceresini göster/gizle" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Показати/приховати вікно гарячої клавіші" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "显示/隐藏热键窗口" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "顯示/隱藏熱鍵視窗" } }
       }
     },
     "settings.shortcuts.chords": {
@@ -74276,6 +74378,12 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "system shortcut global keyboard show hide bring forward 키보드 단축키 핫키 명령 키 기록기 외관 테마 색상 색 구성표 라이트 다크 시스템 모드 전역 앞으로"
+                }
+            },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window ប្រព័ន្ធ ផ្លូវកាត់ សកល ក្តារចុច បង្ហាញ លាក់ ស្រទាប់ ពេញអេក្រង់ បង្អួច"
                 }
             },
             "nb": {
@@ -82743,6 +82851,12 @@
                     "value": "global hotkey enable system wide show hide overlay hotkey window full screen 키보드 단축키 핫키 명령 키 기록기 외관 테마 색상 색 구성표 라이트 다크 시스템 모드 비밀번호 비밀 토큰 자격 증명 접근 허용 비활성화 활성화 권한 안전하지 않음 전역 글로벌 오버레이 전체 화면"
                 }
             },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen ក្តារចុច ផ្លូវកាត់ ហត់ឃី បង្ហាញ លាក់ ស្រទាប់ បង្អួច ពេញអេក្រង់ បើក អនុញ្ញាត ប្រព័ន្ធ"
+                }
+            },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
@@ -82860,6 +82974,12 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "global hotkey overlay shortcut recorder key command option control 자동화 api cli 제어 소켓 에이전트 훅 포트 환경 키보드 단축키 핫키 명령 키 기록기 전역 글로벌 오버레이"
+                }
+            },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "global hotkey overlay shortcut recorder key command option control សកល ហត់ឃី ស្រទាប់ ផ្លូវកាត់ កត់ត្រា គ្រាប់ចុច command option control ក្តារចុច"
                 }
             },
             "nb": {

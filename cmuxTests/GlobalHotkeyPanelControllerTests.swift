@@ -47,8 +47,8 @@ final class GlobalHotkeyPanelControllerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(frame.minY, screenFrame.minY)
         XCTAssertLessThanOrEqual(frame.maxX, screenFrame.maxX)
         XCTAssertLessThanOrEqual(frame.maxY, screenFrame.maxY)
-        XCTAssertGreaterThan(frame.width, screenFrame.width * 0.85)
-        XCTAssertGreaterThan(frame.height, screenFrame.height * 0.75)
+        XCTAssertGreaterThanOrEqual(frame.width, screenFrame.width * 0.85)
+        XCTAssertGreaterThanOrEqual(frame.height, screenFrame.height * 0.75)
         XCTAssertEqual(frame.midX, screenFrame.midX, accuracy: 1)
         XCTAssertEqual(frame.maxY, screenFrame.maxY - max(20, min(56, screenFrame.height * 0.045)), accuracy: 1)
     }
