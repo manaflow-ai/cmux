@@ -5893,6 +5893,12 @@ final class WorkspaceRemoteSessionController {
             )
         }
     }
+
+    func debugPollRemotePortsForTesting(timeout: TimeInterval = 2.0) throws {
+        try runOnControllerQueue(timeout: timeout) {
+            self.pollRemotePortsLocked()
+        }
+    }
 #endif
 
     private func beginConnectionAttemptLocked() {
@@ -8204,6 +8210,7 @@ final class WorkspaceRemoteSessionController {
     private func pollRemotePortsLocked() {
         guard !isStopping else { return }
         guard daemonReady else { return }
+        guard !workspaceSchedulersSuspended else { return }
         if !remotePortScanTTYNames.isEmpty {
             guard shouldUseTTYFallbackRemotePortPollingLocked() else {
                 stopRemotePortPollingLocked()

@@ -440,6 +440,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(state.remotePortPollTimerExists)
         XCTAssertTrue(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
 
+        try controller.debugPollRemotePortsForTesting()
+        XCTAssertEqual(currentProcessRunCount(), 1)
+
         controller.setWorkspaceSchedulersEnabled(false)
         state = try controller.debugWorkspaceSchedulerStateForTesting()
         XCTAssertTrue(state.workspaceSchedulersSuspended)
