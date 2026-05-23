@@ -9590,6 +9590,11 @@ struct VerticalTabsSidebar: View {
         }
     }
 
+    private func resetWorkspaceRowVisibilityState() {
+        visibleWorkspaceRowIds = []
+        pendingSelectedWorkspaceScrollId = nil
+    }
+
     private func shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
         from oldWorkspaceIds: [UUID],
         to newWorkspaceIds: [UUID]
@@ -9653,6 +9658,10 @@ struct VerticalTabsSidebar: View {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+        let selectedSidebarProviderId = CmuxExtensionSidebarSelection.descriptor(
+            for: selectedExtensionSidebarProviderId
+        ).id
+        let usesDefaultWorkspaceSidebar = selectedSidebarProviderId == CmuxExtensionSidebarProviderID.defaultWorkspaces
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
             workspaceCount: workspaceCount,
@@ -9665,11 +9674,11 @@ struct VerticalTabsSidebar: View {
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
             workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: usesDefaultWorkspaceSidebar ? visibleWorkspaceRowIds : []
         )
 
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId).id == CmuxExtensionSidebarProviderID.defaultWorkspaces {
+            if usesDefaultWorkspaceSidebar {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -9841,6 +9850,9 @@ struct VerticalTabsSidebar: View {
                 .modifier(ClearScrollBackground())
                 .onAppear {
                     requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
+                }
+                .onDisappear {
+                    resetWorkspaceRowVisibilityState()
                 }
                 .onChange(of: tabManager.selectedTabId) { _, _ in
                     requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
