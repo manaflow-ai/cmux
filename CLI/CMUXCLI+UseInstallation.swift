@@ -45,7 +45,7 @@ extension CMUXCLI {
                         shouldFinalizeBackup = false
                         let message = String(
                             localized: "cli.use.error.replaceRestoreFailed",
-                            defaultValue: "Failed to replace extension at \(installURL.path): \(installError.localizedDescription). Previous installation remains at \(backupURL.path) because restore failed: \(error.localizedDescription)"
+                            defaultValue: "Failed to update the extension. The previous installation could not be restored automatically."
                         )
                         throw CLIError(message: message)
                     }
