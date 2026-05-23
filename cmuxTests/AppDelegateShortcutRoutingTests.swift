@@ -6708,11 +6708,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         item.keyEquivalentModifierMask = [.command]
         item.target = probe
         menu.addItem(item)
+        let returnItem = NSMenuItem(title: "Run", action: #selector(MenuActionProbe.perform(_:)), keyEquivalent: "\r")
+        returnItem.keyEquivalentModifierMask = [.command]
+        returnItem.target = probe
+        menu.addItem(returnItem)
         NSApp.mainMenu = menu
         defer { NSApp.mainMenu = originalMainMenu }
 
-        guard let commandF = makeKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3, windowNumber: harness.window.windowNumber) else {
-            XCTFail("Failed to construct Cmd+F event")
+        guard let commandF = makeKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3, windowNumber: harness.window.windowNumber),
+              let commandReturn = makeKeyDownEvent(key: "\r", modifiers: [.command], keyCode: 36, windowNumber: harness.window.windowNumber) else {
+            XCTFail("Failed to construct browser focus mode command-equivalent events")
             return
         }
 
@@ -6723,6 +6728,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
         XCTAssertTrue(harness.webView.performKeyEquivalent(with: commandF))
         XCTAssertEqual(probe.callCount, 0, "Focus mode must not replay unhandled page shortcuts into the app menu")
+        XCTAssertTrue(harness.webView.performKeyEquivalent(with: commandReturn))
+        XCTAssertEqual(probe.callCount, 0, "Focus mode must consume unhandled Cmd+Return instead of falling through to the app menu")
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
     }
 

@@ -611,13 +611,6 @@ final class CmuxWebView: WKWebView {
 #else
         func finish(_ result: Bool) -> Bool { result }
 #endif
-        if event.keyCode == 36 || event.keyCode == 76 {
-            if AppDelegate.shared?.isBrowserFocusModeActive(for: self) == true {
-                return finish(false)
-            }
-            return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
-        }
-
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
@@ -629,7 +622,9 @@ final class CmuxWebView: WKWebView {
             case .inactive:
                 break
             case .forwardToWebView:
-                if normalizedFlags.isEmpty && event.keyCode == 53 {
+                let isReturnKey = event.keyCode == 36 || event.keyCode == 76
+                if (normalizedFlags.isEmpty && event.keyCode == 53) ||
+                    (isReturnKey && !normalizedFlags.contains(.command)) {
                     super.keyDown(with: event)
                     return finish(true)
                 }
@@ -640,6 +635,10 @@ final class CmuxWebView: WKWebView {
             case .consume:
                 return finish(true)
             }
+        }
+
+        if event.keyCode == 36 || event.keyCode == 76 {
+            return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
         }
 
         // Menu/app shortcut routing is only needed for Command equivalents
