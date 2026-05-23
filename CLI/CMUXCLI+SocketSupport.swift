@@ -67,7 +67,6 @@ extension CMUXCLI {
 
         try process.run()
         process.waitUntilExit()
-        try? stderrHandle?.close()
         guard strictOpenExit, process.terminationStatus != 0 else {
             return
         }
