@@ -15,6 +15,7 @@ final class MarkdownViewerAssets {
     private let shellTemplate: String
     private let localizedStringsJSON: String
 
+    private lazy var extensionAssets: MarkdownViewerExtensionHTML = MarkdownViewerExtensionAssetLoader.load()
     private var lazyCache: [String: String] = [:]
 
     private init() {
@@ -29,7 +30,6 @@ final class MarkdownViewerAssets {
 
     func shellHTML(isDark: Bool) -> String {
         _ = isDark
-        let extensionAssets = MarkdownViewerExtensionAssetLoader.load()
         return shellTemplate
             .replacingOccurrences(of: "{{githubMarkdownCSS}}", with: githubMarkdownCSS)
             .replacingOccurrences(of: "{{highlightLightCSS}}", with: highlightLightCSS)
