@@ -23069,8 +23069,12 @@ struct CMUXCLI {
            !environment.isEmpty {
             params["environment"] = environment
         }
-        _ = try? client.sendV2(method: "surface.resume.set", params: params)
-        return true
+        do {
+            _ = try client.sendV2(method: "surface.resume.set", params: params)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func clearAgentSurfaceResumeBinding(

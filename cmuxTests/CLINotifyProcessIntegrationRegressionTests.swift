@@ -8239,8 +8239,29 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let binding = context.state.setResumeBinding(
+                    params,
+                    expectedCheckpointId: params["expected_checkpoint_id"] as? String,
+                    expectedSource: params["expected_source"] as? String
+                )
+                let responseBinding: Any = binding.map { $0 as Any } ?? NSNull()
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": responseBinding])
+            case "surface.resume.get":
+                let responseBinding: Any = context.state.currentResumeBinding().map { $0 as Any } ?? NSNull()
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": responseBinding])
             case "surface.resume.clear":
-                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let cleared = context.state.clearResumeBinding(
+                    expectedCheckpointId: params["checkpoint_id"] as? String,
+                    expectedSource: params["source"] as? String
+                )
+                let responseBinding: Any = cleared.binding.map { $0 as Any } ?? NSNull()
+                return self.v2Response(id: id, ok: true, result: [
+                    "cleared": cleared.cleared,
+                    "resume_binding": responseBinding,
+                ])
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
