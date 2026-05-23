@@ -768,14 +768,7 @@ struct BrowserPanelView: View {
             }
         }
         .overlay {
-            if isBrowserExtensionsPopoverPresented {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        isBrowserExtensionsPopoverPresented = false
-                    }
-                    .zIndex(1090)
-            }
+            browserExtensionsOutsideDismissLayer
         }
         .overlay(alignment: .topTrailing) {
             if isBrowserExtensionsPopoverPresented {
@@ -1312,6 +1305,18 @@ struct BrowserPanelView: View {
     private func noteBrowserExtensionPanelActivationIfNeeded() {
         guard isFocused, isVisibleInUI, isCurrentPaneOwner else { return }
         BrowserWebExtensionSupport.notePanelFocusChanged(panel: panel, isFocused: true)
+    }
+
+    @ViewBuilder
+    private var browserExtensionsOutsideDismissLayer: some View {
+        if isBrowserExtensionsPopoverPresented {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isBrowserExtensionsPopoverPresented = false
+                }
+                .zIndex(1090)
+        }
     }
 
     private var browserExtensionsInlinePopover: some View {
