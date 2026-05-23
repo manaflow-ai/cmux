@@ -5,14 +5,8 @@ import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import settingsSchema from "../../../../data/cmux.schema.json";
-import { shortcutCategories, type LocalizedText } from "../../../../data/cmux-shortcuts";
+import { localizedShortcutText, shortcutCategories } from "../../../../data/cmux-shortcuts";
 import { DocsHeading } from "../../components/docs-heading";
-
-const localeAliases: Record<string, string> = {
-  nb: "no",
-  "zh-Hans": "zh-CN",
-  "zh-Hant": "zh-TW",
-};
 
 type SchemaProperty = {
   title?: string;
@@ -111,11 +105,6 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     description: t("metaDescription"),
     alternates: buildAlternates(locale, "/docs/configuration"),
   };
-}
-
-function localizedText(text: LocalizedText, locale: string) {
-  const normalizedLocale = localeAliases[locale] ?? locale;
-  return text[normalizedLocale] ?? text[locale.split("-")[0]] ?? text.en;
 }
 
 function shortcutComboToConfig(combo: string[]) {
@@ -405,10 +394,10 @@ working-directory = ~/code`}</CodeBlock>
                     <code className="text-[12px] font-medium">{shortcut.id}</code>
                   </div>
                   <p className="text-sm text-foreground/90">
-                    {localizedText(shortcut.description, locale)}
+                    {localizedShortcutText(shortcut.description, locale)}
                     {shortcut.note && (
                       <span className="ml-2 text-xs text-muted">
-                        {localizedText(shortcut.note, locale)}
+                        {localizedShortcutText(shortcut.note, locale)}
                       </span>
                     )}
                   </p>

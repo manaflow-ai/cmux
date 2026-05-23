@@ -4,6 +4,17 @@ export type LocalizedText = {
   [locale: string]: string | undefined;
 };
 
+const localeAliases: Record<string, string> = {
+  nb: "no",
+  "zh-Hans": "zh-CN",
+  "zh-Hant": "zh-TW",
+};
+
+export function localizedShortcutText(text: LocalizedText, locale: string) {
+  const normalizedLocale = localeAliases[locale] ?? locale;
+  return text[normalizedLocale] ?? text[locale.split("-")[0]] ?? text.en;
+}
+
 export type Shortcut = {
   id: string;
   combos: string[][];
