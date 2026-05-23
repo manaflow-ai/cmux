@@ -11596,10 +11596,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        if !(normalizedFlags.isEmpty && event.keyCode == 53) {
-            focusedBrowserPanelForShortcutEvent(event)?.clearBrowserFocusModeEnterArm(reason: "shortcutMonitor.nonEscape")
-        }
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let commandPaletteShortcutWindow = shouldHandleCommandPaletteShortcutEvent(
             event,
