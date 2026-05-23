@@ -404,6 +404,9 @@ private struct GhosttySettingsConfigFileCollector {
                   var value = entry.value else {
                 continue
             }
+            if !entry.valueWasQuoted {
+                value = strippingInlineComment(from: value)
+            }
 
             if value.isEmpty {
                 urls.removeAll()
@@ -424,6 +427,30 @@ private struct GhosttySettingsConfigFileCollector {
             urls.append(includeURL.standardizedFileURL)
         }
         return urls
+    }
+
+    private static func strippingInlineComment(from value: String) -> String {
+        var result = ""
+        var isEscaped = false
+
+        for character in value {
+            if isEscaped {
+                result.append(character)
+                isEscaped = false
+                continue
+            }
+            if character == "\\" {
+                result.append(character)
+                isEscaped = true
+                continue
+            }
+            if character == "#" {
+                break
+            }
+            result.append(character)
+        }
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func parsedGhosttyConfigEntry(

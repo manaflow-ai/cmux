@@ -463,7 +463,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             let standaloneConfigURL = ghosttyDirectory.appendingPathComponent("config", isDirectory: false)
             try """
             font-size = 14
-            config-file = includes/font.conf
+            config-file = includes/font.conf # shared font config
             config-file = ?missing.conf
             """.write(to: standaloneConfigURL, atomically: true, encoding: .utf8)
 
