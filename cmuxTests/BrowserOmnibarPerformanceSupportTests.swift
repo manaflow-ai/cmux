@@ -71,6 +71,41 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         XCTAssertEqual(refreshCount, 0)
     }
 
+    @MainActor
+    func testSuggestionRefreshSchedulerInvalidatesQueuedRefreshOnCancel() async {
+        let clock = ManualOmnibarSuggestionRefreshClock()
+        let scheduler = OmnibarSuggestionRefreshScheduler(
+            debounceDelay: .milliseconds(40),
+            clock: clock
+        )
+        let staleRefresh = expectation(description: "queued refresh emitted")
+        var shouldProcessQueuedRefresh: Bool?
+
+        scheduler.scheduleRefresh()
+        await Task.yield()
+        await clock.advance()
+        await Task.yield()
+        await Task.yield()
+
+        scheduler.cancelPendingRefresh()
+
+        let listener = Task { @MainActor in
+            var iterator = scheduler.refreshStream.makeAsyncIterator()
+            guard let generation = await iterator.next() else { return }
+            shouldProcessQueuedRefresh = scheduler.shouldProcessRefresh(generation)
+            staleRefresh.fulfill()
+        }
+
+        await fulfillment(of: [staleRefresh], timeout: 1)
+        listener.cancel()
+
+        XCTAssertEqual(
+            shouldProcessQueuedRefresh,
+            false,
+            "A refresh already queued before cancellation should not run after Escape, hide, or focus loss."
+        )
+    }
+
     func testOmnibarBufferChangeClearsInlineCompletionBeforeDebouncedRefresh() {
         var state = OmnibarState(
             isFocused: true,

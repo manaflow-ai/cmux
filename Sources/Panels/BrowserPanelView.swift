@@ -2109,7 +2109,8 @@ struct BrowserPanelView: View {
         guard omnibarSuggestionRefreshConsumerTask == nil else { return }
         let scheduler = omnibarSuggestionRefreshScheduler
         omnibarSuggestionRefreshConsumerTask = Task { @MainActor in
-            for await _ in scheduler.refreshStream {
+            for await generation in scheduler.refreshStream {
+                guard scheduler.shouldProcessRefresh(generation) else { continue }
                 refreshSuggestions()
             }
         }
