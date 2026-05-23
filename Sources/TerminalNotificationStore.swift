@@ -1318,7 +1318,7 @@ final class TerminalNotificationStore: ObservableObject {
             if workspace?.panels[surfaceId] != nil {
                 return surfaceId
             }
-            return workspace?.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+            return workspace?.panelIdFromSurfaceId(SurfaceID(uuid: surfaceId))
         }
 
         return NotificationPolicyContext(

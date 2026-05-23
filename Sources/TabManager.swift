@@ -6968,7 +6968,7 @@ class TabManager: ObservableObject {
         if workspace.panels[surfaceOrPanelId] != nil {
             return surfaceOrPanelId
         }
-        return workspace.panelIdFromSurfaceId(TabID(uuid: surfaceOrPanelId))
+        return workspace.panelIdFromSurfaceId(SurfaceID(uuid: surfaceOrPanelId))
     }
 
     func selectNextTab() {
