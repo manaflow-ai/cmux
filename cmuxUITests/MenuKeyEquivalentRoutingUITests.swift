@@ -209,7 +209,7 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         )
     }
 
-    func testBrowserFocusModeRoutesPageShortcutsAndDoubleEscapeToggles() {
+    func testBrowserFocusModeRoutesPageShortcutsAndDoubleEscapeExits() {
         let app = launchWithBrowserSetup(browserURL: makeBrowserFocusModePageURL())
 
         XCTAssertTrue(
@@ -224,24 +224,13 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
             focusModeButton.waitForExistence(timeout: 5.0),
             "Expected browser focus-mode toolbar button to exist"
         )
-
-        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-        XCTAssertTrue(
-            waitForGotoSplitMatch(timeout: 5.0) { data in
-                data["browserPageTitle"] == "focus-escape-1" &&
-                    data["browserFocusModeActive"] == "false"
-            },
-            "Expected first Escape to reach the page before entering focus mode. data=\(loadGotoSplit() ?? [:])"
-        )
-
-        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        focusModeButton.click()
 
         XCTAssertTrue(
             waitForGotoSplitMatch(timeout: 5.0) { data in
-                data["browserPageTitle"] == "focus-escape-1" &&
-                    data["browserFocusModeActive"] == "true"
+                data["browserFocusModeActive"] == "true"
             },
-            "Expected second Escape to enter browser focus mode without reaching the page again. data=\(loadGotoSplit() ?? [:])"
+            "Expected toolbar button to enter browser focus mode. data=\(loadGotoSplit() ?? [:])"
         )
 
         app.typeKey("f", modifierFlags: [.command])
@@ -271,7 +260,7 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         XCTAssertTrue(
             waitForGotoSplitMatch(timeout: 5.0) { data in
-                data["browserPageTitle"] == "focus-escape-2" &&
+                data["browserPageTitle"] == "focus-escape-1" &&
                     data["browserFocusModeActive"] == "true" &&
                     data["browserFocusModeExitArmed"] == "true"
             },
@@ -281,7 +270,7 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         XCTAssertTrue(
             waitForGotoSplitMatch(timeout: 5.0) { data in
-                data["browserPageTitle"] == "focus-escape-2" &&
+                data["browserPageTitle"] == "focus-escape-1" &&
                     data["browserFocusModeActive"] == "false" &&
                     data["browserFocusModeExitArmed"] == "false"
             },
