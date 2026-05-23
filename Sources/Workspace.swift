@@ -8413,6 +8413,7 @@ private struct SidebarPanePanelIdsFingerprintEntry: Equatable {
 private struct SidebarPanelOrderingFingerprint: Equatable {
     let panelIds: [UUID]
     let panePanelIds: [SidebarPanePanelIdsFingerprintEntry]
+    let treeOrderedPaneIds: [String]
     let bonsplitTreeRevision: UInt64
 }
 
@@ -8685,14 +8686,14 @@ enum SidebarBranchOrdering {
     }
 
     static func orderedPanelIds(
-        tree: ExternalTreeNode,
+        orderedPaneIds: [String],
         paneTabs: [String: [UUID]],
         fallbackPanelIds: [UUID]
     ) -> [UUID] {
         var ordered: [UUID] = []
         var seen: Set<UUID> = []
 
-        for paneId in orderedPaneIds(tree: tree) {
+        for paneId in orderedPaneIds {
             for panelId in paneTabs[paneId] ?? [] {
                 if seen.insert(panelId).inserted {
                     ordered.append(panelId)
@@ -8707,6 +8708,18 @@ enum SidebarBranchOrdering {
         }
 
         return ordered
+    }
+
+    static func orderedPanelIds(
+        tree: ExternalTreeNode,
+        paneTabs: [String: [UUID]],
+        fallbackPanelIds: [UUID]
+    ) -> [UUID] {
+        orderedPanelIds(
+            orderedPaneIds: orderedPaneIds(tree: tree),
+            paneTabs: paneTabs,
+            fallbackPanelIds: fallbackPanelIds
+        )
     }
 
     static func orderedUniqueBranches(
@@ -9150,6 +9163,11 @@ final class Workspace: Identifiable, ObservableObject {
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private var bonsplitTreeRevision: UInt64 = 0
+    private var cachedSidebarTreeOrderedPaneIds: (
+        bonsplitTreeRevision: UInt64,
+        allPaneIds: [String],
+        paneIds: [String]
+    )?
     private var cachedSidebarOrderedPanelIds: (fingerprint: SidebarPanelOrderingFingerprint, ids: [UUID])?
     private var cachedSidebarHomeDirectoryForCanonicalization: (
         fingerprint: SidebarHomeDirectoryFingerprint,
@@ -11040,6 +11058,22 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private func sidebarTreeOrderedPaneIds(allPaneIds: [String]) -> [String] {
+        if let cached = cachedSidebarTreeOrderedPaneIds,
+           cached.bonsplitTreeRevision == bonsplitTreeRevision,
+           cached.allPaneIds == allPaneIds {
+            return cached.paneIds
+        }
+
+        let paneIds = SidebarBranchOrdering.orderedPaneIds(tree: bonsplitController.treeSnapshot())
+        cachedSidebarTreeOrderedPaneIds = (
+            bonsplitTreeRevision: bonsplitTreeRevision,
+            allPaneIds: allPaneIds,
+            paneIds: paneIds
+        )
+        return paneIds
+    }
+
     private func sidebarPanelDirectoryFingerprintEntries(
         _ directories: [UUID: String]
     ) -> [SidebarPanelDirectoryFingerprintEntry] {
@@ -11061,9 +11095,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarOrderedPanelIds() -> [UUID] {
         let panePanelIds = sidebarPanePanelIds()
+        let allPaneIds = panePanelIds.map(\.paneId)
+        let treeOrderedPaneIds = sidebarTreeOrderedPaneIds(allPaneIds: allPaneIds)
         let fingerprint = SidebarPanelOrderingFingerprint(
             panelIds: sortedPanelIds(),
             panePanelIds: panePanelIds,
+            treeOrderedPaneIds: treeOrderedPaneIds,
             bonsplitTreeRevision: bonsplitTreeRevision
         )
         if let cached = cachedSidebarOrderedPanelIds, cached.fingerprint == fingerprint {
@@ -11074,9 +11111,8 @@ final class Workspace: Identifiable, ObservableObject {
             uniqueKeysWithValues: panePanelIds.map { ($0.paneId, $0.panelIds) }
         )
         let fallbackPanelIds = fingerprint.panelIds
-        let tree = bonsplitController.treeSnapshot()
         let ids = SidebarBranchOrdering.orderedPanelIds(
-            tree: tree,
+            orderedPaneIds: treeOrderedPaneIds,
             paneTabs: paneTabs,
             fallbackPanelIds: fallbackPanelIds
         )
