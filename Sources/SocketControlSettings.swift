@@ -437,6 +437,11 @@ struct SocketControlSettings {
             return fallback
         }
 
+        if shouldReserveStableSocketPath(bundleIdentifier: bundleIdentifier, isDebugBuild: isDebugBuild),
+           isStableReleaseSocketPath(override, currentUserID: currentUserID) {
+            return fallback
+        }
+
         if isTaggedDevBuild(bundleIdentifier: bundleIdentifier),
            !isTruthy(environment[allowSocketPathOverrideKey]),
            !pathsMatch(override, fallback) {
@@ -454,8 +459,143 @@ struct SocketControlSettings {
         return fallback
     }
 
-    private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
-        (lhs as NSString).standardizingPath == (rhs as NSString).standardizingPath
+    static func initialSocketPathBeforeListenerStart(
+        preferredPath: String,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        isDebugBuild: Bool = SocketControlSettings.isDebugBuild,
+        currentUserID: uid_t = getuid(),
+        probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry,
+        stableDefaultSocketCanBeReclaimed: (String) -> Bool = { _ in true }
+    ) -> String {
+        guard !isDebugBuild,
+              normalizedBundleIdentifier(bundleIdentifier) == "com.cmuxterm.app",
+              isStableReleaseSocketPath(preferredPath, currentUserID: currentUserID) else {
+            return preferredPath
+        }
+
+        let userScopedPath = userScopedStableSocketPath(currentUserID: currentUserID)
+        if pathsMatch(preferredPath, userScopedPath) {
+            return preferredPath
+        }
+
+        switch probeStableDefaultPathEntry(preferredPath) {
+        case .missing:
+            return stableDefaultSocketCanBeReclaimed(preferredPath)
+                ? preferredPath
+                : userScopedPath
+        case .socket(let ownerUserID) where ownerUserID == currentUserID:
+            return userScopedPath
+        case .socket, .other, .inaccessible:
+            return preferredPath
+        }
+    }
+
+    static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsForms = socketPathComparisonForms(lhs)
+        let rhsForms = socketPathComparisonForms(rhs)
+        return lhsForms.contains { lhsForm in
+            rhsForms.contains { rhsForm in
+                socketPathStringsMatch(lhsForm, rhsForm)
+            }
+        }
+    }
+
+    private static func socketPathStringsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        lhs == rhs || lhs.caseInsensitiveCompare(rhs) == .orderedSame
+    }
+
+    private static func socketPathComparisonForms(_ path: String) -> [String] {
+        let standardizedPath = (path as NSString).standardizingPath
+        return dedupe([
+            standardizedPath,
+            canonicalSocketPath(path),
+            privateTmpAlias(for: standardizedPath),
+        ].compactMap(\.self))
+    }
+
+    private static func privateTmpAlias(for path: String) -> String? {
+        if path == "/private/tmp" {
+            return "/tmp"
+        }
+        if path.hasPrefix("/private/tmp/") {
+            return "/tmp/" + path.dropFirst("/private/tmp/".count)
+        }
+        if path == "/tmp" {
+            return "/private/tmp"
+        }
+        if path.hasPrefix("/tmp/") {
+            return "/private/tmp/" + path.dropFirst("/tmp/".count)
+        }
+        return nil
+    }
+
+    private static func dedupe(_ paths: [String]) -> [String] {
+        var seen: Set<String> = []
+        var ordered: [String] = []
+        ordered.reserveCapacity(paths.count)
+        for path in paths where seen.insert(path).inserted {
+            ordered.append(path)
+        }
+        return ordered
+    }
+
+    private static func canonicalSocketPath(_ path: String, visitedSymlinks: Set<String> = []) -> String? {
+        let standardizedPath = (path as NSString).standardizingPath
+        let url = URL(fileURLWithPath: standardizedPath)
+        let resolvedParent = (
+            (url.deletingLastPathComponent().path as NSString).resolvingSymlinksInPath as NSString
+        ).standardizingPath
+        let resolvedPath = (resolvedParent as NSString).appendingPathComponent(url.lastPathComponent)
+        if isSymbolicLink(at: standardizedPath),
+           let targetPath = symbolicLinkTarget(at: standardizedPath, resolvedParent: resolvedParent) {
+            guard !visitedSymlinks.contains(resolvedPath), visitedSymlinks.count < 64 else {
+                return nil
+            }
+            return canonicalSocketPath(
+                targetPath,
+                visitedSymlinks: visitedSymlinks.union([resolvedPath])
+            )
+        }
+        return resolvedPath
+    }
+
+    private static func isSymbolicLink(at path: String) -> Bool {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return false }
+        return (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFLNK)
+    }
+
+    private static func symbolicLinkTarget(at path: String, resolvedParent: String) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        let length = readlink(path, &buffer, buffer.count - 1)
+        guard length > 0 else { return nil }
+        buffer[Int(length)] = 0
+        let target = String(cString: buffer)
+        if target.hasPrefix("/") {
+            return target
+        }
+        return (resolvedParent as NSString).appendingPathComponent(target)
+    }
+
+    private static func shouldReserveStableSocketPath(bundleIdentifier: String?, isDebugBuild: Bool) -> Bool {
+        if isDebugBuild { return true }
+        return normalizedBundleIdentifier(bundleIdentifier) != "com.cmuxterm.app"
+    }
+
+    private static func isStableReleaseSocketPath(_ path: String, currentUserID: uid_t) -> Bool {
+        guard let candidatePath = canonicalSocketPath(path) else {
+            return true
+        }
+        return [
+            stableDefaultSocketPath,
+            userScopedStableSocketPath(currentUserID: currentUserID),
+            legacyStableDefaultSocketPath,
+            legacyUserScopedStableSocketPath(currentUserID: currentUserID),
+        ].contains { stablePath in
+            canonicalSocketPath(stablePath)
+                .map { socketPathStringsMatch(candidatePath, $0) }
+                ?? pathsMatch(path, stablePath)
+        }
     }
 
     static func defaultSocketPath(
@@ -481,6 +621,10 @@ struct SocketControlSettings {
         stableSocketDirectoryURL()?
             .appendingPathComponent("cmux-\(currentUserID).sock", isDirectory: false)
             .path ?? "/tmp/cmux-\(currentUserID).sock"
+    }
+
+    static func legacyUserScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
+        "/tmp/cmux-\(currentUserID).sock"
     }
 
     static func resolvedStableDefaultSocketPath(

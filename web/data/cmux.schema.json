@@ -319,6 +319,12 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "copyOnSelect": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
+          "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,

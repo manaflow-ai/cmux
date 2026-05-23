@@ -69,6 +69,7 @@ extension CmuxSettingsFileStore {
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
         "terminal.showScrollBar",
+        "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
         "terminal.textBoxMaxLines",
         "terminal.resumeCommands",

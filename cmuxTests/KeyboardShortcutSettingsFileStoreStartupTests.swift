@@ -977,11 +977,51 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             _ = KeyboardShortcutSettingsFileStore(
                 primaryPath: settingsFileURL.path,
                 fallbackPath: nil,
+                additionalFallbackPaths: [],
                 startWatching: false
             )
 
             XCTAssertEqual(defaults.object(forKey: TerminalTextBoxInputSettings.maxLinesKey) as? Int, 14)
             XCTAssertEqual(TerminalTextBoxInputSettings.maxLines(defaults: defaults), 14)
+        }
+    }
+
+    func testSettingsFileStoreAppliesTerminalCopyOnSelectSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = TerminalCopyOnSelectSettings.copyOnSelectKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "copyOnSelect": true
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
+            XCTAssertEqual(
+                TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+                "copy-on-select = clipboard"
+            )
         }
     }
 

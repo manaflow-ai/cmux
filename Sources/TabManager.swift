@@ -5425,6 +5425,12 @@ class TabManager: ObservableObject {
             object: self,
             userInfo: [WorkspaceOrderChangeNotificationKey.movedWorkspaceIds: movedWorkspaceIds]
         )
+        CmuxEventBus.shared.publishWorkspaceReordered(
+            workspaceIds: tabs.map(\.id),
+            movedWorkspaceIds: movedWorkspaceIds,
+            pinnedWorkspaceIds: tabs.filter(\.isPinned).map(\.id),
+            source: "workspace.lifecycle"
+        )
     }
 
     @discardableResult
@@ -5561,6 +5567,7 @@ class TabManager: ObservableObject {
         guard tab.isPinned != pinned else { return }
         tab.isPinned = pinned
         reorderTabForPinnedState(tab)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [tab.id])
     }
 
     private func reorderTabForPinnedState(_ tab: Workspace) {
@@ -9066,6 +9073,7 @@ extension TabManager {
                 hasher.combine(panelId)
                 hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))
                 hasher.combine(workspace.restoredUnreadPanelIds.contains(panelId))
+                hasher.combine(workspace.restoredUnreadIndicatorContributesToWorkspace(panelId: panelId))
                 hasher.combine(
                     notificationStore?.hasVisibleNotificationIndicator(
                         forTabId: workspace.id,
