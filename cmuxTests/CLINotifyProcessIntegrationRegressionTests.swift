@@ -2644,8 +2644,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Disabling subagent notification suppression should allow the child Stop notification, saw \(childStopCommands)"
         )
         XCTAssertTrue(
-            childStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
-            "Disabling subagent notification suppression should allow visible status updates, saw \(childStopCommands)"
+            childStopCommands.contains { $0.hasPrefix("set_agent_pid codex.\(childSessionId) ") },
+            "Disabling subagent notification suppression should allow visible child PID updates, saw \(childStopCommands)"
         )
 
         let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
