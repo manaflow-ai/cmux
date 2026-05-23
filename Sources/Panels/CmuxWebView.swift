@@ -635,7 +635,7 @@ final class CmuxWebView: WKWebView {
                 let result = super.performKeyEquivalent(with: event)
                 // While focus mode is active, the page gets the shortcut once and cmux/main-menu
                 // fallback must not see unhandled command equivalents.
-                return finish(result || flags.contains(.command) || (flags.isEmpty && event.keyCode == 53))
+                return finish(result || flags.contains(.command))
             case .consume:
                 return finish(true)
             }

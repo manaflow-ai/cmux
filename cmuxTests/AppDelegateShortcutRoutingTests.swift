@@ -6551,6 +6551,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let activeFirstEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.04),
               let activeRepeatEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, isARepeat: true, timestamp: baseTimestamp + 0.045),
               let activeSecondEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.05),
+              let capsEnterFirstEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [.capsLock], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.06),
+              let capsEnterSecondEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [.capsLock], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.07),
+              let capsExitFirstEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [.capsLock], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.08),
+              let capsExitSecondEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [.capsLock], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.09),
               let commandS = makeKeyDownEvent(key: "s", modifiers: [.command], keyCode: 1, windowNumber: harness.window.windowNumber) else {
             XCTFail("Failed to construct browser focus mode key events")
             return
@@ -6631,6 +6635,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(
             appDelegate.handleBrowserFocusModeKeyEvent(activeSecondEscape, webView: harness.webView, source: "unit.secondEscape"),
+            .consume
+        )
+        XCTAssertFalse(harness.panel.isBrowserFocusModeActive)
+        XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
+
+        XCTAssertEqual(
+            appDelegate.handleBrowserFocusModeKeyEvent(capsEnterFirstEscape, webView: harness.webView, source: "unit.capsEnterFirstEscape"),
+            .forwardToWebView
+        )
+        XCTAssertTrue(harness.panel.isBrowserFocusModeEnterArmed)
+        XCTAssertEqual(
+            appDelegate.handleBrowserFocusModeKeyEvent(capsEnterSecondEscape, webView: harness.webView, source: "unit.capsEnterSecondEscape"),
+            .consume
+        )
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+        XCTAssertFalse(harness.panel.isBrowserFocusModeEnterArmed)
+
+        XCTAssertEqual(
+            appDelegate.handleBrowserFocusModeKeyEvent(capsExitFirstEscape, webView: harness.webView, source: "unit.capsExitFirstEscape"),
+            .forwardToWebView
+        )
+        XCTAssertTrue(harness.panel.isBrowserFocusModeExitArmed)
+        XCTAssertEqual(
+            appDelegate.handleBrowserFocusModeKeyEvent(capsExitSecondEscape, webView: harness.webView, source: "unit.capsExitSecondEscape"),
             .consume
         )
         XCTAssertFalse(harness.panel.isBrowserFocusModeActive)
