@@ -6102,6 +6102,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !GeminiIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_GEMINI_HOOKS_DISABLED", "1")
         }
+        if !AntigravityIntegrationSettings.hooksEnabled() {
+            setManagedEnvironmentValue("CMUX_ANTIGRAVITY_HOOKS_DISABLED", "1")
+        }
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]

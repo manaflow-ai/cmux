@@ -684,6 +684,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: GeminiIntegrationSettings.hooksEnabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "antigravityIntegration",
+                settingsKey: "automation.antigravityIntegration",
+                title: {
+                    String(localized: "settings.automation.antigravity", defaultValue: "Antigravity CLI Integration")
+                },
+                sectionTitle: automation,
+                keywords: ["automation.antigravityIntegration", "antigravity", "hooks", "agent", "integration", "agy"],
+                defaultValue: AntigravityIntegrationSettings.defaultHooksEnabled,
+                defaultsKey: AntigravityIntegrationSettings.hooksEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "browserSearchSuggestions",
                 settingsKey: "browser.showSearchSuggestions",
                 title: {
