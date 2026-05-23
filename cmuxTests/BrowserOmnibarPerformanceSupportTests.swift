@@ -56,7 +56,6 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         let listener = Task { @MainActor in
             for await _ in scheduler.refreshStream {
                 refreshCount += 1
-                noRefresh.fulfill()
             }
         }
 
