@@ -11152,28 +11152,28 @@ struct VerticalTabsSidebar: View {
         .frame(minHeight: minHeight, alignment: .top)
     }
 
-    private func workspaceRowSnapshots(
+    private func workspaceRowSeeds(
         renderContext: WorkspaceListRenderContext
-    ) -> [SidebarWorkspaceRowSnapshot] {
+    ) -> [SidebarWorkspaceRowSeed] {
         renderContext.tabs.enumerated().map { index, tab in
-            workspaceRowSnapshot(
-                for: tab,
+            SidebarWorkspaceRowSeed(
+                workspaceId: tab.id,
                 index: index,
-                renderContext: renderContext
+                isPinned: tab.isPinned
             )
         }
     }
 
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
-        let rowSnapshots = workspaceRowSnapshots(renderContext: renderContext)
-        // Keep row observers and drag handlers scoped to the visible lazy
-        // subtree so large workspaces lists scale with mounted rows.
+        let rowSeeds = workspaceRowSeeds(renderContext: renderContext)
+        // Keep row snapshot materialization, observers, and drag handlers scoped
+        // to mounted lazy rows so large workspace lists scale with visible rows.
         // Drag updates stay out of the lazy layout contract: row metrics are
         // fixed, indicators render as overlays, and drop insertion planning uses
         // global tab indices instead of the current mounted child count.
         let lazyRows = LazyVStack(spacing: tabRowSpacing) {
-            ForEach(rowSnapshots, id: \.workspaceId) { snapshot in
-                workspaceRow(snapshot)
+            ForEach(rowSeeds, id: \.workspaceId) { seed in
+                workspaceRow(seed, renderContext: renderContext)
             }
         }
 
@@ -11223,12 +11223,12 @@ struct VerticalTabsSidebar: View {
                     updateAutoscroll: {
                         dragAutoScrollController.updateFromDragLocation()
                     },
-                    targets: rowSnapshots.compactMap { snapshot in
-                        guard let anchor = anchors[snapshot.workspaceId] else { return nil }
+                    targets: rowSeeds.compactMap { seed in
+                        guard let anchor = anchors[seed.workspaceId] else { return nil }
                         return SidebarDropPlanner.WorkspaceDropTarget(
-                            workspaceId: snapshot.workspaceId,
-                            index: snapshot.index,
-                            isPinned: snapshot.workspaceSnapshot.isPinned,
+                            workspaceId: seed.workspaceId,
+                            index: seed.index,
+                            isPinned: seed.isPinned,
                             frame: proxy[anchor]
                         )
                     },
@@ -11240,10 +11240,11 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceRowSnapshot(
-        for tab: Workspace,
-        index: Int,
+        for seed: SidebarWorkspaceRowSeed,
         renderContext: WorkspaceListRenderContext
-    ) -> SidebarWorkspaceRowSnapshot {
+    ) -> SidebarWorkspaceRowSnapshot? {
+        guard let tab = workspace(for: seed.workspaceId) else { return nil }
+        let index = seed.index
         let _ = workspaceRowSnapshotRefreshTokensById[tab.id]
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
         let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
@@ -11343,16 +11344,22 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    private func workspaceRow(_ rowSnapshot: SidebarWorkspaceRowSnapshot) -> some View {
-        return TabItemView(
-            snapshot: rowSnapshot,
-            actions: workspaceRowActions
-        )
-        .equatable()
-        .id(rowSnapshot.workspaceId)
-        .accessibilityIdentifier("sidebarWorkspace.\(rowSnapshot.workspaceId.uuidString)")
-        .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
-            [rowSnapshot.workspaceId: anchor]
+    @ViewBuilder
+    private func workspaceRow(
+        _ seed: SidebarWorkspaceRowSeed,
+        renderContext: WorkspaceListRenderContext
+    ) -> some View {
+        if let rowSnapshot = workspaceRowSnapshot(for: seed, renderContext: renderContext) {
+            TabItemView(
+                snapshot: rowSnapshot,
+                actions: workspaceRowActions
+            )
+            .equatable()
+            .id(rowSnapshot.workspaceId)
+            .accessibilityIdentifier("sidebarWorkspace.\(rowSnapshot.workspaceId.uuidString)")
+            .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
+                [rowSnapshot.workspaceId: anchor]
+            }
         }
     }
 
@@ -14009,6 +14016,12 @@ private struct SidebarWindowMoveTargetSnapshot: Identifiable, Equatable {
     let isCurrentWindow: Bool
 
     var id: UUID { windowId }
+}
+
+private struct SidebarWorkspaceRowSeed: Equatable {
+    let workspaceId: UUID
+    let index: Int
+    let isPinned: Bool
 }
 
 private struct SidebarWorkspaceRowSnapshot: Equatable {
