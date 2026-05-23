@@ -11,12 +11,19 @@ struct CMUXAgentTurnDiffBaselineRecord: Codable {
     var baseCommit: String
     var untrackedPaths: [String]?
     var untrackedPathHashes: [String: String]?
+    var untrackedSnapshotId: String?
     var capturedAt: TimeInterval
 }
 
 struct CMUXAgentTurnDiffBaselineStore: Codable {
     var version: Int = 1
     var records: [CMUXAgentTurnDiffBaselineRecord] = []
+}
+
+private enum CMUXAgentTurnUntrackedSnapshotLimits {
+    static let maxFiles = 64
+    static let maxFileBytes: UInt64 = 1 * 1024 * 1024
+    static let maxTotalBytes: UInt64 = 4 * 1024 * 1024
 }
 
 enum CMUXAgentTurnDiffBaselineFile {
@@ -1131,16 +1138,18 @@ extension CMUXCLI {
                   let surfaceId = normalizedDiffSourceValue(context.surfaceId) else {
                 throw CLIError(message: "cmux diff --last-turn requires a workspace and surface context. Run it from a cmux terminal or pass --workspace and --surface.")
             }
+            let env = ProcessInfo.processInfo.environment
+            let baselineStorePath = CMUXAgentTurnDiffBaselineFile.path(env: env)
             let record = try latestAgentTurnDiffBaseline(
                 repoRoot: repoRoot,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                env: ProcessInfo.processInfo.environment
+                env: env
             )
             _ = try gitStdout(["cat-file", "-e", "\(record.baseCommit)^{tree}"], in: repoRoot)
             patch = try joinedGitDiffPatches([
                 gitStdout(gitDiffPatchArguments([record.baseCommit, "--"]), in: repoRoot),
-                gitUntrackedPatchSinceBaseline(record: record, in: repoRoot)
+                gitUntrackedPatchSinceBaseline(record: record, in: repoRoot, storePath: baselineStorePath)
             ])
             sourceLabel = "git last-turn \(workspaceId) \(surfaceId)"
         }
@@ -1382,7 +1391,8 @@ extension CMUXCLI {
 
     private func gitUntrackedPatchSinceBaseline(
         record: CMUXAgentTurnDiffBaselineRecord,
-        in repoRoot: String
+        in repoRoot: String,
+        storePath: String
     ) throws -> String {
         let baselinePaths = Set(record.untrackedPaths ?? [])
         let baselineHashes = record.untrackedPathHashes ?? [:]
@@ -1395,26 +1405,43 @@ extension CMUXCLI {
                 continue
             }
             guard let baselineHash = baselineHashes[path] else {
-                patches.append(try gitAddedUntrackedPatch(path: path, in: repoRoot))
                 continue
             }
             guard try gitUntrackedPathHash(path, in: repoRoot) != baselineHash else {
                 continue
             }
-            if let patch = try gitChangedUntrackedPatch(path: path, baselineHash: baselineHash, in: repoRoot) {
+            if let baselineFileURL = agentTurnDiffBaselineSnapshotFileURL(
+                path: path,
+                record: record,
+                storePath: storePath
+            ), let patch = try gitChangedUntrackedPatch(path: path, baselineFileURL: baselineFileURL, in: repoRoot) {
                 patches.append(patch)
-            } else {
-                patches.append(try gitAddedUntrackedPatch(path: path, in: repoRoot))
+            } else if let patch = try gitChangedUntrackedPatchFromGitObject(
+                path: path,
+                baselineHash: baselineHash,
+                in: repoRoot
+            ) {
+                patches.append(patch)
             }
         }
         for path in baselinePaths.subtracting(currentPathSet).sorted() {
             guard !repoPathExists(path, in: repoRoot) else {
                 continue
             }
-            guard let baselineHash = baselineHashes[path],
-                  let patch = try gitDeletedUntrackedPatch(path: path, baselineHash: baselineHash, in: repoRoot) else {
+            guard let baselineHash = baselineHashes[path] else {
                 continue
             }
+            let patch: String?
+            if let baselineFileURL = agentTurnDiffBaselineSnapshotFileURL(
+                path: path,
+                record: record,
+                storePath: storePath
+            ) {
+                patch = try gitDeletedUntrackedPatch(path: path, baselineFileURL: baselineFileURL)
+            } else {
+                patch = try gitDeletedUntrackedPatchFromGitObject(path: path, baselineHash: baselineHash, in: repoRoot)
+            }
+            guard let patch else { continue }
             patches.append(patch)
         }
         return joinedGitDiffPatches(patches)
@@ -1429,6 +1456,51 @@ extension CMUXCLI {
     }
 
     private func gitChangedUntrackedPatch(
+        path: String,
+        baselineFileURL: URL,
+        in repoRoot: String
+    ) throws -> String? {
+        guard let tempPathURL = safeTemporaryGitPathURL(relativePath: path) else {
+            return nil
+        }
+        guard FileManager.default.fileExists(atPath: baselineFileURL.path) else {
+            return nil
+        }
+
+        let tempRoot = tempPathURL.root
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let baselineFile = tempRoot
+            .appendingPathComponent("baseline", isDirectory: true)
+            .appendingPathComponent(path, isDirectory: false)
+        let currentFile = tempRoot
+            .appendingPathComponent("current", isDirectory: true)
+            .appendingPathComponent(path, isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: baselineFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: currentFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: baselineFileURL, to: baselineFile)
+        guard let currentURL = safeRepoPathURL(relativePath: path, repoRoot: repoRoot) else {
+            return nil
+        }
+        try FileManager.default.copyItem(
+            at: currentURL,
+            to: currentFile
+        )
+
+        let patch = try gitStdout(
+            gitDiffPatchArguments(["--no-index", "--", "baseline/\(path)", "current/\(path)"]),
+            in: tempRoot.path,
+            allowedExitStatuses: [0, 1]
+        )
+        return rewriteChangedUntrackedPatch(patch, path: path)
+    }
+
+    private func gitChangedUntrackedPatchFromGitObject(
         path: String,
         baselineHash: String,
         in repoRoot: String
@@ -1480,6 +1552,31 @@ extension CMUXCLI {
     }
 
     private func gitDeletedUntrackedPatch(
+        path: String,
+        baselineFileURL: URL
+    ) throws -> String? {
+        guard let tempPathURL = safeTemporaryGitPathURL(relativePath: path) else {
+            return nil
+        }
+        guard FileManager.default.fileExists(atPath: baselineFileURL.path) else {
+            return nil
+        }
+
+        let tempRoot = tempPathURL.root
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        try FileManager.default.createDirectory(
+            at: tempPathURL.file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: baselineFileURL, to: tempPathURL.file)
+        return try gitStdout(
+            gitDiffPatchArguments(["--no-index", "--", path, "/dev/null"]),
+            in: tempRoot.path,
+            allowedExitStatuses: [0, 1]
+        )
+    }
+
+    private func gitDeletedUntrackedPatchFromGitObject(
         path: String,
         baselineHash: String,
         in repoRoot: String
@@ -1569,23 +1666,105 @@ extension CMUXCLI {
         return components
     }
 
-    private func gitUntrackedPathHash(_ path: String, in repoRoot: String, writeObject: Bool = false) throws -> String {
-        var arguments = ["hash-object"]
-        if writeObject {
-            arguments.append("-w")
-        }
-        arguments.append(contentsOf: ["--no-filters", "--", path])
-        return try gitSingleLine(arguments, in: repoRoot)
+    private func agentTurnDiffBaselineSnapshotRootURL(storePath: String) -> URL {
+        URL(fileURLWithPath: NSString(string: storePath).expandingTildeInPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("agent-turn-diff-baseline-snapshots", isDirectory: true)
     }
 
-    private func gitUntrackedPathHashes(paths: [String], in repoRoot: String) throws -> [String: String] {
-        var hashes: [String: String] = [:]
-        for path in paths {
-            let hash = try gitUntrackedPathHash(path, in: repoRoot, writeObject: true)
-            _ = try gitStdout(["update-ref", agentTurnDiffBaselineUntrackedRefName(for: hash), hash], in: repoRoot)
-            hashes[path] = hash
+    private func agentTurnDiffBaselineSnapshotDirectoryURL(
+        snapshotId: String,
+        storePath: String
+    ) -> URL? {
+        guard snapshotId.range(of: #"^[A-Fa-f0-9-]{36}$"#, options: .regularExpression) != nil else {
+            return nil
         }
-        return hashes
+        return agentTurnDiffBaselineSnapshotRootURL(storePath: storePath)
+            .appendingPathComponent(snapshotId, isDirectory: true)
+    }
+
+    private func agentTurnDiffBaselineSnapshotFileURL(
+        path: String,
+        record: CMUXAgentTurnDiffBaselineRecord,
+        storePath: String
+    ) -> URL? {
+        guard let snapshotId = record.untrackedSnapshotId,
+              let snapshotDirectory = agentTurnDiffBaselineSnapshotDirectoryURL(
+                snapshotId: snapshotId,
+                storePath: storePath
+              ),
+              let components = safeRelativePathComponents(path) else {
+            return nil
+        }
+        let filesRoot = snapshotDirectory.appendingPathComponent("files", isDirectory: true)
+        let file = components.reduce(filesRoot) { partial, component in
+            partial.appendingPathComponent(component, isDirectory: false)
+        }
+        let standardizedRoot = filesRoot.standardizedFileURL
+        let standardizedFile = file.standardizedFileURL
+        guard standardizedFile.path.hasPrefix(standardizedRoot.path + "/") else {
+            return nil
+        }
+        return standardizedFile
+    }
+
+    private func gitUntrackedPathHash(_ path: String, in repoRoot: String) throws -> String {
+        try gitSingleLine(["hash-object", "--no-filters", "--", path], in: repoRoot)
+    }
+
+    private func gitUntrackedPathHashes(
+        paths: [String],
+        in repoRoot: String,
+        storePath: String
+    ) throws -> (snapshotId: String?, hashes: [String: String]) {
+        guard !paths.isEmpty else {
+            return (nil, [:])
+        }
+        let snapshotId = UUID().uuidString
+        guard let snapshotDirectory = agentTurnDiffBaselineSnapshotDirectoryURL(
+            snapshotId: snapshotId,
+            storePath: storePath
+        ) else {
+            return (nil, [:])
+        }
+        let filesRoot = snapshotDirectory.appendingPathComponent("files", isDirectory: true)
+        var hashes: [String: String] = [:]
+        var capturedBytes: UInt64 = 0
+        for path in paths {
+            guard hashes.count < CMUXAgentTurnUntrackedSnapshotLimits.maxFiles,
+                  let sourceURL = safeRepoPathURL(relativePath: path, repoRoot: repoRoot),
+                  let components = safeRelativePathComponents(path) else {
+                continue
+            }
+            let attributes = try FileManager.default.attributesOfItem(atPath: sourceURL.path)
+            guard attributes[.type] as? FileAttributeType == .typeRegular else {
+                continue
+            }
+            let fileSize = UInt64((attributes[.size] as? NSNumber)?.int64Value ?? 0)
+            guard fileSize <= CMUXAgentTurnUntrackedSnapshotLimits.maxFileBytes,
+                  capturedBytes + fileSize <= CMUXAgentTurnUntrackedSnapshotLimits.maxTotalBytes else {
+                continue
+            }
+            let destinationURL = components.reduce(filesRoot) { partial, component in
+                partial.appendingPathComponent(component, isDirectory: false)
+            }
+            try FileManager.default.createDirectory(
+                at: destinationURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            let hash = try gitUntrackedPathHash(path, in: repoRoot)
+            hashes[path] = hash
+            capturedBytes += fileSize
+        }
+        if hashes.isEmpty {
+            try? FileManager.default.removeItem(at: snapshotDirectory)
+            return (nil, [:])
+        }
+        return (snapshotId, hashes)
     }
 
     private func joinedGitDiffPatches(_ patches: [String]) -> String {
@@ -1611,7 +1790,12 @@ extension CMUXCLI {
         let repoRoot = try gitRepoRoot(startingAt: cwd)
         let baseCommit = try agentTurnDiffBaselineCommit(in: repoRoot)
         let untrackedPaths = try gitUntrackedPaths(in: repoRoot)
-        let untrackedPathHashes = try gitUntrackedPathHashes(paths: untrackedPaths, in: repoRoot)
+        let storePath = CMUXAgentTurnDiffBaselineFile.path(env: env)
+        let untrackedSnapshot = try gitUntrackedPathHashes(
+            paths: untrackedPaths,
+            in: repoRoot,
+            storePath: storePath
+        )
         let record = CMUXAgentTurnDiffBaselineRecord(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
@@ -1621,33 +1805,49 @@ extension CMUXCLI {
             repoRoot: repoRoot,
             baseCommit: baseCommit,
             untrackedPaths: untrackedPaths.isEmpty ? nil : untrackedPaths,
-            untrackedPathHashes: untrackedPathHashes.isEmpty ? nil : untrackedPathHashes,
+            untrackedPathHashes: untrackedSnapshot.hashes.isEmpty ? nil : untrackedSnapshot.hashes,
+            untrackedSnapshotId: untrackedSnapshot.snapshotId,
             capturedAt: Date().timeIntervalSince1970
         )
         var removedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
         var retainedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
-        try updateAgentTurnDiffBaselineStore(path: CMUXAgentTurnDiffBaselineFile.path(env: env)) { store in
-            let previousRecords = store.records
-            store.records.removeAll { existing in
-                guard standardizedDiffSourcePath(existing.repoRoot) == repoRoot,
-                      diffScopeIdentifierEquals(existing.workspaceId, workspaceId),
-                      diffScopeIdentifierEquals(existing.surfaceId, surfaceId),
-                      existing.sessionId == record.sessionId else {
-                    return false
+        do {
+            try updateAgentTurnDiffBaselineStore(path: storePath) { store in
+                let previousRecords = store.records
+                store.records.removeAll { existing in
+                    guard standardizedDiffSourcePath(existing.repoRoot) == repoRoot,
+                          diffScopeIdentifierEquals(existing.workspaceId, workspaceId),
+                          diffScopeIdentifierEquals(existing.surfaceId, surfaceId),
+                          existing.sessionId == record.sessionId else {
+                        return false
+                    }
+                    if let turnId = record.turnId {
+                        return existing.turnId == turnId
+                    }
+                    return existing.turnId == nil
                 }
-                if let turnId = record.turnId {
-                    return existing.turnId == turnId
+                store.records.append(record)
+                pruneAgentTurnDiffBaselineStore(&store)
+                retainedRecords = store.records
+                removedRecords = previousRecords.filter { previous in
+                    !store.records.contains { agentTurnDiffBaselineRecordEquals($0, previous) }
                 }
-                return existing.turnId == nil
             }
-            store.records.append(record)
-            pruneAgentTurnDiffBaselineStore(&store)
-            retainedRecords = store.records
-            removedRecords = previousRecords.filter { previous in
-                !store.records.contains { agentTurnDiffBaselineRecordEquals($0, previous) }
+        } catch {
+            if let snapshotId = untrackedSnapshot.snapshotId,
+               let snapshotDirectory = agentTurnDiffBaselineSnapshotDirectoryURL(
+                snapshotId: snapshotId,
+                storePath: storePath
+               ) {
+                try? FileManager.default.removeItem(at: snapshotDirectory)
             }
+            throw error
         }
-        pruneAgentTurnDiffBaselineRefs(removedRecords: removedRecords, retainedRecords: retainedRecords)
+        pruneAgentTurnDiffBaselineArtifacts(
+            storePath: storePath,
+            removedRecords: removedRecords,
+            retainedRecords: retainedRecords
+        )
     }
 
     private func agentTurnDiffBaselineCommit(in repoRoot: String) throws -> String {
@@ -1740,6 +1940,18 @@ extension CMUXCLI {
         }
     }
 
+    private func pruneAgentTurnDiffBaselineArtifacts(
+        storePath: String,
+        removedRecords: [CMUXAgentTurnDiffBaselineRecord],
+        retainedRecords: [CMUXAgentTurnDiffBaselineRecord]
+    ) {
+        pruneAgentTurnDiffBaselineRefs(
+            removedRecords: removedRecords,
+            retainedRecords: retainedRecords
+        )
+        pruneAgentTurnDiffBaselineSnapshots(storePath: storePath, retainedRecords: retainedRecords)
+    }
+
     private func pruneAgentTurnDiffBaselineRefs(
         removedRecords: [CMUXAgentTurnDiffBaselineRecord],
         retainedRecords: [CMUXAgentTurnDiffBaselineRecord]
@@ -1781,6 +1993,27 @@ extension CMUXCLI {
         }
     }
 
+    private func pruneAgentTurnDiffBaselineSnapshots(
+        storePath: String,
+        retainedRecords: [CMUXAgentTurnDiffBaselineRecord]
+    ) {
+        let rootURL = agentTurnDiffBaselineSnapshotRootURL(storePath: storePath)
+        let retainedSnapshotIds = Set(retainedRecords.compactMap(\.untrackedSnapshotId))
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+        for entry in entries {
+            guard !retainedSnapshotIds.contains(entry.lastPathComponent) else {
+                continue
+            }
+            try? FileManager.default.removeItem(at: entry)
+        }
+    }
+
     private func agentTurnDiffBaselineRecordEquals(
         _ lhs: CMUXAgentTurnDiffBaselineRecord,
         _ rhs: CMUXAgentTurnDiffBaselineRecord
@@ -1794,6 +2027,7 @@ extension CMUXCLI {
             && lhs.baseCommit == rhs.baseCommit
             && lhs.untrackedPaths == rhs.untrackedPaths
             && lhs.untrackedPathHashes == rhs.untrackedPathHashes
+            && lhs.untrackedSnapshotId == rhs.untrackedSnapshotId
             && lhs.capturedAt == rhs.capturedAt
     }
 

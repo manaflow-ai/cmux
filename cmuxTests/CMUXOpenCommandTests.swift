@@ -899,6 +899,94 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(wrongSurfaceResult.stderr.contains("No last-turn diff baseline recorded for this workspace and surface yet"), wrongSurfaceResult.stderr)
     }
 
+    func testAgentTurnDiffBaselineStoresUntrackedSnapshotsOutsideGit() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let stateURL = rootURL.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "tracked\n".write(to: repoURL.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
+        try runGit(["add", "tracked.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+        try "before\n".write(to: repoURL.appendingPathComponent("secret.txt"), atomically: true, encoding: .utf8)
+
+        let workspaceId = UUID().uuidString.lowercased()
+        let surfaceId = UUID().uuidString.lowercased()
+        let socketPath = makeSocketPath("hook-diff")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "surface.list" {
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": surfaceId,
+                                "ref": "surface:1",
+                                "index": 1,
+                                "focused": true
+                            ] as [String: Any]
+                        ]
+                    ]
+                )
+            }
+            return Self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["hooks", "codex", "prompt-submit", "--workspace", workspaceId, "--surface", surfaceId],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "PWD": repoURL.path
+            ],
+            currentDirectoryURL: repoURL
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let untrackedRefs = try runGitStdout(
+            ["for-each-ref", "--format=%(refname)", "refs/cmux/last-turn/untracked"],
+            in: repoURL
+        )
+        XCTAssertEqual(untrackedRefs.trimmingCharacters(in: .whitespacesAndNewlines), "")
+
+        let storeURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.json")
+        let storeData = try Data(contentsOf: storeURL)
+        let store = try JSONSerialization.jsonObject(with: storeData, options: []) as? [String: Any]
+        let records = try XCTUnwrap(store?["records"] as? [[String: Any]])
+        let record = try XCTUnwrap(records.first)
+        let snapshotId = try XCTUnwrap(record["untrackedSnapshotId"] as? String)
+        let hashes = try XCTUnwrap(record["untrackedPathHashes"] as? [String: String])
+        XCTAssertNotNil(hashes["secret.txt"])
+        let snapshotFile = stateURL
+            .appendingPathComponent("agent-turn-diff-baseline-snapshots", isDirectory: true)
+            .appendingPathComponent(snapshotId, isDirectory: true)
+            .appendingPathComponent("files", isDirectory: true)
+            .appendingPathComponent("secret.txt", isDirectory: false)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: snapshotFile.path))
+    }
+
     func testDiffCommandGitSourcesDrainLargeDiffOutput() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
@@ -1502,12 +1590,26 @@ final class CMUXOpenCommandTests: XCTestCase {
         if let untrackedPaths {
             record["untrackedPaths"] = untrackedPaths
             var untrackedPathHashes: [String: String] = [:]
+            let snapshotId = UUID().uuidString
+            let snapshotRoot = stateDirectoryURL
+                .appendingPathComponent("agent-turn-diff-baseline-snapshots", isDirectory: true)
+                .appendingPathComponent(snapshotId, isDirectory: true)
+                .appendingPathComponent("files", isDirectory: true)
             for path in untrackedPaths {
-                let hash = try runGitStdout(["hash-object", "-w", "--no-filters", "--", path], in: repoURL)
-                try runGit(["update-ref", "refs/cmux/last-turn/untracked/\(hash)", hash], in: repoURL)
+                let hash = try runGitStdout(["hash-object", "--no-filters", "--", path], in: repoURL)
+                let snapshotURL = snapshotRoot.appendingPathComponent(path, isDirectory: false)
+                try FileManager.default.createDirectory(
+                    at: snapshotURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try FileManager.default.copyItem(
+                    at: repoURL.appendingPathComponent(path, isDirectory: false),
+                    to: snapshotURL
+                )
                 untrackedPathHashes[path] = hash
             }
             record["untrackedPathHashes"] = untrackedPathHashes
+            record["untrackedSnapshotId"] = snapshotId
         }
         let payload: [String: Any] = [
             "version": 1,
