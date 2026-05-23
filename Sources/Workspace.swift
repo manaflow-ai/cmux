@@ -8498,8 +8498,6 @@ private struct SidebarPanePanelIdsFingerprintEntry: Equatable {
 private struct SidebarPanelOrderingFingerprint: Equatable {
     let panelIds: [UUID]
     let panePanelIds: [SidebarPanePanelIdsFingerprintEntry]
-    let treeOrderedPaneIds: [String]
-    let bonsplitTreeRevision: UInt64
 }
 
 private struct SidebarPanelDirectoryFingerprintEntry: Equatable {
@@ -9268,15 +9266,6 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
-    // Bumped for explicit split-tree topology callbacks. Cache correctness also keys on
-    // Bonsplit's current pane-id order so tab-only mutations and future pane-order changes
-    // cannot reuse stale tree traversal order.
-    private var bonsplitTreeRevision: UInt64 = 0
-    private var cachedSidebarTreeOrderedPaneIds: (
-        bonsplitTreeRevision: UInt64,
-        allPaneIds: [String],
-        paneIds: [String]
-    )?
     private var cachedSidebarOrderedPanelIds: (fingerprint: SidebarPanelOrderingFingerprint, ids: [UUID])?
     private var cachedSidebarHomeDirectoryForCanonicalization: (
         fingerprint: SidebarHomeDirectoryFingerprint,
@@ -11185,10 +11174,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func bumpBonsplitTreeRevision() {
-        bonsplitTreeRevision &+= 1
-    }
-
     private func sortedPanelIds() -> [UUID] {
         panels.keys.sorted { $0.uuidString < $1.uuidString }
     }
@@ -11203,22 +11188,6 @@ final class Workspace: Identifiable, ObservableObject {
                 panelIds: panelIds
             )
         }
-    }
-
-    private func sidebarTreeOrderedPaneIds(allPaneIds: [String]) -> [String] {
-        if let cached = cachedSidebarTreeOrderedPaneIds,
-           cached.bonsplitTreeRevision == bonsplitTreeRevision,
-           cached.allPaneIds == allPaneIds {
-            return cached.paneIds
-        }
-
-        let paneIds = SidebarBranchOrdering.orderedPaneIds(tree: bonsplitController.treeSnapshot())
-        cachedSidebarTreeOrderedPaneIds = (
-            bonsplitTreeRevision: bonsplitTreeRevision,
-            allPaneIds: allPaneIds,
-            paneIds: paneIds
-        )
-        return paneIds
     }
 
     private func sidebarPanelDirectoryFingerprintEntries(
@@ -11242,13 +11211,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarOrderedPanelIds() -> [UUID] {
         let panePanelIds = sidebarPanePanelIds()
-        let allPaneIds = panePanelIds.map(\.paneId)
-        let treeOrderedPaneIds = sidebarTreeOrderedPaneIds(allPaneIds: allPaneIds)
         let fingerprint = SidebarPanelOrderingFingerprint(
             panelIds: sortedPanelIds(),
-            panePanelIds: panePanelIds,
-            treeOrderedPaneIds: treeOrderedPaneIds,
-            bonsplitTreeRevision: bonsplitTreeRevision
+            panePanelIds: panePanelIds
         )
         if let cached = cachedSidebarOrderedPanelIds, cached.fingerprint == fingerprint {
             return cached.ids
@@ -11259,7 +11224,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let fallbackPanelIds = fingerprint.panelIds
         let ids = SidebarBranchOrdering.orderedPanelIds(
-            orderedPaneIds: treeOrderedPaneIds,
+            orderedPaneIds: panePanelIds.map(\.paneId),
             paneTabs: paneTabs,
             fallbackPanelIds: fallbackPanelIds
         )
@@ -16659,7 +16624,6 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
-        bumpBonsplitTreeRevision()
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
@@ -16718,7 +16682,6 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
-        bumpBonsplitTreeRevision()
 #if DEBUG
         let panelKindForTab: (TabID) -> String = { tabId in
             guard let panelId = self.panelIdFromSurfaceId(tabId),
