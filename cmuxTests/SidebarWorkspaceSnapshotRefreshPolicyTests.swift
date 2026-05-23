@@ -380,6 +380,31 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         )
     }
 
+    func testSwiftUIDisappearDuringAppKitTrackingKeepsHoverSuppressedUntilTrackingEnds() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.contextMenuTrackingDidBegin()
+        state.setPointerHovering(true)
+        state.contextMenuDidDisappear()
+
+        XCTAssertFalse(
+            state.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                shortcutHintModeActive: false
+            ),
+            "SwiftUI context-menu disappearance must not drain deferred hover while AppKit still reports active menu tracking."
+        )
+
+        state.contextMenuTrackingDidEnd()
+
+        XCTAssertTrue(
+            state.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                shortcutHintModeActive: false
+            )
+        )
+    }
+
     func testCoordinatorPreservesHoverExitWhileMenuTrackingSuppressesCloseButton() {
         var state = SidebarWorkspaceRowInteractionState()
         let binding = Binding<SidebarWorkspaceRowInteractionState>(

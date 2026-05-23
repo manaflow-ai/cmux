@@ -13257,6 +13257,7 @@ struct SidebarWorkspaceSnapshotBuilder {
     }
 }
 
+@MainActor
 private final class SidebarTabItemContextMenuState: ObservableObject {
     var presentationFreezeActive = false
     var hasDeferredWorkspaceObservationInvalidation = false

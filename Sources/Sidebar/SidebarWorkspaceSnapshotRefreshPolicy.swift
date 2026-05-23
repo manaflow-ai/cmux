@@ -113,9 +113,8 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
     }
 
     mutating func contextMenuDidDisappear() {
-        if contextMenuLifecycle != .appKitTracking {
-            contextMenuLifecycle = .inactive
-        }
+        guard contextMenuLifecycle != .appKitTracking else { return }
+        contextMenuLifecycle = .inactive
         contextMenuTrackingSuppressesCloseButton = false
         applyDeferredPointerHovering()
     }
