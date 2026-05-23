@@ -15918,13 +15918,20 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
             dropIndicator = nil
             dragAutoScrollController.stop()
         }
-        guard let draggedTabId,
-              let insertionPosition = insertionPosition(draggedWorkspaceId: draggedTabId) else {
+        guard let draggedTabId else {
+            return false
+        }
+        let resolvedDropIndicator = plannedDropIndicator(for: info)
+        guard let insertionPosition = insertionPosition(
+            draggedWorkspaceId: draggedTabId,
+            indicator: resolvedDropIndicator
+        ) else {
             return false
         }
         guard let move = move(
             draggedWorkspaceId: draggedTabId,
-            insertionPosition: insertionPosition
+            insertionPosition: insertionPosition,
+            indicator: resolvedDropIndicator
         ) else {
             return false
         }
@@ -15932,8 +15939,14 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
     }
 
     private func updateDropIndicator(for info: DropInfo) {
+        let nextIndicator = plannedDropIndicator(for: info)
+        guard dropIndicator != nextIndicator else { return }
+        dropIndicator = nextIndicator
+    }
+
+    private func plannedDropIndicator(for info: DropInfo) -> SidebarDropIndicator? {
         let workspaceIds = orderedRows.map(\.workspaceId)
-        let nextIndicator = SidebarDropPlanner.indicator(
+        return SidebarDropPlanner.indicator(
             draggedTabId: draggedTabId,
             targetTabId: targetWorkspaceId,
             tabIds: workspaceIds,
@@ -15947,13 +15960,11 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
             targetHeight: targetRowHeight,
             orderedRows: orderedRows
         )
-        guard dropIndicator != nextIndicator else { return }
-        dropIndicator = nextIndicator
     }
 
-    private func insertionPosition(draggedWorkspaceId: UUID) -> Int? {
+    private func insertionPosition(draggedWorkspaceId: UUID, indicator: SidebarDropIndicator?) -> Int? {
         let workspaceIds = orderedRows.map(\.workspaceId)
-        if let indicator = dropIndicator {
+        if let indicator {
             if let indicatorWorkspaceId = indicator.tabId {
                 guard let indicatorIndex = workspaceIds.firstIndex(of: indicatorWorkspaceId) else { return nil }
                 return indicator.edge == .bottom ? indicatorIndex + 1 : indicatorIndex
@@ -15970,20 +15981,21 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
 
     private func move(
         draggedWorkspaceId: UUID,
-        insertionPosition: Int
+        insertionPosition: Int,
+        indicator: SidebarDropIndicator?
     ) -> CmuxExtensionSidebarWorkspaceMove? {
         ExtensionSidebarBrowserStackDropPlanner.move(
             draggedWorkspaceId: draggedWorkspaceId,
             insertionPosition: insertionPosition,
             orderedRows: orderedRows,
-            preferredTargetSectionId: preferredTargetSectionId()
+            preferredTargetSectionId: preferredTargetSectionId(indicator: indicator)
         )
     }
 
-    private func preferredTargetSectionId() -> String? {
+    private func preferredTargetSectionId(indicator: SidebarDropIndicator?) -> String? {
         ExtensionSidebarBrowserStackDropPlanner.preferredSectionId(
             targetWorkspaceId: targetWorkspaceId,
-            indicator: dropIndicator,
+            indicator: indicator,
             orderedRows: orderedRows
         )
     }
