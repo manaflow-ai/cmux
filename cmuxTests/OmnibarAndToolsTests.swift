@@ -626,6 +626,25 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(harness.inlineCompletion?.typedText, "gm")
         XCTAssertEqual(harness.inlineCompletion?.displayText, "gmail.com")
     }
+
+    @MainActor
+    func testOptionBackspaceDeletesOnlyFinalURLHostLabel() throws {
+        let harness = OmnibarPlainDeletionHarness(text: "news.ycombinator.com")
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(harness.state.buffer, "news.ycombinator.")
+        XCTAssertEqual(harness.editor.string, "news.ycombinator.")
+        XCTAssertEqual(
+            harness.editor.selectedRange(),
+            NSRange(location: "news.ycombinator.".utf16.count, length: 0)
+        )
+        XCTAssertEqual(
+            harness.publishedSelectionRange,
+            NSRange(location: "news.ycombinator.".utf16.count, length: 0)
+        )
+    }
 }
 
 @MainActor
@@ -905,6 +924,80 @@ private final class OmnibarInlineDeletionHarness {
         inlineCompletion = nil
     }
 
+}
+
+
+@MainActor
+private final class OmnibarPlainDeletionHarness {
+    var state = OmnibarState()
+    let editor = NSTextView()
+    var publishedSelectionRange = NSRange(location: NSNotFound, length: 0)
+
+    init(text: String) {
+        state.isFocused = true
+        state.currentURLString = ""
+        state.buffer = text
+        editor.string = text
+        editor.setSelectedRange(NSRange(location: text.utf16.count, length: 0))
+    }
+
+    func dispatchBackspace(
+        modifiers: NSEvent.ModifierFlags,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> Bool {
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "\u{7F}",
+                charactersIgnoringModifiers: "\u{7F}",
+                isARepeat: false,
+                keyCode: 51
+            ),
+            file: file,
+            line: line
+        )
+
+        return makeCoordinator().handleKeyEvent(event, editor: editor)
+    }
+
+    private func makeCoordinator() -> OmnibarTextFieldRepresentable.Coordinator {
+        OmnibarTextFieldRepresentable.Coordinator(
+            parent: OmnibarTextFieldRepresentable(
+                panelId: UUID(),
+                text: Binding(
+                    get: { self.state.buffer },
+                    set: { self.state.buffer = $0 }
+                ),
+                isFocused: Binding(
+                    get: { self.state.isFocused },
+                    set: { self.state.isFocused = $0 }
+                ),
+                selectAllRequestId: 0,
+                inlineCompletion: nil,
+                placeholder: "",
+                onTap: {},
+                onSubmit: {},
+                onEscape: {},
+                onFieldLostFocus: {},
+                onMoveSelection: { _ in },
+                onDeleteSelectedSuggestion: {},
+                onAcceptInlineCompletion: {},
+                onDeleteBackwardWithInlineSelection: {},
+                onClearTypedPrefixWithInlineSelection: {},
+                onDeleteWordBackwardWithInlineSelection: {},
+                onSelectionChanged: { range, _ in
+                    self.publishedSelectionRange = range
+                },
+                shouldSuppressWebViewFocus: { false }
+            )
+        )
+    }
 }
 
 
