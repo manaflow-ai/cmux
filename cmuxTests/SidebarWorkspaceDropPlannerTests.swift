@@ -15,7 +15,9 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
 
         let action = SidebarDropPlanner.workspaceAction(
             for: CGPoint(x: 12, y: 56),
-            targets: targets
+            targets: targets,
+            workspaceCount: targets.count,
+            pinnedWorkspaceCount: 0
         )
 
         XCTAssertEqual(action, .existingWorkspace(second))
@@ -28,7 +30,9 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
 
         let action = SidebarDropPlanner.workspaceAction(
             for: CGPoint(x: 12, y: 42),
-            targets: targets
+            targets: targets,
+            workspaceCount: targets.count,
+            pinnedWorkspaceCount: 0
         )
 
         XCTAssertEqual(
@@ -47,7 +51,9 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
 
         let action = SidebarDropPlanner.workspaceAction(
             for: CGPoint(x: 12, y: 65),
-            targets: targets
+            targets: targets,
+            workspaceCount: targets.count,
+            pinnedWorkspaceCount: 0
         )
 
         XCTAssertEqual(
@@ -66,7 +72,9 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
 
         let action = SidebarDropPlanner.workspaceAction(
             for: CGPoint(x: 12, y: 36),
-            targets: targets
+            targets: targets,
+            workspaceCount: targets.count,
+            pinnedWorkspaceCount: 0
         )
 
         XCTAssertEqual(
@@ -85,7 +93,9 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
 
         let action = SidebarDropPlanner.workspaceAction(
             for: CGPoint(x: 12, y: 92),
-            targets: targets
+            targets: targets,
+            workspaceCount: targets.count,
+            pinnedWorkspaceCount: 0
         )
 
         XCTAssertEqual(
@@ -105,7 +115,9 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
 
         let action = SidebarDropPlanner.workspaceAction(
             for: CGPoint(x: 12, y: 2),
-            targets: targets
+            targets: targets,
+            workspaceCount: targets.count,
+            pinnedWorkspaceCount: 2
         )
 
         XCTAssertEqual(
@@ -141,7 +153,11 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
     func testWorkspaceDropClampsVirtualizedTargetsAfterGlobalPinnedRows() {
         let visibleA = UUID()
         let visibleB = UUID()
-        let targets = workspaceDropTargets([visibleA, visibleB], startIndex: 8)
+        let targets = workspaceDropTargets(
+            [visibleA, visibleB],
+            pinnedIds: [visibleA, visibleB],
+            startIndex: 8
+        )
 
         let action = SidebarDropPlanner.workspaceAction(
             for: CGPoint(x: 12, y: -4),

@@ -98,24 +98,18 @@ enum SidebarDropPlanner {
     static func workspaceAction(
         for point: CGPoint,
         targets: [WorkspaceDropTarget],
-        workspaceCount: Int? = nil,
-        pinnedWorkspaceCount: Int? = nil
+        workspaceCount: Int,
+        pinnedWorkspaceCount: Int
     ) -> WorkspaceDropAction? {
         guard !targets.isEmpty else { return nil }
         let orderedTargets = targets.sorted { $0.frame.minY < $1.frame.minY }
-        let totalWorkspaceCount = workspaceCount ?? orderedTargets.count
-        let totalPinnedWorkspaceCount = pinnedWorkspaceCount ?? orderedTargets.reduce(into: 0) { count, target in
-            if target.isPinned {
-                count += 1
-            }
-        }
         if let containingTarget = orderedTargets.first(where: { $0.frame.contains(point) }) {
             return workspaceAction(
                 for: point,
                 in: containingTarget,
                 orderedTargets: orderedTargets,
-                workspaceCount: totalWorkspaceCount,
-                pinnedWorkspaceCount: totalPinnedWorkspaceCount
+                workspaceCount: workspaceCount,
+                pinnedWorkspaceCount: pinnedWorkspaceCount
             )
         }
 
@@ -127,14 +121,14 @@ enum SidebarDropPlanner {
         }
         let insertionIndex = legalNewWorkspaceInsertionIndex(
             proposedInsertion,
-            workspaceCount: totalWorkspaceCount,
-            pinnedWorkspaceCount: totalPinnedWorkspaceCount
+            workspaceCount: workspaceCount,
+            pinnedWorkspaceCount: pinnedWorkspaceCount
         )
         return .newWorkspace(
             insertionIndex: insertionIndex,
             indicator: workspaceIndicator(
                 forInsertionIndex: insertionIndex,
-                workspaceCount: totalWorkspaceCount,
+                workspaceCount: workspaceCount,
                 orderedTargets: orderedTargets
             )
         )
