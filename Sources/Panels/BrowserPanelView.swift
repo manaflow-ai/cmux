@@ -711,6 +711,10 @@ struct BrowserPanelView: View {
     }
 
     var body: some View {
+        browserPanelEventContent
+    }
+
+    private var browserPanelBaseContent: some View {
         // Layering contract: browser find UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
@@ -719,6 +723,11 @@ struct BrowserPanelView: View {
             webView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var browserPanelOverlayContent: AnyView {
+        AnyView(
+            browserPanelBaseContent
         .overlay {
             // Keep browser find usable when the browser is still in the empty new-tab
             // state (no WKWebView mounted yet). WebView-backed cases are hosted
@@ -779,6 +788,12 @@ struct BrowserPanelView: View {
                     .environment(\.colorScheme, browserChromeColorScheme)
             }
         }
+        )
+    }
+
+    private var browserPanelObservedContent: AnyView {
+        AnyView(
+            browserPanelOverlayContent
         .coordinateSpace(name: "BrowserPanelViewSpace")
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
             omnibarPillFrame = frame
@@ -820,6 +835,12 @@ struct BrowserPanelView: View {
         ) { _ in
             refreshBrowserExtensionActions()
         }
+        )
+    }
+
+    private var browserPanelEventContent: AnyView {
+        AnyView(
+            browserPanelObservedContent
         .onAppear {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
@@ -1048,6 +1069,7 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshBrowserChromeStyle()
         }
+        )
     }
 
     private var addressBar: some View {
