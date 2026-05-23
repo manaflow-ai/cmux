@@ -11316,16 +11316,16 @@ class TerminalController {
             }
 
             observationState.observations.append(webView.observe(\.url, options: [.new]) { _, _ in
-                DispatchQueue.main.async(execute: completeIfReady)
+                DispatchQueue.main.async { completeIfReady() }
             })
             observationState.observations.append(webView.observe(\.isLoading, options: [.new]) { _, _ in
-                DispatchQueue.main.async(execute: completeIfReady)
+                DispatchQueue.main.async { completeIfReady() }
             })
             observationState.observations.append(webView.observe(\.estimatedProgress, options: [.new]) { _, _ in
-                DispatchQueue.main.async(execute: completeIfReady)
+                DispatchQueue.main.async { completeIfReady() }
             })
 
-            DispatchQueue.main.async(execute: completeIfReady)
+            DispatchQueue.main.async { completeIfReady() }
         } ?? false
     }
 
