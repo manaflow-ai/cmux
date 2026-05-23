@@ -1051,7 +1051,8 @@ private final class ClaudeHookSessionStore {
         workspaceId: String,
         surfaceId: String?,
         excludingSessionId: String?,
-        onlyNewerThanExcludedSession: Bool = false
+        onlyNewerThanExcludedSession: Bool = false,
+        requireLiveProcess: Bool = false
     ) throws -> Bool {
         guard let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return false
@@ -1060,21 +1061,46 @@ private final class ClaudeHookSessionStore {
         let excluded = normalizeOptional(excludingSessionId)
         return try withLockedState { state in
             let excludedUpdatedAt = excluded.flatMap { state.sessions[$0]?.updatedAt }
-            return state.sessions.values.contains { record in
+            var foundRunningSession = false
+            let now = Date().timeIntervalSince1970
+
+            for sessionId in Array(state.sessions.keys) {
+                guard var record = state.sessions[sessionId] else { continue }
                 guard normalizeOptional(record.workspaceId) == normalizedWorkspace,
                       record.sessionId != excluded,
                       record.runtimeStatus == .running else {
-                    return false
+                    continue
                 }
                 if let normalizedSurface, normalizeOptional(record.surfaceId) != normalizedSurface {
-                    return false
+                    continue
                 }
                 if onlyNewerThanExcludedSession, let excludedUpdatedAt {
-                    return record.updatedAt > excludedUpdatedAt
+                    guard record.updatedAt > excludedUpdatedAt else {
+                        continue
+                    }
                 }
-                return true
+
+                if requireLiveProcess, !Self.processExists(record.pid) {
+                    record.runtimeStatus = nil
+                    record.updatedAt = now
+                    state.sessions[sessionId] = record
+                    continue
+                }
+
+                foundRunningSession = true
+                break
             }
+
+            return foundRunningSession
         }
+    }
+
+    private static func processExists(_ pid: Int?) -> Bool {
+        guard let pid, pid > 0 else { return false }
+        if kill(pid_t(pid), 0) == 0 {
+            return true
+        }
+        return errno == EPERM
     }
 
     /// Returns true when an event belongs to the workspace's active Claude session.
@@ -25684,12 +25710,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return nil
             }
         }
-        func hasNewerRunningSession(workspaceId: String, surfaceId: String) -> Bool {
+        func hasOtherRunningSession(workspaceId: String) -> Bool {
             (try? store.hasRunningSession(
                 workspaceId: workspaceId,
-                surfaceId: surfaceId,
+                surfaceId: nil,
                 excludingSessionId: sessionId,
-                onlyNewerThanExcludedSession: true
+                requireLiveProcess: true
             )) == true
         }
         func subagentParentSessionId(mapped: ClaudeHookSessionRecord?) -> String? {
@@ -25781,8 +25807,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 launchCommand: launchCommand
             )
         }
-        func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
-            if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+        func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
+            if hasOtherRunningSession(workspaceId: workspaceId) {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.status.keepRunning agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
@@ -26397,7 +26423,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         client: client
                     )
                 } else {
-                    setIdleStatusUnlessNewerSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                    setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
             }
 
@@ -26506,23 +26532,46 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     nestedPromptEvent: suppressRestorableRecord,
                     env: env
                 )
-                try? store.upsert(
-                    sessionId: sessionId,
-                    parentSessionId: input.parentSessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: notificationCwd,
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                    pid: pid,
-                    launchCommand: launchCommand,
-                    isRestorable: suppressRestorableRecord ? false : nil,
-                    lastSubtitle: summary.subtitle,
-                    lastBody: summary.body,
-                    lastNotificationStatus: summary.status,
-                    updateLastNotificationStatus: true,
-                    runtimeStatus: suppressRestorableRecord ? nil : runtimeStatus(for: summary.status),
-                    updateRuntimeStatus: suppressRestorableRecord || (summary.status != nil && !suppressVisibleMutations)
-                )
+                // These agents use completion notifications as turn boundaries;
+                // keep the route but close nested prompt depth.
+                if (def.name == "grok" || def.name == "antigravity"),
+                   summary.status == .idle || summary.status == .error {
+                    _ = try? store.recordPromptStop(
+                        sessionId: sessionId,
+                        parentSessionId: input.parentSessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: notificationCwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        isRestorable: suppressRestorableRecord ? false : nil,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body,
+                        lastNotificationStatus: summary.status,
+                        updateLastNotificationStatus: true,
+                        runtimeStatus: suppressRestorableRecord ? nil : runtimeStatus(for: summary.status),
+                        updateRuntimeStatus: suppressRestorableRecord || !suppressVisibleMutations
+                    )
+                } else {
+                    try? store.upsert(
+                        sessionId: sessionId,
+                        parentSessionId: input.parentSessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: notificationCwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        isRestorable: suppressRestorableRecord ? false : nil,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body,
+                        lastNotificationStatus: summary.status,
+                        updateLastNotificationStatus: true,
+                        runtimeStatus: suppressRestorableRecord ? nil : runtimeStatus(for: summary.status),
+                        updateRuntimeStatus: suppressRestorableRecord || (summary.status != nil && !suppressVisibleMutations)
+                    )
+                }
                 if suppressRestorableRecord && !suppressVisibleMutations {
                     repairSuppressedSubagentResumeBinding(
                         workspaceId: workspaceId,
@@ -26603,7 +26652,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             case .idle?:
-                setIdleStatusUnlessNewerSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             case nil:
                 break
             }
@@ -26616,6 +26665,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if def.name == "grok" || def.name == "antigravity" {
                 if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                     sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
+                    _ = try? store.recordPromptStop(
+                        sessionId: sessionId,
+                        workspaceId: mapped.workspaceId,
+                        surfaceId: mapped.surfaceId,
+                        cwd: hookCwd ?? mapped.cwd,
+                        transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
+                        pid: mapped.pid,
+                        launchCommand: mapped.launchCommand,
+                        lastSubtitle: nil,
+                        lastBody: nil
+                    )
                 }
 #if DEBUG
                 agentHookDebugLog(
