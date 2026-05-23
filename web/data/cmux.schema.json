@@ -296,6 +296,18 @@
           "default": true,
           "description": "Show a confirmation before closing a tab."
         },
+        "warnBeforeClosingTabXButton": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.warnBeforeClosingTabXButton",
+          "description": "Show a confirmation before closing a tab with the tab close button."
+        },
+        "hideTabCloseButton": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.hideTabCloseButton",
+          "description": "Hide tab close buttons in the pane tab bar."
+        },
         "renameSelectsExistingName": {
           "type": "boolean",
           "default": true,

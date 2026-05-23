@@ -1374,6 +1374,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var isPinned: Bool
     var isManuallyUnread: Bool
     var hasUnreadIndicator: Bool? = nil
+    var restoredUnreadContributesToWorkspace: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]

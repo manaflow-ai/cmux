@@ -96,13 +96,18 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard (123...126).contains(keyCode) else { return false }
 
-    // Keep this narrow to avoid stealing app/browser shortcuts that layer onto
-    // modified arrow keys. Plain arrows should always flow through keyDown so
-    // web content such as Google Docs receives the event directly.
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
-    return normalizedFlags.isEmpty
+
+    if normalizedFlags.isEmpty {
+        return true
+    }
+
+    // Keep modified arrow routing narrow to avoid stealing cmux shortcuts such
+    // as Cmd+Option+Arrow pane focus. Browser document editors own Cmd+Up/Down
+    // as trusted keyDown navigation to the start/end of the document.
+    return normalizedFlags == [.command] && (keyCode == 125 || keyCode == 126)
 }
 
 func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(

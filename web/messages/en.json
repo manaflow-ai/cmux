@@ -594,7 +594,9 @@
         },
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
-          "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
+          "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
+          "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
+          "hideTabCloseButton": "Hide tab close buttons in the pane tab bar."
         },
         "terminal": {
           "copyOnSelect": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
