@@ -495,6 +495,9 @@
           "confirmQuit": "Controlla quando cmux chiede conferma prima di uscire. Le build DEV escono sempre immediatamente indipendentemente da questa impostazione. Il vecchio app.warnBeforeQuit è ancora accettato come fallback booleano.",
           "warnBeforeQuit": "Fallback booleano legacy per la conferma di uscita. Usa app.confirmQuit per le nuove configurazioni."
         },
+        "terminal": {
+          "copyOnSelect": "Copia il testo selezionato nel terminale negli appunti di sistema quando la selezione viene confermata, incluse le selezioni di parole e righe con doppio e triplo clic."
+        },
         "shortcuts": {
           "shortcutFirstStroke": "Primo o unico tasto della scorciatoia. Deve includere un modificatore, a meno che il tasto sia Space.",
           "markdownShortcutFirstStroke": "Primo o unico tasto della scorciatoia dell’anteprima Markdown. Le azioni dell’anteprima Markdown accettano primi tasti singoli come h, j, k, l, / e n perché sono locali al pannello Markdown in focus."

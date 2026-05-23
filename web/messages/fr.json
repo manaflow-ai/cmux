@@ -495,6 +495,9 @@
           "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
           "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations."
         },
+        "terminal": {
+          "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic."
+        },
         "shortcuts": {
           "shortcutFirstStroke": "Première ou unique touche du raccourci. Doit inclure un modificateur, sauf si la touche est Space.",
           "markdownShortcutFirstStroke": "Première ou unique touche du raccourci d’aperçu Markdown. Les actions d’aperçu Markdown acceptent des premières touches seules comme h, j, k, l, / et n, car elles sont locales au panneau Markdown ciblé."

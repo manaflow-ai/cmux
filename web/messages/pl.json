@@ -495,6 +495,9 @@
           "confirmQuit": "Określa, kiedy cmux prosi o potwierdzenie przed zamknięciem. Buildy DEV zawsze zamykają się natychmiast niezależnie od tego ustawienia. Starsze app.warnBeforeQuit jest nadal akceptowane jako zapasowa wartość logiczna.",
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit."
         },
+        "terminal": {
+          "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem."
+        },
         "shortcuts": {
           "shortcutFirstStroke": "Pierwszy lub jedyny klawisz skrótu. Musi zawierać modyfikator, chyba że klawiszem jest Space.",
           "markdownShortcutFirstStroke": "Pierwszy lub jedyny klawisz skrótu podglądu Markdown. Akcje podglądu Markdown akceptują pojedyncze pierwsze klawisze, takie jak h, j, k, l, / i n, ponieważ działają lokalnie w aktywnym panelu Markdown."

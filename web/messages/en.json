@@ -596,6 +596,9 @@
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
         },
+        "terminal": {
+          "copyOnSelect": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+        },
         "shortcuts": {
           "shortcutFirstStroke": "First or only shortcut stroke. Must include a modifier unless the key is Space.",
           "markdownShortcutFirstStroke": "First or only Markdown preview shortcut stroke. Markdown preview actions accept bare first strokes such as h, j, k, l, /, and n because they are local to the focused Markdown panel."

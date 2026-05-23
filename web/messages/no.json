@@ -495,6 +495,9 @@
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner."
         },
+        "terminal": {
+          "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk."
+        },
         "shortcuts": {
           "shortcutFirstStroke": "Første eller eneste snarveistast. Må inneholde en modifikatortast med mindre tasten er Space.",
           "markdownShortcutFirstStroke": "Første eller eneste snarveistast for Markdown-forhåndsvisning. Handlinger for Markdown-forhåndsvisning godtar enkle første tastetrykk som h, j, k, l, / og n fordi de er lokale i det fokuserte Markdown-panelet."

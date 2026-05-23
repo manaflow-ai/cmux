@@ -512,8 +512,12 @@ struct GhosttyConfig {
         }
     }
 
-    static func currentColorSchemePreference(appAppearance: NSAppearance? = nil, defaults: UserDefaults = .standard, systemAppearance: AppearanceSettings.SystemAppearance? = nil) -> ColorSchemePreference {
-        AppearanceSettings.colorSchemePreference(appAppearance: appAppearance, defaults: defaults, systemAppearance: systemAppearance)
+    static func currentColorSchemePreference(
+        appAppearance _: NSAppearance? = nil,
+        defaults: UserDefaults = .standard,
+        systemAppearance: AppearanceSettings.SystemAppearance? = nil
+    ) -> ColorSchemePreference {
+        return AppearanceSettings.terminalColorSchemePreference(defaults: defaults, systemAppearance: systemAppearance)
     }
 
     static func resolveThemeName(
