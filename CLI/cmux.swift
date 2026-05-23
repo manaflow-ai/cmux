@@ -28180,11 +28180,36 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     private static let antigravityPreToolAllowOutput = #"{"allow_tool":true}"#
 
+    private static func antigravityPreToolDenyOutput(reason: String) -> String {
+        let output: [String: Any] = [
+            "allow_tool": false,
+            "deny_reason": reason,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: output, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return #"{"allow_tool":false,"deny_reason":"Permission denied by cmux."}"#
+        }
+        return string
+    }
+
     private static func feedHookFallbackOutput(source: String, agentEvent: String) -> String {
         if source == "antigravity", agentEvent == "PreToolUse" {
             return antigravityPreToolAllowOutput
         }
         return "{}"
+    }
+
+    private static func feedHookUnresolvedDecisionOutput(
+        source: String,
+        agentEvent: String,
+        isActionable: Bool
+    ) -> String {
+        if source == "antigravity", agentEvent == "PreToolUse", isActionable {
+            return antigravityPreToolDenyOutput(
+                reason: "cmux Feed permission request was not resolved."
+            )
+        }
+        return feedHookFallbackOutput(source: source, agentEvent: agentEvent)
     }
 
     /// Reads an agent hook JSON payload from stdin, forwards it to the
@@ -28336,7 +28361,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 responseTimeout: waitTimeout > 0 ? waitTimeout + 5 : nil
             )
         } catch {
-            print(Self.feedHookFallbackOutput(source: source, agentEvent: rawEvent))
+            print(Self.feedHookUnresolvedDecisionOutput(
+                source: source,
+                agentEvent: rawEvent,
+                isActionable: isActionable
+            ))
             return
         }
 
@@ -28345,7 +28374,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
               let ok = respObj["ok"] as? Bool, ok,
               let result = respObj["result"] as? [String: Any]
         else {
-            print(Self.feedHookFallbackOutput(source: source, agentEvent: rawEvent))
+            print(Self.feedHookUnresolvedDecisionOutput(
+                source: source,
+                agentEvent: rawEvent,
+                isActionable: isActionable
+            ))
             return
         }
 
@@ -28362,7 +28395,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             print(out)
             return
         }
-        print(Self.feedHookFallbackOutput(source: source, agentEvent: rawEvent))
+        print(Self.feedHookUnresolvedDecisionOutput(
+            source: source,
+            agentEvent: rawEvent,
+            isActionable: isActionable
+        ))
     }
 
     /// Classifies a raw agent hook event into our wire `hook_event_name`
@@ -28624,10 +28661,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if source == "antigravity" {
                 if mode == "deny" {
-                    return encode([
-                        "allow_tool": false,
-                        "deny_reason": "User denied permission via cmux Feed.",
-                    ])
+                    return Self.antigravityPreToolDenyOutput(
+                        reason: "User denied permission via cmux Feed."
+                    )
                 }
                 return Self.antigravityPreToolAllowOutput
             }

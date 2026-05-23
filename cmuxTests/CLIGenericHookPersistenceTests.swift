@@ -755,6 +755,60 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(events.compactMap { $0["_ppid"] as? Int }, [424242, 424242, 424242])
     }
 
+    func testAntigravityPreToolUseTimeoutDeniesActionableTool() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("antigravity-feed-timeout")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-feed-timeout-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let surfaceId = "66666666-6666-6666-6666-666666666666"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            XCTAssertEqual(method, "feed.push")
+            return self.v2Response(id: id, ok: true, result: ["status": "timed_out"])
+        }
+
+        let input = #"{"hook_event_name":"PreToolUse","session_id":"conversation-123","cwd":"\#(root.path)","toolCall":{"name":"run_command","args":{"command":"touch created-by-test"}}}"#
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "antigravity", "--event", "PreToolUse"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: input,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        try assertAntigravityDenyToolOutput(
+            result.stdout,
+            reason: "cmux Feed permission request was not resolved."
+        )
+    }
+
     func testGrokNotificationHookUsesPayloadMessageAndStopDoesNotSendGenericNotification() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-notification")
@@ -2570,5 +2624,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertEqual(output["allow_tool"] as? Bool, true, file: file, line: line)
         XCTAssertNil(output["deny_reason"] as? String, file: file, line: line)
+    }
+
+    private func assertAntigravityDenyToolOutput(
+        _ stdout: String,
+        reason: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let trimmed = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        let output = try XCTUnwrap(
+            jsonObject(trimmed),
+            "Expected Antigravity hook JSON output, saw \(stdout)",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(output["allow_tool"] as? Bool, false, file: file, line: line)
+        XCTAssertEqual(output["deny_reason"] as? String, reason, file: file, line: line)
     }
 }
