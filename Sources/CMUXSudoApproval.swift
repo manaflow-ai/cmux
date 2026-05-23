@@ -66,7 +66,7 @@ enum CMUXSudoApprovalPresenter {
             localized: "sudo.auth.reason",
             defaultValue: "Approve cmux sudo command: %@"
         )
-        let reason = String(format: reasonFormat, request.displayCommand)
+        let reason = String.localizedStringWithFormat(reasonFormat, request.displayCommand)
         return await withCheckedContinuation { continuation in
             context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, _ in
                 continuation.resume(
@@ -141,6 +141,19 @@ enum CMUXSudoApprovalPresenter {
         scrollView.heightAnchor.constraint(equalToConstant: 140).isActive = true
 
         stack.addArrangedSubview(label)
+        if let cwd = request.cwd, !cwd.isEmpty {
+            let cwdLabel = NSTextField(labelWithString: String(localized: "sudo.prompt.workingDirectory", defaultValue: "Working directory"))
+            cwdLabel.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+
+            let cwdField = NSTextField(labelWithString: cwd)
+            cwdField.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize)
+            cwdField.textColor = .secondaryLabelColor
+            cwdField.lineBreakMode = .byTruncatingMiddle
+            cwdField.maximumNumberOfLines = 1
+            cwdField.widthAnchor.constraint(equalToConstant: 520).isActive = true
+            stack.addArrangedSubview(cwdLabel)
+            stack.addArrangedSubview(cwdField)
+        }
         stack.addArrangedSubview(scrollView)
         return stack
     }

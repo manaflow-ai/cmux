@@ -7,19 +7,17 @@ nonisolated private let cmuxSudoSocketLogger = Logger(subsystem: "com.cmuxterm.a
 extension TerminalController {
     nonisolated func v2SudoRequestOnSocketWorker(params: [String: Any]) -> V2CallResult {
         let parsed = CMUXSudoCommandRequest.parse(params: params)
-        guard case .success(let request) = parsed else {
-            let message: String
-            if case .failure(let error) = parsed {
-                message = error.message
-            } else {
-                message = String(localized: "sudo.error.invalidRequest", defaultValue: "invalid sudo request")
-            }
-            return .err(code: "invalid_params", message: message, data: nil)
+        let rawRequest: CMUXSudoCommandRequest
+        switch parsed {
+        case .success(let request):
+            rawRequest = request
+        case .failure(let error):
+            return .err(code: error.code, message: error.message, data: nil)
         }
 
         let peerIdentity = Self.currentSocketPeerIdentity()
         let validation = CMUXSudoCallerValidator.validate(
-            request: request,
+            request: rawRequest,
             peerIdentity: peerIdentity,
             isDescendant: { [weak self] pid in
 #if DEBUG
@@ -51,7 +49,7 @@ extension TerminalController {
         guard validation.allowed else {
             _ = try? CMUXSudoAuditLogger.append(
                 auditRecord(
-                    request: request,
+                    request: rawRequest,
                     result: "rejected",
                     exitCode: nil,
                     errorCode: "access_denied",
@@ -78,6 +76,30 @@ extension TerminalController {
                 data: nil
             )
         }
+        guard let peerWorkingDirectory = v2SudoWorkingDirectory(for: rawRequest.callerPID) else {
+            _ = try? CMUXSudoAuditLogger.append(
+                auditRecord(
+                    request: rawRequest,
+                    result: "rejected",
+                    exitCode: nil,
+                    errorCode: "cwd_unavailable",
+                    message: String(
+                        localized: "sudo.error.cwdUnavailable",
+                        defaultValue: "requesting process working directory is unavailable"
+                    )
+                ),
+                logURL: auditLogURL
+            )
+            return .err(
+                code: "access_denied",
+                message: String(
+                    localized: "sudo.error.cwdUnavailable",
+                    defaultValue: "requesting process working directory is unavailable"
+                ),
+                data: nil
+            )
+        }
+        let request = rawRequest.withWorkingDirectory(peerWorkingDirectory)
 
         guard let peerProcessStartTime = peerIdentity.processStartTime else {
             return .err(
@@ -308,6 +330,19 @@ extension TerminalController {
             envelope = try CMUXSudoHelperClient.signedEnvelope(for: request)
         } catch {
             cmuxSudoSocketLogger.error("sudo.signing.failed error=\(String(describing: error), privacy: .private)")
+            _ = try? CMUXSudoAuditLogger.append(
+                auditRecord(
+                    request: request,
+                    result: "signing_failed",
+                    exitCode: nil,
+                    errorCode: "signing_failed",
+                    message: String(
+                        localized: "sudo.error.signingFailed",
+                        defaultValue: "Failed to prepare sudo helper request. Restart cmux and try again."
+                    )
+                ),
+                logURL: auditLogURL
+            )
             return .err(
                 code: "signing_failed",
                 message: String(
@@ -391,6 +426,37 @@ extension TerminalController {
         }
     }
 
+    private nonisolated func v2SudoWorkingDirectory(for pid: pid_t) -> String? {
+#if DEBUG
+        if let override = CMUXSudoTestHooks.workingDirectoryOverride {
+            return override(pid)
+        }
+#endif
+        guard pid > 0 else { return nil }
+        var info = proc_vnodepathinfo()
+        let copiedBytes = proc_pidinfo(
+            pid,
+            PROC_PIDVNODEPATHINFO,
+            0,
+            &info,
+            Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        )
+        guard copiedBytes == Int32(MemoryLayout<proc_vnodepathinfo>.size) else { return nil }
+        let capacity = MemoryLayout.size(ofValue: info.pvi_cdir.vip_path)
+        let path = withUnsafePointer(to: &info.pvi_cdir.vip_path) { pointer in
+            pointer.withMemoryRebound(to: CChar.self, capacity: capacity) { rawPath in
+                String(cString: rawPath)
+            }
+        }
+        guard !path.isEmpty, !path.contains("\0") else { return nil }
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return path
+    }
+
     private nonisolated func sanitizedHelperErrorCode(_ rawCode: String?) -> String {
         switch rawCode {
         case "helper_unavailable",
@@ -401,7 +467,9 @@ extension TerminalController {
              "helper_requires_approval",
              "helper_not_registered",
              "helper_unsupported",
-             "helper_status_unknown":
+             "helper_status_unknown",
+             "cwd_unavailable",
+             "missing_cwd":
             return rawCode ?? "helper_error"
         default:
             return "helper_error"
@@ -424,6 +492,7 @@ extension TerminalController {
             requesterUID: request.callerUID,
             command: request.argv,
             commandDisplay: request.displayCommand,
+            workingDirectory: request.cwd,
             result: result,
             exitCode: exitCode,
             errorCode: errorCode,

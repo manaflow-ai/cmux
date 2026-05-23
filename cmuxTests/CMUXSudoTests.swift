@@ -172,6 +172,17 @@ final class CMUXSudoTests: XCTestCase {
 
         let contents = try String(contentsOf: logURL, encoding: .utf8)
         XCTAssertEqual(contents, "{\"request_id\":\"tampered\"}\n")
+
+        let chainedLogURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
+        _ = try CMUXSudoAuditLogger.append(auditRecord(id: "before-tamper"), logURL: chainedLogURL)
+        var tamperedEntry = try auditEntries(in: chainedLogURL)[0]
+        tamperedEntry["command_display"] = "/usr/bin/whoami"
+        var tamperedData = try JSONSerialization.data(withJSONObject: tamperedEntry, options: [.sortedKeys])
+        tamperedData.append(0x0a)
+        try tamperedData.write(to: chainedLogURL)
+
+        XCTAssertThrowsError(try CMUXSudoAuditLogger.ensureWritable(logURL: chainedLogURL))
+        XCTAssertThrowsError(try CMUXSudoAuditLogger.append(auditRecord(id: "after-edited-entry"), logURL: chainedLogURL))
     }
 
     func testSudoPendingStoreRejectsDuplicateIDsAndPreservesFinishedResultOnCancel() {
@@ -206,6 +217,46 @@ final class CMUXSudoTests: XCTestCase {
             XCTAssertEqual(response.payload["status"]?.any as? String, "completed")
         case .missing, .forbidden, .cancelled:
             XCTFail("Expected finished response to survive cancellation")
+        }
+    }
+
+    func testSudoPendingStoreCancelDoesNotMaskLaterHelperResult() {
+        let store = CMUXSudoPendingRequestStore()
+        let requestID = UUID().uuidString
+        let access = CMUXSudoPendingRequestStore.Access(
+            pid: getpid(),
+            uid: getuid(),
+            processStartTime: 1,
+            workspaceID: UUID(),
+            surfaceID: UUID()
+        )
+        let peer = CMUXSocketPeerIdentity(pid: getpid(), uid: getuid(), processStartTime: 1)
+        let timeout = CMUXSudoSocketResponse.err(code: "cancelled", message: "timed out")
+        let completed = CMUXSudoSocketResponse.ok([
+            "status": .string("completed"),
+            "exit_code": .int(0),
+        ])
+
+        XCTAssertTrue(store.begin(requestID, access: access))
+        switch store.cancel(requestID: requestID, peerIdentity: peer, response: timeout) {
+        case .cancelled:
+            break
+        case .missing, .forbidden, .finished:
+            XCTFail("Expected pending request cancellation acknowledgement")
+        }
+
+        if case .pending = store.state(for: requestID, peerIdentity: peer) {
+        } else {
+            XCTFail("Expected cancelled pending request to remain readable until helper completion")
+        }
+
+        store.finish(requestID, response: completed)
+        switch store.state(for: requestID, peerIdentity: peer) {
+        case .finished(let response):
+            XCTAssertTrue(response.ok)
+            XCTAssertEqual(response.payload["status"]?.any as? String, "completed")
+        case .missing, .forbidden, .pending:
+            XCTFail("Expected later helper result to replace pending cancellation")
         }
     }
 
@@ -298,6 +349,7 @@ final class CMUXSudoTests: XCTestCase {
         CMUXSudoTestHooks.helperOverride = { envelope in
             XCTAssertTrue(CMUXSudoHelperSignatureVerifier.verify(envelope))
             XCTAssertEqual(envelope.payload["argv"] as? [String], ["/usr/bin/id"])
+            XCTAssertEqual(envelope.payload["cwd"] as? String, "/tmp")
             return CMUXSudoHelperExecutionResult(
                 status: "completed",
                 exitCode: 0,
@@ -329,6 +381,92 @@ final class CMUXSudoTests: XCTestCase {
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries[0]["result"] as? String, "completed")
         XCTAssertEqual(entries[0]["exit_code"] as? Int, 0)
+        XCTAssertEqual(entries[0]["working_directory"] as? String, "/tmp")
+#else
+        throw XCTSkip("Sudo request flow hooks are debug-only.")
+#endif
+    }
+
+    func testSudoRequestIgnoresCallerSuppliedWorkingDirectory() throws {
+#if DEBUG
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let logURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
+        installValidSudoHooks(workspaceID: workspaceID, surfaceID: surfaceID, logURL: logURL)
+        CMUXSudoTestHooks.workingDirectoryOverride = { _ in "/var/tmp" }
+        CMUXSudoTestHooks.approvalOverride = { request in
+            XCTAssertEqual(request.cwd, "/var/tmp")
+            return CMUXSudoApprovalResult(approved: true, reason: nil)
+        }
+        CMUXSudoTestHooks.helperOverride = { envelope in
+            XCTAssertEqual(envelope.payload["cwd"] as? String, "/var/tmp")
+            return CMUXSudoHelperExecutionResult(
+                status: "completed",
+                exitCode: 0,
+                stdout: "",
+                stderr: "",
+                errorCode: nil,
+                message: nil
+            )
+        }
+
+        var params = makeParams(workspaceID: workspaceID, surfaceID: surfaceID)
+        params["cwd"] = "/malicious"
+        let requestResult = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
+            TerminalController.shared.v2SudoRequestOnSocketWorker(params: params)
+        }
+        let requestID = try pendingRequestID(from: requestResult)
+        _ = try waitForSudoResult(requestID: requestID)
+
+        let entries = try auditEntries(in: logURL)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0]["working_directory"] as? String, "/var/tmp")
+#else
+        throw XCTSkip("Sudo request flow hooks are debug-only.")
+#endif
+    }
+
+    func testSudoRequestSigningFailureAuditsAndSkipsHelper() throws {
+#if DEBUG
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let logURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
+        installValidSudoHooks(workspaceID: workspaceID, surfaceID: surfaceID, logURL: logURL)
+        CMUXSudoTestHooks.approvalOverride = { _ in
+            CMUXSudoApprovalResult(approved: true, reason: nil)
+        }
+        CMUXSudoTestHooks.signedEnvelopeOverride = { _ in
+            throw NSError(domain: "CMUXSudoTests", code: 1)
+        }
+        CMUXSudoTestHooks.helperOverride = { _ in
+            XCTFail("Signing failures must not reach the helper")
+            return CMUXSudoHelperExecutionResult(
+                status: "completed",
+                exitCode: 0,
+                stdout: "",
+                stderr: "",
+                errorCode: nil,
+                message: nil
+            )
+        }
+
+        let requestResult = TerminalController.withSocketPeerIdentityForTesting(pid: getpid(), uid: getuid()) {
+            TerminalController.shared.v2SudoRequestOnSocketWorker(
+                params: makeParams(workspaceID: workspaceID, surfaceID: surfaceID)
+            )
+        }
+        let requestID = try pendingRequestID(from: requestResult)
+        let result = try waitForSudoResult(requestID: requestID)
+
+        guard case .err(let code, _, _) = result else {
+            return XCTFail("Expected signing failure, got \(result)")
+        }
+        XCTAssertEqual(code, "signing_failed")
+
+        let entries = try auditEntries(in: logURL)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0]["result"] as? String, "signing_failed")
+        XCTAssertEqual(entries[0]["error_code"] as? String, "signing_failed")
 #else
         throw XCTSkip("Sudo request flow hooks are debug-only.")
 #endif
@@ -510,6 +648,7 @@ final class CMUXSudoTests: XCTestCase {
         CMUXSudoTestHooks.surfaceExistsOverride = { requestedWorkspaceID, requestedSurfaceID in
             requestedWorkspaceID == workspaceID && requestedSurfaceID == surfaceID
         }
+        CMUXSudoTestHooks.workingDirectoryOverride = { _ in "/tmp" }
         CMUXSudoTestHooks.helperAvailabilityOverride = { .available }
 #endif
     }
@@ -600,6 +739,7 @@ final class CMUXSudoTests: XCTestCase {
             requesterUID: 501,
             command: ["/usr/bin/id"],
             commandDisplay: "/usr/bin/id",
+            workingDirectory: "/tmp",
             result: "completed",
             exitCode: 0,
             errorCode: nil,

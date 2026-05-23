@@ -44,11 +44,17 @@ enum CMUXSudoHelperSignatureVerifier {
 
 enum CMUXSudoHelperClient {
     static let helperSocketPath = "/var/run/cmux-sudo-helper.sock"
-    private static let maxHelperResponseBytes = 2 * 1024 * 1024
-    private static let helperSocketTimeoutSeconds = 30
+    private static let maxHelperResponseBytes = 6 * 1024 * 1024
+    private static let helperSocketSendTimeoutSeconds = 30
+    private static let helperSocketReceiveTimeoutSeconds = 11 * 60
     private static let sessionSigningKey = P256.Signing.PrivateKey()
 
     static func signedEnvelope(for request: CMUXSudoCommandRequest) throws -> CMUXSudoSignedHelperEnvelope {
+#if DEBUG
+        if let override = CMUXSudoTestHooks.signedEnvelopeOverride {
+            return try override(request)
+        }
+#endif
         let payload: [String: Any] = [
             "request_id": request.requestID,
             "argv": request.argv,
@@ -172,7 +178,7 @@ enum CMUXSudoHelperClient {
             throw HelperTransportError(lastErrnoMessage("socket"))
         }
         do {
-            try configureTimeouts(fd)
+        try configureTimeouts(fd)
         } catch {
             Darwin.close(fd)
             throw error
@@ -209,15 +215,16 @@ enum CMUXSudoHelperClient {
     }
 
     private static func configureTimeouts(_ fd: Int32) throws {
-        var timeout = timeval(tv_sec: helperSocketTimeoutSeconds, tv_usec: 0)
+        var sendTimeout = timeval(tv_sec: helperSocketSendTimeoutSeconds, tv_usec: 0)
+        var receiveTimeout = timeval(tv_sec: helperSocketReceiveTimeoutSeconds, tv_usec: 0)
         let size = socklen_t(MemoryLayout<timeval>.size)
-        let sendResult = withUnsafePointer(to: &timeout) { pointer in
+        let sendResult = withUnsafePointer(to: &sendTimeout) { pointer in
             setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, pointer, size)
         }
         guard sendResult == 0 else {
             throw HelperTransportError(lastErrnoMessage("setsockopt(SO_SNDTIMEO)"))
         }
-        let receiveResult = withUnsafePointer(to: &timeout) { pointer in
+        let receiveResult = withUnsafePointer(to: &receiveTimeout) { pointer in
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, size)
         }
         guard receiveResult == 0 else {

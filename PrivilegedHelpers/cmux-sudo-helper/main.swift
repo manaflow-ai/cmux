@@ -46,6 +46,8 @@ struct HelperEnvelope {
 @main
 enum CMUXSudoHelper {
     private static var seenRequestIDs: [String: Date] = [:]
+    private static let seenRequestIDLock = NSLock()
+    private static let clientQueue = DispatchQueue(label: "com.cmuxterm.sudo-helper.clients", attributes: .concurrent)
 
     static func main() {
         do {
@@ -70,7 +72,9 @@ enum CMUXSudoHelper {
                 writeLog("accept_failed \(errnoMessage("accept"))")
                 continue
             }
-            handleClient(client)
+            clientQueue.async {
+                handleClient(client)
+            }
         }
     }
 
@@ -259,6 +263,8 @@ enum CMUXSudoHelper {
     }
 
     private static func rememberRequestID(_ requestID: String, createdAt: Date) throws {
+        seenRequestIDLock.lock()
+        defer { seenRequestIDLock.unlock() }
         pruneSeenRequestIDs(now: Date())
         guard seenRequestIDs[requestID] == nil else {
             throw HelperError(code: "replayed_request", message: "Helper request was already used")
@@ -286,17 +292,23 @@ enum CMUXSudoHelper {
               requesterUID == Int(peer.uid) else {
             throw HelperError(code: "uid_mismatch", message: "Requester uid does not match the cmux app uid")
         }
+        guard let cwd = envelope.payload["cwd"] as? String,
+              !cwd.isEmpty,
+              !cwd.contains("\0") else {
+            throw HelperError(code: "missing_cwd", message: "Helper request is missing a working directory")
+        }
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw HelperError(code: "cwd_unavailable", message: "Working directory is unavailable")
+        }
 
         let executable = try resolveExecutable(argv[0])
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = Array(argv.dropFirst())
         process.environment = ["PATH": secureSearchPath.joined(separator: ":")]
-        if let cwd = envelope.payload["cwd"] as? String,
-           !cwd.isEmpty,
-           FileManager.default.fileExists(atPath: cwd) {
-            process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
-        }
+        process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

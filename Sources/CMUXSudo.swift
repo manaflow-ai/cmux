@@ -11,6 +11,19 @@ struct CMUXSudoCommandRequest: Sendable {
     let callerUID: uid_t
     let cwd: String?
 
+    func withWorkingDirectory(_ cwd: String) -> CMUXSudoCommandRequest {
+        CMUXSudoCommandRequest(
+            requestID: requestID,
+            argv: argv,
+            displayCommand: displayCommand,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            callerPID: callerPID,
+            callerUID: callerUID,
+            cwd: cwd
+        )
+    }
+
     static func parse(params: [String: Any]) -> Result<CMUXSudoCommandRequest, CMUXSudoRequestError> {
         let requestID = (params["request_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveRequestID = requestID?.isEmpty == false ? requestID! : UUID().uuidString
@@ -45,12 +58,6 @@ struct CMUXSudoCommandRequest: Sendable {
             return .failure(.invalidParams(String(localized: "sudo.error.callerUID", defaultValue: "caller_uid must be an integer")))
         }
 
-        let cwd = (params["cwd"] as? String).flatMap { raw -> String? in
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, !trimmed.contains("\0") else { return nil }
-            return trimmed
-        }
-
         return .success(
             CMUXSudoCommandRequest(
                 requestID: effectiveRequestID,
@@ -60,7 +67,7 @@ struct CMUXSudoCommandRequest: Sendable {
                 surfaceID: surfaceID,
                 callerPID: callerPID,
                 callerUID: callerUID,
-                cwd: cwd
+                cwd: nil
             )
         )
     }

@@ -10,6 +10,7 @@ struct CMUXSudoAuditRecord: Sendable {
     let requesterUID: uid_t?
     let command: [String]
     let commandDisplay: String
+    let workingDirectory: String?
     let result: String
     let exitCode: Int32?
     let errorCode: String?
@@ -25,6 +26,7 @@ struct CMUXSudoAuditRecord: Sendable {
             "requester_uid": requesterUID.map { Int($0) } as Any? ?? NSNull(),
             "command": command,
             "command_display": commandDisplay,
+            "working_directory": workingDirectory as Any? ?? NSNull(),
             "result": result,
             "exit_code": exitCode.map { Int($0) } as Any? ?? NSNull(),
             "error_code": errorCode as Any? ?? NSNull(),
@@ -70,7 +72,7 @@ enum CMUXSudoAuditLogger {
         lock.lock()
         defer { lock.unlock() }
         try prepareLogFile(logURL: logURL)
-        _ = try previousEntryHash(logURL: logURL)
+        _ = try validatedPreviousEntryHash(logURL: logURL)
     }
 
     @discardableResult
@@ -78,7 +80,7 @@ enum CMUXSudoAuditLogger {
         lock.lock()
         defer { lock.unlock() }
         try prepareLogFile(logURL: logURL)
-        let previousHash = try previousEntryHash(logURL: logURL)
+        let previousHash = try validatedPreviousEntryHash(logURL: logURL)
         try rotateIfNeeded(logURL: logURL)
 
         var object = record.jsonObject
@@ -152,19 +154,38 @@ enum CMUXSudoAuditLogger {
         URL(fileURLWithPath: "\(logURL.path).\(index)")
     }
 
-    private static func previousEntryHash(logURL: URL) throws -> String? {
+    private static func validatedPreviousEntryHash(logURL: URL) throws -> String? {
         let data = try Data(contentsOf: logURL)
         guard !data.isEmpty else { return nil }
         guard let decoded = String(data: data, encoding: .utf8) else { throw AuditLogError.corrupt }
         let lines = decoded.split(separator: "\n", omittingEmptySubsequences: true)
-        guard let last = lines.last,
-              let lineData = String(last).data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-              let hash = object["entry_sha256"] as? String,
-              !hash.isEmpty else {
-            throw AuditLogError.corrupt
+        var previousHash: String?
+        for line in lines {
+            guard let lineData = String(line).data(using: .utf8),
+                  var object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let storedHash = object["entry_sha256"] as? String,
+                  !storedHash.isEmpty else {
+                throw AuditLogError.corrupt
+            }
+            let storedPreviousHash: String?
+            if let value = object["previous_sha256"] as? String {
+                storedPreviousHash = value
+            } else if object["previous_sha256"] is NSNull {
+                storedPreviousHash = nil
+            } else {
+                throw AuditLogError.corrupt
+            }
+            guard storedPreviousHash == previousHash else {
+                throw AuditLogError.corrupt
+            }
+            object.removeValue(forKey: "entry_sha256")
+            let computedHash = try sha256Hex(canonicalJSONData(object))
+            guard computedHash == storedHash else {
+                throw AuditLogError.corrupt
+            }
+            previousHash = storedHash
         }
-        return hash
+        return previousHash
     }
 
     private static func canonicalJSONData(_ object: Any) throws -> Data {

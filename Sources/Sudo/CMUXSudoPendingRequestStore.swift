@@ -108,7 +108,6 @@ final class CMUXSudoPendingRequestStore {
         case .pending(let access, let task, _):
             guard access.matches(peerIdentity: peerIdentity) else { return .forbidden }
             task?.cancel()
-            states[requestID] = .finished(access, response, Date())
             condition.broadcast()
             return .cancelled(response)
         case .finished(let access, let existingResponse, _):
