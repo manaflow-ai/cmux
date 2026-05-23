@@ -11106,7 +11106,7 @@ struct CMUXCLI {
         if subcommand == "cursor" {
             let sid = try requireSurface()
             guard let cursorVerb = subArgs.first?.lowercased() else {
-                throw CLIError(message: "browser cursor requires move|hide|get")
+                throw CLIError(message: "browser cursor requires move|set|hide|get")
             }
             let cursorArgs = Array(subArgs.dropFirst())
             switch cursorVerb {
@@ -11119,7 +11119,7 @@ struct CMUXCLI {
                       let y = Double(values[1]),
                       x.isFinite,
                       y.isFinite else {
-                    throw CLIError(message: "browser cursor move requires numeric <x> <y>")
+                    throw CLIError(message: "browser cursor \(cursorVerb) requires numeric <x> <y>")
                 }
                 var params: [String: Any] = [
                     "surface_id": sid,
@@ -11386,7 +11386,6 @@ struct CMUXCLI {
             process.arguments = [
                 "node",
                 "--experimental-repl-await",
-                "--input-type=module",
                 "-i",
                 "--eval",
                 bootstrap
@@ -11406,7 +11405,7 @@ struct CMUXCLI {
         do {
             try process.run()
         } catch {
-            throw CLIError(message: "Failed to start node for browser repl: \(error.localizedDescription)")
+            throw CLIError(message: "Failed to start node for browser repl: \(String(describing: error))")
         }
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {

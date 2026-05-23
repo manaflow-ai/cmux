@@ -24,7 +24,7 @@ HTML = """<!doctype html>
 <html>
   <head><title>cmux repl e2e</title></head>
   <body>
-    <label>Name <input id="name" /></label>
+    <label>Name <input id="name" onkeydown="if (event.key === 'Enter') document.querySelector('#status').textContent = this.value + ':pressed'" /></label>
     <button id="go" onclick="document.querySelector('#status').textContent = document.querySelector('#name').value + ':clicked'">Go</button>
     <div id="status">idle</div>
   </body>
@@ -72,9 +72,12 @@ def _run_cli_repl(cli: str, url: str) -> dict:
     _must(CLIENT_PATH.is_file(), f"Missing browser REPL client at {CLIENT_PATH}")
 
     script = f"""
-const tab = await browser.tabs.new({{ url: {json.dumps(url)} }});
+const tab = await browser.tabs.new();
+await tab.playwright.goto({json.dumps(url)});
 await tab.playwright.locator("#name").fill("cmux");
 await tab.playwright.locator("#go").click();
+const clickedStatus = await tab.playwright.locator("#status").textContent();
+await tab.playwright.locator("#name").press("Enter");
 const title = await tab.playwright.title();
 const status = await tab.playwright.locator("#status").textContent();
 const value = await tab.playwright.locator("#name").inputValue();
@@ -84,6 +87,7 @@ const hidden = await cmuxBrowserClient.call("browser.cursor.get", {{ surface_id:
 console.log(JSON.stringify({{
   surfaceId: tab.surfaceId,
   title,
+  clickedStatus,
   status,
   value,
   shown: shown.cursor,
@@ -148,11 +152,12 @@ def main() -> int:
     finally:
         server.shutdown()
         thread.join(timeout=2)
-    _must(result.get("status") == "cmux:clicked", f"Expected click handler status, got: {result}")
+    _must(result.get("clickedStatus") == "cmux:clicked", f"Expected click handler status, got: {result}")
+    _must(result.get("status") == "cmux:pressed", f"Expected locator press to target input, got: {result}")
     _must(result.get("value") == "cmux", f"Expected filled input value, got: {result}")
     _must(result.get("title") == "cmux repl e2e", f"Expected page.title() string, got: {result}")
     _must(result.get("boundTitle") == "cmux repl e2e", f"Expected bound page.title() string, got: {result}")
-    _must(result.get("boundStatus") == "cmux:clicked", f"Expected bound REPL to target existing surface, got: {result}")
+    _must(result.get("boundStatus") == "cmux:pressed", f"Expected bound REPL to target existing surface, got: {result}")
     _must(result.get("boundSurfaceId") == result.get("surfaceId"), f"Expected bound REPL surface id to match, got: {result}")
     shown = result.get("shown") or {}
     hidden = result.get("hidden") or {}

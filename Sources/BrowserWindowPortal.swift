@@ -1388,6 +1388,18 @@ private final class BrowserAgentCursorOverlayView: NSView {
     }
 
     func apply(_ nextState: BrowserAgentCursorState?) {
+        if state == nextState {
+            guard nextState?.visible == true else {
+                isHidden = true
+                pointerView.isHidden = true
+                return
+            }
+            isHidden = false
+            pointerView.isHidden = false
+            updatePointer(animated: false)
+            return
+        }
+
         let previousState = state
         state = nextState
 

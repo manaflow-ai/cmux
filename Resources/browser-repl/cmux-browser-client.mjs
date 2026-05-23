@@ -51,6 +51,7 @@ class CmuxSocketClient {
     this.socketPath = socketPath;
     this.password = password || "";
     this.socket = null;
+    this.connectPromise = null;
     this.buffer = "";
     this.lineWaiters = [];
     this.queuedLines = [];
@@ -60,32 +61,80 @@ class CmuxSocketClient {
   }
 
   async connect() {
-    if (this.socket) return;
+    if (this.socket && !this.connectPromise) return;
+    if (this.connectPromise) {
+      await this.connectPromise;
+      return;
+    }
+
     const endpoint = parseEndpoint(this.socketPath);
     this.isRelayBacked = endpoint.relay === true;
-    this.socket = net.createConnection(endpoint);
-    this.socket.setEncoding("utf8");
-    this.socket.on("data", (chunk) => this.handleData(chunk));
-    this.socket.on("error", (error) => this.rejectPending(error));
-    this.socket.on("close", () => this.rejectPending(new Error("cmux socket closed")));
-    await new Promise((resolve, reject) => {
-      this.socket.once("connect", resolve);
-      this.socket.once("error", reject);
-    });
-    if (this.isRelayBacked) {
-      await this.authenticateRelay(endpoint);
-    }
-    if (this.password && !this.isRelayBacked) {
-      const response = await this.sendLine(`auth ${this.password}`);
-      if (response.startsWith("ERROR:") && !response.includes("Unknown command 'auth'")) {
-        throw new Error(response);
+    const socket = net.createConnection(endpoint);
+    this.socket = socket;
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => this.handleData(chunk));
+    socket.on("error", (error) => this.rejectPending(error));
+    socket.on("close", () => {
+      if (this.socket === socket) {
+        this.socket = null;
+        this.connectPromise = null;
+        this.isRelayBacked = false;
       }
-    }
+      this.rejectPending(new Error("cmux socket closed"));
+    });
+
+    const connectPromise = (async () => {
+      try {
+        await new Promise((resolve, reject) => {
+          const cleanup = () => {
+            socket.off("connect", onConnect);
+            socket.off("error", onError);
+            socket.off("close", onClose);
+          };
+          const onConnect = () => {
+            cleanup();
+            resolve();
+          };
+          const onError = (error) => {
+            cleanup();
+            reject(error);
+          };
+          const onClose = () => {
+            cleanup();
+            reject(new Error("cmux socket closed before connect"));
+          };
+          socket.once("connect", onConnect);
+          socket.once("error", onError);
+          socket.once("close", onClose);
+        });
+        if (this.isRelayBacked) {
+          await this.authenticateRelay(endpoint);
+        }
+        if (this.password && !this.isRelayBacked) {
+          const response = await this.sendLineOnConnectedSocket(`auth ${this.password}`);
+          if (response.startsWith("ERROR:") && !response.includes("Unknown command 'auth'")) {
+            throw new Error(response);
+          }
+        }
+      } catch (error) {
+        if (this.socket === socket) {
+          this.close();
+        }
+        throw error;
+      } finally {
+        if (this.connectPromise === connectPromise) {
+          this.connectPromise = null;
+        }
+      }
+    })();
+    this.connectPromise = connectPromise;
+    await connectPromise;
   }
 
   close() {
     this.socket?.destroy();
     this.socket = null;
+    this.connectPromise = null;
     this.isRelayBacked = false;
     this.buffer = "";
     this.queuedLines = [];
@@ -126,12 +175,8 @@ class CmuxSocketClient {
   async sendLineOnOpenConnection(line) {
     await this.connect();
     const relayBacked = this.isRelayBacked;
-    const responsePromise = this.readLine();
     try {
-      this.socket.write(`${line}\n`, "utf8", (error) => {
-        if (error) this.rejectPending(error);
-      });
-      return await responsePromise;
+      return await this.sendLineOnConnectedSocket(line);
     } finally {
       if (relayBacked) {
         this.close();
@@ -139,13 +184,39 @@ class CmuxSocketClient {
     }
   }
 
-  readLine() {
-    if (this.queuedLines.length > 0) {
-      return Promise.resolve(this.queuedLines.shift());
+  async sendLineOnConnectedSocket(line) {
+    const { promise, waiter } = this.readLineWaiter();
+    const rejectWaiter = (error) => {
+      if (waiter) {
+        const index = this.lineWaiters.indexOf(waiter);
+        if (index >= 0) this.lineWaiters.splice(index, 1);
+      }
+      waiter?.reject(error);
+    };
+    try {
+      this.socket.write(`${line}\n`, "utf8", (error) => {
+        if (error) rejectWaiter(error);
+      });
+    } catch (error) {
+      rejectWaiter(error);
     }
-    return new Promise((resolve, reject) => {
-      this.lineWaiters.push({ resolve, reject });
+    return await promise;
+  }
+
+  readLine() {
+    return this.readLineWaiter().promise;
+  }
+
+  readLineWaiter() {
+    if (this.queuedLines.length > 0) {
+      return { promise: Promise.resolve(this.queuedLines.shift()), waiter: null };
+    }
+    let waiter = null;
+    const promise = new Promise((resolve, reject) => {
+      waiter = { resolve, reject };
+      this.lineWaiters.push(waiter);
     });
+    return { promise, waiter };
   }
 
   async authenticateRelay(endpoint) {
@@ -162,11 +233,9 @@ class CmuxSocketClient {
     }
     const authMessage = `relay_id=${credentials.relayId}\nnonce=${challenge.nonce}\nversion=${challenge.version}`;
     const mac = crypto.createHmac("sha256", credentials.relayToken).update(authMessage).digest("hex");
-    const authResponsePromise = this.readLine();
-    this.socket.write(`${JSON.stringify({ relay_id: credentials.relayId, mac })}\n`, "utf8", (error) => {
-      if (error) this.rejectPending(error);
-    });
-    const authResponse = JSON.parse(await authResponsePromise);
+    const authResponse = JSON.parse(
+      await this.sendLineOnConnectedSocket(JSON.stringify({ relay_id: credentials.relayId, mac }))
+    );
     if (authResponse.ok !== true) {
       throw new Error("Relay authentication failed");
     }
@@ -180,7 +249,7 @@ class CmuxSocketClient {
     }
     const response = JSON.parse(responseLine);
     if (response.ok) {
-      return response.result || {};
+      return response.result ?? {};
     }
     const error = response.error || {};
     const code = error.code || "error";
@@ -240,8 +309,8 @@ class CmuxTab {
     this.page = this.playwright;
   }
 
-  async goto(url) {
-    return await this.playwright.goto(url);
+  async goto(url, options = {}) {
+    return await this.playwright.goto(url, options);
   }
 
   async evaluate(script, arg) {
@@ -267,12 +336,16 @@ class CmuxPlaywrightPage {
     return new CmuxLocator(this.client, this.surfaceId, selector);
   }
 
-  async goto(url) {
-    return await this.client.call("browser.navigate", {
+  async goto(url, options = {}) {
+    const result = await this.client.call("browser.navigate", {
       surface_id: this.surfaceId,
       url,
       snapshot_after: false,
     });
+    if (options.waitUntil !== false && options.waitUntil !== "commit") {
+      await this.waitForLoadState(options.waitUntil || "complete", { timeout: options.timeout });
+    }
+    return result;
   }
 
   async evaluate(script, arg) {
@@ -373,7 +446,12 @@ class CmuxLocator {
     });
   }
 
-  async press(key) {
+  async press(key, options = {}) {
+    await this.moveCursorToElement(options);
+    await this.client.call("browser.focus", {
+      surface_id: this.surfaceId,
+      selector: this.selector,
+    });
     return await this.client.call("browser.press", {
       surface_id: this.surfaceId,
       selector: this.selector,

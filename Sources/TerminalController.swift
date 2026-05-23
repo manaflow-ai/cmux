@@ -11279,15 +11279,30 @@ class TerminalController {
             if current == expected { return true }
             if current.hasSuffix("/") && String(current.dropLast()) == expected { return true }
             if expected.hasSuffix("/") && current == String(expected.dropLast()) { return true }
+            guard let currentComponents = URLComponents(url: currentURL, resolvingAgainstBaseURL: false),
+                  let expectedComponents = URLComponents(url: expectedURL, resolvingAgainstBaseURL: false) else {
+                return false
+            }
+            let currentHost = currentComponents.host?.lowercased() ?? ""
+            let expectedHost = expectedComponents.host?.lowercased() ?? ""
+            let currentPath = currentComponents.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let expectedPath = expectedComponents.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if !currentHost.isEmpty || !expectedHost.isEmpty {
+                return currentHost == expectedHost && currentPath == expectedPath
+            }
             return false
         }
 
         func isSettled() -> Bool {
-            urlsMatch(webView.url) && !webView.isLoading && webView.estimatedProgress >= 0.8
-        }
-
-        if isSettled() {
-            return true
+            guard !webView.isLoading,
+                  webView.estimatedProgress >= 0.8,
+                  let currentURL = webView.url else {
+                return false
+            }
+            if urlsMatch(currentURL) {
+                return true
+            }
+            return currentURL.scheme?.lowercased() != "about"
         }
 
         let observationState = BrowserInitialLoadWaitObservationState()
@@ -14525,13 +14540,28 @@ class TerminalController {
     ) -> (width: CGFloat?, height: CGFloat?) {
         let explicitWidth = v2Double(params, "viewport_width") ?? v2Double(params, "width")
         let explicitHeight = v2Double(params, "viewport_height") ?? v2Double(params, "height")
-        if let explicitWidth,
-           let explicitHeight,
-           explicitWidth.isFinite,
-           explicitHeight.isFinite,
-           explicitWidth > 0,
-           explicitHeight > 0 {
-            return (CGFloat(explicitWidth), CGFloat(explicitHeight))
+        let validExplicitWidth = explicitWidth.flatMap { value -> CGFloat? in
+            value.isFinite && value > 0 ? CGFloat(value) : nil
+        }
+        let validExplicitHeight = explicitHeight.flatMap { value -> CGFloat? in
+            value.isFinite && value > 0 ? CGFloat(value) : nil
+        }
+
+        if let validExplicitWidth,
+           let validExplicitHeight {
+            return (validExplicitWidth, validExplicitHeight)
+        }
+
+        let webView = browserPanel.webView
+        let bounds = webView.bounds
+        let canUseBoundsAsCSSViewport = abs(webView.pageZoom - 1.0) < 0.0001
+        if canUseBoundsAsCSSViewport,
+           bounds.width > 0,
+           bounds.height > 0 {
+            return (
+                validExplicitWidth ?? bounds.width,
+                validExplicitHeight ?? bounds.height
+            )
         }
 
         let script = """
@@ -14541,7 +14571,7 @@ class TerminalController {
         }))()
         """
         if case .success(let value) = v2RunBrowserJavaScript(
-            browserPanel.webView,
+            webView,
             surfaceId: surfaceId,
             script: script,
             timeout: 2.0,
@@ -14558,14 +14588,16 @@ class TerminalController {
                height.isFinite,
                width > 0,
                height > 0 {
-                return (CGFloat(width), CGFloat(height))
+                return (
+                    validExplicitWidth ?? CGFloat(width),
+                    validExplicitHeight ?? CGFloat(height)
+                )
             }
         }
 
-        let bounds = browserPanel.webView.bounds
         return (
-            bounds.width > 0 ? bounds.width : nil,
-            bounds.height > 0 ? bounds.height : nil
+            validExplicitWidth ?? (bounds.width > 0 ? bounds.width : nil),
+            validExplicitHeight ?? (bounds.height > 0 ? bounds.height : nil)
         )
     }
 
