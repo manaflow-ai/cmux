@@ -1319,6 +1319,7 @@ class TabManager: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { [weak self] in
                 self?.sidebarGitMetadataWatchSettingsDidChange()
+                self?.refreshTabCloseButtonVisibility()
             }
         })
 #if DEBUG
@@ -5883,6 +5884,17 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
+    func closeWorkspaceFromTabCloseButton(_ workspace: Workspace) -> Bool {
+        if workspace.isPinned {
+            guard confirmPinnedWorkspaceClose(source: .tabCloseButton) else { return false }
+            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            return true
+        }
+        closeWorkspaceIfRunningProcess(workspace, source: .tabCloseButton)
+        return true
+    }
+
+    @discardableResult
     func closeWorkspaceWithConfirmation(tabId: UUID) -> Bool {
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return false }
         return closeWorkspaceWithConfirmation(workspace)
@@ -6044,6 +6056,7 @@ class TabManager: ObservableObject {
     private enum CloseConfirmationSource {
         case workspace
         case tabClose
+        case tabCloseButton
     }
 
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
@@ -6163,6 +6176,11 @@ class TabManager: ObservableObject {
             return requiresConfirmation
         case .tabClose:
             return CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation)
+        case .tabCloseButton:
+            return CloseTabConfirmationPolicy.shouldConfirm(
+                requiresConfirmation: requiresConfirmation,
+                source: .tabCloseButton
+            )
         }
     }
 
@@ -7199,6 +7217,12 @@ class TabManager: ObservableObject {
     func refreshSplitButtonTooltips() {
         for workspace in tabs {
             workspace.refreshSplitButtonTooltips()
+        }
+    }
+
+    func refreshTabCloseButtonVisibility() {
+        for workspace in tabs {
+            workspace.refreshTabCloseButtonVisibility()
         }
     }
 

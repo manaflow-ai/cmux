@@ -9539,7 +9539,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let config = BonsplitConfiguration(
             allowSplits: true,
-            allowCloseTabs: true,
+            allowCloseTabs: !CloseTabWarningSettings.hidesTabCloseButton(),
             allowCloseLastPane: false,
             allowTabReordering: true,
             allowCrossPaneTabMove: true,
@@ -9617,8 +9617,13 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
             self?.bonsplitTabMoveDestinations(for: tabId) ?? []
         }
-        bonsplitController.onTabCloseRequest = { [weak self] tabId, _ in
-            self?.markExplicitClose(surfaceId: tabId)
+        bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
+            switch source {
+            case .closeButton:
+                self?.markTabCloseButtonClose(surfaceId: tabId)
+            case .middleClick:
+                self?.markExplicitClose(surfaceId: tabId)
+            }
         }
         bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, _ in
             guard let self,
@@ -9673,6 +9678,14 @@ final class Workspace: Identifiable, ObservableObject {
     func refreshSplitButtonBackdropEffect() {
         var configuration = bonsplitController.configuration
         configuration.appearance.splitButtonBackdropEffect = Self.bonsplitSplitButtonBackdropEffect()
+        bonsplitController.configuration = configuration
+    }
+
+    func refreshTabCloseButtonVisibility() {
+        let allowCloseTabs = !CloseTabWarningSettings.hidesTabCloseButton()
+        var configuration = bonsplitController.configuration
+        guard configuration.allowCloseTabs != allowCloseTabs else { return }
+        configuration.allowCloseTabs = allowCloseTabs
         bonsplitController.configuration = configuration
     }
 
@@ -9768,6 +9781,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// shortcut when the shortcut preference is set to close the workspace on the last surface),
     /// rather than an internal close/move flow.
     private var explicitUserCloseTabIds: Set<TabID> = []
+    private var tabCloseButtonCloseTabIds: Set<TabID> = []
 
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
@@ -9843,6 +9857,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     func markExplicitClose(surfaceId: TabID) {
         explicitUserCloseTabIds.insert(surfaceId)
+    }
+
+    func markTabCloseButtonClose(surfaceId: TabID) {
+        explicitUserCloseTabIds.insert(surfaceId)
+        tabCloseButtonCloseTabIds.insert(surfaceId)
     }
 
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
@@ -15985,7 +16004,8 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil
+        let tabCloseButtonClose = tabCloseButtonCloseTabIds.remove(tab.id) != nil
+        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabCloseButtonClose
 
         if forceCloseTabIds.contains(tab.id) {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
@@ -16010,7 +16030,11 @@ extension Workspace: BonsplitDelegate {
 
         if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            owningTabManager?.closeWorkspaceFromCloseTabGesture(self)
+            if tabCloseButtonClose {
+                owningTabManager?.closeWorkspaceFromTabCloseButton(self)
+            } else {
+                owningTabManager?.closeWorkspaceFromCloseTabGesture(self)
+            }
             return false
         }
 
@@ -16024,8 +16048,10 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
+        let confirmationSource: CloseTabConfirmationPolicy.Source = tabCloseButtonClose ? .tabCloseButton : .shortcut
         if CloseTabConfirmationPolicy.shouldConfirm(
-            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId)
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+            source: confirmationSource
         ) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
@@ -16071,6 +16097,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
+        tabCloseButtonCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
         let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction

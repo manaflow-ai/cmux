@@ -60961,6 +60961,108 @@
         }
       }
     },
+    "settings.app.warnBeforeClosingTabXButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Tab Close Button"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンで閉じる前に確認"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTabXButton.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab close button closes tabs immediately."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンですぐにタブを閉じます。"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTabXButton.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab close button asks for confirmation before closing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンで閉じる前に確認を表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.hideTabCloseButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Tab Close Button"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンを非表示"
+          }
+        }
+      }
+    },
+    "settings.app.hideTabCloseButton.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab close buttons appear on hover and on the active tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバー時とアクティブなタブに閉じるボタンを表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.hideTabCloseButton.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab close buttons are hidden."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンを非表示にします。"
+          }
+        }
+      }
+    },
     "settings.notifications.sound.custom.choose.button": {
       "extractionState": "manual",
       "localizations": {
@@ -77350,6 +77452,40 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface タブを閉じる 確認 警告"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.warn-before-closing-tab-x-button": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface タブ 閉じるボタン 確認 警告"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.hide-tab-close-button": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.hideTabCloseButton hide close tab x button terminal surface"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.hideTabCloseButton hide close tab x button terminal surface タブ 閉じるボタン 非表示"
                 }
             }
         }
