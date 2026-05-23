@@ -551,7 +551,11 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"PermissionRequest hook should call hooks feed, got {permission_request_hooks}",
         failures,
     )
-    subagent_stop_hooks = hooks.get("SubagentStop", [{}])[0].get("hooks", [{}])
+    subagent_stop_hooks = [
+        hook
+        for group in hooks.get("SubagentStop", [])
+        for hook in group.get("hooks", [])
+    ]
     expect(
         any(
             h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude'
@@ -562,8 +566,13 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     expect(
-        not any("hooks claude stop" in h.get("command", "") for h in subagent_stop_hooks),
-        f"SubagentStop hook should not call the visible stop hook, got {subagent_stop_hooks}",
+        any(
+            h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude subagent-stop'
+            and h.get("timeout") == 10
+            and h.get("async") is not True
+            for h in subagent_stop_hooks
+        ),
+        f"SubagentStop hook should call the visible subagent-stop hook so cmux can honor the suppression toggle, got {subagent_stop_hooks}",
         failures,
     )
     # SessionEnd should have a short timeout (session is exiting)
