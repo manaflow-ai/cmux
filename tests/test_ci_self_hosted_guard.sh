@@ -29,20 +29,6 @@ check_blacksmith_runner() {
   echo "PASS: $job Blacksmith runner is present"
 }
 
-check_no_warp_runner() {
-  local file="$1" job="$2"
-  if awk -v job="$job" '
-    $0 ~ "^  "job":" { in_job=1; next }
-    in_job && /^  [^[:space:]]/ { in_job=0 }
-    in_job && /warp-macos-/ { saw_warp=1 }
-    END { exit !(saw_warp) }
-  ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must not use a WarpBuild runner"
-    exit 1
-  fi
-  echo "PASS: $job WarpBuild runner is absent"
-}
-
 check_warp_exception() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '

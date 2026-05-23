@@ -13,9 +13,10 @@ on:
         required: false
         default: warp-macos-15-arm64-6x
         type: choice
-        # This benchmark intentionally stays on WarpBuild because it asserts
-        # real Cmd-Tab visible-window behavior. Blacksmith and Depot comparison
-        # runs are manual until they can surface the benchmark app window.
+        # This benchmark intentionally stays on WarpBuild for pull_request
+        # because it asserts real Cmd-Tab visible-window behavior. Blacksmith
+        # and Depot are workflow_dispatch-only options for manual provider
+        # comparison until they can surface the benchmark app window.
         options:
           - warp-macos-15-arm64-6x
           - depot-macos-latest
