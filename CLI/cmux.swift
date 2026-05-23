@@ -978,6 +978,39 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    func discardPendingNotification(sessionId: String, fingerprint: String, clearSummary: Bool = false) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFingerprint.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else {
+                return
+            }
+            let pendingMatches = record.pendingNotificationFingerprint == normalizedFingerprint
+            let summaryMatches: Bool
+            if clearSummary,
+               let lastSubtitle = record.lastSubtitle,
+               let lastBody = record.lastBody {
+                summaryMatches = "\(lastSubtitle)\n\(lastBody)" == normalizedFingerprint
+            } else {
+                summaryMatches = false
+            }
+            guard pendingMatches || summaryMatches else { return }
+            let now = Date().timeIntervalSince1970
+            if pendingMatches {
+                record.pendingNotificationFingerprint = nil
+                record.pendingNotificationStartedAt = nil
+            }
+            if summaryMatches {
+                record.lastSubtitle = nil
+                record.lastBody = nil
+            }
+            record.updatedAt = now
+            state.sessions[normalized] = record
+        }
+    }
+
     func hasPendingNotification(sessionId: String, fingerprint: String) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -18893,6 +18926,7 @@ struct CMUXCLI {
             }
 
             let isGenericWaitingNotification = isGenericClaudeWaitingBody(summary.body)
+            let isCompletionNotification = isClaudeCompletionSubtitle(summary.subtitle)
             if !isGenericWaitingNotification, let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -18905,14 +18939,16 @@ struct CMUXCLI {
                 )
             }
 
-            _ = try? setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                value: claudeNeedsInputStatusValue(),
-                icon: "bell.fill",
-                color: "#4C8DFF"
-            )
+            if !isCompletionNotification {
+                _ = try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    value: claudeNeedsInputStatusValue(),
+                    icon: "bell.fill",
+                    color: "#4C8DFF"
+                )
+            }
             let response: String
             var shouldMarkNotificationSent = true
             if isGenericWaitingNotification, let sessionId = parsedInput.sessionId {
@@ -19076,9 +19112,10 @@ struct CMUXCLI {
                 markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
             } catch {
                 if let sessionId = parsedInput.sessionId {
-                    try? sessionStore.clearPendingNotification(
+                    try? sessionStore.discardPendingNotification(
                         sessionId: sessionId,
-                        fingerprint: notificationFingerprint
+                        fingerprint: notificationFingerprint,
+                        clearSummary: true
                     )
                 }
                 throw error

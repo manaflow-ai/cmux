@@ -472,13 +472,20 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertFalse(result.timedOut, result.stderr)
             XCTAssertEqual(result.status, 0, result.stderr)
 
-            let notifyCommands = Array(context.state.commands.dropFirst(commandStart))
+            let commands = Array(context.state.commands.dropFirst(commandStart))
+            let notifyCommands = commands
                 .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
             let command = try XCTUnwrap(notifyCommands.last)
             XCTAssertTrue(command.contains("\(testCase.titleFragment)|\(testCase.subtitle)|"), command)
             XCTAssertTrue(command.contains(testCase.bodyFragment), command)
+            if testCase.subtitle == "Completed" {
+                XCTAssertFalse(
+                    commands.contains { $0.contains("set_status claude_code Needs input") },
+                    "Completed Claude notifications must not leave the surface marked as waiting, saw \(commands)"
+                )
+            }
 
-            let workspaceListRequests = Array(context.state.commands.dropFirst(commandStart)).compactMap { command -> [String: Any]? in
+            let workspaceListRequests = commands.compactMap { command -> [String: Any]? in
                 guard let payload = jsonObject(command),
                       payload["method"] as? String == "workspace.list" else {
                     return nil
@@ -809,6 +816,62 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(sessionAfterPermission["lastEmittedNotificationFingerprint"])
         XCTAssertNil(sessionAfterPermission["lastSubtitle"])
         XCTAssertNil(sessionAfterPermission["lastBody"])
+    }
+
+    func testClaudePermissionRequestRetryAfterNotificationSendFailure() throws {
+        let context = try makeClaudeHookContext(name: "claude-permission-send-failure")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-permission-send-failure-session"
+        let permissionPayload = #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"grep error.log","allowed_prompts":[{"prompt":"Allow Bash to inspect grep error.log?"}]}}"#
+        let failingStart = context.state.commands.count
+        let failingResult = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: permissionPayload,
+            responseOverride: { line in
+                guard line.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") else {
+                    return nil
+                }
+                return "ERROR: notify failed"
+            }
+        )
+        XCTAssertFalse(failingResult.timedOut, failingResult.stderr)
+        XCTAssertNotEqual(failingResult.status, 0, failingResult.stdout)
+
+        let failingCommands = Array(context.state.commands.dropFirst(failingStart))
+        XCTAssertTrue(
+            failingCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") },
+            "Expected first attempt to reach notification send, saw \(failingCommands)"
+        )
+        let sessionAfterFailure = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(sessionAfterFailure["pendingNotificationFingerprint"])
+        XCTAssertNil(sessionAfterFailure["pendingNotificationClearedFingerprint"])
+        XCTAssertNil(sessionAfterFailure["lastSubtitle"])
+        XCTAssertNil(sessionAfterFailure["lastBody"])
+
+        let retryStart = context.state.commands.count
+        let retryResult = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            standardInput: permissionPayload
+        )
+        XCTAssertFalse(retryResult.timedOut, retryResult.stderr)
+        XCTAssertEqual(retryResult.status, 0, retryResult.stderr)
+
+        let retryCommands = Array(context.state.commands.dropFirst(retryStart))
+        let retryNotifyCommands = retryCommands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        let retryNotifyCommand = try XCTUnwrap(
+            retryNotifyCommands.last,
+            "A transient notification send failure must not suppress the next identical permission request"
+        )
+        XCTAssertTrue(retryNotifyCommand.contains("Claude Workspace - Claude waiting|Permission request|"), retryNotifyCommand)
+        XCTAssertTrue(retryNotifyCommand.contains("Allow Bash to inspect grep error.log?"), retryNotifyCommand)
+        XCTAssertTrue(
+            retryCommands.contains { $0.contains("set_status claude_code Needs input") },
+            "Expected retry to mark Claude waiting, saw \(retryCommands)"
+        )
     }
 
     func testClaudePermissionRequestSkipsNotificationWhenPendingPromptWasCleared() throws {
