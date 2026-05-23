@@ -12358,6 +12358,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Show only one workspace
               --window <id|ref|index>      Show one window
               --processes                  Include process trees under windows, surfaces, webviews, and tags
+              --no-resources               Skip CPU/RAM sampling and print topology/status rows only
               --sort <cpu|mem|proc>         Sort sibling rows by CPU, memory, or process count
               --flat                        Print independent rows for shell sorting
               --format <tree|tsv>           Text output format (tsv implies --flat)
@@ -12367,6 +12368,7 @@ struct CMUXCLI {
               CPU comes from macOS process accounting and can exceed 100% across cores.
               Memory is summed from macOS physical footprint across the unique process IDs attributed to each tree node.
               Browser webviews are attributed through their WebKit content process PID.
+              --no-resources avoids process sampling; resource columns are zero and process trees are unavailable.
               TSV columns are: cpu_percent, memory_bytes, process_count, kind, ref, parent_ref, title.
 
             Example:
@@ -12374,6 +12376,7 @@ struct CMUXCLI {
               cmux top --all
               cmux top --window window:2
               cmux top --sort cpu
+              cmux top --all --no-resources --format tsv
               cmux top --format tsv | sort -t $'\\t' -nrk1,1
               cmux top --workspace workspace:2 --processes
               cmux --json top --all
@@ -13811,6 +13814,7 @@ struct CMUXCLI {
         let windowHandle: String?
         let jsonOutput: Bool
         let showProcesses: Bool
+        let includeResources: Bool
         let sortKey: TopSortKey?
         let textFormat: TopTextFormat
         let requestedFlatOutput: Bool
@@ -13933,6 +13937,7 @@ struct CMUXCLI {
         var includeAll = false
         var jsonOutput = false
         var showProcesses = false
+        var includeResources = true
         var flatOutput = false
         var remaining: [String] = []
         for arg in rem3 {
@@ -13948,6 +13953,10 @@ struct CMUXCLI {
                 showProcesses = true
                 continue
             }
+            if arg == "--no-resources" {
+                includeResources = false
+                continue
+            }
             if arg == "--flat" {
                 flatOutput = true
                 continue
@@ -13956,10 +13965,23 @@ struct CMUXCLI {
         }
 
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --window <id|ref|index> --processes --sort <cpu|mem|proc> --flat --format <tree|tsv> --json")
+            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --window <id|ref|index> --processes --no-resources --sort <cpu|mem|proc> --flat --format <tree|tsv> --json")
         }
         if let extra = remaining.first {
             throw CLIError(message: "top: unexpected argument '\(extra)'")
+        }
+        let sortKey = try parseTopSortKey(sortOpt)
+        if !includeResources, showProcesses {
+            throw CLIError(message: String(
+                localized: "cli.top.error.noResourcesWithProcesses",
+                defaultValue: "top: --no-resources cannot be combined with --processes"
+            ))
+        }
+        if !includeResources, sortKey != nil {
+            throw CLIError(message: String(
+                localized: "cli.top.error.noResourcesWithSort",
+                defaultValue: "top: --no-resources cannot be combined with --sort"
+            ))
         }
         let format = try parseTopTextFormat(formatOpt)
         if flatOutput, format == .tree {
@@ -13972,7 +13994,8 @@ struct CMUXCLI {
             windowHandle: windowOpt,
             jsonOutput: jsonOutput,
             showProcesses: showProcesses,
-            sortKey: try parseTopSortKey(sortOpt),
+            includeResources: includeResources,
+            sortKey: sortKey,
             textFormat: format ?? (flatOutput ? .tsv : .tree),
             requestedFlatOutput: flatOutput,
             requestedFormat: formatOpt != nil
@@ -14014,7 +14037,8 @@ struct CMUXCLI {
     ) throws -> [String: Any] {
         var params: [String: Any] = [
             "all_windows": options.includeAllWindows,
-            "include_processes": options.showProcesses
+            "include_processes": options.showProcesses,
+            "include_resources": options.includeResources
         ]
         let windowHandle = try normalizeWindowHandle(options.windowHandle, client: client)
         if options.includeAllWindows, windowHandle != nil {
@@ -29522,7 +29546,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
           tree [--all] [--workspace <id|ref|index>] [--window <id|ref|index>]
-          top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
+          top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--no-resources] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]

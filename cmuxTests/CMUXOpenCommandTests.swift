@@ -409,6 +409,56 @@ final class CMUXOpenCommandTests: XCTestCase {
         ])
     }
 
+    func testTopCommandNoResourcesForwardsMetadataOnlyRequest() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("top-meta")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let payload: [String: Any] = [
+            "windows": [
+                [
+                    "ref": "window:1",
+                    "workspaces": [
+                        [
+                            "ref": "workspace:1",
+                            "title": "Status",
+                            "tags": [
+                                [
+                                    "ref": "workspace:1:tag:codex",
+                                    "key": "codex",
+                                    "value": "Needs input",
+                                ] as [String: Any],
+                            ],
+                        ] as [String: Any],
+                    ],
+                ] as [String: Any],
+            ],
+        ]
+        let serverHandled = startTopMockServer(listenerFD: listenerFD, payload: payload) { params in
+            XCTAssertEqual(params["include_processes"] as? Bool, false)
+            XCTAssertEqual(params["include_resources"] as? Bool, false)
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["top", "--no-resources", "--format", "tsv"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(outputLines(result.stdout), [
+            "0.0\t0\t0\twindow\twindow:1\ttotal\t",
+            "0.0\t0\t0\tworkspace\tworkspace:1\twindow:1\tStatus",
+            "0.0\t0\t0\ttag\tworkspace:1:tag:codex\tworkspace:1\tNeeds input",
+        ])
+    }
+
     func testTopCommandOutputsWindowLevelProcessRows() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("top-proc")
