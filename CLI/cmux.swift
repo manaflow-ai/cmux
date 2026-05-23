@@ -19402,11 +19402,11 @@ struct CMUXCLI {
         }
 
         func claudeSubagentParentSessionId(mappedSession: ClaudeHookSessionRecord?) -> String? {
-            guard let sessionId = normalizeOptional(parsedInput.sessionId) else {
+            guard let sessionId = normalizedHookValue(parsedInput.sessionId) else {
                 return nil
             }
-            guard let parentSessionId = normalizeOptional(parsedInput.parentSessionId)
-                ?? normalizeOptional(mappedSession?.parentSessionId),
+            guard let parentSessionId = normalizedHookValue(parsedInput.parentSessionId)
+                ?? normalizedHookValue(mappedSession?.parentSessionId),
                 parentSessionId != sessionId else {
                 return nil
             }
@@ -19478,8 +19478,10 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 telemetry: telemetry
             )
+            let startupParentSessionId = claudeSubagentParentSessionId(mappedSession: nil)
+            let isClaudeSubagentSessionStart = startupParentSessionId != nil
             let shouldPromoteActiveSession =
-                claudeSubagentParentSessionId(mappedSession: nil) == nil &&
+                !isClaudeSubagentSessionStart &&
                 (isClearSessionStart || canReplaceStoppedSession)
             if let sessionId = parsedInput.sessionId {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
@@ -19516,12 +19518,15 @@ struct CMUXCLI {
             // new active boundary and must keep the sidebar Running before
             // any late pre-clear Stop can write Idle.
             let shouldRegisterPID =
-                shouldPromoteActiveSession ||
-                shouldApplyClaudeHookVisibleMutation(
-                    sessionStore: sessionStore,
-                    parsedInput: parsedInput,
-                    workspaceId: workspaceId,
-                    telemetry: telemetry
+                !isClaudeSubagentSessionStart &&
+                (
+                    shouldPromoteActiveSession ||
+                    shouldApplyClaudeHookVisibleMutation(
+                        sessionStore: sessionStore,
+                        parsedInput: parsedInput,
+                        workspaceId: workspaceId,
+                        telemetry: telemetry
+                    )
                 )
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
