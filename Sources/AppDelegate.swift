@@ -14692,6 +14692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
+            windowId: context.windowId,
             snapshot: snapshot,
             workspaceIds: context.tabManager.sessionSnapshotWorkspaceIds()
         )))

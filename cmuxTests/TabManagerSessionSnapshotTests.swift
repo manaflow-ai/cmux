@@ -869,6 +869,55 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Closed Panel"))
     }
 
+    func testClosedWindowRestoreRemapsClosedWorkspaceWindowIds() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.setCustomTitle("Closed Workspace")
+        let workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let oldWindowId = UUID()
+        let newWindowId = UUID()
+        let otherWindowId = UUID()
+        let remappedRecordId = UUID()
+        let untouchedRecordId = UUID()
+
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            id: remappedRecordId,
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: workspace.id,
+                windowId: oldWindowId,
+                workspaceIndex: 0,
+                snapshot: workspaceSnapshot
+            ))
+        ))
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            id: untouchedRecordId,
+            closedAt: Date(timeIntervalSince1970: 2),
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: workspace.id,
+                windowId: otherWindowId,
+                workspaceIndex: 1,
+                snapshot: workspaceSnapshot
+            ))
+        ))
+
+        ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: oldWindowId, to: newWindowId)
+
+        let remappedRecord = try XCTUnwrap(ClosedItemHistoryStore.shared.removeRecord(id: remappedRecordId)?.record)
+        guard case .workspace(let remappedEntry) = remappedRecord.entry else {
+            XCTFail("Expected workspace history record")
+            return
+        }
+        XCTAssertEqual(remappedEntry.windowId, newWindowId)
+
+        let untouchedRecord = try XCTUnwrap(ClosedItemHistoryStore.shared.removeRecord(id: untouchedRecordId)?.record)
+        guard case .workspace(let untouchedEntry) = untouchedRecord.entry else {
+            XCTFail("Expected workspace history record")
+            return
+        }
+        XCTAssertEqual(untouchedEntry.windowId, otherWindowId)
+    }
+
     func testReopenClosedItemRestoresClosedWorkspaceSnapshot() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)

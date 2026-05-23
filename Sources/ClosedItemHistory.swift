@@ -44,11 +44,13 @@ struct ClosedWorkspaceHistoryEntry {
 }
 
 struct ClosedWindowHistoryEntry {
+    let windowId: UUID?
     let snapshot: SessionWindowSnapshot
 
     let workspaceIds: [UUID]
 
-    init(snapshot: SessionWindowSnapshot, workspaceIds: [UUID] = []) {
+    init(windowId: UUID? = nil, snapshot: SessionWindowSnapshot, workspaceIds: [UUID] = []) {
+        self.windowId = windowId
         self.snapshot = snapshot
         self.workspaceIds = workspaceIds
     }
@@ -295,6 +297,28 @@ final class ClosedItemHistoryStore: ObservableObject {
                 tabIndex: panelEntry.tabIndex,
                 snapshot: panelEntry.snapshot,
                 fallbackSplitPlacement: fallbackSplitPlacement
+            )))
+        }
+        if didUpdate {
+            records = remappedRecords
+            revision &+= 1
+        }
+    }
+
+    func remapWorkspaceWindowIds(from oldWindowId: UUID, to newWindowId: UUID) {
+        guard oldWindowId != newWindowId else { return }
+        var didUpdate = false
+        let remappedRecords = records.map { record in
+            guard case .workspace(let workspaceEntry) = record.entry,
+                  workspaceEntry.windowId == oldWindowId else {
+                return record
+            }
+            didUpdate = true
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: workspaceEntry.workspaceId,
+                windowId: newWindowId,
+                workspaceIndex: workspaceEntry.workspaceIndex,
+                snapshot: workspaceEntry.snapshot
             )))
         }
         if didUpdate {

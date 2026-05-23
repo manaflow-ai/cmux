@@ -132,6 +132,9 @@ extension AppDelegate {
                 discardMainWindowWithoutClosedHistory(windowId: windowId)
                 return false
             }
+            if let oldWindowId = windowEntry.windowId {
+                ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: oldWindowId, to: windowId)
+            }
             return true
         }
     }
