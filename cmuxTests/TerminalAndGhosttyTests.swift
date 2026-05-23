@@ -2493,10 +2493,14 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         GhosttyNSView.debugTextInputEventHandler = { _, _ in false }
         var forwardedRepeatCount = 0
+        var forwardedTexts: [String] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             previousKeyEventObserver?(keyEvent)
             guard keyEvent.action == GHOSTTY_ACTION_REPEAT, keyEvent.keycode == 0 else { return }
             forwardedRepeatCount += 1
+            if let text = keyEvent.text {
+                forwardedTexts.append(String(cString: text))
+            }
         }
 
         surface.resetDebugForceRefreshCount()
@@ -2521,6 +2525,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         }
 
         XCTAssertEqual(forwardedRepeatCount, 3, "Repeat text keyDown events should still reach Ghostty")
+        XCTAssertEqual(forwardedTexts, ["a", "a", "a"], "Printable repeat should exercise the fallback text path")
         XCTAssertEqual(
             surface.debugForceRefreshCount(),
             0,
@@ -2578,10 +2583,14 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return true
         }
         var forwardedRepeatCount = 0
+        var forwardedTexts: [String] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             previousKeyEventObserver?(keyEvent)
             guard keyEvent.action == GHOSTTY_ACTION_REPEAT, keyEvent.keycode == 0 else { return }
             forwardedRepeatCount += 1
+            if let text = keyEvent.text {
+                forwardedTexts.append(String(cString: text))
+            }
         }
 
         surface.resetDebugForceRefreshCount()
@@ -2606,6 +2615,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         }
 
         XCTAssertEqual(forwardedRepeatCount, 3, "Repeat IME text keyDown events should still reach Ghostty")
+        XCTAssertEqual(forwardedTexts, ["あ", "あ", "あ"], "IME repeat should exercise the accumulated committed-text path")
         XCTAssertEqual(
             surface.debugForceRefreshCount(),
             0,

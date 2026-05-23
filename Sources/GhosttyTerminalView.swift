@@ -8426,7 +8426,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
+#if DEBUG
+        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
+            _ = debugTextInputEventHandler(self, textInputEvent)
+        } else {
+            interpretKeyEvents([textInputEvent])
+        }
+#else
         interpretKeyEvents([textInputEvent])
+#endif
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
