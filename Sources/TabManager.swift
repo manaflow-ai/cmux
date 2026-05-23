@@ -25,6 +25,36 @@ private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, in
     box.handleEvent()
 }
 
+private let gitIndexHexDigits = Array("0123456789abcdef".utf8)
+
+private actor AsyncPermitLimiter {
+    private var availablePermits: Int
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        availablePermits = max(1, limit)
+    }
+
+    func acquire() async {
+        if availablePermits > 0 {
+            availablePermits -= 1
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            availablePermits += 1
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
 private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
     struct Descriptor: Equatable, Sendable {
         let directory: String
@@ -1213,6 +1243,7 @@ class TabManager: ObservableObject {
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     private var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
+    private static let initialWorkspaceGitProbeLimiter = AsyncPermitLimiter(limit: 2)
     private let initialWorkspaceGitProbeQueue = DispatchQueue(
         label: "com.cmux.initial-workspace-git-probe",
         qos: .utility
@@ -2700,7 +2731,9 @@ class TabManager: ObservableObject {
         }
 
         Task.detached(priority: .utility) { [weak self] in
-            let snapshot = await Self.initialWorkspaceGitMetadataSnapshot(for: expectedDirectory)
+            let snapshot = await Self.initialWorkspaceGitMetadataSnapshotWithBoundedConcurrency(
+                for: expectedDirectory
+            )
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.applyWorkspaceGitMetadataSnapshot(
@@ -2711,6 +2744,15 @@ class TabManager: ObservableObject {
                 )
             }
         }
+    }
+
+    private nonisolated static func initialWorkspaceGitMetadataSnapshotWithBoundedConcurrency(
+        for directory: String
+    ) async -> InitialWorkspaceGitMetadataSnapshot {
+        await initialWorkspaceGitProbeLimiter.acquire()
+        let snapshot = await initialWorkspaceGitMetadataSnapshot(for: directory)
+        await initialWorkspaceGitProbeLimiter.release()
+        return snapshot
     }
 
     private func cancelWorkspaceGitProbeTimers(for key: WorkspaceGitProbeKey) {
@@ -3789,9 +3831,7 @@ class TabManager: ObservableObject {
             let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
             let mode = readBigEndianUInt32(bytes, at: offset + 24)
             let size = readBigEndianUInt32(bytes, at: offset + 36)
-            let objectID = bytes[(offset + 40)..<(offset + 60)].map {
-                String(format: "%02x", $0)
-            }.joined()
+            let objectID = gitIndexHexString(bytes[(offset + 40)..<(offset + 60)])
             let flags = readBigEndianUInt16(bytes, at: offset + 60)
             let pathLength = Int(flags & 0x0fff)
             let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
@@ -3859,7 +3899,7 @@ class TabManager: ObservableObject {
             }
         }
 
-        let checksum = bytes[(bytes.count - 20)..<bytes.count].map { String(format: "%02x", $0) }.joined()
+        let checksum = gitIndexHexString(bytes[(bytes.count - 20)..<bytes.count])
         return GitIndexSnapshot(
             entries: entries,
             signature: checksum,
@@ -3897,7 +3937,26 @@ class TabManager: ObservableObject {
             appendString(entry.objectID)
             appendByte(0)
         }
-        return String(format: "%016llx", CUnsignedLongLong(hash))
+        return gitIndexFixedWidthHexString(hash)
+    }
+
+    private nonisolated static func gitIndexHexString<C: Collection>(_ bytes: C) -> String where C.Element == UInt8 {
+        var output: [UInt8] = []
+        output.reserveCapacity(bytes.count * 2)
+        for byte in bytes {
+            output.append(gitIndexHexDigits[Int(byte >> 4)])
+            output.append(gitIndexHexDigits[Int(byte & 0x0f)])
+        }
+        return String(decoding: output, as: UTF8.self)
+    }
+
+    private nonisolated static func gitIndexFixedWidthHexString(_ value: UInt64) -> String {
+        var output = [UInt8](repeating: 0, count: 16)
+        for index in output.indices {
+            let shift = UInt64((15 - index) * 4)
+            output[index] = gitIndexHexDigits[Int((value >> shift) & 0x0f)]
+        }
+        return String(decoding: output, as: UTF8.self)
     }
 
     private nonisolated static func gitlinkWorktreeCommit(
@@ -3960,7 +4019,7 @@ class TabManager: ObservableObject {
         guard let data = try? Data(contentsOf: indexURL), data.count >= 20 else {
             return nil
         }
-        return data.suffix(20).map { String(format: "%02x", $0) }.joined()
+        return gitIndexHexString(data.suffix(20))
     }
 
     private nonisolated static func readGitIndexV4PathStripLength(
