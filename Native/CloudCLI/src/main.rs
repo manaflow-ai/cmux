@@ -8,11 +8,12 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
 const VM_CREATE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(16 * 60);
 const VM_CREATE_IDEMPOTENCY_TTL: u64 = 10 * 60;
+const CONNECT_RETRY_DEADLINE: Duration = Duration::from_millis(350);
 
 extern "C" {
     fn getuid() -> u32;
@@ -75,38 +76,64 @@ struct SocketClient {
     stream: UnixStream,
 }
 
+struct SocketConnectFailure {
+    error: CliError,
+    retryable: bool,
+}
+
 impl SocketClient {
     fn connect(path: String) -> CliResult<Self> {
-        Self::connect_once(&path).map(|stream| Self { stream })
+        let deadline = Instant::now() + CONNECT_RETRY_DEADLINE;
+        loop {
+            match Self::connect_once(&path) {
+                Ok(stream) => return Ok(Self { stream }),
+                Err(failure) if failure.retryable && Instant::now() < deadline => {
+                    std::thread::yield_now();
+                }
+                Err(failure) => return Err(failure.error),
+            }
+        }
     }
 
-    fn connect_once(path: &str) -> CliResult<UnixStream> {
-        let metadata =
-            fs::metadata(path).map_err(|_| CliError::new(format!("Socket not found at {path}")))?;
+    fn connect_once(path: &str) -> Result<UnixStream, SocketConnectFailure> {
+        let metadata = fs::metadata(path)
+            .map_err(|_| socket_connect_failure(format!("Socket not found at {path}"), false))?;
         if !metadata.file_type().is_socket() {
-            return Err(CliError::new(format!(
-                "Path exists at {path} but is not a Unix socket"
-            )));
+            return Err(socket_connect_failure(
+                format!("Path exists at {path} but is not a Unix socket"),
+                false,
+            ));
         }
         let current_uid = unsafe { getuid() };
         if metadata.uid() != current_uid {
-            return Err(CliError::new(format!(
-                "Socket at {path} is not owned by the current user, refusing to connect"
-            )));
+            return Err(socket_connect_failure(
+                format!("Socket at {path} is not owned by the current user, refusing to connect"),
+                false,
+            ));
         }
 
         let stream = UnixStream::connect(path).map_err(|error| {
-            CliError::new(format!("Failed to connect to socket at {path} ({error})"))
+            let retryable = is_retryable_connect_error(&error);
+            socket_connect_failure(
+                format!("Failed to connect to socket at {path} ({error})"),
+                retryable,
+            )
         })?;
         stream
             .set_read_timeout(Some(response_timeout()))
             .map_err(|error| {
-                CliError::new(format!("Failed to configure socket timeout: {error}"))
+                socket_connect_failure(
+                    format!("Failed to configure socket timeout: {error}"),
+                    false,
+                )
             })?;
         stream
             .set_write_timeout(Some(response_timeout()))
             .map_err(|error| {
-                CliError::new(format!("Failed to configure socket timeout: {error}"))
+                socket_connect_failure(
+                    format!("Failed to configure socket timeout: {error}"),
+                    false,
+                )
             })?;
         Ok(stream)
     }
@@ -208,6 +235,20 @@ impl SocketClient {
 
         String::from_utf8(data).map_err(|_| CliError::new("Invalid UTF-8 response"))
     }
+}
+
+fn socket_connect_failure(message: impl Into<String>, retryable: bool) -> SocketConnectFailure {
+    SocketConnectFailure {
+        error: CliError::new(message),
+        retryable,
+    }
+}
+
+fn is_retryable_connect_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        ErrorKind::ConnectionRefused | ErrorKind::Interrupted | ErrorKind::WouldBlock
+    )
 }
 
 fn main() {
@@ -1244,5 +1285,21 @@ mod tests {
         assert_eq!(process_exit_code(255), 255);
         assert_eq!(process_exit_code(-1), 1);
         assert_eq!(process_exit_code(300), 1);
+    }
+
+    #[test]
+    fn connect_retry_predicate_matches_swift_transients() {
+        assert!(is_retryable_connect_error(&std::io::Error::from(
+            ErrorKind::ConnectionRefused
+        )));
+        assert!(is_retryable_connect_error(&std::io::Error::from(
+            ErrorKind::WouldBlock
+        )));
+        assert!(is_retryable_connect_error(&std::io::Error::from(
+            ErrorKind::Interrupted
+        )));
+        assert!(!is_retryable_connect_error(&std::io::Error::from(
+            ErrorKind::PermissionDenied
+        )));
     }
 }
