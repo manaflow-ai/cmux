@@ -1724,6 +1724,17 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         return adapter
     }
 
+    private func windowAdapterIfRuntimeHasBrowserTabs(
+        runtimeKey: BrowserWebExtensionRuntimeKey
+    ) -> BrowserWebExtensionWindowAdapter? {
+        guard tabAdaptersByPanelID.values.contains(where: { adapter in
+            adapter.runtimeKey == runtimeKey && adapter.panel != nil
+        }) else {
+            return nil
+        }
+        return ensureWindowAdapter(runtimeKey: runtimeKey)
+    }
+
     private func runtimeKey(for panel: BrowserPanel) -> BrowserWebExtensionRuntimeKey {
         runtimeKey(profileID: panel.profileID, websiteDataStore: panel.websiteDataStore)
     }
@@ -2167,7 +2178,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             .filter { runtimeKey == nil || $0.runtimeKey == runtimeKey }
             .filter(\.isVisible)
             .sorted { $0.createdAt < $1.createdAt }
-        let windowAdapter = runtimeKey.map { ensureWindowAdapter(runtimeKey: $0) }
+        let windowAdapter = runtimeKey.flatMap { windowAdapterIfRuntimeHasBrowserTabs(runtimeKey: $0) }
         if let focusedAuxiliaryWindow = auxiliaryWindows.first(where: \.isKeyWindow) {
             var windows: [any WKWebExtensionWindow] = [focusedAuxiliaryWindow]
             if let windowAdapter {
@@ -2194,7 +2205,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }) {
             return focusedAuxiliaryWindow
         }
-        let window = runtimeKey.map { ensureWindowAdapter(runtimeKey: $0) }
+        let window = runtimeKey.flatMap { windowAdapterIfRuntimeHasBrowserTabs(runtimeKey: $0) }
         return window
     }
 
