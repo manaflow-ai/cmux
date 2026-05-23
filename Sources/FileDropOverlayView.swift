@@ -110,20 +110,41 @@ final class FileDropOverlayView: NSView {
         }
     }
 
+    private func mouseButtonMask(for button: ForwardedMouseDragButton) -> Int {
+        switch button {
+        case .left:
+            return 1 << 0
+        case .right:
+            return 1 << 1
+        case .other(let buttonNumber):
+            return 1 << max(0, buttonNumber)
+        }
+    }
+
+    private func clearLocalPointerDragIfReleased() {
+        guard let localPointerDragButton else { return }
+        if (NSEvent.pressedMouseButtons & mouseButtonMask(for: localPointerDragButton)) == 0 {
+            self.localPointerDragButton = nil
+        }
+    }
+
     private func shouldSuppressFileDropCaptureForLocalPointerEvent(_ event: NSEvent?) -> Bool {
-        guard let event, let eventButton = dragButton(for: event) else { return false }
+        guard let event, let eventButton = dragButton(for: event) else {
+            clearLocalPointerDragIfReleased()
+            return false
+        }
         if shouldTrackForwardedMouseDragStart(for: event.type) {
             localPointerDragButton = eventButton
             return true
         }
-        if localPointerDragButton == eventButton {
-            if shouldTrackForwardedMouseDragEnd(for: event.type) {
-                localPointerDragButton = nil
-            }
-            return true
-        }
         if shouldTrackForwardedMouseDragEnd(for: event.type) {
+            let wasTracked = localPointerDragButton != nil
             localPointerDragButton = nil
+            return wasTracked
+        }
+        clearLocalPointerDragIfReleased()
+        if localPointerDragButton == eventButton {
+            return true
         }
         return false
     }

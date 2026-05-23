@@ -1395,23 +1395,6 @@ struct WorkspaceContentView: View {
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
-        // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
-        // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
-        let _ = { workspace.layoutController.isInteractive = isWorkspaceInputActive }()
-
-        // Wire up file drop handling so workspaceLayout's PaneDragContainerView can forward
-        // Finder file drops to the correct terminal panel.
-        let _ = {
-            workspace.layoutController.onFileDrop = { [weak workspace] urls, paneId in
-                guard let workspace else { return false }
-                // Find the focused panel in this pane and drop the files into it.
-                guard let tabId = workspace.layoutController.selectedTab(inPane: paneId)?.id,
-                      let panelId = workspace.panelIdFromSurfaceId(tabId),
-                      let panel = workspace.panels[panelId] as? TerminalPanel else { return false }
-                return panel.hostedView.handleDroppedURLs(urls)
-            }
-        }()
-
         let buildPanelContent: (SurfaceTab, PaneID, Bool) -> AnyView = { tab, paneId, rendersInCanvas in
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
@@ -1550,10 +1533,32 @@ struct WorkspaceContentView: View {
                     EmptyPanelView(workspace: workspace, paneId: paneId)
                 }
             } else {
-            workspaceLayoutView
+                workspaceLayoutView
             }
         }
-            .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+        .onAppear {
+            installWorkspaceLayoutDropHandler()
+            syncWorkspaceLayoutInteractivity(isWorkspaceInputActive)
+        }
+        .onChange(of: isWorkspaceInputActive) { _, isActive in
+            syncWorkspaceLayoutInteractivity(isActive)
+        }
+        .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+    }
+
+    private func installWorkspaceLayoutDropHandler() {
+        workspace.layoutController.onFileDrop = { [weak workspace] urls, paneId in
+            guard let workspace else { return false }
+            guard let tabId = workspace.layoutController.selectedTab(inPane: paneId)?.id,
+                  let panelId = workspace.panelIdFromSurfaceId(tabId),
+                  let panel = workspace.panels[panelId] as? TerminalPanel else { return false }
+            return panel.hostedView.handleDroppedURLs(urls)
+        }
+    }
+
+    private func syncWorkspaceLayoutInteractivity(_ isActive: Bool) {
+        guard workspace.layoutController.isInteractive != isActive else { return }
+        workspace.layoutController.isInteractive = isActive
     }
 
     private func syncCMUXLayoutNotificationBadges() {
@@ -2004,6 +2009,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         }
         .backport.onKeyPress(.escape) { _ in
             guard shouldHandleCanvasOverviewShortcut() else { return .ignored }
+            workspace.exitCanvasOverview()
             return .handled
         }
         .backport.onKeyPress("-") { modifiers in

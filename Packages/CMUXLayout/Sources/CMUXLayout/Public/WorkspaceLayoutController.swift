@@ -108,6 +108,9 @@ public final class WorkspaceLayoutController {
             guard case .pane(let paneID) = item.content else { return false }
             return paneID == internalController.focusedPaneId
         }?.id
+        internalController.onContainerFrameChange = { [weak self] _ in
+            self?.syncCanvasDocumentWithCurrentLayout()
+        }
     }
 
     // MARK: - SurfaceTab Operations
@@ -546,6 +549,7 @@ public final class WorkspaceLayoutController {
         insertFirst: Bool
     ) -> PaneID? {
         guard configuration.allowSplits else { return nil }
+        guard configuration.allowCrossPaneTabMove else { return nil }
 
         // Find the existing tab and its source pane.
         guard let (sourcePane, tabIndex) = findTabInternal(tabId) else { return nil }
@@ -553,6 +557,7 @@ public final class WorkspaceLayoutController {
 
         // Default target to the tab's current pane to match edge-drop behavior on the source pane.
         let targetPaneId = paneId ?? sourcePane.id
+        guard internalController.rootNode.findPane(PaneID(id: targetPaneId.id)) != nil else { return nil }
 
         // Check with delegate
         if delegate?.splitTabBar(self, shouldSplitPane: targetPaneId, orientation: orientation) == false {
@@ -570,7 +575,11 @@ public final class WorkspaceLayoutController {
                 sourcePane.addTab(SurfaceItem(title: "Empty", icon: nil), select: true)
             } else if internalController.rootNode.allPaneIds.count > 1 {
                 // If the source pane is now empty, close it (unless it's also the split target).
-                internalController.closePane(sourcePane.id)
+                if !closePane(PaneID(id: sourcePane.id.id)) {
+                    sourcePane.insertTab(tabItem, at: min(tabIndex, sourcePane.tabs.count))
+                    sourcePane.selectTab(tabItem.id)
+                    return nil
+                }
             }
         }
 
@@ -734,6 +743,7 @@ public final class WorkspaceLayoutController {
     public func panCanvasViewport(screenDelta: CGSize, scale: CGFloat, viewportSize: CGSize) {
         let safeScale = max(0.0001, scale)
         var viewport = canvasDocument.viewport
+        viewport.setScale(Double(safeScale))
         viewport.setVisibleRect(
             PixelRect(
                 x: viewport.visibleRect.x - Double(screenDelta.width / safeScale),
@@ -1099,8 +1109,7 @@ public final class WorkspaceLayoutController {
 
     /// Update container frame (called when window moves/resizes)
     public func setContainerFrame(_ frame: CGRect) {
-        internalController.containerFrame = frame
-        syncCanvasDocumentWithCurrentLayout()
+        internalController.setContainerFrame(frame)
     }
 
     /// Notify geometry change to delegate (internal use)

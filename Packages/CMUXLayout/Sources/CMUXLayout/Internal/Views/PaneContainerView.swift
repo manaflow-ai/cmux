@@ -428,6 +428,9 @@ struct UnifiedPaneDropDelegate: DropDelegate {
             controller.activeDragSourcePaneId = nil
 
             if zone == .center {
+                guard sourcePaneId == pane.id || layoutController.configuration.allowCrossPaneTabMove else {
+                    return false
+                }
                 if sourcePaneId != pane.id {
                     withTransaction(Transaction(animation: nil)) {
                         _ = layoutController.moveTab(
@@ -446,6 +449,10 @@ struct UnifiedPaneDropDelegate: DropDelegate {
                     "draggedTab=\(draggedTab.id.uuidString.prefix(5))"
                 )
 #endif
+                guard layoutController.configuration.allowSplits,
+                      layoutController.configuration.allowCrossPaneTabMove else {
+                    return false
+                }
                 let newPaneId = layoutController.splitPane(
                     pane.id,
                     orientation: orientation,
@@ -563,6 +570,18 @@ struct UnifiedPaneDropDelegate: DropDelegate {
             }
         } else if controller.activeDragTab != nil || controller.draggingTab != nil {
             // Local tab drags use in-memory state and are always same-process.
+            let zone = effectiveZone(for: info)
+            let sourcePaneId = controller.activeDragSourcePaneId ?? controller.dragSourcePaneId
+            if zone == .center,
+               let sourcePaneId,
+               sourcePaneId != pane.id,
+               !layoutController.configuration.allowCrossPaneTabMove {
+                return false
+            }
+            if zone.orientation != nil,
+               (!layoutController.configuration.allowSplits || !layoutController.configuration.allowCrossPaneTabMove) {
+                return false
+            }
             return true
         } else if hasTabTransfer {
             // External drags (another CMUXLayout controller) must include a payload from this process.

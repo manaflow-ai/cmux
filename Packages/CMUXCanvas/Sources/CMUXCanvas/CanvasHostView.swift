@@ -30,8 +30,8 @@ public final class CanvasHostView: NSView {
         metalView.delegate = renderer
         metalView.translatesAutoresizingMaskIntoConstraints = false
         metalView.framebufferOnly = true
-        metalView.isPaused = false
-        metalView.enableSetNeedsDisplay = false
+        metalView.isPaused = true
+        metalView.enableSetNeedsDisplay = true
         metalView.preferredFramesPerSecond = max(1, preferredFramesPerSecond)
         metalView.clearColor = renderer.clearColor
         metalView.layer?.isOpaque = true
@@ -165,9 +165,11 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
             alignmentGuides: scene.alignmentGuides
         )
         scheduler.markNeedsRender()
+        view.setNeedsDisplay(view.bounds)
     }
 
     func draw(in view: MTKView) {
+        guard scheduler.consumeFrame() else { return }
         guard let drawable = view.currentDrawable,
               let descriptor = view.currentRenderPassDescriptor,
               let commandBuffer = commandQueue?.makeCommandBuffer(),
@@ -175,7 +177,6 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
             return
         }
 
-        _ = scheduler.consumeFrame()
         encoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()

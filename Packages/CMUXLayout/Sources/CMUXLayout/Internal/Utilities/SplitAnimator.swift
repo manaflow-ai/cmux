@@ -44,15 +44,14 @@ final class SplitAnimator {
 
     private func setupDisplayLink() {
         var link: CVDisplayLink?
-        CVDisplayLinkCreateWithActiveCGDisplays(&link)
+        let createStatus = CVDisplayLinkCreateWithActiveCGDisplays(&link)
+        guard createStatus == kCVReturnSuccess else { return }
         guard let link else { return }
 
         let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, context in
             let animator = Unmanaged<SplitAnimator>.fromOpaque(context!).takeUnretainedValue()
-            DispatchQueue.main.async {
-                Task { @MainActor in
-                    animator.tick()
-                }
+            Task { @MainActor in
+                animator.tick()
             }
             return kCVReturnSuccess
         }
@@ -77,6 +76,13 @@ final class SplitAnimator {
         splitView.setPosition(round(startPosition), ofDividerAt: 0)
         splitView.layoutSubtreeIfNeeded()
 
+        guard duration > 0, let displayLink else {
+            splitView.setPosition(round(endPosition), ofDividerAt: 0)
+            splitView.layoutSubtreeIfNeeded()
+            onComplete?()
+            return id
+        }
+
         animations[id] = Animation(
             splitView: splitView,
             startPosition: startPosition,
@@ -86,8 +92,14 @@ final class SplitAnimator {
             onComplete: onComplete
         )
 
-        if let displayLink, !CVDisplayLinkIsRunning(displayLink) {
-            CVDisplayLinkStart(displayLink)
+        if !CVDisplayLinkIsRunning(displayLink) {
+            let startStatus = CVDisplayLinkStart(displayLink)
+            if startStatus != kCVReturnSuccess {
+                animations.removeValue(forKey: id)
+                splitView.setPosition(round(endPosition), ofDividerAt: 0)
+                splitView.layoutSubtreeIfNeeded()
+                onComplete?()
+            }
         }
 
         return id
@@ -103,6 +115,7 @@ final class SplitAnimator {
     private func tick() {
         let currentTime = CACurrentMediaTime()
         var completedIds: [UUID] = []
+        var completions: [() -> Void] = []
 
         for (id, animation) in animations {
             guard let splitView = animation.splitView else {
@@ -121,7 +134,9 @@ final class SplitAnimator {
 
             if progress >= 1.0 {
                 completedIds.append(id)
-                animation.onComplete?()
+                if let onComplete = animation.onComplete {
+                    completions.append(onComplete)
+                }
             }
         }
 
@@ -130,6 +145,10 @@ final class SplitAnimator {
         }
 
         stopIfNeeded()
+
+        for completion in completions {
+            completion()
+        }
     }
 
     private func stopIfNeeded() {

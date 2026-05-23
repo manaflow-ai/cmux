@@ -51,6 +51,7 @@ public final class CanvasInputController: @unchecked Sendable {
         lock.withLock {
             let safeScale = max(0.0001, scale)
             var next = storedViewport
+            next.setScale(Double(safeScale))
             next.setVisibleRect(
                 PixelRect(
                     x: next.visibleRect.x - Double(screenDelta.width / safeScale),
@@ -105,13 +106,5 @@ public final class CanvasInputController: @unchecked Sendable {
             width: delta.width.isFinite ? delta.width : 0,
             height: delta.height.isFinite ? delta.height : 0
         )
-    }
-}
-
-private extension NSLock {
-    func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        lock()
-        defer { unlock() }
-        return try body()
     }
 }

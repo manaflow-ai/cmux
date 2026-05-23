@@ -109,6 +109,12 @@ public struct CanvasSceneSnapshot: Codable, Sendable, Equatable {
     ) -> CanvasRenderMode {
         guard allowsLiveNativeMount else { return .previewTexture }
         guard let activeItemID else { return .previewTexture }
+        switch item.content {
+        case .pane, .surface:
+            break
+        case .group:
+            return .previewTexture
+        }
         return item.id == activeItemID ? .liveNative1x : .previewTexture
     }
 

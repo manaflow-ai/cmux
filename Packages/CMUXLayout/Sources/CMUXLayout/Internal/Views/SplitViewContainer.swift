@@ -15,25 +15,24 @@ struct SplitViewContainer<Content: View, EmptyContent: View>: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let frame = geometry.frame(in: .global)
             splitNodeContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(TabBarColors.paneBackground(for: appearance))
                 .focusable()
                 .focusEffectDisabled()
-                .onChange(of: geometry.size) { _, newSize in
-                    updateContainerFrame(geometry: geometry)
+                .onChange(of: frame) { _, newFrame in
+                    updateContainerFrame(newFrame)
                 }
                 .onAppear {
-                    updateContainerFrame(geometry: geometry)
+                    updateContainerFrame(frame)
                 }
         }
     }
 
-    private func updateContainerFrame(geometry: GeometryProxy) {
-        // Get frame in global coordinate space
-        let frame = geometry.frame(in: .global)
-        controller.containerFrame = frame
-        onGeometryChange?(false)  // Container resize is not a drag
+    private func updateContainerFrame(_ frame: CGRect) {
+        controller.setContainerFrame(frame)
+        onGeometryChange?(false)
     }
 
     @ViewBuilder

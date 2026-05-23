@@ -53,6 +53,9 @@ final class SplitViewController {
     /// Current frame of the entire split view container
     var containerFrame: CGRect = .zero
 
+    /// Callback for container frame changes that need to synchronize public layout state.
+    @ObservationIgnored var onContainerFrameChange: ((CGRect) -> Void)?
+
     /// Flag to prevent notification loops during external updates
     var isExternalUpdateInProgress: Bool = false
 
@@ -72,6 +75,12 @@ final class SplitViewController {
             self.rootNode = .pane(initialPane)
             self.focusedPaneId = initialPane.id
         }
+    }
+
+    func setContainerFrame(_ frame: CGRect) {
+        guard containerFrame != frame else { return }
+        containerFrame = frame
+        onContainerFrameChange?(frame)
     }
 
     // MARK: - Focus Management

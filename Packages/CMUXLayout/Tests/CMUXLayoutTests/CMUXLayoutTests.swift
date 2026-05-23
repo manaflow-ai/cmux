@@ -115,6 +115,16 @@ final class CMUXLayoutTests: XCTestCase {
         }
     }
 
+    private final class PaneLifecycleDelegateSpy: WorkspaceLayoutDelegate {
+        var shouldClosePaneResult = true
+        var shouldClosePaneIds: [PaneID] = []
+
+        func splitTabBar(_ controller: WorkspaceLayoutController, shouldClosePane pane: PaneID) -> Bool {
+            shouldClosePaneIds.append(pane)
+            return shouldClosePaneResult
+        }
+    }
+
     @MainActor
     func testControllerCreation() {
         let controller = WorkspaceLayoutController()
@@ -1216,6 +1226,85 @@ final class CMUXLayoutTests: XCTestCase {
         }
         let inserted = controller.tabs(inPane: newPaneId).first(where: { $0.id == customTab.id })
         XCTAssertEqual(inserted?.hasCustomTitle, true)
+    }
+
+    @MainActor
+    func testSplitAnimatorCompletionCanStartAnotherAnimation() {
+        let firstSplitView = makeAnimatableSplitView()
+        let secondSplitView = makeAnimatableSplitView()
+        let completed = expectation(description: "completion ran")
+
+        SplitAnimator.shared.animate(
+            splitView: firstSplitView,
+            from: 40,
+            to: 120,
+            duration: 0.001
+        ) {
+            SplitAnimator.shared.animate(
+                splitView: secondSplitView,
+                from: 60,
+                to: 110,
+                duration: 0
+            )
+            completed.fulfill()
+        }
+
+        wait(for: [completed], timeout: 1)
+    }
+
+    private func makeAnimatableSplitView() -> NSSplitView {
+        let splitView = NSSplitView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
+        splitView.isVertical = true
+        splitView.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 120)))
+        splitView.addArrangedSubview(NSView(frame: NSRect(x: 120, y: 0, width: 120, height: 120)))
+        splitView.adjustSubviews()
+        splitView.layoutSubtreeIfNeeded()
+        return splitView
+    }
+
+    @MainActor
+    func testSplitPaneMovingTabRespectsCrossPaneMoveFlag() throws {
+        let configuration = WorkspaceLayoutConfiguration(allowCrossPaneTabMove: false)
+        let controller = WorkspaceLayoutController(configuration: configuration)
+        let tabId = try XCTUnwrap(controller.createTab(title: "Pinned"))
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        let sourceTabs = controller.tabs(inPane: sourcePaneId).map(\.id)
+
+        XCTAssertNil(
+            controller.splitPane(sourcePaneId, orientation: .horizontal, movingTab: tabId, insertFirst: false)
+        )
+        XCTAssertEqual(controller.allPaneIds, [sourcePaneId])
+        XCTAssertEqual(controller.tabs(inPane: sourcePaneId).map(\.id), sourceTabs)
+    }
+
+    @MainActor
+    func testSplitPaneMovingTabRestoresSourceWhenClosePaneIsVetoed() throws {
+        let controller = WorkspaceLayoutController()
+        let movingTab = try XCTUnwrap(controller.createTab(title: "Move"))
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        for tab in controller.tabs(inPane: sourcePaneId) where tab.id != movingTab {
+            XCTAssertTrue(controller.closeTab(tab.id))
+        }
+        let targetTab = SurfaceTab(title: "Target")
+        let targetPaneId = try XCTUnwrap(
+            controller.splitPane(
+                sourcePaneId,
+                orientation: .horizontal,
+                withTab: targetTab,
+                insertFirst: false
+            )
+        )
+        let delegate = PaneLifecycleDelegateSpy()
+        delegate.shouldClosePaneResult = false
+        controller.delegate = delegate
+
+        XCTAssertNil(
+            controller.splitPane(targetPaneId, orientation: .vertical, movingTab: movingTab, insertFirst: false)
+        )
+        XCTAssertEqual(delegate.shouldClosePaneIds, [sourcePaneId])
+        XCTAssertEqual(controller.tabs(inPane: sourcePaneId).map(\.id), [movingTab])
+        XCTAssertEqual(controller.tabs(inPane: targetPaneId).map(\.id), [targetTab.id])
+        XCTAssertEqual(controller.allPaneIds.count, 2)
     }
 
     @MainActor
@@ -4156,6 +4245,26 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(scene.activeMountDirective?.itemID, secondID)
         XCTAssertEqual(scene.items.first(where: { $0.id == firstID })?.isFocused, true)
         XCTAssertEqual(scene.items.first(where: { $0.id == secondID })?.renderMode, .liveNative1x)
+    }
+
+    func testCanvasSceneSnapshotDoesNotLiveMountGroupItems() {
+        let groupID = LayoutItemID()
+        let document = CanvasDocument(
+            policy: .freeform,
+            viewport: .native,
+            items: [
+                CanvasItem(
+                    id: groupID,
+                    content: .group([LayoutItemID()]),
+                    frame: PixelRect(x: 0, y: 0, width: 100, height: 100)
+                )
+            ]
+        )
+
+        let scene = CanvasSceneSnapshot(document: document, focusedItemID: groupID, activeItemID: groupID)
+
+        XCTAssertNil(scene.activeMountDirective)
+        XCTAssertEqual(scene.items.first?.renderMode, .previewTexture)
     }
 
     @MainActor

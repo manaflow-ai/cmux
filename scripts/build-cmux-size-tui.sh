@@ -49,11 +49,18 @@ if [ ! -f "$SOURCE_PATH" ]; then
   exit 1
 fi
 
+mkdir -p "$(dirname "$OUTPUT_PATH")"
+
 if [ -z "$RUSTC" ]; then
-  echo "error: rustc is required to build cmux-size-tui" >&2
-  exit 1
+  echo "warning: rustc not found; installing cmux-size-tui fallback stub" >&2
+  cat > "$OUTPUT_PATH" <<'STUB'
+#!/usr/bin/env sh
+echo "cmux-size-tui is unavailable because rustc was not present when this app was built." >&2
+exit 127
+STUB
+  chmod 755 "$OUTPUT_PATH"
+  exit 0
 fi
 
-mkdir -p "$(dirname "$OUTPUT_PATH")"
 "$RUSTC" --edition=2021 -C opt-level=2 "$SOURCE_PATH" -o "$OUTPUT_PATH"
 chmod 755 "$OUTPUT_PATH"

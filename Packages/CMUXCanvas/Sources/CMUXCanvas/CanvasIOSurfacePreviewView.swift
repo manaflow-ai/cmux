@@ -73,6 +73,7 @@ public final class CanvasIOSurfacePreviewHostView: NSView {
         metalView.delegate = renderer
         metalView.translatesAutoresizingMaskIntoConstraints = false
         metalView.framebufferOnly = true
+        metalView.colorPixelFormat = CanvasIOSurfacePreviewRenderer.colorPixelFormat
         metalView.isPaused = false
         metalView.enableSetNeedsDisplay = false
         metalView.preferredFramesPerSecond = max(1, preferredFramesPerSecond)
@@ -110,6 +111,8 @@ public final class CanvasIOSurfacePreviewHostView: NSView {
 }
 
 private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
+    static let colorPixelFormat: MTLPixelFormat = .bgra8Unorm
+
     private let device: MTLDevice?
     private let commandQueue: MTLCommandQueue?
     private let pipelineState: MTLRenderPipelineState?
@@ -304,7 +307,7 @@ private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
         descriptor.vertexFunction = vertexFunction
         descriptor.fragmentFunction = fragmentFunction
         let colorAttachment = descriptor.colorAttachments[0]
-        colorAttachment?.pixelFormat = .bgra8Unorm
+        colorAttachment?.pixelFormat = colorPixelFormat
         colorAttachment?.isBlendingEnabled = true
         colorAttachment?.sourceRGBBlendFactor = .one
         colorAttachment?.destinationRGBBlendFactor = .oneMinusSourceAlpha
