@@ -3159,6 +3159,10 @@ func omnibarTextAfterDeletingURLWordBackward(
     text: String,
     selectedRange: NSRange
 ) -> OmnibarURLWordDeletion? {
+    guard text.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+        return nil
+    }
+
     let nsText = text as NSString
     let textLength = nsText.length
     guard selectedRange.location != NSNotFound,
