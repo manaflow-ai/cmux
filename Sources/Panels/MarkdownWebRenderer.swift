@@ -291,6 +291,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         func handleKeyboardShortcut(_ event: NSEvent) -> Bool {
+            guard canPerformKeyboardCommand else {
+                pendingShortcutChord = nil
+                return false
+            }
+
             if let pendingShortcutChord {
                 self.pendingShortcutChord = nil
                 guard let command = MarkdownPreviewKeyboardShortcutResolver.command(
@@ -299,13 +304,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 ) else {
                     return true
                 }
-                performKeyboardCommand(command)
-                return true
+                return performKeyboardCommand(command)
             }
 
             if let command = MarkdownPreviewKeyboardShortcutResolver.command(for: event) {
-                performKeyboardCommand(command)
-                return true
+                return performKeyboardCommand(command)
             }
 
             if let prefix = MarkdownPreviewKeyboardShortcutResolver.chordPrefix(for: event) {
@@ -316,17 +319,34 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             return false
         }
 
-        func performKeyboardCommand(_ command: MarkdownPreviewKeyCommand) {
+        private var canPerformKeyboardCommand: Bool {
+#if DEBUG
+            if Self.keyboardCommandObserver != nil {
+                return true
+            }
+#endif
+            return webView != nil && isLoaded
+        }
+
+        @discardableResult
+        func performKeyboardCommand(_ command: MarkdownPreviewKeyCommand) -> Bool {
 #if DEBUG
             Self.keyboardCommandObserver?(command)
 #endif
-            guard let webView else { return }
+            guard let webView, isLoaded else {
+#if DEBUG
+                return Self.keyboardCommandObserver != nil
+#else
+                return false
+#endif
+            }
             let commandLiteral = (try? JSONSerialization.data(withJSONObject: [command.rawValue]))
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
             webView.evaluateJavaScript(
                 "window.__cmuxMarkdownPreviewHandleKeyCommand && window.__cmuxMarkdownPreviewHandleKeyCommand(\(commandLiteral)[0]);",
                 completionHandler: nil
             )
+            return true
         }
 
         // MARK: Bridge

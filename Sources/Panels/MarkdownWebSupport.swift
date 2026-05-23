@@ -51,7 +51,7 @@ final class MarkdownWebView: WKWebView {
            onKeyboardShortcut?(event) == true {
             return
         }
-        super.doCommand(by: selector)
+        nextResponder?.doCommand(by: selector)
     }
 
     private static func isControlNavigationCommand(
@@ -135,7 +135,8 @@ final class MarkdownRendererSession {
         ownedCoordinator.handleKeyboardShortcut(event)
     }
 
-    func performKeyboardCommand(_ command: MarkdownPreviewKeyCommand) {
+    @discardableResult
+    func performKeyboardCommand(_ command: MarkdownPreviewKeyCommand) -> Bool {
         ownedCoordinator.performKeyboardCommand(command)
     }
 

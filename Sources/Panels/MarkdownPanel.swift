@@ -62,8 +62,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     @discardableResult
     func performPreviewKeyboardCommand(_ command: MarkdownPreviewKeyCommand) -> Bool {
         guard displayMode == .preview else { return false }
-        rendererSession.performKeyboardCommand(command)
-        return true
+        return rendererSession.performKeyboardCommand(command)
     }
 
     // MARK: - File watching

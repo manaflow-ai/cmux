@@ -1461,7 +1461,8 @@ html { scroll-behavior: smooth; }
     var fallback = backwards ? 'Search Markdown backward' : 'Search Markdown';
     var query = window.prompt(cmuxString(promptKey, fallback), markdownPreviewSearchQuery);
     if (query == null) { return false; }
-    markdownPreviewSearchQuery = String(query);
+    query = String(query);
+    if (query) { markdownPreviewSearchQuery = query; }
     return markdownPreviewSearch(markdownPreviewSearchQuery, backwards);
   }
 

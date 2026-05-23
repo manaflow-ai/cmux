@@ -491,11 +491,23 @@ final class MarkdownPanelTests: XCTestCase {
         }
 
         let coordinator = MarkdownWebRenderer.Coordinator()
+#if DEBUG
+        let originalObserver = MarkdownWebRenderer.Coordinator.keyboardCommandObserver
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = { _ in }
+        defer { MarkdownWebRenderer.Coordinator.keyboardCommandObserver = originalObserver }
+#endif
         XCTAssertTrue(
             coordinator.handleKeyboardShortcut(try keyDownEvent("b", keyCode: 11, modifiers: [.control]))
         )
         XCTAssertTrue(coordinator.handleKeyboardShortcut(try keyDownEvent("x", keyCode: 7)))
         XCTAssertTrue(coordinator.handleKeyboardShortcut(try keyDownEvent("j", keyCode: 38)))
+    }
+
+    func testMarkdownPreviewShortcutsFallThroughBeforeShellLoads() throws {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+
+        XCTAssertFalse(coordinator.handleKeyboardShortcut(try keyDownEvent("j", keyCode: 38)))
+        XCTAssertFalse(coordinator.performKeyboardCommand(.scrollDown))
     }
 
     func testMarkdownPreviewKeyCommandHandlersScrollAndSearch() async throws {
@@ -636,6 +648,38 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(searchSnapshot["firstBackwards"] ?? -1, 0)
         XCTAssertEqual(searchSnapshot["lastBackwards"] ?? -1, 1)
         XCTAssertEqual(searchSnapshot["firstWrap"] ?? -1, 1)
+
+        let emptyPromptSnapshot = try await evaluateScrollSnapshot(
+            """
+            (function() {
+              var calls = [];
+              Object.defineProperty(window, 'find', {
+                configurable: true,
+                value: function(query, caseSensitive, backwards, wrap, wholeWord, searchInFrames, showDialog) {
+                  calls.push(String(query));
+                  return true;
+                }
+              });
+              window.__cmuxMarkdownPreviewSearch('Section 20', false);
+              window.prompt = function() { return ''; };
+              var emptyPromptFound = window.__cmuxMarkdownPreviewHandleKeyCommand('findForward') ? 1 : 0;
+              var nextFound = window.__cmuxMarkdownPreviewHandleKeyCommand('findNext') ? 1 : 0;
+              return {
+                calls: calls.length,
+                emptyPromptFound: emptyPromptFound,
+                nextFound: nextFound,
+                emptyPromptQueryPreserved: calls[1] === 'Section 20' ? 1 : 0,
+                nextQueryPreserved: calls[2] === 'Section 20' ? 1 : 0
+              };
+            })();
+            """,
+            in: webView
+        )
+        XCTAssertEqual(emptyPromptSnapshot["calls"] ?? 0, 3)
+        XCTAssertEqual(emptyPromptSnapshot["emptyPromptFound"] ?? 0, 1)
+        XCTAssertEqual(emptyPromptSnapshot["nextFound"] ?? 0, 1)
+        XCTAssertEqual(emptyPromptSnapshot["emptyPromptQueryPreserved"] ?? 0, 1)
+        XCTAssertEqual(emptyPromptSnapshot["nextQueryPreserved"] ?? 0, 1)
 
         let domShortcutSnapshot = try await evaluateScrollSnapshot(
             """
