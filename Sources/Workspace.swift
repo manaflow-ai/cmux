@@ -14929,7 +14929,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         setFocusedBonsplitController(bonsplitController)
-        if !focusPreferredPane(in: bonsplitController) {
+        if !focusPreferredPane(in: bonsplitController) || focusedPanelId == nil {
             clearPanelFocusForNoVisibleTarget(controller: bonsplitController)
         }
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
