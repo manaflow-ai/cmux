@@ -14386,7 +14386,7 @@ private struct TabItemView: View, Equatable {
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
 
-        VStack(alignment: .leading, spacing: 4) {
+        let rowCard = VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 if snapshot.unreadCount > 0 {
                     ZStack {
@@ -14652,6 +14652,7 @@ private struct TabItemView: View, Equatable {
                 .padding(.trailing, 10)
             }
         }
+        let rowDecorations = rowCard
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
         .background {
@@ -14704,6 +14705,7 @@ private struct TabItemView: View, Equatable {
                     .offset(y: snapshot.rowSpacing / 2)
             }
         }
+        return rowDecorations
         .onAppear {
             actions.rowAppeared(snapshot.workspaceId)
             refreshWorkspaceSnapshot(force: true)
