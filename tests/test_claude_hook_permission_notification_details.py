@@ -396,42 +396,151 @@ def main() -> int:
                 print(f"commands={server.commands!r}")
                 return 1
 
-        direct_session_id = f"sess-{uuid.uuid4().hex}"
+        direct_cases = [
+            {
+                "name": "direct snake-case",
+                "notification": {
+                    "hook_event_name": "Notification",
+                    "message": "Claude needs your permission",
+                    "tool_name": "Bash",
+                    "tool_input": {"description": "Install test dependency"},
+                },
+                "expected": "Claude Code|Permission|Bash: Install test dependency",
+            },
+            {
+                "name": "direct camelCase",
+                "notification": {
+                    "hookEventName": "Notification",
+                    "message": "Claude needs your permission",
+                    "toolName": "WebFetch",
+                    "toolInput": {"url": "https://docs.example.test/camel"},
+                },
+                "expected": "Claude Code|Permission|WebFetch: https://docs.example.test/camel",
+            },
+            {
+                "name": "direct nested data",
+                "notification": {
+                    "data": {
+                        "hookEventName": "Notification",
+                        "message": "Claude needs your permission",
+                        "toolName": "Write",
+                        "toolInput": {"file_path": "/tmp/cmux-nested-direct.txt"},
+                    },
+                },
+                "expected": "Claude Code|Permission|Write: cmux-nested-direct.txt",
+            },
+        ]
+        for case in direct_cases:
+            direct_session_id = f"sess-{uuid.uuid4().hex}"
+            before_count = len([line for line in server.commands if line.startswith("notify_target_async ")])
+            direct_notification = dict(case["notification"])
+            direct_notification["session_id"] = direct_session_id
+            direct_proc = subprocess.run(
+                [cli_path, "--socket", server.socket_path, "claude-hook", "notification"],
+                input=json.dumps(direct_notification),
+                text=True,
+                capture_output=True,
+                env=env,
+                timeout=8,
+                check=False,
+            )
+            if direct_proc.returncode != 0:
+                print(f"FAIL: {case['name']} generic notification failed")
+                print(f"stdout={direct_proc.stdout!r}")
+                print(f"stderr={direct_proc.stderr!r}")
+                print(f"commands={server.commands!r}")
+                return 1
+            notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
+            if len(notify_commands) <= before_count:
+                print(f"FAIL: expected notify_target_async command for {case['name']} generic notification")
+                print(f"commands={server.commands!r}")
+                return 1
+            expected_direct = f"notify_target_async {workspace_id} {surface_id} {case['expected']}"
+            if notify_commands[-1] != expected_direct:
+                print(f"FAIL: {case['name']} generic notification should include tool detail")
+                print(f"expected={expected_direct!r}")
+                print(f"actual={notify_commands[-1]!r}")
+                print(f"commands={server.commands!r}")
+                return 1
+
+        direct_stale_session_id = f"sess-{uuid.uuid4().hex}"
         before_count = len([line for line in server.commands if line.startswith("notify_target_async ")])
-        direct_notification = {
-            "session_id": direct_session_id,
+        direct_stale_notification = {
+            "session_id": direct_stale_session_id,
             "hook_event_name": "Notification",
             "message": "Claude needs your permission",
             "tool_name": "Bash",
-            "tool_input": {"description": "Install test dependency"},
+            "tool_input": {"description": "Install direct dependency"},
         }
-        direct_proc = subprocess.run(
+        direct_stale_proc = subprocess.run(
             [cli_path, "--socket", server.socket_path, "claude-hook", "notification"],
-            input=json.dumps(direct_notification),
+            input=json.dumps(direct_stale_notification),
             text=True,
             capture_output=True,
             env=env,
             timeout=8,
             check=False,
         )
-        if direct_proc.returncode != 0:
-            print("FAIL: direct generic notification failed")
-            print(f"stdout={direct_proc.stdout!r}")
-            print(f"stderr={direct_proc.stderr!r}")
+        if direct_stale_proc.returncode != 0:
+            print("FAIL: direct stale-seed notification failed")
+            print(f"stdout={direct_stale_proc.stdout!r}")
+            print(f"stderr={direct_stale_proc.stderr!r}")
             print(f"commands={server.commands!r}")
             return 1
         notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
         if len(notify_commands) <= before_count:
-            print("FAIL: expected notify_target_async command for direct generic notification")
+            print("FAIL: expected notify_target_async command for direct stale-seed notification")
             print(f"commands={server.commands!r}")
             return 1
-        expected_direct = (
-            f"notify_target_async {workspace_id} {surface_id} "
-            "Claude Code|Permission|Bash: Install test dependency"
+        pre_tool_use_payload = {
+            "session_id": direct_stale_session_id,
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"description": "Continue after permission"},
+        }
+        pre_tool_use_proc = subprocess.run(
+            [cli_path, "--socket", server.socket_path, "claude-hook", "pre-tool-use"],
+            input=json.dumps(pre_tool_use_payload),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=8,
+            check=False,
         )
-        if notify_commands[-1] != expected_direct:
-            print("FAIL: direct generic notification should include tool detail")
-            print(f"expected={expected_direct!r}")
+        if pre_tool_use_proc.returncode != 0:
+            print("FAIL: pre-tool-use failed to clear direct pending summary")
+            print(f"stdout={pre_tool_use_proc.stdout!r}")
+            print(f"stderr={pre_tool_use_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+        before_count = len([line for line in server.commands if line.startswith("notify_target_async ")])
+        direct_stale_followup = {
+            "session_id": direct_stale_session_id,
+            "hook_event_name": "Notification",
+            "message": "Claude needs your permission",
+        }
+        direct_stale_followup_proc = subprocess.run(
+            [cli_path, "--socket", server.socket_path, "claude-hook", "notification"],
+            input=json.dumps(direct_stale_followup),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=8,
+            check=False,
+        )
+        if direct_stale_followup_proc.returncode != 0:
+            print("FAIL: direct stale follow-up notification failed")
+            print(f"stdout={direct_stale_followup_proc.stdout!r}")
+            print(f"stderr={direct_stale_followup_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+        notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
+        if len(notify_commands) <= before_count:
+            print("FAIL: expected notify_target_async command for direct stale follow-up")
+            print(f"commands={server.commands!r}")
+            return 1
+        if "Install direct dependency" in notify_commands[-1]:
+            print("FAIL: direct permission detail should clear after pre-tool-use")
             print(f"actual={notify_commands[-1]!r}")
             print(f"commands={server.commands!r}")
             return 1

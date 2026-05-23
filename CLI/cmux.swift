@@ -1003,7 +1003,7 @@ private final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalized],
-                  record.lastNotificationStatus == .needsInput else { return }
+                  record.lastNotificationStatus == .needsInput || record.runtimeStatus == .needsInput else { return }
             let now = Date().timeIntervalSince1970
             record.lastSubtitle = nil
             record.lastBody = nil
@@ -19728,7 +19728,11 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     lastSubtitle: summary.subtitle,
-                    lastBody: summary.body
+                    lastBody: summary.body,
+                    lastNotificationStatus: .needsInput,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: .needsInput,
+                    updateRuntimeStatus: true
                 )
             }
 
@@ -19872,7 +19876,11 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     lastSubtitle: summary.subtitle,
-                    lastBody: summary.body
+                    lastBody: summary.body,
+                    lastNotificationStatus: .needsInput,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: .needsInput,
+                    updateRuntimeStatus: true
                 )
                 // Don't clear notifications or set status here.
                 // The Notification hook fires right after and will use the saved question.
@@ -20661,64 +20669,24 @@ struct CMUXCLI {
             }
         }
 
-        if let toolInput = object["tool_input"] as? [String: Any] {
-            var compactToolInput: [String: Any] = [:]
-            for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
-                if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
-                    compactToolInput[key] = value
-                }
-            }
-            if let allowedPrompts = toolInput["allowedPrompts"] as? [[String: Any]] {
-                let compactPrompts: [[String: String]] = allowedPrompts.compactMap { prompt in
-                    guard let promptText = compactClaudeHookStringValue(prompt["prompt"], maxLength: 220) else {
-                        return nil
-                    }
-                    var out: [String: String] = ["prompt": promptText]
-                    if let tool = compactClaudeHookStringValue(prompt["tool"], maxLength: 80) {
-                        out["tool"] = tool
-                    }
-                    return out
-                }
-                if !compactPrompts.isEmpty {
-                    compactToolInput["allowedPrompts"] = compactPrompts
-                }
-            }
-            if let questions = toolInput["questions"] as? [[String: Any]] {
-                compactToolInput["questions"] = questions.prefix(1).map { question in
-                    var compactQuestion: [String: Any] = [:]
-                    if let value = compactClaudeHookStringValue(question["question"], maxLength: 180) {
-                        compactQuestion["question"] = value
-                    }
-                    if let value = compactClaudeHookStringValue(question["header"], maxLength: 80) {
-                        compactQuestion["header"] = value
-                    }
-                    if let options = question["options"] as? [[String: Any]] {
-                        let compactOptions: [[String: Any]] = options.compactMap { option in
-                            guard let label = compactClaudeHookStringValue(option["label"], maxLength: 60) else {
-                                return nil
-                            }
-                            return ["label": label] as [String: Any]
-                        }
-                        compactQuestion["options"] = compactOptions
-                    }
-                    return compactQuestion
-                }
-            }
-            if !compactToolInput.isEmpty {
-                compact["tool_input"] = compactToolInput
-            }
+        if let compactToolInput = compactClaudeHookToolInput(object["tool_input"] ?? object["toolInput"]) {
+            compact["tool_input"] = compactToolInput
         }
 
         for key in ["notification", "data"] {
             guard let nested = object[key] as? [String: Any] else { continue }
             var compactNested: [String: Any] = [:]
             for nestedKey in [
-                "type", "kind", "reason", "title", "summary", "message", "body", "text", "prompt", "error", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+                "tool_name", "toolName", "type", "kind", "reason", "event", "event_name", "hook_event_name", "hookEventName",
+                "title", "summary", "message", "body", "text", "prompt", "error", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
                 "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description",
             ] {
                 if let value = compactClaudeHookValue(nested[nestedKey], key: nestedKey) {
                     compactNested[nestedKey] = value
                 }
+            }
+            if let compactToolInput = compactClaudeHookToolInput(nested["tool_input"] ?? nested["toolInput"]) {
+                compactNested["tool_input"] = compactToolInput
             }
             if !compactNested.isEmpty {
                 compact[key] = compactNested
@@ -20726,6 +20694,57 @@ struct CMUXCLI {
         }
 
         return compact
+    }
+
+    private func compactClaudeHookToolInput(_ rawValue: Any?) -> [String: Any]? {
+        guard let toolInput = rawValue as? [String: Any] else { return nil }
+        var compactToolInput: [String: Any] = [:]
+        for key in [
+            "file_path", "path", "target_file", "notebook_path", "command", "cmd",
+            "pattern", "description", "query", "url", "prompt", "question", "message",
+            "summary", "plan_summary", "planSummary", "plan", "planFilePath", "plan_file_path",
+        ] {
+            if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
+                compactToolInput[key] = value
+            }
+        }
+        if let allowedPrompts = toolInput["allowedPrompts"] as? [[String: Any]] {
+            let compactPrompts: [[String: String]] = allowedPrompts.compactMap { prompt in
+                guard let promptText = compactClaudeHookStringValue(prompt["prompt"], maxLength: 220) else {
+                    return nil
+                }
+                var out: [String: String] = ["prompt": promptText]
+                if let tool = compactClaudeHookStringValue(prompt["tool"], maxLength: 80) {
+                    out["tool"] = tool
+                }
+                return out
+            }
+            if !compactPrompts.isEmpty {
+                compactToolInput["allowedPrompts"] = compactPrompts
+            }
+        }
+        if let questions = toolInput["questions"] as? [[String: Any]] {
+            compactToolInput["questions"] = questions.prefix(1).map { question in
+                var compactQuestion: [String: Any] = [:]
+                if let value = compactClaudeHookStringValue(question["question"], maxLength: 180) {
+                    compactQuestion["question"] = value
+                }
+                if let value = compactClaudeHookStringValue(question["header"], maxLength: 80) {
+                    compactQuestion["header"] = value
+                }
+                if let options = question["options"] as? [[String: Any]] {
+                    let compactOptions: [[String: Any]] = options.compactMap { option in
+                        guard let label = compactClaudeHookStringValue(option["label"], maxLength: 60) else {
+                            return nil
+                        }
+                        return ["label": label] as [String: Any]
+                    }
+                    compactQuestion["options"] = compactOptions
+                }
+                return compactQuestion
+            }
+        }
+        return compactToolInput.isEmpty ? nil : compactToolInput
     }
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
@@ -20766,17 +20785,17 @@ struct CMUXCLI {
 
     private func compactClaudeHookToolInputValue(_ rawValue: Any?, key: String) -> String? {
         switch key {
-        case "file_path":
+        case "file_path", "path", "target_file", "notebook_path", "planFilePath", "plan_file_path":
             return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
-        case "planFilePath":
-            return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
-        case "command":
+        case "command", "cmd":
             return compactClaudeHookStringValue(rawValue, maxLength: 120)
         case "plan":
             return compactClaudeHookStringValue(rawValue, maxLength: 4_000)
         case "pattern", "query":
             return compactClaudeHookStringValue(rawValue, maxLength: 120)
-        case "description":
+        case "url":
+            return compactClaudeHookStringValue(rawValue, maxLength: 240)
+        case "description", "prompt", "question", "message", "summary", "plan_summary", "planSummary":
             return compactClaudeHookStringValue(rawValue, maxLength: 180)
         default:
             return compactClaudeHookStringValue(rawValue, maxLength: 160)
