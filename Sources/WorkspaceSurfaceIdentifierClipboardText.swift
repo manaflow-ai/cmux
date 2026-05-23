@@ -106,3 +106,21 @@ enum WorkspaceSurfaceIdentifierClipboardText {
         return lines.joined(separator: "\n")
     }
 }
+
+enum LargeTextSelectionPolicy {
+    enum Mode: Equatable {
+        case liveSelection
+        case copyOnly
+    }
+
+    static let defaultMaximumLiveSelectionLineFragments = 2_000
+    static let defaultCharactersPerWrappedLine = 100
+
+    static func mode(
+        for text: String,
+        charactersPerWrappedLine: Int = defaultCharactersPerWrappedLine,
+        maximumLineFragments: Int = defaultMaximumLiveSelectionLineFragments
+    ) -> Mode {
+        .liveSelection
+    }
+}
