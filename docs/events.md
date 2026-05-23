@@ -235,6 +235,19 @@ Workspace:
 | `workspace.moved` | Workspace moved to another window. |
 | `workspace.action` | Workspace action command completed. |
 
+`workspace.reordered` payloads use short refs and final indexes:
+
+```json
+{
+  "type": "workspace.reordered",
+  "window": "window:1",
+  "workspace": "workspace:11",
+  "from_index": 12,
+  "to_index": 1,
+  "ts": "2026-05-21T22:00:00Z"
+}
+```
+
 Surface and pane:
 
 | Name | Trigger |
@@ -278,6 +291,10 @@ Notifications:
 | --- | --- |
 | `notification.requested` | Socket command asked cmux to create a notification. |
 | `notification.clear_requested` | Socket command asked cmux to clear notifications. |
+| `notification.dismiss_requested` | Socket command asked cmux to remove one notification or already-read notifications. |
+| `notification.mark_read_requested` | Socket command asked cmux to mark notifications read. |
+| `notification.open_requested` | Socket command asked cmux to open a notification by id. |
+| `notification.jump_to_unread_requested` | Socket command asked cmux to jump to the latest unread notification. |
 | `notification.created` | Notification store created a notification. |
 | `notification.read` | Notification was marked read. |
 | `notification.removed` | One notification was removed. |

@@ -33,6 +33,10 @@ extension CMUXCLI {
         )
     }
 
+    func resolveCodexExecutable(searchPath: String?) -> String? {
+        resolveExecutableInSearchPath("codex", searchPath: searchPath)
+    }
+
     func claudeTeamsHasExplicitTeammateMode(commandArgs: [String]) -> Bool {
         commandArgs.contains { arg in
             arg == "--teammate-mode" || arg.hasPrefix("--teammate-mode=")
