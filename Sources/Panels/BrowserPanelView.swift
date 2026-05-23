@@ -3159,10 +3159,6 @@ func omnibarTextAfterDeletingURLWordBackward(
     text: String,
     selectedRange: NSRange
 ) -> OmnibarURLWordDeletion? {
-    guard text.rangeOfCharacter(from: omnibarURLStructuralBoundaryCharacterSet) != nil else {
-        return nil
-    }
-
     let nsText = text as NSString
     let textLength = nsText.length
     guard selectedRange.location != NSNotFound,
@@ -3199,6 +3195,14 @@ func omnibarTextAfterDeletingURLWordBackward(
         }
     }
 
+    guard omnibarURLDeletionTouchesStructuralBoundary(
+        in: nsText,
+        deletionStart: deletionStart,
+        deletionEnd: deletionEnd
+    ) else {
+        return nil
+    }
+
     let deletionRange = NSRange(location: deletionStart, length: deletionEnd - deletionStart)
     let updated = nsText.replacingCharacters(in: deletionRange, with: "")
     return OmnibarURLWordDeletion(
@@ -3212,6 +3216,32 @@ private func omnibarURLWordBoundaryCharacter(in text: NSString, at index: Int) -
     guard index >= 0, index < text.length else { return true }
     guard let scalar = UnicodeScalar(Int(text.character(at: index))) else { return false }
     return omnibarURLWordBoundaryCharacterSet.contains(scalar)
+}
+
+private func omnibarURLStructuralBoundaryCharacter(in text: NSString, at index: Int) -> Bool {
+    guard index >= 0, index < text.length else { return false }
+    guard let scalar = UnicodeScalar(Int(text.character(at: index))) else { return false }
+    return omnibarURLStructuralBoundaryCharacterSet.contains(scalar)
+}
+
+private func omnibarURLDeletionTouchesStructuralBoundary(
+    in text: NSString,
+    deletionStart: Int,
+    deletionEnd: Int
+) -> Bool {
+    if omnibarURLStructuralBoundaryCharacter(in: text, at: deletionStart - 1) {
+        return true
+    }
+
+    var index = deletionStart
+    while index < deletionEnd {
+        if omnibarURLStructuralBoundaryCharacter(in: text, at: index) {
+            return true
+        }
+        index += 1
+    }
+
+    return omnibarURLStructuralBoundaryCharacter(in: text, at: deletionEnd)
 }
 
 private func typedQueryHasExplicitPathOrQuery(_ typedQuery: String) -> Bool {
