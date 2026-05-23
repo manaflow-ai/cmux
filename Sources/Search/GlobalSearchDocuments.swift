@@ -19,12 +19,30 @@ struct GlobalSearchPanelContext {
     var location: String {
         "\(windowTitle) > \(workspaceTitle)"
     }
+
+    var terminalDocumentContext: GlobalSearchTerminalDocumentContext {
+        GlobalSearchTerminalDocumentContext(
+            windowID: windowID,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            panelTitle: panelTitle,
+            location: location
+        )
+    }
 }
 
 struct BrowserPagePayload: Decodable {
     let title: String
     let url: String
     let text: String
+}
+
+struct GlobalSearchTerminalDocumentContext: Sendable {
+    let windowID: UUID
+    let workspaceID: UUID
+    let panelID: UUID
+    let panelTitle: String
+    let location: String
 }
 
 @MainActor
@@ -95,9 +113,9 @@ enum GlobalSearchDocuments {
         )
     }
 
-    static func terminalDocuments(
+    nonisolated static func terminalDocuments(
         scrollback: String,
-        context: GlobalSearchPanelContext
+        context: GlobalSearchTerminalDocumentContext
     ) -> [SearchIndexDocument] {
         let lines = normalizedTerminalScrollbackLines(scrollback)
         guard !lines.isEmpty else { return [] }
@@ -167,7 +185,13 @@ enum GlobalSearchDocuments {
         let normalized = strippedTerminalControlSequences(scrollback)
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-        let cappedScrollback = cappedTailText(normalized)
+        let lines = normalized
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        let lineCapped = lines.count > GlobalSearchIndexingLimits.maxIndexedTerminalScrollbackLines
+            ? Array(lines.suffix(GlobalSearchIndexingLimits.maxIndexedTerminalScrollbackLines))
+            : lines
+        let cappedScrollback = cappedTailText(lineCapped.joined(separator: "\n"))
         return cappedScrollback
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)

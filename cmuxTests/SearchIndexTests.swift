@@ -123,6 +123,47 @@ final class SearchIndexTests: XCTestCase {
         XCTAssertEqual(hits.first?.kind, .terminal)
     }
 
+    func testFuzzySearchOnlyScoresRecentBoundedCandidateSet() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+        for offset in 0..<SearchIndex.fuzzyCandidateRowLimitForTesting {
+            try await index.upsert(
+                SearchIndexDocument(
+                    id: "recent-\(offset)",
+                    windowID: UUID(),
+                    workspaceID: UUID(),
+                    panelID: UUID(),
+                    kind: .terminal,
+                    title: "Recent \(offset)",
+                    location: "Window > Terminal > Line \(offset)",
+                    anchor: "line:\(offset)",
+                    text: "recent terminal row without the fuzzy candidate",
+                    timestamp: Date(timeIntervalSince1970: Double(offset + 1))
+                )
+            )
+        }
+
+        try await index.upsert(
+            SearchIndexDocument(
+                id: "old-fuzzy-doc",
+                windowID: UUID(),
+                workspaceID: UUID(),
+                panelID: UUID(),
+                kind: .terminal,
+                title: "Old Terminal",
+                location: "Window > Terminal > Line 1",
+                anchor: "line:1",
+                text: "supercalifragilistic old terminal scrollback candidate",
+                timestamp: Date(timeIntervalSince1970: 0)
+            )
+        )
+
+        let hits = try await index.search("sprcfg", limit: 10)
+        XCTAssertTrue(hits.isEmpty)
+    }
+
     func testSearchCentersFuzzySnippetOnTightMatch() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
@@ -163,6 +204,19 @@ final class SearchIndexTests: XCTestCase {
         )
 
         XCTAssertEqual(lines, ["first", "second", "third"])
+    }
+
+    func testTerminalScrollbackNormalizationCapsToTailLineBudget() {
+        let maxLines = GlobalSearchIndexingLimits.maxIndexedTerminalScrollbackLines
+        let scrollback = (1...(maxLines + 2))
+            .map { "line-\($0)" }
+            .joined(separator: "\n")
+
+        let lines = GlobalSearchDocuments.normalizedTerminalScrollbackLines(scrollback)
+
+        XCTAssertEqual(lines.count, maxLines)
+        XCTAssertEqual(lines.first, "line-3")
+        XCTAssertEqual(lines.last, "line-\(maxLines + 2)")
     }
 
     func testUpsertReplacesExistingDocumentText() async throws {

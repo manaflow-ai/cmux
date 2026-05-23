@@ -299,10 +299,13 @@ final class GlobalSearchPanelCaptureManager {
             return
         }
 
-        let documents = GlobalSearchDocuments.terminalDocuments(
-            scrollback: scrollback,
-            context: context
-        )
+        let terminalContext = context.terminalDocumentContext
+        let documents = await Task.detached(priority: .utility) {
+            GlobalSearchDocuments.terminalDocuments(
+                scrollback: scrollback,
+                context: terminalContext
+            )
+        }.value
 
         do {
             guard !Task.isCancelled else { return }

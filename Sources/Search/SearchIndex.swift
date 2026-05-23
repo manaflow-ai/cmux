@@ -113,8 +113,16 @@ enum SearchIndexError: LocalizedError {
 
 actor SearchIndex {
     private static let schemaVersion = 1
+    private static let minFuzzyCandidateRows = 100
+    private static let maxFuzzyCandidateRows = 500
+    private static let fuzzyCandidateMultiplier = 25
+    private static let maxFuzzySearchableCharacters = 40_000
 
     private var database: OpaquePointer?
+
+    nonisolated static var fuzzyCandidateRowLimitForTesting: Int {
+        maxFuzzyCandidateRows
+    }
 
     nonisolated static func open(databaseURL: URL = .cmuxSearchDatabaseURL) async throws -> SearchIndex {
         // Actor initializers run on the caller executor, so open SQLite off the MainActor.
@@ -260,12 +268,7 @@ actor SearchIndex {
         if let matchQuery = Self.matchQuery(for: trimmed) {
             ftsHits = try withStatement(sql) { statement in
                 try bind(matchQuery, at: 1, in: statement)
-                let limitBindResult = sqlite3_bind_int64(statement, 2, sqlite3_int64(limit))
-                guard limitBindResult == SQLITE_OK else {
-                    throw SearchIndexError.bindFailed(
-                        Self.sqliteMessage(database) ?? "bind failed with code \(limitBindResult)"
-                    )
-                }
+                try bind(limit, at: 2, in: statement)
 
                 var hits: [SearchIndexHit] = []
                 while true {
@@ -436,6 +439,13 @@ actor SearchIndex {
         }
     }
 
+    private func bind(_ value: Int, at index: Int32, in statement: OpaquePointer) throws {
+        let result = sqlite3_bind_int64(statement, index, sqlite3_int64(value))
+        guard result == SQLITE_OK else {
+            throw SearchIndexError.bindFailed(Self.sqliteMessage(database) ?? "bind failed with code \(result)")
+        }
+    }
+
     private func bindNull(at index: Int32, in statement: OpaquePointer) throws {
         let result = sqlite3_bind_null(statement, index)
         guard result == SQLITE_OK else {
@@ -505,6 +515,7 @@ actor SearchIndex {
         guard limit > 0 else { return [] }
         let fuzzyQuery = Self.normalizedFuzzyQuery(rawQuery)
         guard !fuzzyQuery.isEmpty else { return [] }
+        let candidateLimit = Self.fuzzyCandidateLimit(for: limit)
 
         let sql = """
             SELECT
@@ -520,9 +531,11 @@ actor SearchIndex {
                 text
             FROM chunks
             ORDER BY ts DESC
+            LIMIT ?1
             """
 
         let matches: [SearchIndexHit] = try withStatement(sql) { statement in
+            try bind(candidateLimit, at: 1, in: statement)
             var hits: [SearchIndexHit] = []
             while true {
                 let stepResult = sqlite3_step(statement)
@@ -537,6 +550,9 @@ actor SearchIndex {
                         document.location,
                         document.text
                     ].joined(separator: "\n")
+                    guard searchable.count <= Self.maxFuzzySearchableCharacters else {
+                        continue
+                    }
                     guard let score = Self.fuzzyScore(query: fuzzyQuery, candidate: searchable) else {
                         continue
                     }
@@ -570,6 +586,17 @@ actor SearchIndex {
             }
             .prefix(limit)
             .map { $0 }
+    }
+
+    private static func fuzzyCandidateLimit(for resultLimit: Int) -> Int {
+        guard resultLimit > 0 else { return 0 }
+        let expanded: Int
+        if resultLimit >= maxFuzzyCandidateRows / fuzzyCandidateMultiplier {
+            expanded = maxFuzzyCandidateRows
+        } else {
+            expanded = max(resultLimit * fuzzyCandidateMultiplier, minFuzzyCandidateRows)
+        }
+        return min(maxFuzzyCandidateRows, max(resultLimit, expanded))
     }
 
     private static func storedDocument(from statement: OpaquePointer) -> StoredSearchDocument? {
