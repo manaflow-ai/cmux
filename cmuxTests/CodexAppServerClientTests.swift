@@ -2414,6 +2414,7 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
             method: "item/permissions/requestApproval",
             params: [
                 "permissions": [
+                    "fileSystem": NSNull(),
                     "network": [
                         "enabled": true,
                     ],
@@ -2425,6 +2426,7 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         let permissions = try XCTUnwrap(grantedPermissions["permissions"] as? [String: Any])
         let network = try XCTUnwrap(permissions["network"] as? [String: Any])
         XCTAssertEqual(network["enabled"] as? Bool, true)
+        XCTAssertNil(permissions["fileSystem"])
         XCTAssertEqual(grantedPermissions["scope"] as? String, "turn")
 
         let deniedPermissions = try XCTUnwrap(permissionsRequest.approvalResponseResult(for: .decline))

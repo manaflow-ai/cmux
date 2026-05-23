@@ -488,7 +488,7 @@ struct CodexAppServerPendingRequest: Identifiable {
             switch decision {
             case .accept:
                 return [
-                    "permissions": params?["permissions"] as? [String: Any] ?? [:],
+                    "permissions": Self.grantedPermissionProfile(from: params?["permissions"]),
                     "scope": "turn",
                 ]
             case .decline, .cancel:
@@ -503,6 +503,19 @@ struct CodexAppServerPendingRequest: Identifiable {
         default:
             return nil
         }
+    }
+
+    private static func grantedPermissionProfile(from value: Any?) -> [String: Any] {
+        guard let requested = value as? [String: Any] else { return [:] }
+        var granted: [String: Any] = [:]
+        for key in ["network", "fileSystem"] {
+            guard let subprofile = requested[key],
+                  !(subprofile is NSNull) else {
+                continue
+            }
+            granted[key] = subprofile
+        }
+        return granted
     }
 }
 
