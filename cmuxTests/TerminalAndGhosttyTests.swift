@@ -1328,6 +1328,46 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNil(payload["workspace_count"])
     }
 
+    func testMobileTerminalSnapshotCacheExpiresAtCacheTTLWhenDimensionsMatch() {
+        // The "viewport churn" TTL (1.0s) is only meant to cover the transient case where
+        // columns or rows actually changed under the iOS client (rotation, sidebar fit,
+        // manual resize). When the cached grid matches the requested grid, the normal cache
+        // TTL (0.35s) must apply.
+        //
+        // Regression: prior logic returned true for any age <= 1.0s whenever dimensions
+        // matched, which kept an echo-less post-input snapshot cached for ~1 second after
+        // every `mobile.terminal.input`. With a Python probe that polls the snapshot RPC
+        // tightly, p50 round-trip echo measured ~1015 ms with standard deviation ~2.5 ms
+        // (i.e. a fixed timer, not a real PTY delay). After this fix the dim-matched cache
+        // expires at the documented 0.35s so the next snapshot rebuild can pick up the
+        // freshly arrived echo.
+        let matchingDims: (TimeInterval) -> Bool = { age in
+            TerminalController.debugShouldReuseMobileTerminalSnapshotCacheForTesting(
+                cachedMaxScrollbackRows: nil,
+                requestedMaxScrollbackRows: nil,
+                age: age
+            )
+        }
+        XCTAssertTrue(matchingDims(0.10), "fresh dim-matched cache must be reused")
+        XCTAssertTrue(matchingDims(0.34), "cache must be reused right under the 0.35s TTL")
+        XCTAssertFalse(matchingDims(0.40), "dim-matched cache must expire at the 0.35s TTL, not 1.0s")
+        XCTAssertFalse(matchingDims(0.95), "dim-matched cache must not be reused near the churn TTL")
+
+        // When dimensions actually changed, the viewport-churn TTL still applies so callers
+        // riding through a resize don't thrash on a moving grid.
+        let mismatchedDims: (TimeInterval) -> Bool = { age in
+            TerminalController.debugShouldReuseMobileTerminalSnapshotCacheForTesting(
+                cachedMaxScrollbackRows: nil,
+                requestedMaxScrollbackRows: nil,
+                cachedColumns: 80,
+                requestedColumns: 100,
+                age: age
+            )
+        }
+        XCTAssertTrue(mismatchedDims(0.50), "churn TTL must keep a stale snapshot serviceable mid-resize")
+        XCTAssertFalse(mismatchedDims(1.05), "churn TTL must still expire eventually")
+    }
+
     func testMobileTerminalSnapshotCacheRequiresSameScrollbackDepth() {
         XCTAssertTrue(
             TerminalController.debugShouldReuseMobileTerminalSnapshotCacheForTesting(
