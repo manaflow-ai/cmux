@@ -4,8 +4,15 @@ import { useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { shortcutCategories, type LocalizedText, type Shortcut } from "../../data/cmux-shortcuts";
 
+const localeAliases: Record<string, string> = {
+  nb: "no",
+  "zh-Hans": "zh-CN",
+  "zh-Hant": "zh-TW",
+};
+
 function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
+  const normalizedLocale = localeAliases[locale] ?? locale;
+  return text[normalizedLocale] ?? text[locale.split("-")[0]] ?? text.en;
 }
 
 function normalize(s: string) {

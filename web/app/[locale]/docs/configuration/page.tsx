@@ -8,6 +8,12 @@ import settingsSchema from "../../../../data/cmux.schema.json";
 import { shortcutCategories, type LocalizedText } from "../../../../data/cmux-shortcuts";
 import { DocsHeading } from "../../components/docs-heading";
 
+const localeAliases: Record<string, string> = {
+  nb: "no",
+  "zh-Hans": "zh-CN",
+  "zh-Hant": "zh-TW",
+};
+
 type SchemaProperty = {
   title?: string;
   description?: string;
@@ -108,7 +114,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
+  const normalizedLocale = localeAliases[locale] ?? locale;
+  return text[normalizedLocale] ?? text[locale.split("-")[0]] ?? text.en;
 }
 
 function shortcutComboToConfig(combo: string[]) {

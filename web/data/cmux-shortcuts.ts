@@ -1,6 +1,7 @@
 export type LocalizedText = {
   en: string;
   ja: string;
+  [locale: string]: string | undefined;
 };
 
 export type Shortcut = {
@@ -28,8 +29,50 @@ export const shortcutCategories: ShortcutCategory[] = [
       {
         id: "showHideAllWindows",
         combos: [["⌃", "⌥", "⌘", "."]],
-        description: { en: "Show/hide the cmux hotkey window", ja: "cmuxホットキーウインドウを表示/非表示" },
-        note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
+        description: {
+          en: "Show/hide the cmux hotkey window",
+          ja: "cmuxホットキーウインドウを表示/非表示",
+          ar: "إظهار/إخفاء نافذة اختصار cmux",
+          bs: "Prikaži/sakrij cmux prozor prečice",
+          da: "Vis/skjul cmux-hotkeyvinduet",
+          de: "cmux-Hotkey-Fenster ein-/ausblenden",
+          es: "Mostrar/ocultar la ventana de tecla rápida de cmux",
+          fr: "Afficher/masquer la fenêtre de raccourci cmux",
+          it: "Mostra/nascondi la finestra tasto rapido cmux",
+          km: "បង្ហាញ/លាក់បង្អួចគ្រាប់ចុចផ្លូវកាត់ cmux",
+          ko: "cmux 핫키 윈도우 표시/숨기기",
+          no: "Vis/skjul cmux-hurtigtastvinduet",
+          pl: "Pokaż/ukryj okno skrótu cmux",
+          "pt-BR": "Mostrar/ocultar a janela de tecla de atalho do cmux",
+          ru: "Показать/скрыть окно горячей клавиши cmux",
+          th: "แสดง/ซ่อนหน้าต่างปุ่มลัด cmux",
+          tr: "cmux kısayol penceresini göster/gizle",
+          uk: "Показати/приховати вікно гарячої клавіші cmux",
+          "zh-CN": "显示/隐藏 cmux 热键窗口",
+          "zh-TW": "顯示/隱藏 cmux 熱鍵視窗",
+        },
+        note: {
+          en: "system-wide hotkey",
+          ja: "システム全体のホットキー",
+          ar: "اختصار على مستوى النظام",
+          bs: "sistemska prečica",
+          da: "systemdækkende genvejstast",
+          de: "systemweiter Hotkey",
+          es: "tecla rápida en todo el sistema",
+          fr: "raccourci système",
+          it: "tasto rapido a livello di sistema",
+          km: "គ្រាប់ចុចផ្លូវកាត់ទូទាំងប្រព័ន្ធ",
+          ko: "시스템 전체 단축키",
+          no: "systemomfattende hurtigtast",
+          pl: "skrót systemowy",
+          "pt-BR": "tecla de atalho em todo o sistema",
+          ru: "системная горячая клавиша",
+          th: "ปุ่มลัดทั้งระบบ",
+          tr: "sistem genelinde kısayol",
+          uk: "загальносистемна гаряча клавіша",
+          "zh-CN": "系统级热键",
+          "zh-TW": "全系統熱鍵",
+        },
       },
       {
         id: "globalSearch",
