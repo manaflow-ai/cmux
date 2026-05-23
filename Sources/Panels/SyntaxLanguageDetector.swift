@@ -47,10 +47,8 @@ enum SyntaxLanguageDetector {
     // to avoid TreeSitter latency spikes on large logs, generated code, etc.
     private static let maxHighlightBytes = 500_000
 
-    // SwiftUI re-evaluates `State(wrappedValue: FileLanguageCache(url:))` on every
-    // parent re-render (the closure is not @autoclosure), so this entry point is
-    // hit per keystroke when the panel publishes. Cache by absolute path so the
-    // resourceValues file stat only runs once per file across the app lifetime.
+    // Cache by absolute path so repeated previews of the same file avoid
+    // repeated resourceValues file stats and CodeEdit language detection.
     private static let cacheLock = NSLock()
     nonisolated(unsafe) private static var cache: [String: CodeLanguage?] = [:]
 

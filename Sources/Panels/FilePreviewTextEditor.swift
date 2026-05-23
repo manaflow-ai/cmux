@@ -18,16 +18,10 @@ protocol FilePreviewTextEditingPanel: AnyObject {
 }
 
 // MARK: - Language detection cache
-//
-// Note: State(wrappedValue:) takes a plain (non-@autoclosure) value, so the
-// `FileLanguageCache(url:)` constructor runs on every parent re-render even
-// though SwiftUI only retains the first result. The expensive bit (a file
-// stat for the size threshold) is therefore deduplicated by
-// `SyntaxLanguageDetector`'s static URL cache rather than relying on @State
-// to memoize.
 
-private struct FileLanguageCache {
+private final class FileLanguageCache: ObservableObject {
     let language: CodeLanguage?
+
     init(url: URL) {
         language = SyntaxLanguageDetector.language(for: url)
     }
@@ -42,7 +36,7 @@ struct HighlightedFilePreviewRouter: View {
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
 
-    @State private var languageCache: FileLanguageCache
+    @StateObject private var languageCache: FileLanguageCache
 
     init(
         panel: FilePreviewPanel,
@@ -56,7 +50,7 @@ struct HighlightedFilePreviewRouter: View {
         self.themeBackgroundColor = themeBackgroundColor
         self.themeForegroundColor = themeForegroundColor
         self.drawsBackground = drawsBackground
-        self._languageCache = State(wrappedValue: FileLanguageCache(url: panel.fileURL))
+        self._languageCache = StateObject(wrappedValue: FileLanguageCache(url: panel.fileURL))
     }
 
     var body: some View {
@@ -237,11 +231,21 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
 
     private func registerFocusIfReady() {
         guard let panel, let textView = textController?.textView else { return }
-        // CodeEditTextView's TextView is not NSTextView so panel.attachTextView(_:NSTextView) cannot
-        // be called here. Focus registration uses attachPreviewFocus; handleDroppedFileURLsAsText is
-        // not available in the highlighted path (it requires NSTextView APIs).
+        panel.attachTextInsertionTarget(textView)
         panel.attachPreviewFocus(root: textView, primaryResponder: textView, intent: .textEditor)
         panel.retryPendingFocus()
+    }
+}
+
+extension TextView: FilePreviewTextInsertionTarget {
+    var filePreviewCurrentText: String { string }
+
+    func focusFilePreviewTextTarget() {
+        window?.makeFirstResponder(self)
+    }
+
+    func insertFilePreviewText(_ text: String) {
+        insertText(text, replacementRange: selectedRange())
     }
 }
 
@@ -466,6 +470,11 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
         } else {
             bridge.removeZoomMonitor()
         }
+    }
+
+    static func dismantleNSView(_ container: HighlightedEditorContainerView, coordinator: HighlightedEditorBridge) {
+        coordinator.removeZoomMonitor()
+        container.panel = nil
     }
 }
 

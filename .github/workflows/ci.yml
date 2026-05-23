@@ -236,6 +236,7 @@ jobs:
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -skipPackagePluginValidation \
               -resolvePackageDependencies; then
               exit 0
             fi
@@ -261,6 +262,7 @@ jobs:
             xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
+              -skipPackagePluginValidation \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests \
@@ -445,6 +447,7 @@ jobs:
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -skipPackagePluginValidation \
               -resolvePackageDependencies; then
               exit 0
             fi
@@ -463,6 +466,7 @@ jobs:
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
+            -skipPackagePluginValidation \
             -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-build-output.txt
 
       - name: Validate Swift warning budget
@@ -631,6 +635,7 @@ jobs:
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            -skipPackagePluginValidation \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
@@ -697,6 +702,7 @@ jobs:
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -skipPackagePluginValidation \
               -resolvePackageDependencies; then
               exit 0
             fi
@@ -715,6 +721,7 @@ jobs:
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
+            -skipPackagePluginValidation \
             -destination "platform=macOS" \
             build-for-testing
 
@@ -894,6 +901,7 @@ jobs:
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
+              -skipPackagePluginValidation \
               -destination "platform=macOS" \
               -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
               test-without-building; then
@@ -918,6 +926,7 @@ jobs:
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
+            -skipPackagePluginValidation \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance 180 \
             -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFOpensBrowserFindAfterCmdDCmdLNavigation \

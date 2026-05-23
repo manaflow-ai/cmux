@@ -97,6 +97,7 @@ jobs:
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -skipPackagePluginValidation \
               -resolvePackageDependencies; then
               exit 0
             fi
@@ -112,6 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           CMUX_SKIP_ZIG_BUILD=1 \
+            CMUX_SKIP_PLUGIN_VALIDATION=1 \
             CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
             ./scripts/reload.sh --tag "$PERF_TAG"
