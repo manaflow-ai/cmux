@@ -46,6 +46,10 @@ extension KeyboardShortcutSettings.Action {
             if self == .application || other == .application {
                 return true
             }
+            if (self == .markdownPanel && other == .nonBrowserPanel) ||
+                (self == .nonBrowserPanel && other == .markdownPanel) {
+                return true
+            }
             return self == other
         }
     }

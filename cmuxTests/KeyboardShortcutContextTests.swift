@@ -141,6 +141,27 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    func testMarkdownShortcutsConflictWithNonBrowserShortcuts() {
+        let commandR = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
+
+        XCTAssertEqual(KeyboardShortcutSettings.Action.markdownFindNext.shortcutContext, .markdownPanel)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.shortcutContext, .nonBrowserPanel)
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.renameTab.conflicts(
+                with: commandR,
+                proposedAction: .markdownFindNext,
+                configuredShortcut: commandR
+            )
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.markdownFindNext.conflicts(
+                with: commandR,
+                proposedAction: .renameTab,
+                configuredShortcut: commandR
+            )
+        )
+    }
+
     func testMarkdownControlFindAliasesDoNotConflictWithCommandPaletteNavigation() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
