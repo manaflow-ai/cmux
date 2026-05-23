@@ -53,7 +53,7 @@ The reconnectable [events stream](events.md) also publishes Feed and agent-hook
 activity as it happens:
 
 ```bash
-cmux events --category feed --category agent --cursor-file ~/.cache/cmux/feed-events.seq --reconnect
+cmux events --category feed --category agent --cursor-file ~/.cache/cmux/feed-events.seq
 ```
 
 Use `feed.item.received` to observe incoming hook work, `feed.item.completed`
