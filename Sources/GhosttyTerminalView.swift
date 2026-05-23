@@ -2981,6 +2981,12 @@ class GhosttyApp {
         var includePath = value
         if !valueWasQuoted, includePath.hasPrefix("?") {
             includePath.removeFirst()
+            if includePath.count >= 2,
+               includePath.hasPrefix("\""),
+               includePath.hasSuffix("\"") {
+                includePath.removeFirst()
+                includePath.removeLast()
+            }
         }
         guard !includePath.isEmpty else { return }
 
