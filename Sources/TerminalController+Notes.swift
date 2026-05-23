@@ -344,7 +344,9 @@ extension TerminalController {
             // duplicates. Mirrors openOrFocusMarkdownSurface semantics.
             for (existingId, existingPanel) in ws.panels {
                 guard let md = existingPanel as? MarkdownPanel else { continue }
-                if (md.filePath as NSString).standardizingPath == canonicalNotePath {
+                let matchesProjectNote = md.noteID == note.id || md.noteBodyPath == note.bodyPath
+                let matchesPath = (md.filePath as NSString).standardizingPath == canonicalNotePath
+                if matchesProjectNote || matchesPath {
                     md.markAsProjectNote(
                         slug: note.slug,
                         id: note.id,
