@@ -820,10 +820,12 @@ def capture_agent(
     stderr_path = agent_dir / "stderr.txt"
     return_code: int | str = "proxy_not_ready"
     started = time.time()
+    duration_ms = 0
     timed_out = False
-    if proxy_ready:
-        with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
-            try:
+    run_error: str | None = None
+    try:
+        if proxy_ready:
+            with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
                 proc = subprocess.run(
                     command,
                     cwd=cwd,
@@ -833,21 +835,24 @@ def capture_agent(
                     timeout=spec.timeout,
                 )
                 return_code = proc.returncode
+    except subprocess.TimeoutExpired:
+        return_code = "timeout"
+        timed_out = True
+    except Exception as exc:
+        return_code = f"error:{type(exc).__name__}"
+        run_error = sanitize_failure_line(str(exc))
+    finally:
+        duration_ms = int((time.time() - started) * 1000)
+        time.sleep(1)
+        if mitm.poll() is None:
+            mitm.send_signal(signal.SIGINT)
+            try:
+                mitm.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                return_code = "timeout"
-                timed_out = True
-
-    duration_ms = int((time.time() - started) * 1000)
-    time.sleep(1)
-    if mitm.poll() is None:
-        mitm.send_signal(signal.SIGINT)
-        try:
-            mitm.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            mitm.kill()
-            mitm.wait(timeout=5)
-    mitm_stdout.close()
-    mitm_stderr.close()
+                mitm.kill()
+                mitm.wait(timeout=5)
+        mitm_stdout.close()
+        mitm_stderr.close()
 
     stdout_text = stdout_path.read_text(errors="replace") if stdout_path.exists() else ""
     stderr_text = stderr_path.read_text(errors="replace") if stderr_path.exists() else ""
@@ -856,6 +861,8 @@ def capture_agent(
 
     if return_code != 0 or not marker_observed or not entries:
         reason_parts = [f"exit={return_code}", f"marker={marker_observed}", f"entries={len(entries)}"]
+        if run_error:
+            reason_parts.append(run_error[:200])
         if stderr_text.strip():
             reason_parts.append(sanitize_failure_line(stderr_text.strip()).splitlines()[0][:200])
         if stdout_text.strip() and not marker_observed:
