@@ -172,7 +172,7 @@ struct MarkdownPanelView: View {
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .textSelection(.enabled)
+                .boundedTextSelection(for: panel.filePath)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
             Text(String(localized: "markdown.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))

@@ -1508,7 +1508,7 @@ private struct PermissionActionArea: View {
                     Text(primary)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.primary.opacity(0.95))
-                        .textSelection(.enabled)
+                        .boundedTextSelection(for: primary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

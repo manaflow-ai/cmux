@@ -945,7 +945,7 @@ private struct SessionTranscriptTurnView: View, Equatable {
             Text(row.text)
                 .font(row.role.bodyFont)
                 .foregroundColor(.primary.opacity(0.92))
-                .textSelection(.enabled)
+                .boundedTextSelection(for: row.text)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
