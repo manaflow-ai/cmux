@@ -20393,7 +20393,7 @@ struct CMUXCLI {
             #"\bAuthorization\s*:\s*(?:[A-Za-z][A-Za-z0-9._-]*\s+)?\S+"#,
             #"\bBearer\s+[A-Za-z0-9._~+/\-]+=*"#,
             #"[?&](?:X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|Signature|sig|token|access[-_]?token|accessToken|api[-_]?key|apiKey|auth[-_]?token|authToken|id[-_]?token|idToken|refresh[-_]?token|refreshToken|client[-_]?secret|clientSecret|key|secret|password)="#,
-            #""(?:token|secret|password|api[-_]?key|apiKey|access[-_]?token|accessToken|auth[-_]?token|authToken|id[-_]?token|idToken|refresh[-_]?token|refreshToken|client[-_]?secret|clientSecret|authorization|credential)"\s*:"#,
+            #""[A-Za-z0-9_-]*(?:token|secret|password|api[-_]?key|apikey|access[-_]?token|accesstoken|auth[-_]?token|authtoken|id[-_]?token|idtoken|refresh[-_]?token|refreshtoken|client[-_]?secret|clientsecret|authorization|credential|private[-_]?key|privatekey)[A-Za-z0-9_-]*"\s*:"#,
             #"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b"#,
             #"\b(?:sk|rk|sess)-[A-Za-z0-9._-]{8,}\b"#,
         ]

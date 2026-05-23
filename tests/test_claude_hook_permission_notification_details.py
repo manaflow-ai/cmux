@@ -282,6 +282,20 @@ def main() -> int:
                 "expected": 'Claude Code|Permission|mcp__ops__restart: {"action":"restart","target":"worker"}',
             },
             {
+                "name": "redacted unknown tool permission",
+                "feed_payload": {
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": os.getcwd(),
+                    "tool_name": "mcp__ops__restart",
+                    "tool_input": {
+                        "aws_secret_access_key": "ABCDEFGHIJKLMNOPQRSTUVWX",
+                        "target": "worker",
+                    },
+                },
+                "notification_message": "Claude needs your permission",
+                "expected": "Claude Code|Permission|mcp__ops__restart: Sensitive content removed",
+            },
+            {
                 "name": "exit plan",
                 "feed_payload": {
                     "hook_event_name": "PermissionRequest",
