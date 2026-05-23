@@ -168,7 +168,7 @@ final class OmnibarSuggestionRefreshScheduler {
     ) {
         self.debounceDelay = debounceDelay
         self.clock = clock
-        let refreshPipe = AsyncStream<Void>.makeStream()
+        let refreshPipe = AsyncStream<UInt64>.makeStream()
         refreshStream = refreshPipe.stream
         refreshContinuation = refreshPipe.continuation
     }
