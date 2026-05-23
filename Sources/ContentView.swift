@@ -13257,9 +13257,7 @@ struct SidebarWorkspaceSnapshotBuilder {
     }
 }
 
-@MainActor
-private final class SidebarTabItemContextMenuState: ObservableObject {
-    var presentationFreezeActive = false
+private struct SidebarTabItemContextMenuState {
     var hasDeferredWorkspaceObservationInvalidation = false
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
@@ -13324,7 +13322,7 @@ private struct TabItemView: View, Equatable {
     let livePresentation: SidebarTabItemPresentationSnapshot
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
-    @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
+    @State private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
     @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
@@ -14026,21 +14024,18 @@ private struct TabItemView: View, Equatable {
     }
 
     private func beginContextMenuPresentationFreeze() {
-        guard !contextMenuState.presentationFreezeActive else { return }
-        contextMenuState.presentationFreezeActive = true
+        guard frozenPresentation?.tabId != tab.id else { return }
         contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
         contextMenuState.pendingWorkspaceSnapshot = nil
         frozenPresentation = livePresentation
     }
 
     private func endContextMenuPresentationFreeze() {
-        guard contextMenuState.presentationFreezeActive ||
-            frozenPresentation?.tabId == tab.id ||
+        guard frozenPresentation?.tabId == tab.id ||
             contextMenuState.hasDeferredWorkspaceObservationInvalidation
         else {
             return
         }
-        contextMenuState.presentationFreezeActive = false
         frozenPresentation = nil
         flushDeferredWorkspaceObservationInvalidation()
     }
