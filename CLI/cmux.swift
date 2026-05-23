@@ -11516,13 +11516,10 @@ struct CMUXCLI {
             print(jsonString(response))
         } else {
             if let stdout = response["stdout"] as? String, !stdout.isEmpty {
-                print(stdout, terminator: stdout.hasSuffix("\n") ? "" : "\n")
+                FileHandle.standardOutput.write(Data(stdout.utf8))
             }
             if let stderr = response["stderr"] as? String, !stderr.isEmpty {
                 FileHandle.standardError.write(Data(stderr.utf8))
-                if !stderr.hasSuffix("\n") {
-                    FileHandle.standardError.write(Data("\n".utf8))
-                }
             }
         }
 

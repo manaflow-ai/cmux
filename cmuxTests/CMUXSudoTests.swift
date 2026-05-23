@@ -163,6 +163,18 @@ final class CMUXSudoTests: XCTestCase {
         XCTAssertEqual(entries[1]["request_id"] as? String, "second")
     }
 
+    func testSudoAuditLogRotationSeedsFreshLogFromRotatedTail() throws {
+        let logURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
+        let oversizedMessage = String(repeating: "x", count: Int(CMUXSudoAuditLogger.maxBytes) + 1)
+        let first = try CMUXSudoAuditLogger.append(auditRecord(id: "first", message: oversizedMessage), logURL: logURL)
+        let second = try CMUXSudoAuditLogger.append(auditRecord(id: "second"), logURL: logURL)
+        let third = try CMUXSudoAuditLogger.append(auditRecord(id: "third"), logURL: logURL)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(logURL.path).1"))
+        XCTAssertEqual(second["previous_sha256"] as? String, first["entry_sha256"] as? String)
+        XCTAssertEqual(third["previous_sha256"] as? String, second["entry_sha256"] as? String)
+    }
+
     func testSudoAuditLogFailsClosedWhenExistingChainIsCorrupt() throws {
         let logURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
         try Data("{\"request_id\":\"tampered\"}\n".utf8).write(to: logURL)
@@ -350,6 +362,7 @@ final class CMUXSudoTests: XCTestCase {
             XCTAssertTrue(CMUXSudoHelperSignatureVerifier.verify(envelope))
             XCTAssertEqual(envelope.payload["argv"] as? [String], ["/usr/bin/id"])
             XCTAssertEqual(envelope.payload["cwd"] as? String, "/tmp")
+            XCTAssertEqual(envelope.payload["timeout_seconds"] as? Int, 600)
             return CMUXSudoHelperExecutionResult(
                 status: "completed",
                 exitCode: 0,
@@ -729,7 +742,7 @@ final class CMUXSudoTests: XCTestCase {
         ]
     }
 
-    private func auditRecord(id: String) -> CMUXSudoAuditRecord {
+    private func auditRecord(id: String, message: String? = nil) -> CMUXSudoAuditRecord {
         CMUXSudoAuditRecord(
             requestID: id,
             timestamp: Date(timeIntervalSince1970: 1_800_000_000),
@@ -743,7 +756,7 @@ final class CMUXSudoTests: XCTestCase {
             result: "completed",
             exitCode: 0,
             errorCode: nil,
-            message: nil
+            message: message
         )
     }
 

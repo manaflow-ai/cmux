@@ -155,11 +155,37 @@ enum CMUXSudoAuditLogger {
     }
 
     private static func validatedPreviousEntryHash(logURL: URL) throws -> String? {
+        let seedHash = try validatedRotatedEntryHash(logURL: logURL)
+        return try validatedPreviousEntryHash(logURL: logURL, seedPreviousHash: seedHash, allowExternalFirstPrevious: false)
+    }
+
+    private static func validatedRotatedEntryHash(logURL: URL) throws -> String? {
+        var previousHash: String?
+        var foundRetainedLog = false
+        for index in stride(from: maxRotatedFiles, through: 1, by: -1) {
+            let url = rotatedURL(logURL, index: index)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            previousHash = try validatedPreviousEntryHash(
+                logURL: url,
+                seedPreviousHash: previousHash,
+                allowExternalFirstPrevious: !foundRetainedLog
+            )
+            foundRetainedLog = true
+        }
+        return previousHash
+    }
+
+    private static func validatedPreviousEntryHash(
+        logURL: URL,
+        seedPreviousHash: String?,
+        allowExternalFirstPrevious: Bool
+    ) throws -> String? {
         let data = try Data(contentsOf: logURL)
-        guard !data.isEmpty else { return nil }
+        guard !data.isEmpty else { return seedPreviousHash }
         guard let decoded = String(data: data, encoding: .utf8) else { throw AuditLogError.corrupt }
         let lines = decoded.split(separator: "\n", omittingEmptySubsequences: true)
-        var previousHash: String?
+        var previousHash = seedPreviousHash
+        var isFirstLine = true
         for line in lines {
             guard let lineData = String(line).data(using: .utf8),
                   var object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
@@ -176,7 +202,9 @@ enum CMUXSudoAuditLogger {
                 throw AuditLogError.corrupt
             }
             guard storedPreviousHash == previousHash else {
-                throw AuditLogError.corrupt
+                if !(allowExternalFirstPrevious && isFirstLine && previousHash == nil && storedPreviousHash != nil) {
+                    throw AuditLogError.corrupt
+                }
             }
             object.removeValue(forKey: "entry_sha256")
             let computedHash = try sha256Hex(canonicalJSONData(object))
@@ -184,6 +212,7 @@ enum CMUXSudoAuditLogger {
                 throw AuditLogError.corrupt
             }
             previousHash = storedHash
+            isFirstLine = false
         }
         return previousHash
     }

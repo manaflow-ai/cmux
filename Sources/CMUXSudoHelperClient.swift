@@ -45,6 +45,7 @@ enum CMUXSudoHelperSignatureVerifier {
 enum CMUXSudoHelperClient {
     static let helperSocketPath = "/var/run/cmux-sudo-helper.sock"
     private static let maxHelperResponseBytes = 6 * 1024 * 1024
+    private static let helperCommandTimeoutSeconds = 10 * 60
     private static let helperSocketSendTimeoutSeconds = 30
     private static let helperSocketReceiveTimeoutSeconds = 11 * 60
     private static let sessionSigningKey = P256.Signing.PrivateKey()
@@ -64,6 +65,7 @@ enum CMUXSudoHelperClient {
             "requester_uid": Int(request.callerUID),
             "requester_pid": Int(request.callerPID),
             "cwd": request.cwd as Any? ?? NSNull(),
+            "timeout_seconds": helperCommandTimeoutSeconds,
             "created_at": CMUXSudoAuditLogger.iso8601(Date()),
         ]
         let data = try canonicalJSONData(payload)
@@ -178,7 +180,8 @@ enum CMUXSudoHelperClient {
             throw HelperTransportError(lastErrnoMessage("socket"))
         }
         do {
-        try configureTimeouts(fd)
+            try configureNoSigPipe(fd)
+            try configureTimeouts(fd)
         } catch {
             Darwin.close(fd)
             throw error
@@ -212,6 +215,20 @@ enum CMUXSudoHelperClient {
             throw HelperTransportError(message)
         }
         return fd
+    }
+
+    private static func configureNoSigPipe(_ fd: Int32) throws {
+#if os(macOS)
+        var noSigPipe: Int32 = 1
+        let result = withUnsafePointer(to: &noSigPipe) { pointer in
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, pointer, socklen_t(MemoryLayout<Int32>.size))
+        }
+        guard result == 0 else {
+            throw HelperTransportError(lastErrnoMessage("setsockopt(SO_NOSIGPIPE)"))
+        }
+#else
+        _ = fd
+#endif
     }
 
     private static func configureTimeouts(_ fd: Int32) throws {

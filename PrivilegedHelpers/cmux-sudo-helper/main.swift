@@ -8,6 +8,7 @@ private let helperLogger = Logger(subsystem: "com.cmuxterm.sudo-helper", categor
 private let socketPath = "/var/run/cmux-sudo-helper.sock"
 private let secureSearchPath = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
 private let maxCapturedOutputBytes = 2 * 1024 * 1024
+private let maxCommandRuntimeSeconds = 10 * 60
 private let allowedBundleIdentifiers: Set<String> = [
     "com.cmuxterm.app",
     "com.cmuxterm.app.debug",
@@ -300,6 +301,10 @@ enum CMUXSudoHelper {
               !cwd.contains("\0") else {
             throw HelperError(code: "missing_cwd", message: "Helper request is missing a working directory")
         }
+        let timeoutSeconds = min(
+            max(intValue(envelope.payload["timeout_seconds"]) ?? maxCommandRuntimeSeconds, 1),
+            maxCommandRuntimeSeconds
+        )
         var isDirectory = ObjCBool(false)
         guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory),
               isDirectory.boolValue else {
@@ -324,13 +329,35 @@ enum CMUXSudoHelper {
         process.standardInput = stdinHandle
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            finished.signal()
+        }
 
         try process.run()
-        process.waitUntilExit()
+        let timedOut = finished.wait(timeout: .now() + .seconds(timeoutSeconds)) == .timedOut
+        if timedOut {
+            process.terminate()
+            if finished.wait(timeout: .now() + .seconds(2)) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = finished.wait(timeout: .now() + .seconds(2))
+            }
+        }
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         stdout.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
         stderr.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+
+        if timedOut {
+            return [
+                "status": "command_timeout",
+                "exit_code": 124,
+                "stdout": stdout.stringValue,
+                "stderr": stderr.stringValue,
+                "error_code": "command_timeout",
+                "message": "Sudo command exceeded the cmux timeout",
+            ]
+        }
 
         return [
             "status": "completed",

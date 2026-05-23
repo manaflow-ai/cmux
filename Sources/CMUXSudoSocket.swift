@@ -469,7 +469,8 @@ extension TerminalController {
              "helper_unsupported",
              "helper_status_unknown",
              "cwd_unavailable",
-             "missing_cwd":
+             "missing_cwd",
+             "command_timeout":
             return rawCode ?? "helper_error"
         default:
             return "helper_error"
