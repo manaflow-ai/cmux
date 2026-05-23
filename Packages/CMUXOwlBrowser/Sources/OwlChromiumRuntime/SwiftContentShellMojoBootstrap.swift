@@ -47,11 +47,13 @@ struct SwiftContentShellMojoBootstrap {
             processID: processID
         )
 
-        let invitation = try mojoSystem.createInvitation()
+        var invitation: MojoHandle?
         do {
-            let shellControllerRemote = try mojoSystem.attachMessagePipe(toInvitation: invitation, name: 0)
+            let createdInvitation = try mojoSystem.createInvitation()
+            invitation = createdInvitation
+            let shellControllerRemote = try mojoSystem.attachMessagePipe(toInvitation: createdInvitation, name: 0)
             try mojoSystem.sendInvitation(
-                invitation,
+                createdInvitation,
                 toProcessID: processID,
                 machSendRight: channel.takeLocalSendRight()
             )
@@ -61,7 +63,9 @@ struct SwiftContentShellMojoBootstrap {
                 userDataDirectory: userDataDirectory
             )
         } catch {
-            try? mojoSystem.close(invitation)
+            if let invitation {
+                try? mojoSystem.close(invitation)
+            }
             rendezvousServer.unregister(processID: processID)
             process.terminate()
             throw error
@@ -74,7 +78,6 @@ struct SwiftContentShellMojoBootstrap {
         rendezvousKey: UInt32
     ) -> [String] {
         var arguments = [
-            "--no-sandbox",
             "--content-shell-hide-toolbar",
             "--no-first-run",
             "--no-default-browser-check",
@@ -82,6 +85,9 @@ struct SwiftContentShellMojoBootstrap {
             "--vmodule=*owl*=1,*fresh*=1,*shell*=1",
             "--mojo-platform-channel-handle=\(rendezvousKey)"
         ]
+#if DEBUG
+        arguments.append("--no-sandbox")
+#endif
         if getenv("OWL_FRESH_NO_EMBED") == nil {
             arguments.append("--fresh-owl-embed")
             arguments.append("--fresh-owl-hosted-frame-pump")

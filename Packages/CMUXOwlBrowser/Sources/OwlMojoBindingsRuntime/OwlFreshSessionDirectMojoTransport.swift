@@ -85,11 +85,13 @@ public final class OwlFreshSessionDirectMojoTransport {
     }
 
     private func write(method: OwlFreshSessionWireMessage.Method, payload: Data, handles: [MojoHandle]) throws {
-        try writer.writeMessage(
-            pipe: remoteHandle,
-            data: OwlFreshSessionWireMessage.message(method: method, payload: payload),
-            handles: handles
-        )
+        try lock.withLock {
+            try writer.writeMessage(
+                pipe: remoteHandle,
+                data: OwlFreshSessionWireMessage.message(method: method, payload: payload),
+                handles: handles
+            )
+        }
     }
 
     private func consumeRequestID() -> UInt64 {

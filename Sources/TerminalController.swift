@@ -14347,6 +14347,18 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            guard browserPanel.browserEngineDescriptor.capabilities.supports(.initScripts) else {
+                let error = BrowserEngineUnsupportedCapabilityError(
+                    engineKind: browserPanel.browserEngineDescriptor.kind,
+                    capability: .initScripts
+                )
+                return .err(
+                    code: "unsupported_capability",
+                    message: error.localizedDescription,
+                    data: ["capability": BrowserEngineCapability.initScripts.rawValue]
+                )
+            }
+
             var scripts = v2BrowserInitScriptsBySurface[surfaceId] ?? []
             scripts.append(script)
             v2BrowserInitScriptsBySurface[surfaceId] = scripts

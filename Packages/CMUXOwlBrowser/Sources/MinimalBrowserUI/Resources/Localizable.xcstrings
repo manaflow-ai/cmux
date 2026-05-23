@@ -259,6 +259,24 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規タブ" } }
       }
     },
+    "page.error.commandFailed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browser command failed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ブラウザコマンドに失敗しました" } }
+      }
+    },
+    "page.error.runtimeFailed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browser engine failed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ブラウザエンジンに失敗しました" } }
+      }
+    },
+    "page.error.runtimeUnavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browser engine unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ブラウザエンジンを利用できません" } }
+      }
+    },
     "page.engine.label" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Engine" } },
@@ -275,6 +293,12 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Status" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "状態" } }
+      }
+    },
+    "page.status.disconnected" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browser engine disconnected" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ブラウザエンジンの接続が切れました" } }
       }
     },
     "page.status.loading" : {

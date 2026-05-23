@@ -26,6 +26,8 @@ struct NativeFilePickerPanelConfiguration: Equatable {
         panel.resolvesAliases = true
         if canChooseFiles, !allowedContentTypes.isEmpty {
             panel.allowedContentTypes = allowedContentTypes
+        } else {
+            panel.allowedContentTypes = []
         }
     }
 

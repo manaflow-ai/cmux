@@ -3,6 +3,11 @@ import OwlMojoBindingsGenerated
 
 @MainActor
 final class OwlCursorPresenter {
+    private static let hiddenCursor = NSCursor(
+        image: NSImage(size: NSSize(width: 1, height: 1)),
+        hotSpot: .zero
+    )
+
     private(set) var currentCursor = OwlFreshCursorInfo(type: OwlFreshCursorType.pointer.rawValue)
 
     func apply(_ cursor: OwlFreshCursorInfo, in host: NSView, suppressBrowserCursor: Bool) {
@@ -41,7 +46,9 @@ final class OwlCursorPresenter {
             return .resizeLeftRight
         case .northResize, .southResize, .northSouthResize, .rowResize, .northSouthNoResize:
             return .resizeUpDown
-        case .none, .notAllowed, .noDrop, .dndNone:
+        case .none:
+            return Self.hiddenCursor
+        case .notAllowed, .noDrop, .dndNone:
             return .operationNotAllowed
         default:
             return .arrow
@@ -64,7 +71,9 @@ final class OwlCursorPresenter {
             return "resizeLeftRight"
         case .northResize, .southResize, .northSouthResize, .rowResize, .northSouthNoResize:
             return "resizeUpDown"
-        case .none, .notAllowed, .noDrop, .dndNone:
+        case .none:
+            return "hidden"
+        case .notAllowed, .noDrop, .dndNone:
             return "operationNotAllowed"
         default:
             return "arrow"

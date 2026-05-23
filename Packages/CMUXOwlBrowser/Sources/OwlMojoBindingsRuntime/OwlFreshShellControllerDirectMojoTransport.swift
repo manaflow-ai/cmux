@@ -368,6 +368,13 @@ enum MojoBaseValueWireCodec {
 
     private static func readStringPointerArray(from data: Data, pointerOffset: Int) throws -> [String] {
         let array = try readArrayHeader(from: data, pointerOffset: pointerOffset)
+        guard array.byteCount >= 8 + array.count * 8 else {
+            throw MojoWireDataError.outOfBounds(
+                offset: array.arrayOffset,
+                length: 8 + array.count * 8,
+                count: array.arrayOffset + array.byteCount
+            )
+        }
         try requireRange(data, offset: array.elementsOffset, length: array.count * 8)
         var result: [String] = []
         result.reserveCapacity(array.count)
@@ -379,6 +386,13 @@ enum MojoBaseValueWireCodec {
 
     private static func readValueArray(from data: Data, pointerOffset: Int) throws -> [MojoBaseValue] {
         let array = try readArrayHeader(from: data, pointerOffset: pointerOffset)
+        guard array.byteCount >= 8 + array.count * 16 else {
+            throw MojoWireDataError.outOfBounds(
+                offset: array.arrayOffset,
+                length: 8 + array.count * 16,
+                count: array.arrayOffset + array.byteCount
+            )
+        }
         try requireRange(data, offset: array.elementsOffset, length: array.count * 16)
         var result: [MojoBaseValue] = []
         result.reserveCapacity(array.count)
@@ -388,7 +402,10 @@ enum MojoBaseValueWireCodec {
         return result
     }
 
-    private static func readArrayHeader(from data: Data, pointerOffset: Int) throws -> (elementsOffset: Int, count: Int) {
+    private static func readArrayHeader(
+        from data: Data,
+        pointerOffset: Int
+    ) throws -> (arrayOffset: Int, byteCount: Int, elementsOffset: Int, count: Int) {
         let arrayOffset = try data.mojoRelativeOffset(pointerOffset: pointerOffset)
         let byteCount = Int(try data.mojoUInt32(at: arrayOffset))
         let count = Int(try data.mojoUInt32(at: arrayOffset + 4))
@@ -396,7 +413,7 @@ enum MojoBaseValueWireCodec {
             throw MojoWireDataError.outOfBounds(offset: arrayOffset, length: byteCount, count: data.count)
         }
         try requireRange(data, offset: arrayOffset, length: byteCount)
-        return (elementsOffset: arrayOffset + 8, count: count)
+        return (arrayOffset: arrayOffset, byteCount: byteCount, elementsOffset: arrayOffset + 8, count: count)
     }
 
     private static func requireRange(_ data: Data, offset: Int, length: Int) throws {

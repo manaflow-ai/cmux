@@ -6,6 +6,13 @@ import SwiftUI
 
 private let owlWebContentFallbackColor = NSColor.white.cgColor
 
+private struct OwlNavigationPlaceholderImage {
+    let cgImage: CGImage
+    let contentsScale: CGFloat
+    let bounds: CGRect
+    let generation: UInt64
+}
+
 struct OwlWebContentsHostRepresentable: NSViewRepresentable {
     let tabID: BrowserTab.ID
     let engine: BrowserEngine
@@ -49,8 +56,11 @@ public final class OwlWebContentsHostView: NSView {
     private let hostOracleBandView: ResizeVisualOracleBandView?
     private var navigationPlaceholderLayer: CALayer?
     private var lastAppliedSnapshotWasLoading = false
+    private var lastAppliedRenderGeneration: UInt64 = 0
     private var navigationPlaceholderRemovalScheduled = false
     private var navigationPlaceholderAwaitingLoadingStart = false
+    private var navigationPlaceholderFallbackClearGeneration: UInt64?
+    private var stagedNavigationPlaceholderImage: OwlNavigationPlaceholderImage?
     private var pendingWebContentFocusRequestID: UUID?
     private var markedText = ""
     private var markedTextRange = NSRange(location: NSNotFound, length: 0)
@@ -214,7 +224,9 @@ public final class OwlWebContentsHostView: NSView {
         }
         flushHostedLayers()
         completeNavigationPlaceholderIfNeeded(snapshot)
+        discardStagedNavigationPlaceholderIfStale(after: snapshot)
         lastAppliedSnapshotWasLoading = snapshot.isLoading
+        lastAppliedRenderGeneration = snapshot.generation
     }
 
     public func prepareForBrowserNavigationPlaceholder() {
@@ -245,6 +257,7 @@ public final class OwlWebContentsHostView: NSView {
     }
 
     public override func mouseUp(with event: NSEvent) {
+        stageNavigationPlaceholderForPotentialPageNavigation(reason: "mouseUp")
         sendMouse(event, kind: .up, button: 0, clickCount: UInt32(max(event.clickCount, 1)))
     }
 
@@ -299,6 +312,9 @@ public final class OwlWebContentsHostView: NSView {
         let keyEvent = textInputOutcome.suppressesKeyText
             ? mappedKeyEvent.withoutTextPayload()
             : mappedKeyEvent
+        if keyEvent.canActivatePageNavigation {
+            stageNavigationPlaceholderForPotentialPageNavigation(reason: "keyDown")
+        }
         OwlInputEventAuditLogger.recordKey(name: "key.down", event: event, host: self, key: keyEvent)
         webContentsController.sendKey(keyEvent)
     }
@@ -473,24 +489,24 @@ public final class OwlWebContentsHostView: NSView {
             return
         }
         navigationPlaceholderAwaitingLoadingStart = false
-        installNavigationPlaceholderIfPossible(reason: "loading")
+        navigationPlaceholderFallbackClearGeneration = nil
+        installNavigationPlaceholderIfPossible(reason: "loading", snapshotGeneration: snapshot.generation)
     }
 
-    private func installNavigationPlaceholderIfPossible(reason: String) {
+    private func installNavigationPlaceholderIfPossible(reason: String, snapshotGeneration: UInt64? = nil) {
         guard navigationPlaceholderLayer == nil,
               bounds.width >= 1,
               bounds.height >= 1,
-              let image = captureCurrentSurfaceImage(),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+              let image = navigationPlaceholderImage(reason: reason, snapshotGeneration: snapshotGeneration) else {
             return
         }
 
         let placeholder = CALayer()
         placeholder.name = "OwlNavigationPlaceholder"
-        placeholder.contents = cgImage
+        placeholder.contents = image.cgImage
         placeholder.contentsGravity = .resize
-        placeholder.contentsScale = currentBackingScale
-        placeholder.frame = bounds
+        placeholder.contentsScale = image.contentsScale
+        placeholder.frame = image.bounds
         placeholder.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         placeholder.zPosition = 10_000
         placeholder.masksToBounds = true
@@ -503,13 +519,46 @@ public final class OwlWebContentsHostView: NSView {
         navigationPlaceholderLayer = placeholder
         navigationPlaceholderRemovalScheduled = false
         navigationPlaceholderAwaitingLoadingStart = reason == "command"
+        navigationPlaceholderFallbackClearGeneration = reason == "command"
+            ? lastAppliedRenderGeneration + 2
+            : nil
         OwlGeometryDebugLogger.record("webHost.navigationPlaceholder.install", fields: [
             "reason": reason,
             "frame": OwlGeometryDebugLogger.rect(bounds)
         ])
     }
 
-    private func captureCurrentSurfaceImage() -> NSImage? {
+    private func stageNavigationPlaceholderForPotentialPageNavigation(reason: String) {
+        guard navigationPlaceholderLayer == nil,
+              let image = captureCurrentSurfaceImage() else {
+            return
+        }
+        stagedNavigationPlaceholderImage = image
+        OwlGeometryDebugLogger.record("webHost.navigationPlaceholder.stage", fields: [
+            "reason": reason,
+            "generation": "\(image.generation)",
+            "frame": OwlGeometryDebugLogger.rect(image.bounds)
+        ])
+    }
+
+    private func navigationPlaceholderImage(
+        reason: String,
+        snapshotGeneration: UInt64?
+    ) -> OwlNavigationPlaceholderImage? {
+        if reason == "loading",
+           let snapshotGeneration,
+           let stagedImage = stagedNavigationPlaceholderImage {
+            stagedNavigationPlaceholderImage = nil
+            if snapshotGeneration <= stagedImage.generation + 3 {
+                return stagedImage
+            }
+        } else if reason == "command" {
+            stagedNavigationPlaceholderImage = nil
+        }
+        return captureCurrentSurfaceImage()
+    }
+
+    private func captureCurrentSurfaceImage() -> OwlNavigationPlaceholderImage? {
         guard let observedEngine, let observedTabID else {
             return nil
         }
@@ -520,7 +569,16 @@ public final class OwlWebContentsHostView: NSView {
         }
         do {
             _ = try observedEngine.captureSurfacePNG(tabID: observedTabID, to: url)
-            return NSImage(contentsOf: url)
+            guard let image = NSImage(contentsOf: url),
+                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                return nil
+            }
+            return OwlNavigationPlaceholderImage(
+                cgImage: cgImage,
+                contentsScale: currentBackingScale,
+                bounds: bounds,
+                generation: lastAppliedRenderGeneration
+            )
         } catch {
             OwlGeometryDebugLogger.record("webHost.navigationPlaceholder.captureFailed", fields: [
                 "error": String(describing: error)
@@ -529,14 +587,30 @@ public final class OwlWebContentsHostView: NSView {
         }
     }
 
+    private func discardStagedNavigationPlaceholderIfStale(after snapshot: BrowserEngineRenderSnapshot) {
+        guard let stagedImage = stagedNavigationPlaceholderImage,
+              !snapshot.isLoading,
+              snapshot.generation > stagedImage.generation else {
+            return
+        }
+        stagedNavigationPlaceholderImage = nil
+    }
+
     private func completeNavigationPlaceholderIfNeeded(_ snapshot: BrowserEngineRenderSnapshot) {
         if navigationPlaceholderLayer != nil, snapshot.errorMessage != nil {
             clearNavigationPlaceholder()
             return
         }
+        if navigationPlaceholderAwaitingLoadingStart {
+            guard let fallbackGeneration = navigationPlaceholderFallbackClearGeneration,
+                  snapshot.generation >= fallbackGeneration else {
+                return
+            }
+            navigationPlaceholderAwaitingLoadingStart = false
+            navigationPlaceholderFallbackClearGeneration = nil
+        }
         guard navigationPlaceholderLayer != nil,
               !navigationPlaceholderRemovalScheduled,
-              !navigationPlaceholderAwaitingLoadingStart,
               !snapshot.isLoading,
               snapshot.canRender else {
             return
@@ -563,6 +637,8 @@ public final class OwlWebContentsHostView: NSView {
         navigationPlaceholderLayer = nil
         navigationPlaceholderRemovalScheduled = false
         navigationPlaceholderAwaitingLoadingStart = false
+        navigationPlaceholderFallbackClearGeneration = nil
+        stagedNavigationPlaceholderImage = nil
         OwlGeometryDebugLogger.record("webHost.navigationPlaceholder.clear", fields: [
             "frame": OwlGeometryDebugLogger.rect(bounds)
         ])
@@ -887,6 +963,8 @@ public final class OwlWebContentsHostView: NSView {
         surfacePresenter.reset()
         clearNavigationPlaceholder()
         lastAppliedSnapshotWasLoading = false
+        lastAppliedRenderGeneration = 0
+        stagedNavigationPlaceholderImage = nil
     }
 
     private func observeRenderSnapshots(tabID: BrowserTab.ID, engine: BrowserEngine) {
@@ -1027,6 +1105,10 @@ private struct TextInputKeyDownOutcome {
 }
 
 private extension OwlFreshKeyEvent {
+    var canActivatePageNavigation: Bool {
+        keyDown && !isRepeat && keyCode == 13
+    }
+
     func withoutTextPayload() -> OwlFreshKeyEvent {
         OwlFreshKeyEvent(
             keyDown: keyDown,

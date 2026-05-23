@@ -1,7 +1,10 @@
 import AppKit
 import CMUXOwlBrowser
 import Foundation
+import os
 import WebKit
+
+private let browserEngineAdapterLogger = Logger(subsystem: "ai.manaflow.cmux", category: "BrowserEngineAdapter")
 
 enum CmuxBrowserEngineKind: String, Equatable, Sendable {
     case webKit = "webkit"
@@ -32,6 +35,7 @@ enum BrowserEngineCapability: String, CaseIterable, Equatable, Hashable, Sendabl
     case tracing
     case screencast
     case touchInput
+    case initScripts
 }
 
 struct BrowserEngineCapabilities: Equatable, Sendable {
@@ -85,7 +89,10 @@ struct BrowserEngineUnsupportedCapabilityError: LocalizedError, Equatable {
     let capability: BrowserEngineCapability
 
     var errorDescription: String? {
-        "Browser engine \(engineKind.rawValue) does not support \(capability.rawValue)"
+        String(
+            localized: "browser.engine.unsupportedCapability",
+            defaultValue: "This browser engine does not support that operation."
+        )
     }
 }
 
@@ -132,7 +139,8 @@ extension BrowserEngineCapabilities {
         .passkeys,
         .profiles,
         .findInPage,
-        .frameScopedJavaScript
+        .frameScopedJavaScript,
+        .initScripts
     ])
 
     static let owlChromium = BrowserEngineCapabilities(supported: [
@@ -223,7 +231,9 @@ final class BrowserWebKitEngineAdapter: BrowserEngineAdapter {
         let config = WKSnapshotConfiguration()
         webView.takeSnapshot(with: config) { image, error in
             if let error {
-                NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
+                browserEngineAdapterLogger.error(
+                    "BrowserPanel snapshot error: \(error.localizedDescription, privacy: .public)"
+                )
                 completion(nil)
                 return
             }
@@ -371,7 +381,7 @@ final class BrowserOwlChromiumEngineAdapter: BrowserEngineAdapter {
             _ = try engine.captureSurfacePNG(tabID: tabID, to: url)
             completion(NSImage(contentsOf: url))
         } catch {
-            NSLog("BrowserPanel Owl snapshot error: %@", String(describing: error))
+            browserEngineAdapterLogger.error("BrowserPanel Owl snapshot error: \(String(describing: error), privacy: .public)")
             completion(nil)
         }
     }
@@ -428,9 +438,10 @@ enum BrowserEngineAdapterFactory {
                 configuration: configuration
             )
         } catch {
+            browserEngineAdapterLogger.error("Owl runtime start failed: \(String(describing: error), privacy: .public)")
             return BrowserWebKitEngineAdapter(
                 webView: webView,
-                fallbackReason: "owl_runtime_start_failed: \(String(describing: error))"
+                fallbackReason: "owl_runtime_start_failed"
             )
         }
     }

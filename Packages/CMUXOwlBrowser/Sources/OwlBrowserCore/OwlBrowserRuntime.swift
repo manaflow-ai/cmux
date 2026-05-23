@@ -76,11 +76,11 @@ public extension OwlBrowserRuntime {
 
     private func writeCaptureResult(_ result: OwlFreshCaptureResult, to url: URL) throws -> OwlBrowserSurfaceCapture {
         guard result.error.isEmpty else {
-            throw OwlBrowserError.capture("CaptureSurface failed: \(result.error)")
+            throw OwlBrowserError.capture("Unable to capture browser surface")
         }
         let data = Data(result.png)
         guard !data.isEmpty else {
-            throw OwlBrowserError.capture("CaptureSurface returned empty PNG data")
+            throw OwlBrowserError.capture("Unable to capture browser surface")
         }
         try data.write(to: url)
         return OwlBrowserSurfaceCapture(path: url.path, mode: result.captureMode, width: result.width, height: result.height)

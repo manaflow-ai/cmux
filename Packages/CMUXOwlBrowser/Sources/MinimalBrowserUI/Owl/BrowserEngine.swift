@@ -89,7 +89,7 @@ public final class BrowserEngine {
     }
 
     private let configuration: BrowserEngineConfiguration
-    private let runtimeFactory: BrowserEngineRuntimeFactory?
+    private let runtimeFactory: BrowserEngineRuntimeFactory
     private var runtime: (any OwlBrowserRuntime)?
     private var initialized = false
     private var sessions: [BrowserTab.ID: BrowserEngineSession] = [:]
@@ -102,7 +102,7 @@ public final class BrowserEngine {
 
     public init(
         configuration: BrowserEngineConfiguration = .fromEnvironment(),
-        runtimeFactory: BrowserEngineRuntimeFactory? = nil,
+        runtimeFactory: @escaping BrowserEngineRuntimeFactory,
         surfaceExpectationTimeout: TimeInterval
     ) {
         self.configuration = configuration
@@ -112,7 +112,7 @@ public final class BrowserEngine {
 
     public convenience init(
         configuration: BrowserEngineConfiguration = .fromEnvironment(),
-        runtimeFactory: BrowserEngineRuntimeFactory? = nil
+        runtimeFactory: @escaping BrowserEngineRuntimeFactory
     ) {
         self.init(
             configuration: configuration,
@@ -130,7 +130,8 @@ public final class BrowserEngine {
         do {
             try ensureRuntimeStarted()
         } catch {
-            statusMessage = String(describing: error)
+            browserEngineLogger.error("Failed to start runtime: \(String(describing: error), privacy: .public)")
+            statusMessage = userVisibleErrorMessage(for: error)
             renderGeneration += 1
             throw error
         }
@@ -275,7 +276,10 @@ public final class BrowserEngine {
                 if isPeerClosed(error) {
                     recordPeerClosed(error: error, for: previousTabID)
                 } else {
-                    previous.lastError = String(describing: error)
+                    browserEngineLogger.error(
+                        "Failed to unfocus previous tab=\(previousTabID.uuidString, privacy: .public): \(String(describing: error), privacy: .public)"
+                    )
+                    previous.lastError = userVisibleErrorMessage(for: error)
                 }
             }
         }
@@ -668,9 +672,6 @@ public final class BrowserEngine {
         guard FileManager.default.fileExists(atPath: configuration.mojoRuntimePath) else {
             throw BrowserEngineError.missingRuntime("Mojo runtime dylib does not exist: \(configuration.mojoRuntimePath)")
         }
-        guard let runtimeFactory else {
-            throw BrowserEngineError.missingRuntime("No OWL runtime factory was configured.")
-        }
         let runtime = try runtimeFactory(configuration)
         try runtime.initialize()
         self.runtime = runtime
@@ -970,7 +971,10 @@ public final class BrowserEngine {
                     "Surface expectation timed out for \(expectation.description, privacy: .public), and latest surface tree fetch failed: \(String(describing: error), privacy: .public)"
                 )
             } else {
-                session.lastError = String(describing: error)
+                browserEngineLogger.error(
+                    "Failed to refresh pending surface tree: \(String(describing: error), privacy: .public)"
+                )
+                session.lastError = userVisibleErrorMessage(for: error)
             }
             return !timedOut
         }
@@ -1108,13 +1112,16 @@ public final class BrowserEngine {
             discardSession(session)
         }
         if clearsLoading {
-            publishErrorTabUpdate(for: tabID, session: nil)
+            publishErrorTabUpdate(for: tabID, session: session)
         }
         advanceRenderGenerationAndPublish(tabIDs: [tabID])
     }
 
     private func record(error: Error, for tabID: BrowserTab.ID, clearsLoading: Bool = false) {
-        let message = String(describing: error)
+        browserEngineLogger.error(
+            "Browser command failed for tab=\(tabID.uuidString, privacy: .public): \(String(describing: error), privacy: .public)"
+        )
+        let message = userVisibleErrorMessage(for: error)
         let session = sessions[tabID]
         session?.lastError = message
         statusMessage = message
@@ -1133,6 +1140,34 @@ public final class BrowserEngine {
             "page.status.disconnected",
             defaultValue: "Browser engine disconnected"
         )
+    }
+
+    private func userVisibleErrorMessage(for error: Error) -> String {
+        if isPeerClosed(error) {
+            return disconnectedMessage()
+        }
+        switch error {
+        case BrowserEngineError.missingRuntime(_):
+            return L10n.string(
+                "page.error.runtimeUnavailable",
+                defaultValue: "Browser engine unavailable"
+            )
+        case BrowserEngineError.commandRejected(_):
+            return L10n.string(
+                "page.error.commandFailed",
+                defaultValue: "Browser command failed"
+            )
+        case is OwlBrowserError:
+            return L10n.string(
+                "page.error.runtimeFailed",
+                defaultValue: "Browser engine failed"
+            )
+        default:
+            return L10n.string(
+                "page.error.commandFailed",
+                defaultValue: "Browser command failed"
+            )
+        }
     }
 
     private func advanceRenderGenerationAndPublish(tabIDs: some Sequence<BrowserTab.ID>) {

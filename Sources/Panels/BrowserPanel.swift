@@ -3533,7 +3533,32 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
         guard isLoading else { return }
-        isLoading = false
+        let genAtEnd = loadingGeneration
+        let startedAt = loadingStartedAt ?? Date()
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let remaining = max(0, minLoadingIndicatorDuration - elapsed)
+
+        loadingEndWorkItem?.cancel()
+        loadingEndWorkItem = nil
+
+        let finishLoading: @MainActor () -> Void = { [weak self] in
+            guard let self else { return }
+            guard self.loadingGeneration == genAtEnd else { return }
+            guard self.browserEngine?.isLoading != true else { return }
+            self.isLoading = false
+            self.scheduleHiddenWebViewDiscardIfNeeded(reason: "browserEngine.load.finished")
+        }
+        if remaining <= 0.0001 {
+            finishLoading()
+        } else {
+            let work = DispatchWorkItem {
+                Task { @MainActor in
+                    finishLoading()
+                }
+            }
+            loadingEndWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
+        }
         if let currentURL {
             historyStore.recordVisit(url: currentURL, title: pageTitle)
         }
@@ -3575,6 +3600,9 @@ final class BrowserPanel: Panel, ObservableObject {
         operation: String
     ) -> Bool {
         guard browserEngineDescriptor.capabilities.supports(capability) else {
+            if capability == .devTools {
+                clearUnsupportedDeveloperToolsState()
+            }
 #if DEBUG
             cmuxDebugLog(
                 "browser.engine.unsupported panel=\(id.uuidString.prefix(5)) " +
@@ -3585,6 +3613,18 @@ final class BrowserPanel: Panel, ObservableObject {
             return false
         }
         return true
+    }
+
+    private func clearUnsupportedDeveloperToolsState() {
+        developerToolsTransitionSettleWorkItem?.cancel()
+        developerToolsTransitionSettleWorkItem = nil
+        pendingDeveloperToolsTransitionTargetVisible = nil
+        developerToolsTransitionTargetVisible = nil
+        developerToolsDetachedOpenGraceDeadline = nil
+        developerToolsLastKnownVisibleAt = nil
+        forceDeveloperToolsRefreshOnNextAttach = false
+        cancelDeveloperToolsRestoreRetry()
+        setPreferredDeveloperToolsVisible(false)
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -4557,6 +4597,12 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if usesOwlChromiumBrowserEngine {
+            if browserEngine?.isLoading != true {
+                let urlString = browserEngine?.currentURL?.absoluteString ?? currentURL?.absoluteString
+                if urlString == nil || urlString == "about:blank" {
+                    return
+                }
+            }
             browserEngine?.focus()
             noteWebViewFocused()
             return
@@ -5702,11 +5748,11 @@ extension BrowserPanel {
 
     /// Reload the current page
     func reload() {
-        if usesOwlChromiumBrowserEngine {
-            browserEngine?.reload()
+        if restoreDiscardedWebViewIfNeeded(reason: "reload") {
             return
         }
-        if restoreDiscardedWebViewIfNeeded(reason: "reload") {
+        if usesOwlChromiumBrowserEngine {
+            browserEngine?.reload()
             return
         }
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent

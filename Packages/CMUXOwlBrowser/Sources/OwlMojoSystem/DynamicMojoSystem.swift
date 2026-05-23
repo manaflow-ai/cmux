@@ -692,6 +692,22 @@ private final class MojoTrapWaiter {
     }
 
     func wait(timeout: TimeInterval) -> Bool {
-        semaphore.wait(timeout: .now() + timeout) == .success
+        if Thread.isMainThread {
+            let deadline = Date().addingTimeInterval(timeout)
+            while !hasResult {
+                guard Date() < deadline else {
+                    return false
+                }
+                RunLoop.current.run(mode: .default, before: min(deadline, Date().addingTimeInterval(0.005)))
+            }
+            return true
+        }
+        return semaphore.wait(timeout: .now() + timeout) == .success
+    }
+
+    private var hasResult: Bool {
+        lock.withLock {
+            result != nil
+        }
     }
 }

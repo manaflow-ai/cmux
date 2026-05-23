@@ -207,6 +207,8 @@ final class MachPortRendezvousServer: @unchecked Sendable {
         let sendResult = sendReply(replyPort: header.pointee.msgh_remote_port, port: port)
         if sendResult == KERN_SUCCESS {
             shouldDestroyRequest = false
+        } else {
+            port.destroy()
         }
         return true
     }

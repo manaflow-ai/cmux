@@ -438,8 +438,7 @@ final class OwlSurfaceTreePresenter {
                     host: hostView,
                     extraFields: [
                         "accepted": true,
-                        "selectedPathCount": panel.urls.count,
-                        "selectedLastPathComponents": panel.urls.map(\.lastPathComponent)
+                        "selectedPathCount": panel.urls.count
                     ]
                 )
                 actions.selectFilePickerFiles(panel.urls.map(\.path))

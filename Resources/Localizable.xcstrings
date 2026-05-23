@@ -7426,6 +7426,23 @@
         }
       }
     },
+    "browser.engine.unsupportedCapability": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This browser engine does not support that operation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このブラウザエンジンはその操作に対応していません。"
+          }
+        }
+      }
+    },
     "browser.profile.buttonHelp": {
       "extractionState": "manual",
       "localizations": {

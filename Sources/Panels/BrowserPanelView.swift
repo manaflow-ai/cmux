@@ -4936,8 +4936,10 @@ struct BrowserEngineNativeViewRepresentable: NSViewRepresentable {
             nsView.detachHostedView()
         }
 
-        let scale = nsView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
-        panel.updateBrowserEngineSurfaceGeometry(size: nsView.bounds.size, scale: scale)
+        if shouldAttachNativeView {
+            let scale = nsView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+            panel.updateBrowserEngineSurfaceGeometry(size: nsView.bounds.size, scale: scale)
+        }
 
         if shouldAttachNativeView, shouldFocusWebView {
             _ = panel.requestExplicitWebViewFocus()
