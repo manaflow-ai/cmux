@@ -3734,8 +3734,7 @@ class GhosttyApp {
                 selectionForeground: baseline.selectionForeground,
                 source: source,
                 scope: scope,
-                forceNotify: forceNotify,
-                resolvedColorScheme: preferredColorScheme
+                forceNotify: forceNotify
             )
             return
         }
@@ -3802,8 +3801,7 @@ class GhosttyApp {
             ),
             source: "\(source).resolvedGhosttyConfig",
             scope: scope,
-            forceNotify: forceNotify,
-            resolvedColorScheme: preferredColorScheme
+            forceNotify: forceNotify
         )
     }
 
