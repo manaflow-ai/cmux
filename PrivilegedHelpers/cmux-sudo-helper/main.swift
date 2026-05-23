@@ -399,7 +399,7 @@ enum CMUXSudoHelper {
 
     private static func allowedRootExecutablePath(_ path: String) throws -> String {
         let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-        let executableName = URL(fileURLWithPath: resolved).lastPathComponent
+        let executableName = URL(fileURLWithPath: resolved).lastPathComponent.lowercased()
         guard !deniedRootExecutableNames.contains(executableName) else {
             throw HelperError(
                 code: "command_rejected",
