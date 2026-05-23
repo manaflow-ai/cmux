@@ -232,7 +232,7 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
 
     private func scopedState(for scopeKey: String) -> ScopedState {
         let scopedInitialState = scopeKey == Self.legacyScopeKey ? initialState : nil
-        statesByScope[scopeKey] ?? ScopedState(
+        return statesByScope[scopeKey] ?? ScopedState(
             state: scopedInitialState,
             didStartLoad: scopedInitialState != nil,
             mutationGeneration: 0
