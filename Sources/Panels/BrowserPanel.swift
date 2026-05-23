@@ -2503,7 +2503,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         if file.mimeType == "text/html" {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",
-                "script-src 'self' 'unsafe-inline'",
+                "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
                 "style-src 'unsafe-inline'",
                 "img-src 'self' data:",
                 "connect-src 'self'",

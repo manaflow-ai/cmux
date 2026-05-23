@@ -299,8 +299,17 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         <body>
         <script type="module">
           import { marker } from "./assets/mod.mjs";
-          document.body.dataset.loaded = marker;
-          window.webkit.messageHandlers.moduleLoaded.postMessage(marker);
+          WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
+            .then(() => {
+              const result = `${marker}:wasm-ok`;
+              document.body.dataset.loaded = result;
+              window.webkit.messageHandlers.moduleLoaded.postMessage(result);
+            })
+            .catch((error) => {
+              const result = `wasm-error:${error.message}`;
+              document.body.dataset.loaded = result;
+              window.webkit.messageHandlers.moduleLoaded.postMessage(result);
+            });
         </script>
         </body>
         </html>
@@ -342,12 +351,12 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         wait(for: [loaded], timeout: 3)
         XCTAssertNil(delegate.error)
         wait(for: [moduleLoaded], timeout: 3)
-        XCTAssertEqual(moduleHandler.body as? String, "module-ok")
+        XCTAssertEqual(moduleHandler.body as? String, "module-ok:wasm-ok")
 
         let evaluated = expectation(description: "module evaluated")
         webView.evaluateJavaScript("document.body.dataset.loaded || ''") { value, error in
             XCTAssertNil(error)
-            XCTAssertEqual(value as? String, "module-ok")
+            XCTAssertEqual(value as? String, "module-ok:wasm-ok")
             evaluated.fulfill()
         }
         wait(for: [evaluated], timeout: 3)
