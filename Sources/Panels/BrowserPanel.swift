@@ -3477,11 +3477,37 @@ final class BrowserPanel: Panel, ObservableObject {
         BrowserWebExtensionSupport.register(panel: self)
     }
 
+    func loadBrowserPage(_ url: URL) {
+        let configuration = WKWebViewConfiguration()
+        Self.configureWebViewConfiguration(
+            configuration,
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        )
+        loadPageAfterReplacingWebView(
+            url,
+            webViewConfiguration: configuration,
+            reason: "browserPage"
+        )
+    }
+
     func loadWebExtensionPage(_ url: URL, webViewConfiguration configuration: WKWebViewConfiguration) {
+        loadPageAfterReplacingWebView(
+            url,
+            webViewConfiguration: configuration,
+            reason: "webExtensionPage"
+        )
+    }
+
+    private func loadPageAfterReplacingWebView(
+        _ url: URL,
+        webViewConfiguration configuration: WKWebViewConfiguration,
+        reason: String
+    ) {
         let previousWebView = webView
         let desiredZoom = max(minPageZoom, min(maxPageZoom, previousWebView.pageZoom))
 
-        invalidateSearchFocusRequests(reason: "webExtensionPage")
+        invalidateSearchFocusRequests(reason: reason)
         searchState = nil
         loadingEndWorkItem?.cancel()
         loadingEndWorkItem = nil
@@ -3489,11 +3515,11 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask = nil
         faviconRefreshGeneration &+= 1
         loadingGeneration &+= 1
-        cancelPendingInteractiveBrowserPrompts(reason: "webExtensionPage")
+        cancelPendingInteractiveBrowserPrompts(reason: reason)
 
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
-        closeBackgroundPreloadHost(reason: "webExtensionPage")
+        closeBackgroundPreloadHost(reason: reason)
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
         previousWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false

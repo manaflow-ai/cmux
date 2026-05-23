@@ -73,6 +73,47 @@ private struct BrowserWebExtensionRuntimeKey: Hashable {
             return "store.transient.\(String(identity, radix: 16))"
         }
     }
+
+    var isTransient: Bool {
+        if case .transient = dataStoreScope {
+            return true
+        }
+        return false
+    }
+
+    var controllerConfigurationIdentifier: UUID {
+        switch dataStoreScope {
+        case .defaultStore:
+            return profileID
+        case .persistent(let identifier):
+            guard identifier != profileID else { return profileID }
+            return Self.combinedControllerIdentifier(profileID: profileID, dataStoreID: identifier)
+        case .transient:
+            return profileID
+        }
+    }
+
+    private static func combinedControllerIdentifier(profileID: UUID, dataStoreID: UUID) -> UUID {
+        var bytes = profileID.uuid
+        let storeBytes = dataStoreID.uuid
+        bytes.0 ^= storeBytes.0 ^ 0x63
+        bytes.1 ^= storeBytes.1 ^ 0x6d
+        bytes.2 ^= storeBytes.2 ^ 0x75
+        bytes.3 ^= storeBytes.3 ^ 0x78
+        bytes.4 ^= storeBytes.4 ^ 0x65
+        bytes.5 ^= storeBytes.5 ^ 0x78
+        bytes.6 ^= storeBytes.6 ^ 0x74
+        bytes.7 ^= storeBytes.7 ^ 0x6e
+        bytes.8 ^= storeBytes.8 ^ 0x73
+        bytes.9 ^= storeBytes.9 ^ 0x70
+        bytes.10 ^= storeBytes.10 ^ 0x72
+        bytes.11 ^= storeBytes.11 ^ 0x6f
+        bytes.12 ^= storeBytes.12 ^ 0x66
+        bytes.13 ^= storeBytes.13 ^ 0x69
+        bytes.14 ^= storeBytes.14 ^ 0x6c
+        bytes.15 ^= storeBytes.15 ^ 0x65
+        return UUID(uuid: bytes)
+    }
 }
 
 func browserWebExtensionAuxiliaryWindowContentRect(
@@ -1656,7 +1697,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             defaultWebsiteDataStore: defaultWebsiteDataStore
         )
 
-        let configuration = WKWebExtensionController.Configuration.default()
+        let configuration = runtimeKey.isTransient
+            ? WKWebExtensionController.Configuration.nonPersistent()
+            : WKWebExtensionController.Configuration(identifier: runtimeKey.controllerConfigurationIdentifier)
         configuration.webViewConfiguration = baseConfiguration
         configuration.defaultWebsiteDataStore = defaultWebsiteDataStore
 
@@ -1750,6 +1793,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     ) -> BrowserWebExtensionAuxiliaryWebViewConfiguration? {
         let sourceRuntimeKey = runtimeKey(for: context)
             ?? defaultRuntimeKey(profileID: BrowserProfileStore.shared.builtInDefaultProfileID)
+        let sourceDataStore = websiteDataStoresByRuntimeKey[sourceRuntimeKey]
+            ?? BrowserProfileStore.shared.websiteDataStore(for: sourceRuntimeKey.profileID)
         if !shouldBePrivate,
            let initialURL,
            let targetContext = context.webExtensionController?.extensionContext(for: initialURL),
@@ -1778,15 +1823,14 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 websiteDataStore: targetDataStore
             )
         } else {
-            let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
-            let targetDataStore = shouldBePrivate ? WKWebsiteDataStore.nonPersistent() : .default()
+            let targetDataStore = shouldBePrivate ? WKWebsiteDataStore.nonPersistent() : sourceDataStore
             BrowserPanel.configureWebViewConfiguration(
                 configuration,
-                profileID: defaultProfileID,
+                profileID: sourceRuntimeKey.profileID,
                 websiteDataStore: targetDataStore
             )
             targetRuntimeKey = runtimeKey(
-                profileID: defaultProfileID,
+                profileID: sourceRuntimeKey.profileID,
                 websiteDataStore: targetDataStore
             )
         }
@@ -3371,7 +3415,17 @@ private final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     }
 
     func loadURL(_ url: URL, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        panel?.navigate(to: url)
+        if let panel,
+           let extensionConfiguration = context.webViewConfiguration,
+           context.webExtensionController?.extensionContext(for: url) === context {
+            panel.loadWebExtensionPage(url, webViewConfiguration: extensionConfiguration)
+        } else if let panel,
+                  let currentURL = panel.webView.url ?? panel.currentURL,
+                  context.webExtensionController?.extensionContext(for: currentURL) === context {
+            panel.loadBrowserPage(url)
+        } else {
+            panel?.navigate(to: url)
+        }
         completionHandler(nil)
     }
 
