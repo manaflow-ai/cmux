@@ -1497,7 +1497,7 @@ extension SessionWorkspaceLayoutSnapshot: Codable {
         var nodes: [FlatNode]
     }
 
-    public init(from decoder: Decoder) throws {
+    init(from decoder: Decoder) throws {
         // Detect the wire format by probing for `version` (new flat layout)
         // versus `type` (legacy nested layout). Either container shape is
         // acceptable, so we use a permissive keyed container that knows about
@@ -1534,7 +1534,7 @@ extension SessionWorkspaceLayoutSnapshot: Codable {
         }
     }
 
-    public func encode(to encoder: Encoder) throws {
+    func encode(to encoder: Encoder) throws {
         let wire = SessionWorkspaceLayoutSnapshot.flatten(self)
         try wire.encode(to: encoder)
     }
