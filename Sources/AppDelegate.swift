@@ -11879,6 +11879,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if let target = browserFocusModeEntryTargetForShortcutEvent(event) {
+            let decision = target.panel.handleBrowserFocusModeKeyEvent(event, reason: "shortcutMonitor.browserFocusModeEntry")
+            switch decision {
+            case .inactive:
+                break
+            case .forwardToWebView:
+#if DEBUG
+                cmuxDebugLog("browser.focusMode.shortcutMonitor.entryForward \(debugShortcutRouteSnapshot(event: event))")
+#endif
+                target.webView.forwardBrowserFocusModeShortcutKeyDown(event)
+                return true
+            case .consume:
+#if DEBUG
+                cmuxDebugLog("browser.focusMode.shortcutMonitor.entryConsume \(debugShortcutRouteSnapshot(event: event))")
+#endif
+                return true
+            }
+        }
+
         if let mode = RightSidebarMode.modeShortcut(for: event),
            let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
            shouldRouteRightSidebarModeShortcut(in: rightSidebarWindow) {
@@ -14492,6 +14511,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
         return panel
+    }
+
+    private func browserFocusModeEntryTargetForShortcutEvent(_ event: NSEvent) -> (panel: BrowserPanel, webView: CmuxWebView)? {
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard normalizedFlags.isEmpty, event.keyCode == 53 else { return nil }
+        guard let panel = focusedBrowserPanelForShortcutEvent(event),
+              !panel.isBrowserFocusModeActive,
+              panel.canEnterBrowserFocusMode,
+              let panelWebView = panel.webView as? CmuxWebView else {
+            return nil
+        }
+        let window = resolvedShortcutEventWindow(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let window,
+              let firstResponder = window.firstResponder,
+              let firstResponderWebView = Self.cmuxOwningWebView(for: firstResponder, in: window, event: nil),
+              firstResponderWebView === panelWebView else {
+            return nil
+        }
+        return (panel: panel, webView: panelWebView)
     }
 
     private func focusedBrowserPanelForShortcutEvent(_ event: NSEvent) -> BrowserPanel? {

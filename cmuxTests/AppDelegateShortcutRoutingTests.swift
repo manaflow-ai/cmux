@@ -6669,6 +6669,38 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
     }
 
+    func testBrowserFocusModeDoubleEscapeEntryUsesShortcutMonitorPath() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        let baseTimestamp = ProcessInfo.processInfo.systemUptime
+        guard let firstEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.01),
+              let secondEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.08) else {
+            XCTFail("Failed to construct browser focus mode entry Escape events")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: firstEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertFalse(harness.panel.isBrowserFocusModeActive)
+        XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: secondEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+        XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
+    }
+
     func testBrowserFocusModeExitArmExpiresAndNextEscapeRearms() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

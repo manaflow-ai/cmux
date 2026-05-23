@@ -772,6 +772,10 @@ final class CmuxWebView: WKWebView {
         super.keyDown(with: event)
     }
 
+    func forwardBrowserFocusModeShortcutKeyDown(_ event: NSEvent) {
+        super.keyDown(with: event)
+    }
+
     // MARK: - Focus on click
 
     // The SwiftUI Color.clear overlay (.onTapGesture) that focuses panes can't receive
