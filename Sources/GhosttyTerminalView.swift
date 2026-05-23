@@ -2296,6 +2296,23 @@ class GhosttyApp {
         )
     }
 
+    private func loadResolvedCmuxThemePairOverrideIfNeeded(
+        _ config: ghostty_config_t,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        guard let resolvedThemeName = Self.resolvedCmuxThemePairOverrideValue(
+            currentCmuxAppSupportThemeValue(),
+            preferredColorScheme: preferredColorScheme
+        ) else { return }
+
+        loadInlineGhosttyConfig(
+            "theme = \(resolvedThemeName)",
+            into: config,
+            prefix: "cmux-resolved-theme-pair",
+            logLabel: "resolved cmux theme pair"
+        )
+    }
+
     func loadDefaultConfigFilesWithLegacyFallback(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference()
@@ -2332,6 +2349,10 @@ class GhosttyApp {
             )
         }
         #endif
+        loadResolvedCmuxThemePairOverrideIfNeeded(
+            config,
+            preferredColorScheme: preferredColorScheme
+        )
         loadCJKFontFallbackIfNeeded(config)
         let renderingModeChanged = setUsesHostLayerBackground(
             true,
@@ -3120,6 +3141,22 @@ class GhosttyApp {
             return false
         }
         return !GhosttyConfig.themeValueUsesSameResolvedThemeInBothColorSchemes(cmuxThemeValue)
+    }
+
+    static func resolvedCmuxThemePairOverrideValue(
+        _ cmuxThemeValue: String?,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) -> String? {
+        guard shouldResolveCmuxThemePairAgainstAppearance(cmuxThemeValue),
+              let cmuxThemeValue else {
+            return nil
+        }
+
+        let resolvedThemeName = GhosttyConfig.resolveThemeName(
+            from: cmuxThemeValue,
+            preferredColorScheme: preferredColorScheme
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        return resolvedThemeName.isEmpty ? nil : resolvedThemeName
     }
 
     static func shouldCaptureScrollLagEvent(

@@ -712,6 +712,35 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testResolvedCmuxThemePairOverrideValueUsesAppearanceOnlyForTruePairs() {
+        XCTAssertEqual(
+            GhosttyApp.resolvedCmuxThemePairOverrideValue(
+                "light:3024 Day,dark:3024 Night",
+                preferredColorScheme: .light
+            ),
+            "3024 Day"
+        )
+        XCTAssertEqual(
+            GhosttyApp.resolvedCmuxThemePairOverrideValue(
+                "light:3024 Day,dark:3024 Night",
+                preferredColorScheme: .dark
+            ),
+            "3024 Night"
+        )
+        XCTAssertNil(
+            GhosttyApp.resolvedCmuxThemePairOverrideValue(
+                "light:3024 Day,dark:3024 Day",
+                preferredColorScheme: .dark
+            )
+        )
+        XCTAssertNil(
+            GhosttyApp.resolvedCmuxThemePairOverrideValue(
+                nil,
+                preferredColorScheme: .dark
+            )
+        )
+    }
+
     func testScrollLagCaptureRequiresSustainedLag() {
         let cases: [(samples: Int, averageMs: Double, maxMs: Double, expected: Bool)] = [
             (4, 18, 85, false),
