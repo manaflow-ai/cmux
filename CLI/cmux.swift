@@ -4671,7 +4671,7 @@ struct CMUXCLI {
             if !wsRef.isEmpty {
                 print("OK \(wsRef)")
             }
-            try activateApp()
+            try launchApp()
             return
         }
         defer { client.close() }
@@ -4684,7 +4684,7 @@ struct CMUXCLI {
         }
 
         // Bring the app to front
-        try activateApp()
+        try launchApp()
     }
 
     private func runFeedback(
@@ -4815,14 +4815,6 @@ struct CMUXCLI {
             socketPath: socketPath
         )
         return client
-    }
-
-    private func activateApp() throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "cmux"]
-        try process.run()
-        process.waitUntilExit()
     }
 
     private func resolvedIDFormat(jsonOutput: Bool, raw: String?) throws -> CLIIDFormat {
