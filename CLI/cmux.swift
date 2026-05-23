@@ -19481,7 +19481,7 @@ struct CMUXCLI {
             }
             print("OK")
 
-        case "stop", "idle":
+        case "stop", "idle", "subagent-stop":
             telemetry.breadcrumb("claude-hook.stop")
             do {
                 // Turn ended. Don't consume session or clear PID — Claude is still alive.
@@ -19499,11 +19499,48 @@ struct CMUXCLI {
                     client: client
                 )
                 let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let subagentStop = subcommand == "subagent-stop" || isClaudeSubagentStop(parsedInput)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
+                    nestedPromptEvent: subagentStop,
                     env: ProcessInfo.processInfo.environment
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                if subagentStop {
+                    didSendFeedTelemetry = true
+                } else {
+                    sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                }
+
+                if subagentStop {
+                    guard !suppressVisibleMutations else {
+                        telemetry.breadcrumb("claude-hook.stop.nested-suppressed")
+                        print("OK")
+                        return
+                    }
+
+                    let completion = summarizeClaudeHookStop(
+                        parsedInput: parsedInput,
+                        sessionRecord: mappedSession
+                    )
+                    try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: "Idle",
+                        icon: "pause.circle.fill",
+                        color: "#8E8E93"
+                    )
+                    if let completion {
+                        let title = String(
+                            localized: "cli.claude-hook.notification.title",
+                            defaultValue: "Claude Code"
+                        )
+                        let payload = notificationPayload(title: title, subtitle: completion.subtitle, body: completion.body)
+                        _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                    }
+                    print("OK")
+                    return
+                }
 
                 guard shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
@@ -20015,6 +20052,20 @@ struct CMUXCLI {
             return false
         }
         return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+    }
+
+    private func isClaudeSubagentStop(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        let candidates = [
+            firstString(in: parsedInput.object ?? [:], keys: ["hook_event_name", "hookEventName", "event", "event_name"]),
+            firstString(in: parsedInput.rawObject ?? [:], keys: ["hook_event_name", "hookEventName", "event", "event_name"]),
+        ]
+        return candidates.contains { raw in
+            raw?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "_", with: "")
+                .replacingOccurrences(of: "-", with: "")
+                .lowercased() == "subagentstop"
+        }
     }
 
     private func socketPanelOption(_ surfaceId: String?) -> String {
@@ -21113,6 +21164,11 @@ struct CMUXCLI {
         var signals = CodexTranscriptSubagentSignals()
         var currentTurnId: String?
         var currentTurnRelevant = normalizedTurnId == nil
+        // A relay before any scoped record is ambiguous because tail reads can
+        // start mid-turn. Turn-start records make it stale; terminal records
+        // with the requested turn id promote it to a current-turn relay.
+        var sawScopedTurnRecord = false
+        var pendingUnscopedSubagentRelay = false
 
         for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -21132,6 +21188,10 @@ struct CMUXCLI {
             if objectType == "turn_context",
                let payload = object["payload"] as? [String: Any] {
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                sawScopedTurnRecord = true
+                if normalizedTurnId != nil, currentTurnId == nil, pendingUnscopedSubagentRelay {
+                    pendingUnscopedSubagentRelay = false
+                }
                 currentTurnId = payloadTurnId
                 currentTurnRelevant = normalizedTurnId.map { $0 == payloadTurnId } ?? true
                 continue
@@ -21143,10 +21203,23 @@ struct CMUXCLI {
                 switch eventType {
                 case "task_started":
                     let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                    sawScopedTurnRecord = true
+                    if normalizedTurnId != nil, currentTurnId == nil, pendingUnscopedSubagentRelay {
+                        pendingUnscopedSubagentRelay = false
+                    }
                     currentTurnId = payloadTurnId
                     currentTurnRelevant = normalizedTurnId.map { $0 == payloadTurnId } ?? true
                 case "task_complete", "turn_complete":
                     let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                    if let payloadTurnId {
+                        sawScopedTurnRecord = true
+                        if normalizedTurnId != nil, currentTurnId == nil, pendingUnscopedSubagentRelay {
+                            if payloadTurnId == normalizedTurnId {
+                                signals.hasSubagentNotificationRelay = true
+                            }
+                            pendingUnscopedSubagentRelay = false
+                        }
+                    }
                     if let payloadTurnId {
                         currentTurnId = payloadTurnId
                     }
@@ -21163,12 +21236,19 @@ struct CMUXCLI {
                 continue
             }
 
-            guard currentTurnRelevant || currentTurnId == nil else {
-                continue
-            }
             guard codexTranscriptLineHasSubagentNotification(object) else {
                 continue
             }
+            if currentTurnRelevant || (normalizedTurnId == nil && currentTurnId == nil) {
+                signals.hasSubagentNotificationRelay = true
+                continue
+            }
+            if normalizedTurnId != nil, currentTurnId == nil {
+                pendingUnscopedSubagentRelay = true
+            }
+        }
+
+        if normalizedTurnId != nil, pendingUnscopedSubagentRelay, !sawScopedTurnRecord {
             signals.hasSubagentNotificationRelay = true
         }
 
