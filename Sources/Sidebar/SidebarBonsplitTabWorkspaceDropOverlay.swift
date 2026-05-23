@@ -66,6 +66,7 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     }
 }
 
+@MainActor
 final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
 
