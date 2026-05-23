@@ -698,6 +698,21 @@ final class OmnibarStateMachineTests: XCTestCase {
             NSRange(location: "news.ycombinator.".utf16.count, length: 0)
         )
     }
+
+    @MainActor
+    func testOptionBackspaceBeforeSchemeSeparatorConsumesSeparatorRun() throws {
+        let harness = OmnibarPlainDeletionHarness(
+            text: "https://example.com",
+            selectedLocation: "https".utf16.count
+        )
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(harness.state.buffer, "example.com")
+        XCTAssertEqual(harness.editor.string, "example.com")
+        XCTAssertEqual(harness.editor.selectedRange(), NSRange(location: 0, length: 0))
+    }
 }
 
 @MainActor
