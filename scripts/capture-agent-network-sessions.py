@@ -36,6 +36,7 @@ MAX_BODY_BYTES = 12_000
 DEFAULT_OUTPUT = pathlib.Path("cmuxTests/Fixtures/AgentNetworkCaptures.json")
 CAPTURE_ROOT_REPLACEMENTS: set[str] = set()
 REQUIRED_CAPTURE_AGENTS = {"claude", "codex", "opencode"}
+MAX_PROXY_START_ATTEMPTS = 3
 UTF8_MOJIBAKE_RE = re.compile(r"(?:[\u00C2\u00C3][\u0080-\u00BF]|\u00E2[\u0080-\u00BF]{2})")
 JSON_DROPPED_KEYS = {
     "additional_rate_limits",
@@ -203,6 +204,12 @@ def available_tcp_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def cleanup_agent_artifacts(agent_dir: pathlib.Path, keep_raw: bool) -> None:
+    if keep_raw:
+        return
+    shutil.rmtree(agent_dir, ignore_errors=True)
 
 
 def sensitive_header(name: str) -> bool:
@@ -782,6 +789,7 @@ def capture_agent(
     except OSError as exc:
         mitm_stdout.close()
         mitm_stderr.close()
+        cleanup_agent_artifacts(agent_dir, keep_raw)
         return None, {
             "agent": spec.agent,
             "reason": (
@@ -867,6 +875,7 @@ def capture_agent(
             reason_parts.append(sanitize_failure_line(stderr_text.strip()).splitlines()[0][:200])
         if stdout_text.strip() and not marker_observed:
             reason_parts.append(sanitize_failure_line(stdout_text.strip()).splitlines()[0][:200])
+        cleanup_agent_artifacts(agent_dir, keep_raw)
         return None, {"agent": spec.agent, "reason": "; ".join(reason_parts)}
 
     capture = {
@@ -889,11 +898,47 @@ def capture_agent(
         },
     }
 
-    if not keep_raw:
-        for path in [har_path, stdout_path, stderr_path, agent_dir / "mitm.out", agent_dir / "mitm.err"]:
-            path.unlink(missing_ok=True)
-        shutil.rmtree(confdir, ignore_errors=True)
+    cleanup_agent_artifacts(agent_dir, keep_raw)
     return capture, None
+
+
+def should_retry_proxy_start_failure(failed: dict[str, str] | None) -> bool:
+    if not failed:
+        return False
+    reason = failed.get("reason", "").lower()
+    return (
+        "exit=proxy_not_ready" in reason
+        or "address already in use" in reason
+        or "eaddrinuse" in reason
+    )
+
+
+def capture_agent_with_proxy_retries(
+    spec: AgentSpec,
+    root: pathlib.Path,
+    cwd: pathlib.Path,
+    keep_raw: bool,
+) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
+    failures: list[str] = []
+    for attempt in range(1, MAX_PROXY_START_ATTEMPTS + 1):
+        capture, failed = capture_agent(
+            spec=spec,
+            root=root,
+            port=available_tcp_port(),
+            cwd=cwd,
+            keep_raw=keep_raw,
+        )
+        if capture or not should_retry_proxy_start_failure(failed):
+            return capture, failed
+        failures.append(f"attempt {attempt}: {failed['reason']}")
+
+    return None, {
+        "agent": spec.agent,
+        "reason": (
+            f"proxy failed after {MAX_PROXY_START_ATTEMPTS} attempts: "
+            + " | ".join(failures)
+        ),
+    }
 
 
 def agent_specs() -> tuple[list[AgentSpec], list[dict[str, str]]]:
@@ -1051,10 +1096,9 @@ def main() -> int:
     captures: list[dict[str, Any]] = []
     try:
         for spec in specs:
-            capture, failed = capture_agent(
+            capture, failed = capture_agent_with_proxy_retries(
                 spec=spec,
                 root=capture_root,
-                port=available_tcp_port(),
                 cwd=root,
                 keep_raw=args.keep_raw,
             )
