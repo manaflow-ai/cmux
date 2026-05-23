@@ -17,6 +17,7 @@ export const navItems: NavEntry[] = [
   { titleKey: "configuration", href: "/docs/configuration" },
   { titleKey: "sessionRestore", href: "/docs/session-restore" },
   { titleKey: "customCommands", href: "/docs/custom-commands" },
+  { titleKey: "extensions", href: "/docs/extensions" },
   { titleKey: "dock", href: "/docs/dock" },
   { titleKey: "keyboardShortcuts", href: "/docs/keyboard-shortcuts" },
   { titleKey: "apiReference", href: "/docs/api" },

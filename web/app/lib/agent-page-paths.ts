@@ -58,6 +58,7 @@ export const agentReadablePages = [
   { path: "/docs/concepts", title: "Concepts" },
   { path: "/docs/configuration", title: "Configuration" },
   { path: "/docs/custom-commands", title: "Custom Commands" },
+  { path: "/docs/extensions", title: "Extensions" },
   { path: "/docs/dock", title: "Dock" },
   { path: "/docs/keyboard-shortcuts", title: "Keyboard Shortcuts" },
   { path: "/docs/api", title: "API Reference" },

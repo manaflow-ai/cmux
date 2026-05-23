@@ -227,6 +227,7 @@ html { scroll-behavior: smooth; }
   height: 1px;
 }
 </style>
+{{extensionStyles}}
 </head>
 <body>
 <article id="content" class="markdown-body"></article>
@@ -266,6 +267,47 @@ html { scroll-behavior: smooth; }
       value = value.split('{' + name + '}').join(String(replacements[name]));
     });
     return value;
+  }
+
+  var cmuxMarkdownExtensionHooks = [];
+  function registerMarkdownViewerExtension(extension) {
+    var hook = {};
+    if (typeof extension === 'function') {
+      hook.afterRender = extension;
+    } else if (extension && typeof extension === 'object') {
+      if (typeof extension.afterRender === 'function') {
+        hook.afterRender = extension.afterRender;
+      }
+      if (typeof extension.themeChanged === 'function') {
+        hook.themeChanged = extension.themeChanged;
+      }
+    }
+    if (!hook.afterRender && !hook.themeChanged) { return false; }
+    cmuxMarkdownExtensionHooks.push(hook);
+    return true;
+  }
+  window.cmuxMarkdownViewer = {
+    version: 1,
+    register: registerMarkdownViewerExtension,
+    contentElement: function() { return contentEl; },
+    addStyle: function(cssText) {
+      var style = document.createElement('style');
+      style.setAttribute('data-cmux-extension-runtime-style', '1');
+      style.textContent = String(cssText || '');
+      document.head.appendChild(style);
+      return style;
+    }
+  };
+  function runMarkdownExtensionHook(name, context) {
+    cmuxMarkdownExtensionHooks.slice().forEach(function(hook) {
+      var fn = hook && hook[name];
+      if (typeof fn !== 'function') { return; }
+      try {
+        fn(context || {});
+      } catch (e) {
+        console.error('[cmux] markdown viewer extension hook failed', name, e);
+      }
+    });
   }
 
   function escapeHtml(s) {
@@ -1431,6 +1473,12 @@ html { scroll-behavior: smooth; }
       rewriteLocalImageSources();
       rewriteRemoteImageSources();
       postProcessSpecialBlocks();
+      runMarkdownExtensionHook('afterRender', {
+        version: 1,
+        markdown: String(md || ''),
+        content: contentEl,
+        isDark: !!(darkMql && darkMql.matches)
+      });
       if (didReplaceContent) {
         restoreMarkdownScrollState(scrollState);
       }
@@ -1528,6 +1576,11 @@ html { scroll-behavior: smooth; }
     // Mermaid caches its theme; force re-init on next render so
     // freshly added diagrams pick up the new palette.
     mermaidInitialized = false;
+    runMarkdownExtensionHook('themeChanged', {
+      version: 1,
+      content: contentEl,
+      isDark: isDark
+    });
   };
   if (darkMql.addEventListener) {
     darkMql.addEventListener('change', window.__cmuxApplyTheme);
@@ -1537,5 +1590,6 @@ html { scroll-behavior: smooth; }
   window.__cmuxApplyTheme();
 })();
 </script>
+{{extensionScripts}}
 </body>
 </html>
