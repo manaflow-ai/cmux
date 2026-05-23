@@ -18978,7 +18978,6 @@ struct CMUXCLI {
                 )
             }
             let response: String
-            var shouldMarkNotificationSent = true
             if isGenericWaitingNotification, let sessionId = parsedInput.sessionId {
                 guard let sentResponse = try sendClaudeWaitingNotificationIfCurrent(
                     summary: summary,
@@ -18995,7 +18994,6 @@ struct CMUXCLI {
                 }
                 response = sentResponse
                 if (try? sessionStore.hasPendingNotification(sessionId: sessionId)) == true {
-                    shouldMarkNotificationSent = false
                     telemetry.breadcrumb("claude-hook.notification.pending-specific-prompt-after-send")
                     _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                     print("OK")
@@ -19019,9 +19017,7 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if shouldMarkNotificationSent {
-                markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
-            }
+            markClaudeWaitingNotificationSent(sessionId: parsedInput.sessionId, summary: summary)
             print(response)
 
         case "permission-request":
