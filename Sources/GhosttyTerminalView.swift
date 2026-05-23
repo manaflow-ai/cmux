@@ -3373,12 +3373,10 @@ class GhosttyApp {
                 )
             }
         } else {
-            DispatchQueue.main.sync {
-                MainActor.assumeIsolated {
-                    AppDelegate.shared?.applyTerminalSurfaceColorSchemeForGhosttyConfigReload(
-                        preferredColorScheme: preferredColorScheme
-                    )
-                }
+            DispatchQueue.main.async {
+                AppDelegate.shared?.applyTerminalSurfaceColorSchemeForGhosttyConfigReload(
+                    preferredColorScheme: preferredColorScheme
+                )
             }
         }
     }
