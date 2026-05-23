@@ -62,6 +62,21 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertFalse(range.contains(675.9))
         XCTAssertFalse(range.contains(686.1))
     }
+
+    func testSidebarTopScrimDoesNotFadeFirstWorkspaceRow() {
+        let firstRowTop = SidebarWorkspaceScrollInsets.workspaceList.top
+            + SidebarWorkspaceListMetrics.rowVerticalPadding
+
+        XCTAssertEqual(
+            firstRowTop,
+            SidebarWorkspaceListMetrics.firstRowTopOffset,
+            accuracy: 0.001
+        )
+        XCTAssertLessThanOrEqual(
+            SidebarWorkspaceListMetrics.topScrimHeight,
+            firstRowTop
+        )
+    }
 }
 
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
