@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -130,7 +131,7 @@ var callerTTYFDLinkPaths = []string{
 	"/dev/fd/2",
 }
 
-var callerTTYCommand = func() string { return "" }
+var callerTTYCommand = defaultCallerTTYCommand
 
 func init() {
 	commandIndex = make(map[string]*commandSpec, len(commands))
@@ -565,7 +566,21 @@ func resolveCallerTTYName() string {
 			}
 		}
 	}
+	if ttyName := normalizedTTYName(callerTTYCommand()); ttyName != "" {
+		return ttyName
+	}
 	return ""
+}
+
+func defaultCallerTTYCommand() string {
+	cmd := exec.Command("tty")
+	cmd.Stdin = os.Stdin
+	cmd.Stderr = io.Discard
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return string(output)
 }
 
 func normalizedTTYName(raw string) string {
