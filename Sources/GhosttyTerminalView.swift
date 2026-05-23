@@ -2005,6 +2005,11 @@ class GhosttyApp {
             source: "initialize.primaryConfig",
             forceNotify: primaryRenderingModeChanged
         )
+        updateDefaultBackgroundFromResolvedGhosttyConfig(
+            source: "initialize.primaryConfig",
+            preferredColorScheme: initialColorScheme,
+            forceNotify: primaryRenderingModeChanged
+        )
 
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
@@ -2152,6 +2157,11 @@ class GhosttyApp {
             updateDefaultBackground(
                 from: fallbackConfig,
                 source: "initialize.fallbackConfig",
+                forceNotify: fallbackRenderingModeChanged
+            )
+            updateDefaultBackgroundFromResolvedGhosttyConfig(
+                source: "initialize.fallbackConfig",
+                preferredColorScheme: initialColorScheme,
                 forceNotify: fallbackRenderingModeChanged
             )
 
@@ -3307,6 +3317,13 @@ class GhosttyApp {
             scope: .unscoped,
             forceNotify: renderingModeChanged
         )
+        GhosttyConfig.invalidateLoadCache()
+        updateDefaultBackgroundFromResolvedGhosttyConfig(
+            source: "reloadConfiguration(source=\(source))",
+            preferredColorScheme: reloadColorScheme,
+            scope: .unscoped,
+            forceNotify: renderingModeChanged
+        )
         let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
         ghostty_app_update_config(app, newConfig)
@@ -3318,7 +3335,6 @@ class GhosttyApp {
         }
         config = newConfig
         lastAppearanceColorScheme = reloadColorScheme
-        GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         scheduleSurfaceRefreshAfterConfigurationReload(
             source: source,
@@ -3518,6 +3534,28 @@ class GhosttyApp {
             selectionBackground: resolvedSelectionBackground,
             selectionForeground: resolvedSelectionForeground,
             source: source,
+            scope: scope,
+            forceNotify: forceNotify
+        )
+    }
+
+    private func updateDefaultBackgroundFromResolvedGhosttyConfig(
+        source: String,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference,
+        scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
+        forceNotify: Bool = false
+    ) {
+        let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
+        applyDefaultBackground(
+            color: resolved.backgroundColor,
+            opacity: resolved.backgroundOpacity,
+            backgroundBlur: resolved.backgroundBlur,
+            foregroundColor: resolved.foregroundColor,
+            cursorColor: resolved.cursorColor,
+            cursorTextColor: resolved.cursorTextColor,
+            selectionBackground: resolved.selectionBackground,
+            selectionForeground: resolved.selectionForeground,
+            source: "\(source).resolvedGhosttyConfig",
             scope: scope,
             forceNotify: forceNotify
         )
@@ -4026,11 +4064,9 @@ class GhosttyApp {
             }
 
             if action.tag == GHOSTTY_ACTION_CONFIG_CHANGE {
-                updateDefaultBackground(
-                    from: action.action.config_change.config,
-                    source: "action.config_change.app",
-                    scope: .app
-                )
+                // Theme picker preview reloads are resolved through reloadConfiguration.
+                // Ghostty's config-change payload can still contain stale app defaults,
+                // so it must not own the window chrome appearance.
                 synchronizeGhosttyRuntimeColorScheme(
                     effectiveTerminalColorSchemePreference,
                     source: "action.config_change.app:resolved"
@@ -4302,11 +4338,8 @@ class GhosttyApp {
                     surfaceView.applyWindowBackgroundIfActive()
                 }
             }
-            updateDefaultBackground(
-                from: action.action.config_change.config,
-                source: "action.config_change.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
-                scope: .surface
-            )
+            // Keep surface config-change handling scoped to the surface. The app-level
+            // default background is owned by reloadConfiguration's resolved GhosttyConfig.
             let effectiveConfigChangeColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(
                 effectiveConfigChangeColorScheme,
