@@ -186,6 +186,86 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeSubagentStopWithSuppressionDisabledStillProtectsParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "claude-subagent-notify-setting-off")
+        defer { context.cleanup() }
+
+        let parentSessionId = "claude-notify-setting-parent"
+        let childSessionId = "claude-notify-setting-child"
+        let parentPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/claude-notify-parent.jsonl","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, parentSessionId)
+
+        let childPromptIndex = context.state.commands.count
+        let childPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(childSessionId)","parent_session_id":"\#(parentSessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/claude-notify-child.jsonl","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: [
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+            ]
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptIndex))
+        XCTAssertFalse(
+            childPromptCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Disabling subagent notification suppression must not let the Claude child take over resume, saw \(childPromptCommands)"
+        )
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, parentSessionId)
+
+        let childStopIndex = context.state.commands.count
+        let childStop = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"\#(childSessionId)","parent_session_id":"\#(parentSessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/claude-notify-child.jsonl","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: [
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+            ]
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertFalse(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Disabling subagent notification suppression must not let the Claude child Stop publish child resume, saw \(childStopCommands)"
+        )
+        XCTAssertTrue(
+            childStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Claude Code|") },
+            "Disabling subagent notification suppression should allow the Claude child Stop notification, saw \(childStopCommands)"
+        )
+        XCTAssertTrue(
+            childStopCommands.contains { $0.hasPrefix("set_status claude_code Idle ") },
+            "Disabling subagent notification suppression should allow the Claude child visible status update, saw \(childStopCommands)"
+        )
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, parentSessionId)
+
+        let child = try readClaudeHookSession(childSessionId, context: context)
+        XCTAssertEqual(child["parentSessionId"] as? String, parentSessionId)
+        XCTAssertEqual(child["isRestorable"] as? Bool, false)
+    }
+
     func testLateClaudeSessionStartDoesNotClearRestorablePromptSession() throws {
         let context = try makeClaudeHookContext(name: "claude-late-start-restorable")
         defer { context.cleanup() }

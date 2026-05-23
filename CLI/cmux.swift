@@ -19630,26 +19630,35 @@ struct CMUXCLI {
                     client: client
                 )
                 let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let hasSubagentParent = claudeSubagentParentSessionId(mappedSession: mappedSession) != nil
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
+                    nestedPromptEvent: hasSubagentParent,
                     env: ProcessInfo.processInfo.environment
                 )
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
 
-                if suppressClaudeSubagentRestore(
+                let completion = summarizeClaudeHookStop(
+                    parsedInput: parsedInput,
+                    sessionRecord: mappedSession
+                )
+                let suppressRestorableRecord = suppressClaudeSubagentRestore(
                     mappedSession: mappedSession,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    pid: claudePid
-                ) {
+                    pid: claudePid,
+                    lastSubtitle: completion?.subtitle,
+                    lastBody: completion?.body
+                )
+                if suppressRestorableRecord && suppressVisibleMutations {
                     telemetry.breadcrumb("claude-hook.stop.subagent-suppressed")
                     print("OK")
                     return
                 }
 
-                guard shouldApplyClaudeHookVisibleMutation(
+                guard suppressRestorableRecord || shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
@@ -19666,11 +19675,6 @@ struct CMUXCLI {
                     return
                 }
 
-                // Update session with transcript summary and send completion notification.
-                let completion = summarizeClaudeHookStop(
-                    parsedInput: parsedInput,
-                    sessionRecord: mappedSession
-                )
                 if let sessionId = parsedInput.sessionId {
                     try? sessionStore.upsert(
                         sessionId: sessionId,
@@ -19679,22 +19683,24 @@ struct CMUXCLI {
                         surfaceId: surfaceId,
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
-                        isRestorable: true,
+                        isRestorable: suppressRestorableRecord ? false : true,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        kind: "claude",
-                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                        sessionId: sessionId,
-                        cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                        launchCommand: mappedSession?.launchCommand
-                    )
+                    if !suppressRestorableRecord {
+                        publishAgentSurfaceResumeBinding(
+                            client: client,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            kind: "claude",
+                            displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                            sessionId: sessionId,
+                            cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                            launchCommand: mappedSession?.launchCommand
+                        )
+                    }
                 }
 
                 try? setClaudeStatus(
@@ -19738,24 +19744,28 @@ struct CMUXCLI {
                 client: client
             )
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let hasSubagentParent = claudeSubagentParentSessionId(mappedSession: mappedSession) != nil
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                nestedPromptEvent: hasSubagentParent,
                 env: ProcessInfo.processInfo.environment
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
-            if suppressClaudeSubagentRestore(
+            let suppressRestorableRecord = suppressClaudeSubagentRestore(
                 mappedSession: mappedSession,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 cwd: parsedInput.cwd,
                 transcriptPath: parsedInput.transcriptPath,
                 pid: claudePid
-            ) {
+            )
+            if suppressRestorableRecord && suppressVisibleMutations {
                 telemetry.breadcrumb("claude-hook.prompt-submit.subagent-suppressed")
                 print("OK")
                 return
             }
             let shouldApplyPromptSubmit =
+                suppressRestorableRecord ||
                 shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
@@ -19786,20 +19796,22 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    isRestorable: true,
+                    isRestorable: suppressRestorableRecord ? false : true,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: "claude",
-                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                    sessionId: sessionId,
-                    cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                    launchCommand: mappedSession?.launchCommand
-                )
+                if !suppressRestorableRecord {
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: "claude",
+                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                        sessionId: sessionId,
+                        cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                        launchCommand: mappedSession?.launchCommand
+                    )
+                }
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             try setClaudeStatus(
@@ -19823,18 +19835,32 @@ struct CMUXCLI {
                 client: client
             )
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let hasSubagentParent = claudeSubagentParentSessionId(mappedSession: mappedSession) != nil
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                nestedPromptEvent: hasSubagentParent,
                 env: ProcessInfo.processInfo.environment
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            if !hasSubagentParent {
+                guard shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
+                ) else {
+                    telemetry.breadcrumb("claude-hook.notification.stale")
+                    print("OK")
+                    return
+                }
+            }
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
                 workspaceId: workspaceId,
                 client: client
             )
-            if suppressClaudeSubagentRestore(
+            let suppressRestorableRecord = suppressClaudeSubagentRestore(
                 mappedSession: mappedSession,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -19843,18 +19869,9 @@ struct CMUXCLI {
                 pid: claudePid,
                 lastSubtitle: summary.subtitle,
                 lastBody: summary.body
-            ) {
+            )
+            if suppressRestorableRecord && suppressVisibleMutations {
                 telemetry.breadcrumb("claude-hook.notification.subagent-suppressed")
-                print("OK")
-                return
-            }
-            guard shouldApplyClaudeHookVisibleMutation(
-                sessionStore: sessionStore,
-                parsedInput: parsedInput,
-                workspaceId: workspaceId,
-                telemetry: telemetry
-            ) else {
-                telemetry.breadcrumb("claude-hook.notification.stale")
                 print("OK")
                 return
             }
@@ -19987,23 +20004,26 @@ struct CMUXCLI {
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let hasSubagentParent = claudeSubagentParentSessionId(mappedSession: mappedSession) != nil
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                nestedPromptEvent: hasSubagentParent,
                 env: ProcessInfo.processInfo.environment
             )
-            if suppressClaudeSubagentRestore(
+            let suppressRestorableRecord = suppressClaudeSubagentRestore(
                 mappedSession: mappedSession,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 cwd: parsedInput.cwd,
                 transcriptPath: parsedInput.transcriptPath,
                 pid: claudePid
-            ) {
+            )
+            if suppressRestorableRecord && suppressVisibleMutations {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.subagent-suppressed")
                 print("OK")
                 return
             }
-            guard shouldApplyClaudeHookVisibleMutation(
+            guard suppressRestorableRecord || shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: workspaceId,
