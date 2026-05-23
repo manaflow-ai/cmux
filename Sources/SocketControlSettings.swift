@@ -473,13 +473,18 @@ struct SocketControlSettings {
             return preferredPath
         }
 
+        let userScopedPath = userScopedStableSocketPath(currentUserID: currentUserID)
+        if pathsMatch(preferredPath, userScopedPath) {
+            return preferredPath
+        }
+
         switch probeStableDefaultPathEntry(preferredPath) {
         case .missing:
             return stableDefaultSocketCanBeReclaimed(preferredPath)
                 ? preferredPath
-                : userScopedStableSocketPath(currentUserID: currentUserID)
+                : userScopedPath
         case .socket(let ownerUserID) where ownerUserID == currentUserID:
-            return userScopedStableSocketPath(currentUserID: currentUserID)
+            return userScopedPath
         case .socket, .other, .inaccessible:
             return preferredPath
         }

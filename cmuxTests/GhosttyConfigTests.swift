@@ -2819,6 +2819,26 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
+    func testInitialStableLaunchKeepsUserScopedPreferredPathWithoutProbing() {
+        let userScopedPath = SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: userScopedPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { socketPath in
+                XCTFail("User-scoped startup path should not be re-inspected: \(socketPath)")
+                return .socket(ownerUserID: 501)
+            },
+            stableDefaultSocketCanBeReclaimed: { socketPath in
+                XCTFail("User-scoped startup path should not be reclaimed: \(socketPath)")
+                return false
+            }
+        )
+
+        XCTAssertEqual(path, userScopedPath)
+    }
+
     func testInitialStableLaunchFallsBackToUserScopedSocketWhenMissingStablePathCannotBeReserved() {
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: SocketControlSettings.stableDefaultSocketPath,
