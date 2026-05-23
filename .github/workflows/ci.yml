@@ -408,18 +408,6 @@ jobs:
               -parallel-testing-enabled NO \
               "${SKIP_ARGS[@]}" \
               CMUX_SKIP_ZIG_BUILD=1 \
-              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests \
-              -skip-testing:cmuxTests/BrowserDeveloperToolsConfigurationTests \
-              -skip-testing:cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests \
-              -skip-testing:cmuxTests/BrowserPanelRemoteStoreTests \
-              -skip-testing:cmuxTests/BrowserPanelWebViewLifecycleTests \
-              -skip-testing:cmuxTests/BrowserSessionHistoryRestoreTests \
-              -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields \
-              -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply \
-              -skip-testing:cmuxTests/FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath \
-              -skip-testing:cmuxTests/FilePreviewPanelTextSavingTests \
-              -skip-testing:cmuxTests/FilePreviewReviewFeedbackTests \
-              -skip-testing:cmuxTests/GhosttySurfaceOverlayTests \
               test-without-building 2>&1 &
             local xcodebuild_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
