@@ -504,6 +504,9 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
+            if Self.allowsSharedMarkdownCommandPaletteNavigationShortcut(self, proposedAction) {
+                return false
+            }
             guard shortcutContext.overlaps(proposedAction.shortcutContext) else {
                 return false
             }
@@ -513,6 +516,23 @@ enum KeyboardShortcutSettings {
                 configuredShortcut,
                 configuredUsesNumberedDigitMatching: usesNumberedDigitMatching
             )
+        }
+
+        private static func allowsSharedMarkdownCommandPaletteNavigationShortcut(
+            _ lhs: Action,
+            _ rhs: Action
+        ) -> Bool {
+            let pair = Set([lhs, rhs])
+            let markdownFindAliases: Set<Action> = [
+                .markdownFindNextAlternate,
+                .markdownFindPreviousAlternate,
+            ]
+            let commandPaletteNavigation: Set<Action> = [
+                .commandPaletteNext,
+                .commandPalettePrevious,
+            ]
+            return !pair.isDisjoint(with: markdownFindAliases) &&
+                !pair.isDisjoint(with: commandPaletteNavigation)
         }
 
         func normalizedRecordedShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {

@@ -5423,6 +5423,82 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === textView)
     }
 
+    func testFocusedMarkdownPreviewDoesNotConsumePendingAppShortcutChord() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "b",
+                command: false,
+                shift: false,
+                option: false,
+                control: true,
+                chordKey: "n"
+            ),
+            for: .newTab
+        )
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected test window, manager, workspace, and focused source panel")
+            return
+        }
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-pending-app-chord-\(UUID().uuidString).md")
+        try "# Markdown\n\nFind target\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let markdownPanel = try XCTUnwrap(
+            workspace.newMarkdownSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                filePath: fileURL.path,
+                focus: true
+            )
+        )
+        workspace.focusPanel(markdownPanel.id)
+
+        let responder = FocusableTestView(frame: .zero)
+        window.contentView?.addSubview(responder)
+        defer { responder.removeFromSuperview() }
+        XCTAssertTrue(window.makeFirstResponder(responder))
+
+        var observedCommands: [MarkdownPreviewKeyCommand] = []
+#if DEBUG
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = { command in
+            observedCommands.append(command)
+        }
+#else
+        XCTFail("keyboardCommandObserver is only available in DEBUG")
+#endif
+
+        let workspaceCountBefore = manager.tabs.count
+        let prefixEvent = try XCTUnwrap(
+            makeKeyDownEvent(key: "b", modifiers: [.control], keyCode: 11, windowNumber: window.windowNumber)
+        )
+        let secondEvent = try XCTUnwrap(
+            makeKeyDownEvent(key: "n", modifiers: [], keyCode: 45, windowNumber: window.windowNumber)
+        )
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: secondEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertEqual(manager.tabs.count, workspaceCountBefore + 1)
+        XCTAssertTrue(observedCommands.isEmpty, "Pending app chords should resolve before Markdown preview shortcuts")
+    }
+
     // MARK: - Browser find shortcut routing tests
 
     func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {

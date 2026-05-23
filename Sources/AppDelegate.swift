@@ -14482,6 +14482,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleFocusedMarkdownPreviewShortcut(_ event: NSEvent) -> Bool {
+        guard activeConfiguredShortcutChordPrefixForCurrentEvent == nil else {
+            return false
+        }
         guard let shortcutWindow = markdownPreviewShortcutWindow(for: event) else {
             return false
         }
