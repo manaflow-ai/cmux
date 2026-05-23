@@ -576,7 +576,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.detectRunningUnderXCTest(env)
     }
 
-    @MainActor
     enum MainWindowContextRole {
         case standard
         case globalHotkeyPanel
@@ -6515,6 +6514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func hasVisibleMainTerminalWindow() -> Bool {
         mainWindowContexts.values.contains { context in
+            guard context.role.isSessionRestorable else { return false }
             guard let window = resolvedWindow(for: context) else { return false }
             return window.isVisible && !window.isMiniaturized && window.alphaValue > 0.001
         }
@@ -7907,11 +7907,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func preferredMainWindowForVisibilityActivation() -> NSWindow? {
         if let keyWindow = NSApp.keyWindow,
-           isMainTerminalWindow(keyWindow) {
+           isSessionRestorableMainTerminalWindow(keyWindow) {
             return keyWindow
         }
         if let mainWindow = NSApp.mainWindow,
-           isMainTerminalWindow(mainWindow) {
+           isSessionRestorableMainTerminalWindow(mainWindow) {
             return mainWindow
         }
         if let visibleContext = sortedMainWindowContextsForSessionSnapshot().first(where: { context in
@@ -7959,7 +7959,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 windows.append(window)
             }
         }
-        for window in NSApp.windows where isMainTerminalWindow(window) {
+        for window in NSApp.windows where isSessionRestorableMainTerminalWindow(window) {
             if !windows.contains(where: { $0 === window }) {
                 windows.append(window)
             }
@@ -14646,6 +14646,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let raw = window.identifier?.rawValue else { return false }
         return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+    }
+
+    private func isSessionRestorableMainTerminalWindow(_ window: NSWindow) -> Bool {
+        guard isMainTerminalWindow(window) else { return false }
+        return contextForMainTerminalWindow(window)?.role.isSessionRestorable ?? true
     }
 
     private func workspaceForMainActor(tabId: UUID) -> Workspace? {

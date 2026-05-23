@@ -33,6 +33,8 @@ final class GlobalHotkeyPanelControllerTests: XCTestCase {
         XCTAssertFalse(panel.hidesOnDeactivate)
         XCTAssertTrue(panel.isExcludedFromWindowsMenu)
         XCTAssertEqual(panel.level, GlobalHotkeyPanelConfiguration.windowLevel)
+        XCTAssertEqual(GlobalHotkeyPanelConfiguration.windowIdentifier, "cmux.hotkeyPanel")
+        XCTAssertTrue(panel.acceptsFirstResponder)
         XCTAssertTrue(panel.canBecomeKey)
         XCTAssertFalse(panel.canBecomeMain)
     }

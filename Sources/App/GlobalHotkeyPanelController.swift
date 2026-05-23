@@ -21,6 +21,8 @@ enum GlobalHotkeyPanelLayout {
 
 @MainActor
 enum GlobalHotkeyPanelConfiguration {
+    static let windowIdentifier = "cmux.hotkeyPanel"
+
     static let styleMask: NSWindow.StyleMask = [
         .nonactivatingPanel,
         .titled,
@@ -60,6 +62,7 @@ enum GlobalHotkeyPanelConfiguration {
 final class GlobalHotkeyPanel: NSPanel {
     var onCancel: (() -> Void)?
 
+    override var acceptsFirstResponder: Bool { true }
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
@@ -110,6 +113,9 @@ final class GlobalHotkeyPanelController: NSObject, NSWindowDelegate {
             return
         }
 
+        if NSApp.isHidden {
+            NSApp.unhide(nil)
+        }
         position(panel)
         panel.orderFrontRegardless()
         panel.makeKey()
@@ -155,6 +161,7 @@ final class GlobalHotkeyPanelController: NSObject, NSWindowDelegate {
         cmuxConfigStore.loadAll()
 
         let root = ContentView(updateViewModel: appDelegate.updateViewModel, windowId: windowId)
+            .mainWindowContextRole(.globalHotkeyPanel)
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
@@ -171,7 +178,7 @@ final class GlobalHotkeyPanelController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        panel.identifier = NSUserInterfaceItemIdentifier("cmux.hotkeyPanel")
+        panel.identifier = NSUserInterfaceItemIdentifier(GlobalHotkeyPanelConfiguration.windowIdentifier)
         panel.title = String(localized: "globalHotkey.window.title", defaultValue: "cmux Hotkey Window")
         panel.contentView = MainWindowHostingView(rootView: root)
         panel.delegate = self
