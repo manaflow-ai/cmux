@@ -7914,6 +7914,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var shouldApplySurfaceFocus = false
         if result {
             imeConsumedKeyUps.removeAll()
+            nonInlineIMECompositionActive = false
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -8002,6 +8003,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.resignFirstResponder()
         if result {
             imeConsumedKeyUps.removeAll()
+            nonInlineIMECompositionActive = false
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
         }
@@ -13851,10 +13853,10 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
+        nonInlineIMECompositionActive = false
         if markedText.length > 0 {
             markedText.mutableString.setString("")
             markedSelectedRange = NSRange(location: NSNotFound, length: 0)
-            nonInlineIMECompositionActive = false
             syncPreedit()
             invalidateTextInputCoordinates(selectionChanged: true)
         }

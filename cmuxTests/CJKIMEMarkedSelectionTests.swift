@@ -76,6 +76,10 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let selectionAfter: NSRange
     }
 
+    private final class FocusProbeView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
     func testSelectedRangeReturnsEmptyRangeWithoutSelectionOrMarkedText() {
         let view = GhosttyNSView(frame: .zero)
         let range = view.selectedRange()
@@ -274,6 +278,75 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             forwardedPresses,
             [],
             "RIME/Squirrel no-inline candidate keys belong to IMK and must not also move the terminal cursor"
+        )
+    }
+
+    func testRIMENoInlineCompositionClearsWhenTerminalLosesFocus() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let focusProbe = FocusProbeView(frame: .zero)
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            focusProbe.removeFromSuperview()
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        window.contentView?.addSubview(focusProbe)
+        KeyboardLayout.debugInputSourceIdOverride = "im.rime.inputmethod.Squirrel"
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, events in
+            guard candidateView === surfaceView,
+                  let event = events.first else {
+                return false
+            }
+            return Int(event.keyCode) == kVK_ANSI_N
+        }
+
+        var forwardedPresses: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedPresses.append(keyEvent.keycode)
+        }
+
+        let composeEvent = try keyEvent(
+            text: "n",
+            keyCode: UInt16(kVK_ANSI_N),
+            windowNumber: window.windowNumber
+        )
+        let idleDownEvent = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyDown(with: composeEvent)
+            XCTAssertEqual(
+                forwardedPresses,
+                [],
+                "The no-inline RIME compose key should start IME-owned candidate state"
+            )
+
+            XCTAssertTrue(window.makeFirstResponder(focusProbe))
+            XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+            surfaceView.keyDown(with: idleDownEvent)
+        }
+
+        XCTAssertEqual(
+            forwardedPresses,
+            [UInt32(kVK_DownArrow)],
+            "After focus loss, abandoned no-inline RIME state must not keep swallowing terminal arrows"
         )
     }
 
