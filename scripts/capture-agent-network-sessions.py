@@ -194,6 +194,12 @@ def wait_for_proxy(port: int, cert_path: pathlib.Path, deadline: float) -> bool:
     return False
 
 
+def available_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
 def sensitive_header(name: str) -> bool:
     lowered = name.lower()
     safe_names = {
@@ -533,9 +539,11 @@ def websocket_message_text(entry: dict[str, Any], direction: str | None = None) 
         return ""
     parts: list[str] = []
     for message in messages:
+        if not isinstance(message, dict):
+            continue
         if direction is not None and message.get("type") != direction:
             continue
-        if isinstance(message, dict) and isinstance(message.get("data"), str):
+        if isinstance(message.get("data"), str):
             parts.append(message["data"])
     return "\n".join(parts)
 
@@ -655,7 +663,14 @@ def sanitize_entry(entry: dict[str, Any]) -> dict[str, Any]:
 def selected_entries(agent: str, har_path: pathlib.Path) -> list[dict[str, Any]]:
     if not har_path.exists():
         return []
-    data = json.loads(har_path.read_text(errors="replace"))
+    try:
+        data = json.loads(har_path.read_text(errors="replace"))
+    except (OSError, ValueError) as exc:
+        print(
+            f"warning: could not parse HAR for {agent} at {sanitize_text(str(har_path))}: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return []
     entries = data.get("log", {}).get("entries", [])
     candidates = [entry for entry in entries if has_replayable_payload(entry)]
     response_marker_entries = [
@@ -1017,11 +1032,11 @@ def main() -> int:
 
     captures: list[dict[str, Any]] = []
     try:
-        for index, spec in enumerate(specs, start=1):
+        for spec in specs:
             capture, failed = capture_agent(
                 spec=spec,
                 root=capture_root,
-                port=19400 + index,
+                port=available_tcp_port(),
                 cwd=root,
                 keep_raw=args.keep_raw,
             )
