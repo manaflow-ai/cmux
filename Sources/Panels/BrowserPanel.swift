@@ -6404,7 +6404,7 @@ extension BrowserPanel {
     }
 
     /// Take a snapshot of the web view
-    func takeSnapshot(completion: @escaping @Sendable (NSImage?) -> Void) {
+    func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
         guard let browserEngine else {
             completion(nil)
             return

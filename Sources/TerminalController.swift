@@ -11045,7 +11045,7 @@ class TerminalController {
         }
     }
 
-    private func v2PNGData(from image: NSImage) -> Data? {
+    private nonisolated static func v2PNGData(from image: NSImage) -> Data? {
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .png, properties: [:])
@@ -12317,7 +12317,7 @@ class TerminalController {
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
             let snapshotResult: Data?? = v2AwaitCallback(timeout: 5.0) { finish in
                 browserPanel.takeSnapshot { image in
-                    finish(image.flatMap { self.v2PNGData(from: $0) })
+                    finish(image.flatMap { Self.v2PNGData(from: $0) })
                 }
             }
 
