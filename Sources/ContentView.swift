@@ -10673,6 +10673,9 @@ struct VerticalTabsSidebar: View {
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
         // Keep row observers and drag handlers scoped to the visible lazy
         // subtree so large workspaces lists scale with mounted rows.
+        // Drag updates stay out of the lazy layout contract: row metrics are
+        // fixed, indicators render as overlays, and drop insertion planning uses
+        // global tab indices instead of the current mounted child count.
         LazyVStack(spacing: tabRowSpacing) {
             ForEach(renderContext.tabs, id: \.id) { tab in
                 workspaceRow(tab, renderContext: renderContext)
