@@ -68,10 +68,13 @@ enum SettingsWindowPresenter {
         pendingContentNavigationTarget = navigationTarget
 
         if let window = existingWindow() {
-            pendingNavigationTarget = nil
-            pendingContentNavigationTarget = nil
+            let shouldDeferNavigation = window.isMiniaturized
+            if !shouldDeferNavigation {
+                pendingNavigationTarget = nil
+                pendingContentNavigationTarget = nil
+            }
             focus(window)
-            if let navigationTarget {
+            if let navigationTarget, !shouldDeferNavigation {
                 SettingsNavigationRequest.post(navigationTarget)
             }
             return

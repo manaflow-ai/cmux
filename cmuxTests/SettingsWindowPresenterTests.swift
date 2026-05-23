@@ -55,6 +55,30 @@ final class SettingsWindowPresenterTests: XCTestCase {
         XCTAssertTrue(focusedWindows.first === settingsWindow)
     }
 
+    func testShowPreservesPendingNavigationWhenExistingSettingsWindowIsMiniaturized() async {
+        let settingsWindow = makeWindow(
+            identifier: SettingsWindowPresenter.windowIdentifier,
+            isMiniaturizedForTests: true
+        )
+        var didOpen = false
+        defer {
+            settingsWindow.orderOut(nil)
+        }
+
+        SettingsWindowPresenter.setFocusHandlerForTests { _ in }
+        SettingsWindowPresenter.configure(window: settingsWindow)
+        await Task.yield()
+
+        SettingsWindowPresenter.show(
+            navigationTarget: .browserImport,
+            openWindowOverride: { didOpen = true }
+        )
+
+        XCTAssertFalse(didOpen)
+        XCTAssertEqual(SettingsWindowPresenter.consumePendingNavigationTarget(), .browserImport)
+        XCTAssertEqual(SettingsWindowPresenter.consumePendingContentNavigationTarget(), .browserImport)
+    }
+
     func testParentsSettingsAbovePreferredMainWindow() {
         let parentWindow = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
@@ -169,16 +193,28 @@ final class SettingsWindowPresenterTests: XCTestCase {
         }
     }
 
-    private func makeWindow(identifier: String) -> NSWindow {
-        let window = NSWindow(
+    private func makeWindow(
+        identifier: String,
+        isMiniaturizedForTests: Bool? = nil
+    ) -> NSWindow {
+        let window = TestSettingsWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
+        window.isMiniaturizedForTests = isMiniaturizedForTests
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier(identifier)
         return window
+    }
+
+    private final class TestSettingsWindow: NSWindow {
+        var isMiniaturizedForTests: Bool?
+
+        override var isMiniaturized: Bool {
+            isMiniaturizedForTests ?? super.isMiniaturized
+        }
     }
 }
 #endif
