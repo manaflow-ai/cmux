@@ -64,7 +64,7 @@ enum SyntaxLanguageDetector {
         let resolved = resolve(url: url)
 
         cacheLock.lock()
-        cache[key] = resolved
+        cache.updateValue(resolved, forKey: key)
         cacheLock.unlock()
         return resolved
     }
