@@ -1105,6 +1105,46 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(workspace.manualUnreadPanelIds.contains(splitPanel.id))
     }
 
+    func testFocusedUnreadShortcutMarksSplitPanelWithoutLeftPaneDismissFlash() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let rightPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false)
+        )
+
+        workspace.focusPanel(rightPanel.id)
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread())
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(rightPanel.id))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(leftPanelId))
+        XCTAssertFalse(store.hasManualUnread(forTabId: workspace.id))
+        XCTAssertTrue(store.hasPanelDerivedUnread(forTabId: workspace.id))
+
+        let flashTokenBeforeLeftClick = workspace.tmuxWorkspaceFlashToken
+
+        XCTAssertFalse(manager.dismissNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: leftPanelId))
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, flashTokenBeforeLeftClick)
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(rightPanel.id))
+    }
+
     func testSessionRestorePreservesNotificationUnreadIndicator() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared
