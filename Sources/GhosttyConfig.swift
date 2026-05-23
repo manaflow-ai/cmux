@@ -452,28 +452,26 @@ struct GhosttyConfig {
         preferredColorScheme: ColorSchemePreference
     ) {
         var recursiveConfigPaths: [String] = []
+        var loadedConfigPaths = Set<String>()
 
         for path in paths.map({ NSString(string: $0).expandingTildeInPath }) {
             loadConfigFile(
                 at: path,
                 into: &config,
                 preferredColorScheme: preferredColorScheme,
-                recursiveConfigPaths: &recursiveConfigPaths
+                recursiveConfigPaths: &recursiveConfigPaths,
+                loadedConfigPaths: &loadedConfigPaths
             )
         }
 
-        var loadedRecursivePaths = Set<String>()
         while !recursiveConfigPaths.isEmpty {
             let path = recursiveConfigPaths.removeFirst()
-            let resolved = (path as NSString).standardizingPath
-            guard !loadedRecursivePaths.contains(resolved) else { continue }
-            loadedRecursivePaths.insert(resolved)
-
             loadConfigFile(
                 at: path,
                 into: &config,
                 preferredColorScheme: preferredColorScheme,
-                recursiveConfigPaths: &recursiveConfigPaths
+                recursiveConfigPaths: &recursiveConfigPaths,
+                loadedConfigPaths: &loadedConfigPaths
             )
         }
     }
@@ -482,10 +480,13 @@ struct GhosttyConfig {
         at path: String,
         into config: inout GhosttyConfig,
         preferredColorScheme: ColorSchemePreference,
-        recursiveConfigPaths: inout [String]
+        recursiveConfigPaths: inout [String],
+        loadedConfigPaths: inout Set<String>
     ) {
         let resolved = (path as NSString).standardizingPath
+        guard !loadedConfigPaths.contains(resolved) else { return }
         guard let contents = readConfigFile(at: resolved) else { return }
+        loadedConfigPaths.insert(resolved)
 
         config.parse(
             contents,

@@ -271,6 +271,41 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(loaded.foregroundColor.hexString(), "#ABCDEF")
     }
 
+    func testLoadDoesNotReparseTopLevelConfigReferencedByConfigFile() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-config-top-level-cycle-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
+        let configFile = ghosttyConfigDir.appendingPathComponent("config.ghostty", isDirectory: false)
+
+        try """
+        background = #111111
+        config-file = \(configFile.path)
+        foreground = #222222
+        """
+        .write(to: configFile, atomically: true, encoding: .utf8)
+
+        let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
+
+        XCTAssertEqual(loaded.backgroundColor.hexString(), "#111111")
+        XCTAssertEqual(loaded.foregroundColor.hexString(), "#222222")
+    }
+
     func testLoadAppliesThemeBeforeLaterCursorColorOverride() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
