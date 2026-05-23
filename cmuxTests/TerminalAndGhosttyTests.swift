@@ -4869,6 +4869,367 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
+    func testStableSocketLockFailureFallsBackToUserScopedSocket() {
+        XCTAssertEqual(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                stage: "lock",
+                errnoCode: EWOULDBLOCK,
+                currentUserID: 501
+            ),
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
+    func testStableSocketLockPreparationFailuresFallBackToUserScopedSocket() {
+        let failures: [(stage: String, errnoCode: Int32)] = [
+            ("create_lock_directory", EACCES),
+            ("open_lock", EACCES),
+            ("open_lock", ELOOP),
+            ("open_lock", EINVAL),
+            ("open_lock", EMLINK),
+        ]
+
+        for failure in failures {
+            XCTAssertEqual(
+                TerminalController.fallbackSocketPathAfterBindFailure(
+                    requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                    stage: failure.stage,
+                    errnoCode: failure.errnoCode,
+                    currentUserID: 501
+                ),
+                SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
+                failure.stage
+            )
+        }
+    }
+
+    func testStableSocketExistingPathFailuresFallBackToUserScopedSocket() {
+        let failures: [(stage: String, errnoCode: Int32)] = [
+            ("existing_path", EEXIST),
+            ("stat_existing_path", EACCES),
+        ]
+
+        for failure in failures {
+            XCTAssertEqual(
+                TerminalController.fallbackSocketPathAfterBindFailure(
+                    requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                    stage: failure.stage,
+                    errnoCode: failure.errnoCode,
+                    currentUserID: 501
+                ),
+                SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
+                failure.stage
+            )
+        }
+    }
+
+    func testSocketPathAcceptsConnectionsForLiveUnixSocket() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let handled = acceptSingleClient(on: listenerFD) { _ in }
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+        wait(for: [handled], timeout: 1.0)
+    }
+
+    func testSocketPathAcceptsConnectionsRejectsStaleSocketFile() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer { unlink(path) }
+
+        XCTAssertFalse(TerminalController.socketPathAcceptsConnections(path))
+    }
+
+    func testPrepareSocketPathForBindRejectsRegularFileWithoutDeletingIt() throws {
+        let path = makeTempSocketPath()
+        try "not-a-socket".write(toFile: path, atomically: true, encoding: .utf8)
+        defer { unlink(path) }
+
+        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
+
+        XCTAssertEqual(failure.stage, "existing_path")
+        XCTAssertEqual(failure.errnoCode, EEXIST)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+    }
+
+    func testPrepareSocketPathForBindRejectsLiveSocketWithoutDeletingIt() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let handled = acceptSingleClient(on: listenerFD) { _ in }
+        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
+
+        XCTAssertEqual(failure.stage, "bind")
+        XCTAssertEqual(failure.errnoCode, EADDRINUSE)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        wait(for: [handled], timeout: 1.0)
+    }
+
+    func testPrepareSocketPathForBindPreservesRefusedSocketFileWithoutPathLock() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer { unlink(path) }
+
+        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
+
+        XCTAssertEqual(failure.stage, "bind")
+        XCTAssertEqual(failure.errnoCode, EADDRINUSE)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+    }
+
+    func testPrepareSocketPathForBindRemovesRefusedSocketFileWithReusablePathLock() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer { unlink(path) }
+
+        XCTAssertNil(TerminalController.prepareSocketPathForBind(path, canReplaceRefusedSocket: true))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
+    @MainActor
+    func testStartPreservesRefusedSocketFileWhenLockHasNoReusableMarker() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
+        XCTAssertFalse(TerminalController.socketPathCanBeReclaimedForStartup(path))
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
+        XCTAssertFalse(TerminalController.socketPathAcceptsConnections(path))
+    }
+
+    @MainActor
+    func testStartReclaimsTaggedRefusedSocketFileWithoutReusableLockMarker() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = "/tmp/cmux-debug-reclaim-\(UUID().uuidString.lowercased()).sock"
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
+    }
+
+    @MainActor
+    func testStartReclaimsRefusedSocketFileWhenReusableLockExists() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = makeTempSocketPath()
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+
+        TerminalController.shared.stop()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+        XCTAssertTrue(TerminalController.socketPathCanBeReclaimedForStartup(path))
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+    }
+
+    @MainActor
+    func testStartRejectsSymlinkedSocketPathLockWithoutTouchingTarget() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = makeTempSocketPath()
+        let lockPath = path + ".lock"
+        let targetPath = path + ".target"
+        try "preserve me".write(toFile: targetPath, atomically: true, encoding: .utf8)
+        XCTAssertEqual(symlink(targetPath, lockPath), 0)
+        defer {
+            unlink(path)
+            unlink(lockPath)
+            unlink(targetPath)
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertEqual(
+            try String(contentsOfFile: targetPath, encoding: .utf8),
+            "preserve me"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
+    func testStartupReclaimabilityAllowsMissingSocketWithoutLock() {
+        let path = makeTempSocketPath()
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        XCTAssertTrue(TerminalController.socketPathCanBeReclaimedForStartup(path))
+    }
+
+    func testStartupReclaimabilityRejectsMissingSocketWithInvalidLock() throws {
+        let path = makeTempSocketPath()
+        let lockPath = path + ".lock"
+        let targetPath = path + ".target"
+        try "preserve me".write(toFile: targetPath, atomically: true, encoding: .utf8)
+        XCTAssertEqual(symlink(targetPath, lockPath), 0)
+        defer {
+            unlink(path)
+            unlink(lockPath)
+            unlink(targetPath)
+        }
+
+        XCTAssertFalse(TerminalController.socketPathCanBeReclaimedForStartup(path))
+        XCTAssertEqual(
+            try String(contentsOfFile: targetPath, encoding: .utf8),
+            "preserve me"
+        )
+    }
+
+    @MainActor
+    func testReservedStartupSocketPathFeedsActivePathBeforeListenerStarts() {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let reservedPath = "/tmp/cmux-reserved-startup-\(UUID().uuidString).sock"
+        defer {
+            unlink(reservedPath)
+            unlink(reservedPath + ".lock")
+        }
+        XCTAssertEqual(TerminalController.shared.reserveStartupSocketPath(reservedPath), reservedPath)
+
+        XCTAssertEqual(
+            TerminalController.shared.activeSocketPath(preferredPath: "/tmp/cmux-preferred.sock"),
+            reservedPath
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reservedPath + ".lock"))
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: TerminalController.shared.activeSocketPath(preferredPath: "/tmp/cmux-preferred.sock"),
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(reservedPath))
+    }
+
+    @MainActor
+    func testActiveSocketPathPreservesRunningFallbackPathForSettingsRestart() {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let fallbackPath = makeTempSocketPath()
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: fallbackPath,
+            accessMode: .cmuxOnly
+        )
+
+        let restartPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath
+        )
+        XCTAssertEqual(restartPath, fallbackPath)
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: restartPath,
+            accessMode: .allowAll
+        )
+
+        XCTAssertEqual(
+            TerminalController.shared.activeSocketPath(
+                preferredPath: SocketControlSettings.stableDefaultSocketPath
+            ),
+            fallbackPath
+        )
+    }
+
+    @MainActor
+    func testReserveStartupSocketPathDoesNotCreateLockWhileListenerRuns() {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let activePath = makeTempSocketPath()
+        let reservedPath = makeTempSocketPath()
+        defer {
+            unlink(activePath)
+            unlink(activePath + ".lock")
+            unlink(reservedPath)
+            unlink(reservedPath + ".lock")
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: activePath,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(activePath))
+
+        XCTAssertEqual(TerminalController.shared.reserveStartupSocketPath(reservedPath), reservedPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: reservedPath + ".lock"))
+        XCTAssertEqual(
+            TerminalController.shared.activeSocketPath(preferredPath: reservedPath),
+            activePath
+        )
+    }
+
     private func makeTempSocketPath() -> String {
         "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
     }

@@ -395,9 +395,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             missingFullyIdleNotificationCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Antigravity idle notifications without fullyIdle must publish instead of staying suppressed, saw \(missingFullyIdleNotificationCommands)"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             missingFullyIdleNotificationCommands.contains { $0.contains("set_status antigravity Idle") },
-            "Antigravity idle notifications without fullyIdle should mark idle, saw \(missingFullyIdleNotificationCommands)"
+            "Antigravity idle notifications must not reset the shared status while another background session is running, saw \(missingFullyIdleNotificationCommands)"
         )
 
         let stopMessage = "Antigravity finished updating docs"
@@ -858,6 +858,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(preAssistantGenericSession["lastNotificationStatus"] as? String, "idle")
 
         let assistantMessage = "**42.** That's the answer, according to Deep Thought."
+        let nextTurnPrompt = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"next turn"}"#
+        )
+        XCTAssertFalse(nextTurnPrompt.timedOut, nextTurnPrompt.stderr)
+        XCTAssertEqual(nextTurnPrompt.status, 0, nextTurnPrompt.stderr)
+        XCTAssertEqual(nextTurnPrompt.stdout, "{}\n")
+
         try writeGrokAssistantTranscript(
             grokHome: grokHome,
             cwd: root.path,
@@ -1311,10 +1319,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 },
                 "Expected Grok Stop fallback to notify for thread \(thread.index), saw \(stopCommands)"
             )
-            XCTAssertTrue(
-                stopCommands.contains { $0.contains("set_status grok Idle") },
-                "Expected Grok Stop for thread \(thread.index) to leave Grok idle, saw \(stopCommands)"
-            )
+            if thread.index == 1 {
+                XCTAssertFalse(
+                    stopCommands.contains { $0.contains("set_status grok Idle") },
+                    "First Grok thread must not reset shared status while thread 2 is still running, saw \(stopCommands)"
+                )
+            } else {
+                XCTAssertTrue(
+                    stopCommands.contains { $0.contains("set_status grok Idle") },
+                    "Expected final Grok Stop to leave Grok idle, saw \(stopCommands)"
+                )
+            }
         }
 
         for thread in threads {
@@ -1419,6 +1434,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             stopCommands.contains { $0.contains("set_status grok Idle") },
             "Expected Grok Stop without cwd to leave Grok idle, saw \(stopCommands)"
+        )
+
+        let duplicateCompletionCommandStart = state.commands.count
+        let duplicateCompletion = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","hookEventName":"Notification","message":"Turn complete in 1.0s."}"#
+        )
+        XCTAssertFalse(duplicateCompletion.timedOut, duplicateCompletion.stderr)
+        XCTAssertEqual(duplicateCompletion.status, 0, duplicateCompletion.stderr)
+        XCTAssertEqual(duplicateCompletion.stdout, "{}\n")
+
+        let duplicateCompletionCommands = Array(state.commands.dropFirst(duplicateCompletionCommandStart))
+        XCTAssertFalse(
+            duplicateCompletionCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Generic Grok completion after Stop fallback must not double-notify, saw \(duplicateCompletionCommands)"
         )
     }
 
@@ -1835,6 +1865,110 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(
             completionCommands.contains { $0.contains("set_status grok Idle") },
             "Completing Grok session must not reset the shared Grok status while a sibling session is running, saw \(completionCommands)"
+        )
+    }
+
+    func testGrokCompletionResetsStatusWhenSiblingRunningRecordHasDeadPID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("grok-stale-sibling-status")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-stale-sibling-status-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let staleSurfaceId = "22222222-2222-2222-2222-222222222222"
+        let completingSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let staleSessionId = "grok-stale-running"
+        let completingSessionId = "grok-session-completing"
+        let deadPID = 999_999
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let now = Date().timeIntervalSince1970
+        let storeURL = root.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
+        let storePayload: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                staleSessionId: [
+                    "sessionId": staleSessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": staleSurfaceId,
+                    "cwd": root.path,
+                    "pid": deadPID,
+                    "runtimeStatus": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let storeData = try JSONSerialization.data(withJSONObject: storePayload, options: [.prettyPrinted, .sortedKeys])
+        try storeData.write(to: storeURL)
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": completingSurfaceId,
+        ]
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            ["id": staleSurfaceId, "ref": "surface:1", "focused": false],
+                            ["id": completingSurfaceId, "ref": "surface:2", "focused": true],
+                        ],
+                    ]
+                )
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+        }
+        let completion = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "notification"],
+            environment: environment,
+            standardInput: #"{"sessionId":"\#(completingSessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 1.0s."}"#,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(completion.timedOut, completion.stderr)
+        XCTAssertEqual(completion.status, 0, completion.stderr)
+        XCTAssertEqual(completion.stdout, "{}\n")
+
+        XCTAssertTrue(
+            state.commands.contains { $0.contains("set_status grok Idle") },
+            "Dead PID running records must not keep the shared Grok status running, saw \(state.commands)"
+        )
+
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let staleSession = try XCTUnwrap(sessions[staleSessionId] as? [String: Any])
+        XCTAssertNil(
+            staleSession["runtimeStatus"],
+            "Dead PID running records should be cleared when they are ignored"
         )
     }
 
