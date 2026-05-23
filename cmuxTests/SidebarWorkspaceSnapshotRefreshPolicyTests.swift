@@ -348,12 +348,17 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
 
     func testCoordinatorPreservesHoverExitWhileMenuTrackingSuppressesCloseButton() {
         var state = SidebarWorkspaceRowInteractionState()
-        let binding = Binding<SidebarWorkspaceRowInteractionState>(
-            get: { state },
-            set: { state = $0 }
-        )
         let coordinator = SidebarWorkspaceRowHoverTracker.Coordinator(
-            rowInteractionState: binding
+            onPointerHoverChanged: { hovering in
+                state.setPointerHovering(hovering)
+            },
+            onMenuTrackingChanged: { tracking in
+                if tracking {
+                    state.contextMenuTrackingDidBegin()
+                } else {
+                    state.contextMenuTrackingDidEnd()
+                }
+            }
         )
 
         coordinator.menuTrackingChanged(true)
