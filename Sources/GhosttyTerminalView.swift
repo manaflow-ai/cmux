@@ -3100,8 +3100,14 @@ class GhosttyApp {
         effectiveTerminalColorScheme: GhosttyConfig.ColorSchemePreference,
         cmuxThemeValue: String?
     ) -> GhosttyConfig.ColorSchemePreference {
-        guard GhosttySurfaceConfigurationRefresh.isCmuxThemeReloadSource(source),
-              shouldResolveCmuxThemePairAgainstAppearance(cmuxThemeValue) == false else {
+        guard GhosttySurfaceConfigurationRefresh.isCmuxThemeReloadSource(source) else {
+            return requestedColorScheme
+        }
+        guard let cmuxThemeValue,
+              !cmuxThemeValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return requestedColorScheme
+        }
+        guard !shouldResolveCmuxThemePairAgainstAppearance(cmuxThemeValue) else {
             return requestedColorScheme
         }
 
