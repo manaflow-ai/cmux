@@ -120,7 +120,7 @@ jobs:
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           XCODEBUILD_TEST_TIMEOUT_SECONDS="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-1200}"
           run_in_new_session() {
-            /usr/bin/perl -MPOSIX=setsid -e 'setsid() or die "setsid: $!"; exec @ARGV or die "exec: $!"' -- "$@"
+            exec /usr/bin/perl -MPOSIX=setsid -e 'setsid() or die "setsid: $!"; exec @ARGV or die "exec: $!"' -- "$@"
           }
           process_group_has_members() {
             ps -axo pid=,pgid= | awk -v pgid="$1" '$2 == pgid { found=1 } END { exit found ? 0 : 1 }'

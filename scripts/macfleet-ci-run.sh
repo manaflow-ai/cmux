@@ -39,7 +39,7 @@ log() {
 
 run_in_new_session() {
   # macOS does not ship setsid(1), so use Perl's POSIX wrapper.
-  /usr/bin/perl -MPOSIX=setsid -e 'setsid() or die "setsid: $!"; exec @ARGV or die "exec: $!"' -- "$@"
+  exec /usr/bin/perl -MPOSIX=setsid -e 'setsid() or die "setsid: $!"; exec @ARGV or die "exec: $!"' -- "$@"
 }
 
 process_group_pids() {
