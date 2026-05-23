@@ -336,13 +336,35 @@ cmuxd_needs_build() {
   local output="$1"
   [[ -x "$output" ]] || return 0
 
-  local newer_source=""
-  newer_source="$(
-    find "$PWD/cmuxd" \
-      \( -path "$PWD/cmuxd/.zig-cache" -o -path "$PWD/cmuxd/zig-out" \) -prune \
-      -o \( -name '*.zig' -o -name 'build.zig.zon' \) -newer "$output" -print -quit 2>/dev/null
-  )"
-  [[ -n "$newer_source" ]]
+  local stamp
+  stamp="$(cmuxd_source_stamp_path "$output")"
+  [[ -f "$stamp" ]] || return 0
+  ! cmp -s "$stamp" <(cmuxd_source_manifest)
+}
+
+cmuxd_source_stamp_path() {
+  local output="$1"
+  echo "${output}.sources.stamp"
+}
+
+cmuxd_source_manifest() {
+  find "$PWD/cmuxd" \
+    \( -path "$PWD/cmuxd/.zig-cache" -o -path "$PWD/cmuxd/zig-out" \) -prune \
+    -o \( -name '*.zig' -o -name 'build.zig.zon' \) -type f -print0 2>/dev/null \
+    | sort -z \
+    | while IFS= read -r -d '' source_path; do
+        local hash
+        hash="$(/usr/bin/shasum -a 256 "$source_path" | /usr/bin/awk '{print $1}')"
+        printf '%s	%s\n' "$source_path" "$hash"
+      done
+}
+
+write_cmuxd_source_stamp() {
+  local output="$1"
+  local stamp
+  stamp="$(cmuxd_source_stamp_path "$output")"
+  mkdir -p "$(dirname "$stamp")"
+  cmuxd_source_manifest > "$stamp"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -707,6 +729,7 @@ CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 if [[ -d "$PWD/cmuxd" ]]; then
   if cmuxd_needs_build "$CMUXD_SRC"; then
     (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
+    write_cmuxd_source_stamp "$CMUXD_SRC"
   else
     echo "Skipping cmuxd zig build (up to date)"
   fi
