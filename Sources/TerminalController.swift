@@ -19,6 +19,63 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let authenticated: Bool
 }
 
+nonisolated private struct RemotePTYSocketTarget {
+    let controller: WorkspaceRemoteSessionController?
+    let windowId: UUID?
+    let windowRef: Any
+    let workspaceId: UUID
+    let workspaceRef: Any
+    let workspaceTitle: String
+}
+
+nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) -> Bool {
+    let nsError = error as NSError
+    guard nsError.domain == "cmux.remote.daemon.rpc", nsError.code == 14 else {
+        return false
+    }
+    return error.localizedDescription
+        .range(of: "pty.list failed (method_not_found)", options: [.caseInsensitive]) != nil
+}
+
+nonisolated private func v2RemotePTYUserFacingErrorMessage(_ error: Error) -> String {
+    v2RemotePTYUserFacingErrorMessage(error.localizedDescription)
+}
+
+nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) -> String {
+    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "remote PTY operation failed" }
+    let lowered = trimmed.lowercased()
+    if lowered.contains("missing required capability") ||
+        lowered.contains("pty.session") ||
+        lowered.contains("method_not_found") {
+        return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+    }
+    if lowered.contains("pty_session_not_found") ||
+        (lowered.contains("persistent ssh pty session") && lowered.contains("not running")) ||
+        (lowered.contains("persistent pty session") && lowered.contains("not running")) {
+        return "persistent SSH PTY session is no longer running"
+    }
+    if lowered.contains("pty_input_queue_full") || lowered.contains("pty input queue is full") {
+        return "remote PTY input is temporarily backed up"
+    }
+    if lowered.contains("remote connection is not active") {
+        return "remote connection is not active"
+    }
+    if lowered.contains("remote daemon is not ready") || lowered.contains("remote daemon tunnel is not ready") {
+        return "remote daemon is not ready"
+    }
+    if lowered.contains("missing workspace_id in ssh pty session list response") {
+        return "missing workspace_id in SSH PTY session list response"
+    }
+    if lowered.contains("missing session_id in ssh pty session list response") {
+        return "missing session_id in SSH PTY session list response"
+    }
+    if lowered.contains("timed out") || lowered.contains("timeout") {
+        return "remote daemon did not respond in time"
+    }
+    return "remote PTY operation failed"
+}
+
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -57,7 +114,10 @@ class TerminalController {
     private nonisolated(unsafe) var activeAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var nextAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var pendingAcceptLoopRearmGeneration: UInt64?
+    private nonisolated(unsafe) var reservedStartupSocketPath: String?
+    private nonisolated(unsafe) var reservedStartupSocketPathCanReplaceRefusedSocket = false
     private nonisolated(unsafe) var listenerStartInProgress = false
+    private nonisolated(unsafe) var socketPathLockFD: Int32 = -1
     private nonisolated let listenerStateLock = NSLock()
     private nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
     private nonisolated(unsafe) var listenerReadSource: DispatchSourceRead?
@@ -65,6 +125,8 @@ class TerminalController {
     private nonisolated(unsafe) var socketPathMonitorSource: DispatchSourceFileSystemObject?
     private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
+    private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
+    private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     private var tabManager: TabManager?
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
     private nonisolated let myPid = getpid()
@@ -77,6 +139,8 @@ class TerminalController {
     private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
+    private nonisolated static let socketPathLockSuffix = ".lock"
+    private nonisolated static let socketPathLockReusableMarker = "cmux-socket-lock-v1\n"
     private nonisolated static let socketClientReadTimeout: TimeInterval = 30
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
@@ -135,7 +199,9 @@ class TerminalController {
         let acceptLoopAlive: Bool
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
+        let reservedStartupSocketPath: String?
         let listenerStartInProgress: Bool
+        let socketPathLockHeld: Bool
     }
 
     enum AcceptFailureRecoveryAction: Equatable {
@@ -320,15 +386,86 @@ class TerminalController {
                 acceptLoopAlive: acceptLoopAlive,
                 activeGeneration: activeAcceptLoopGeneration,
                 pendingRearmGeneration: pendingAcceptLoopRearmGeneration,
-                listenerStartInProgress: listenerStartInProgress
+                reservedStartupSocketPath: reservedStartupSocketPath,
+                listenerStartInProgress: listenerStartInProgress,
+                socketPathLockHeld: socketPathLockFD >= 0
             )
         }
     }
 
+    private nonisolated func canReserveStartupSocketPathLocked() -> Bool {
+        !isRunning &&
+            !acceptLoopAlive &&
+            !listenerStartInProgress &&
+            pendingAcceptLoopRearmGeneration == nil &&
+            socketPathLockFD < 0 &&
+            listenerReadSource == nil &&
+            socketPathMonitorSource == nil &&
+            serverSocket < 0
+    }
+
+    @discardableResult
+    nonisolated func reserveStartupSocketPath(_ path: String) -> String {
+        guard withListenerState({ canReserveStartupSocketPathLocked() }) else {
+            return path
+        }
+
+        var reservationPath = path
+        var reservationLockFD: Int32 = -1
+        var reservationCanReplaceRefusedSocket = false
+        let primaryLock = Self.acquireSocketPathLock(for: path)
+        if let fd = primaryLock.fd {
+            reservationLockFD = fd
+            reservationCanReplaceRefusedSocket = primaryLock.canReplaceRefusedSocket
+        } else if let failure = primaryLock.failure,
+                  let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
+                      requestedPath: path,
+                      stage: failure.stage,
+                      errnoCode: failure.errnoCode
+                  ),
+                  fallbackPath != path {
+            reservationPath = fallbackPath
+            let fallbackLock = Self.acquireSocketPathLock(for: fallbackPath)
+            if let fd = fallbackLock.fd {
+                reservationLockFD = fd
+                reservationCanReplaceRefusedSocket = fallbackLock.canReplaceRefusedSocket
+            }
+        }
+
+        guard reservationLockFD >= 0 else {
+            return path
+        }
+
+        var didReserve = false
+        withListenerState {
+            guard canReserveStartupSocketPathLocked() else {
+                return
+            }
+            socketPath = reservationPath
+            reservedStartupSocketPath = reservationPath
+            reservedStartupSocketPathCanReplaceRefusedSocket = reservationCanReplaceRefusedSocket
+            socketPathLockFD = reservationLockFD
+            didReserve = true
+        }
+        if didReserve {
+            return reservationPath
+        }
+        Self.releaseSocketPathLock(reservationLockFD)
+        return path
+    }
+
     nonisolated func activeSocketPath(preferredPath: String) -> String {
         let snapshot = listenerStateSnapshot()
-        if snapshot.isRunning || snapshot.acceptLoopAlive || snapshot.listenerStartInProgress || snapshot.serverSocket >= 0 {
+        if snapshot.isRunning
+            || snapshot.acceptLoopAlive
+            || snapshot.listenerStartInProgress
+            || snapshot.pendingRearmGeneration != nil
+            || snapshot.socketPathLockHeld
+            || snapshot.serverSocket >= 0 {
             return snapshot.socketPath
+        }
+        if let reservedStartupSocketPath = snapshot.reservedStartupSocketPath {
+            return reservedStartupSocketPath
         }
         return preferredPath
     }
@@ -1066,12 +1203,146 @@ class TerminalController {
             errnoCode != EBADF
     }
 
-    private nonisolated static func bindListenerSocket(_ socket: Int32, path: String) -> SocketBindAttemptResult {
+    private nonisolated static func socketPathLockPath(for socketPath: String) -> String {
+        socketPath + socketPathLockSuffix
+    }
+
+    private nonisolated static func acquireSocketPathLock(
+        for socketPath: String
+    ) -> (fd: Int32?, canReplaceRefusedSocket: Bool, failure: (stage: String, errnoCode: Int32)?) {
+        if let errnoCode = ensureSocketParentDirectoryExists(path: socketPath) {
+            return (nil, false, (stage: "create_lock_directory", errnoCode: errnoCode))
+        }
+
+        let lockPath = socketPathLockPath(for: socketPath)
+        var fd: Int32 = -1
+        var lastErrno: Int32 = EIO
+        for _ in 0..<3 {
+            fd = open(lockPath, O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+            if fd >= 0 {
+                break
+            }
+
+            let createErrno = errno
+            guard createErrno == EEXIST else {
+                return (nil, false, (stage: "open_lock", errnoCode: createErrno))
+            }
+
+            fd = open(lockPath, O_RDWR | O_NOFOLLOW)
+            if fd >= 0 {
+                break
+            }
+
+            lastErrno = errno
+            guard lastErrno == ENOENT else {
+                return (nil, false, (stage: "open_lock", errnoCode: lastErrno))
+            }
+        }
+        guard fd >= 0 else {
+            return (nil, false, (stage: "open_lock", errnoCode: lastErrno))
+        }
+        if let errnoCode = validateSocketPathLockFile(fd) {
+            close(fd)
+            return (nil, false, (stage: "open_lock", errnoCode: errnoCode))
+        }
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            let errnoCode = errno
+            close(fd)
+            return (nil, false, (stage: "lock", errnoCode: errnoCode))
+        }
+        return (
+            fd,
+            socketPathLockHasReusableMarker(fd) || canReplaceUnmarkedRefusedSocket(at: socketPath),
+            nil
+        )
+    }
+
+    private nonisolated static func validateSocketPathLockFile(_ fd: Int32) -> Int32? {
+        var st = stat()
+        guard fstat(fd, &st) == 0 else {
+            return errno
+        }
+        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+            return EINVAL
+        }
+        guard st.st_uid == getuid() else {
+            return EACCES
+        }
+        guard st.st_nlink == 1 else {
+            return EMLINK
+        }
+        return nil
+    }
+
+    private nonisolated static func socketPathLockHasReusableMarker(_ fd: Int32) -> Bool {
+        let marker = Array(socketPathLockReusableMarker.utf8)
+        var buffer = [UInt8](repeating: 0, count: marker.count)
+        let readCount = buffer.withUnsafeMutableBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                return ssize_t(-1)
+            }
+            return pread(fd, baseAddress, rawBuffer.count, 0)
+        }
+        return readCount == ssize_t(marker.count) && buffer == marker
+    }
+
+    private nonisolated static func canReplaceUnmarkedRefusedSocket(at path: String) -> Bool {
+        let filename = URL(fileURLWithPath: (path as NSString).standardizingPath)
+            .lastPathComponent
+            .lowercased()
+        let recoverablePrefixes = ["cmux-debug-", "cmux-nightly-", "cmux-staging-"]
+        return filename == "cmux-debug.sock" ||
+            filename == "cmux-nightly.sock" ||
+            filename == "cmux-staging.sock" ||
+            recoverablePrefixes.contains { prefix in
+                filename.hasPrefix(prefix) && filename.hasSuffix(".sock")
+            }
+    }
+
+    private nonisolated static func markSocketPathLockReusable(_ fd: Int32) {
+        guard fd >= 0 else { return }
+        let marker = Array(socketPathLockReusableMarker.utf8)
+        guard ftruncate(fd, 0) == 0 else { return }
+        guard lseek(fd, 0, SEEK_SET) >= 0 else { return }
+
+        var written = 0
+        while written < marker.count {
+            let result = marker.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else {
+                    return ssize_t(-1)
+                }
+                return write(fd, baseAddress.advanced(by: written), marker.count - written)
+            }
+            guard result > 0 else { return }
+            written += Int(result)
+        }
+    }
+
+    private nonisolated static func releaseSocketPathLock(_ fd: Int32) {
+        guard fd >= 0 else { return }
+        _ = flock(fd, LOCK_UN)
+        close(fd)
+    }
+
+    private nonisolated static func bindListenerSocket(
+        _ socket: Int32,
+        path: String,
+        canReplaceRefusedSocket: Bool
+    ) -> SocketBindAttemptResult {
         if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
             return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
         }
-        if unlink(path) != 0, errno != ENOENT {
-            return .failure(path: path, stage: "unlink", errnoCode: errno)
+        if let preparationFailure = prepareSocketPathForBind(
+            path,
+            canReplaceRefusedSocket: canReplaceRefusedSocket
+        ) {
+            return .failure(
+                path: path,
+                stage: preparationFailure.stage,
+                errnoCode: preparationFailure.errnoCode
+            )
         }
 
         guard let bindResult = bindUnixSocket(socket, path: path) else {
@@ -1089,6 +1360,136 @@ class TerminalController {
             stage: "stat_bound_path",
             errnoCode: identityResult.errnoCode ?? EIO
         )
+    }
+
+    nonisolated static func prepareSocketPathForBind(
+        _ path: String,
+        canReplaceRefusedSocket: Bool = false
+    ) -> (stage: String, errnoCode: Int32)? {
+        var st = stat()
+        guard lstat(path, &st) == 0 else {
+            return errno == ENOENT ? nil : ("stat_existing_path", errno)
+        }
+        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
+            return ("existing_path", EEXIST)
+        }
+        switch socketPathProbeResult(path) {
+        case .stale:
+            break
+        case .refused:
+            guard canReplaceRefusedSocket else {
+                return ("bind", EADDRINUSE)
+            }
+        case .connected, .occupiedOrIndeterminate:
+            return ("bind", EADDRINUSE)
+        }
+        if unlink(path) != 0, errno != ENOENT {
+            return ("unlink", errno)
+        }
+        return nil
+    }
+
+    nonisolated static func socketPathCanBeReclaimedForStartup(_ path: String) -> Bool {
+        var st = stat()
+        guard lstat(path, &st) == 0 else {
+            return errno == ENOENT
+                && socketPathHasAvailableLock(path, requireReusableMarker: false, treatMissingLockAsAvailable: true)
+        }
+        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
+            return false
+        }
+        return socketPathHasAvailableLock(path, requireReusableMarker: true, treatMissingLockAsAvailable: false)
+    }
+
+    private nonisolated static func socketPathHasAvailableLock(
+        _ path: String,
+        requireReusableMarker: Bool,
+        treatMissingLockAsAvailable: Bool
+    ) -> Bool {
+        let lockPath = socketPathLockPath(for: path)
+        let fd = open(lockPath, O_RDWR | O_NOFOLLOW)
+        guard fd >= 0 else {
+            return treatMissingLockAsAvailable && errno == ENOENT
+        }
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+
+        guard validateSocketPathLockFile(fd) == nil else {
+            close(fd)
+            return false
+        }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
+            return false
+        }
+        defer {
+            Self.releaseSocketPathLock(fd)
+        }
+        if requireReusableMarker {
+            return socketPathLockHasReusableMarker(fd)
+        }
+        return true
+    }
+
+    private nonisolated func bindListenerSocketOnListenerQueue(
+        _ socket: Int32,
+        path: String,
+        canReplaceRefusedSocket: Bool
+    ) -> SocketBindAttemptResult {
+        socketListenerQueue.sync {
+            Self.bindListenerSocket(
+                socket,
+                path: path,
+                canReplaceRefusedSocket: canReplaceRefusedSocket
+            )
+        }
+    }
+
+    private enum SocketPathProbeResult {
+        case connected
+        case refused
+        case occupiedOrIndeterminate
+        case stale
+    }
+
+    nonisolated static func socketPathAcceptsConnections(_ path: String) -> Bool {
+        socketPathProbeResult(path) == .connected
+    }
+
+    private nonisolated static func socketPathProbeResult(_ path: String) -> SocketPathProbeResult {
+        let identityResult = socketPathIdentityResult(at: path)
+        guard identityResult.identity != nil else {
+            return identityResult.errnoCode == ENOENT ? .stale : .occupiedOrIndeterminate
+        }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return .occupiedOrIndeterminate }
+        defer { close(fd) }
+
+        let originalFlags = fcntl(fd, F_GETFL, 0)
+        guard originalFlags >= 0 else { return .occupiedOrIndeterminate }
+        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else {
+            return .occupiedOrIndeterminate
+        }
+        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
+
+        guard var addr = unixSocketAddress(path: path) else { return .occupiedOrIndeterminate }
+        let result = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        if result == 0 { return .connected }
+
+        let connectErrno = errno
+        switch connectErrno {
+        case ECONNREFUSED:
+            return .refused
+        case ENOENT:
+            return .stale
+        default:
+            // Preserve anything not definitively stale. This keeps bind prep nonblocking
+            // without ever unlinking a socket that might still have a live listener.
+            return .occupiedOrIndeterminate
+        }
     }
 
     private nonisolated static func ensureSocketParentDirectoryExists(path: String) -> Int32? {
@@ -1121,6 +1522,10 @@ class TerminalController {
         switch stage {
         case "unlink" where errnoCode == EACCES || errnoCode == EPERM:
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        case "create_lock_directory", "open_lock", "lock":
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        case "existing_path", "stat_existing_path":
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         default:
@@ -1140,30 +1545,69 @@ class TerminalController {
         let existing = withListenerState {
             (
                 isRunning: isRunning,
-                socketPath: self.socketPath
+                socketPath: self.socketPath,
+                reservedStartupSocketPath: reservedStartupSocketPath,
+                socketPathLockHeld: socketPathLockFD >= 0,
+                hasRetainedInactiveListenerState: !isRunning && (
+                    pendingAcceptLoopRearmGeneration != nil ||
+                        socketPathLockFD >= 0 ||
+                        acceptLoopAlive ||
+                        serverSocket >= 0 ||
+                        listenerReadSource != nil ||
+                        socketPathMonitorSource != nil
+                )
             )
         }
 
-        if existing.isRunning && existing.socketPath == socketPath {
+        if existing.isRunning && SocketControlSettings.pathsMatch(existing.socketPath, socketPath) {
             self.accessMode = accessMode
             applySocketPermissions()
             return
         }
 
-        if existing.isRunning {
+        let canConsumeReservedStartupLock = !existing.isRunning
+            && existing.socketPathLockHeld
+            && existing.reservedStartupSocketPath.map { SocketControlSettings.pathsMatch($0, socketPath) } == true
+        if existing.isRunning || (existing.hasRetainedInactiveListenerState && !canConsumeReservedStartupLock) {
             stop()
         }
 
         var activeSocketPath = socketPath
+        var activeSocketPathLockFD: Int32 = -1
+        var activeSocketPathCanReplaceRefusedSocket = false
+        var activeBoundSocketPathIdentity: SocketPathIdentity?
         withListenerState {
+            if socketPathLockFD >= 0,
+               reservedStartupSocketPath.map({ SocketControlSettings.pathsMatch($0, activeSocketPath) }) == true,
+               !isRunning,
+               !acceptLoopAlive,
+               serverSocket < 0 {
+                activeSocketPathLockFD = socketPathLockFD
+                activeSocketPathCanReplaceRefusedSocket = reservedStartupSocketPathCanReplaceRefusedSocket
+                socketPathLockFD = -1
+            }
             self.socketPath = activeSocketPath
             boundSocketPathIdentity = nil
+            reservedStartupSocketPath = nil
+            reservedStartupSocketPathCanReplaceRefusedSocket = false
             listenerStartInProgress = true
         }
         var listenerActivated = false
         defer {
             if !listenerActivated {
+                if let activeBoundSocketPathIdentity,
+                   Self.shouldUnlinkSocketPathAfterListenerStop(
+                       currentIdentity: Self.socketPathIdentity(at: activeSocketPath),
+                       boundIdentity: activeBoundSocketPathIdentity
+                   ) {
+                    unlink(activeSocketPath)
+                }
+                Self.releaseSocketPathLock(activeSocketPathLockFD)
+                activeSocketPathLockFD = -1
                 withListenerState {
+                    if boundSocketPathIdentity == activeBoundSocketPathIdentity {
+                        boundSocketPathIdentity = nil
+                    }
                     listenerStartInProgress = false
                 }
             }
@@ -1182,7 +1626,26 @@ class TerminalController {
             return
         }
 
-        var bindAttempt = Self.bindListenerSocket(newServerSocket, path: activeSocketPath)
+        func acquireActiveSocketPathLock() -> SocketBindAttemptResult? {
+            if activeSocketPathLockFD >= 0 {
+                return nil
+            }
+            let lock = Self.acquireSocketPathLock(for: activeSocketPath)
+            if let fd = lock.fd {
+                activeSocketPathLockFD = fd
+                activeSocketPathCanReplaceRefusedSocket = lock.canReplaceRefusedSocket
+                return nil
+            }
+            let failure = lock.failure ?? (stage: "lock", errnoCode: EIO)
+            return .failure(path: activeSocketPath, stage: failure.stage, errnoCode: failure.errnoCode)
+        }
+
+        var bindAttempt = acquireActiveSocketPathLock()
+            ?? bindListenerSocketOnListenerQueue(
+                newServerSocket,
+                path: activeSocketPath,
+                canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
+            )
         if case .failure(let failedPath, let failedStage, let failedErrnoCode) = bindAttempt,
            let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
                requestedPath: failedPath,
@@ -1200,16 +1663,25 @@ class TerminalController {
                     "errno": Int(failedErrnoCode)
                 ]
             )
+            Self.releaseSocketPathLock(activeSocketPathLockFD)
+            activeSocketPathLockFD = -1
+            activeSocketPathCanReplaceRefusedSocket = false
             activeSocketPath = fallbackPath
             withListenerState {
                 self.socketPath = activeSocketPath
             }
-            bindAttempt = Self.bindListenerSocket(newServerSocket, path: activeSocketPath)
+            bindAttempt = acquireActiveSocketPathLock()
+                ?? bindListenerSocketOnListenerQueue(
+                    newServerSocket,
+                    path: activeSocketPath,
+                    canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
+                )
         }
 
         switch bindAttempt {
         case .success(let boundPath, let identity):
             activeSocketPath = boundPath
+            activeBoundSocketPathIdentity = identity
             withListenerState {
                 self.socketPath = activeSocketPath
                 boundSocketPathIdentity = identity
@@ -1265,8 +1737,11 @@ class TerminalController {
             return
         }
 
+        Self.markSocketPathLockReusable(activeSocketPathLockFD)
         SocketControlSettings.recordLastSocketPath(activeSocketPath)
 
+        var displacedSocketPathLockFD: Int32 = -1
+        let transferredSocketPathLockFD = activeSocketPathLockFD
         let generation = withListenerState {
             isRunning = true
             pendingAcceptLoopRearmGeneration = nil
@@ -1277,9 +1752,15 @@ class TerminalController {
             let generation = nextAcceptLoopGeneration
             activeAcceptLoopGeneration = generation
             serverSocket = newServerSocket
+            displacedSocketPathLockFD = socketPathLockFD
+            socketPathLockFD = activeSocketPathLockFD
             listenerStartInProgress = false
             return generation
         }
+        if displacedSocketPathLockFD >= 0, displacedSocketPathLockFD != transferredSocketPathLockFD {
+            Self.releaseSocketPathLock(displacedSocketPathLockFD)
+        }
+        activeSocketPathLockFD = -1
         listenerActivated = true
         let listenerSocket = newServerSocket
         print("TerminalController: Listening on \(activeSocketPath)")
@@ -1551,11 +2032,14 @@ class TerminalController {
             socketToShutdown,
             socketToClose,
             socketPathToUnlink,
-            boundSocketPathIdentityToUnlink
+            boundSocketPathIdentityToUnlink,
+            socketPathLockFDToClose
         ) = withListenerState {
             isRunning = false
             acceptLoopAlive = false
             pendingAcceptLoopRearmGeneration = nil
+            reservedStartupSocketPath = nil
+            reservedStartupSocketPathCanReplaceRefusedSocket = false
             listenerStartInProgress = false
             nextAcceptLoopGeneration &+= 1
             activeAcceptLoopGeneration = 0
@@ -1569,6 +2053,8 @@ class TerminalController {
             serverSocket = -1
             let identity = boundSocketPathIdentity
             boundSocketPathIdentity = nil
+            let lockFD = socketPathLockFD
+            socketPathLockFD = -1
             return (
                 sourceToCancel,
                 sourceWasSuspended,
@@ -1576,7 +2062,8 @@ class TerminalController {
                 socketToClose,
                 sourceToCancel == nil ? socketToClose : Int32(-1),
                 socketPath,
-                identity
+                identity,
+                lockFD
             )
         }
         if socketToShutdown >= 0 {
@@ -1596,6 +2083,7 @@ class TerminalController {
         ) {
             unlink(socketPathToUnlink)
         }
+        Self.releaseSocketPathLock(socketPathLockFDToClose)
     }
 
     private nonisolated func unlinkSocketPathIfListenerStillInactive(_ path: String) {
@@ -1783,6 +2271,11 @@ class TerminalController {
         "note.delete",
         "system.top",
         "system.memory",
+        "workspace.remote.pty_sessions",
+        "workspace.remote.pty_close",
+        "workspace.remote.pty_detach",
+        "workspace.remote.pty_bridge",
+        "workspace.remote.pty_resize",
     ]
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
@@ -1910,6 +2403,16 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "workspace.remote.pty_sessions":
+            return v2Result(id: request.id, v2WorkspaceRemotePTYSessions(params: request.params))
+        case "workspace.remote.pty_close":
+            return v2Result(id: request.id, v2WorkspaceRemotePTYClose(params: request.params))
+        case "workspace.remote.pty_detach":
+            return v2Result(id: request.id, v2WorkspaceRemotePTYDetach(params: request.params))
+        case "workspace.remote.pty_bridge":
+            return v2Result(id: request.id, v2WorkspaceRemotePTYBridge(params: request.params))
+        case "workspace.remote.pty_resize":
+            return v2Result(id: request.id, v2WorkspaceRemotePTYResize(params: request.params))
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         default:
@@ -2897,6 +3400,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRename(params: params))
         case "workspace.action":
             return v2Result(id: id, self.v2WorkspaceAction(params: params))
+        case "extension.sidebar.snapshot":
+            return v2Result(id: id, self.v2ExtensionSidebarSnapshot(params: params))
         case "workspace.next":
             return v2Result(id: id, self.v2WorkspaceNext(params: params))
         case "workspace.previous":
@@ -2915,6 +3420,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRemoteDisconnect(params: params))
         case "workspace.remote.status":
             return v2Result(id: id, self.v2WorkspaceRemoteStatus(params: params))
+        case "workspace.remote.pty_attach_end":
+            return v2Result(id: id, self.v2WorkspaceRemotePTYAttachEnd(params: params))
         case "workspace.remote.terminal_session_end":
             return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
         case "session.restore_previous":
@@ -3328,6 +3835,7 @@ class TerminalController {
             "workspace.prompt_submit",
             "workspace.rename",
             "workspace.action",
+            "extension.sidebar.snapshot",
             "workspace.next",
             "workspace.previous",
             "workspace.last",
@@ -3337,6 +3845,12 @@ class TerminalController {
             "workspace.remote.reconnect",
             "workspace.remote.disconnect",
             "workspace.remote.status",
+            "workspace.remote.pty_sessions",
+            "workspace.remote.pty_close",
+            "workspace.remote.pty_detach",
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_resize",
+            "workspace.remote.pty_attach_end",
             "workspace.remote.terminal_session_end",
             "session.restore_previous",
             "settings.open",
@@ -4843,7 +5357,10 @@ class TerminalController {
             "listening_ports": workspace.listeningPorts,
             "remote": workspace.remoteStatusPayload(),
             "current_directory": v2OrNull(workspace.currentDirectory),
-            "custom_color": v2OrNull(workspace.customColor)
+            "custom_color": v2OrNull(workspace.customColor),
+            "latest_conversation_message": v2OrNull(workspace.latestConversationMessage),
+            "latest_submitted_message": v2OrNull(workspace.latestSubmittedMessage),
+            "latest_submitted_at": v2OrNull(workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp))
         ]
         if let index {
             payload["index"] = index
@@ -4874,6 +5391,94 @@ class TerminalController {
             "workspaces": workspaces
         ])
     }
+
+    private func v2ExtensionSidebarSnapshot(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let snapshot = v2MainSync {
+            let sequence = max(0, CmuxEventBus.shared.latestSequence)
+            let selectedWorkspaceId = tabManager.selectedTabId
+            let workspaces = tabManager.tabs.enumerated().map { index, workspace in
+                v2ExtensionSidebarWorkspacePayload(
+                    workspace: workspace,
+                    index: index,
+                    selected: workspace.id == tabManager.selectedTabId,
+                    rootPath: v2ExtensionSidebarRootPath(for: workspace),
+                    projectRootPath: workspace.extensionSidebarProjectRootPath
+                )
+            }
+            return (
+                sequence: sequence,
+                windowId: AppDelegate.shared?.windowId(for: tabManager),
+                selectedWorkspaceId: selectedWorkspaceId,
+                workspaces: workspaces
+            )
+        }
+
+        return .ok([
+            "seq": snapshot.sequence,
+            "sequence": snapshot.sequence,
+            "window_id": v2OrNull(snapshot.windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: snapshot.windowId),
+            "selected_workspace_id": v2OrNull(snapshot.selectedWorkspaceId?.uuidString),
+            "selected_workspace_ref": v2Ref(kind: .workspace, uuid: snapshot.selectedWorkspaceId),
+            "workspaces": snapshot.workspaces
+        ])
+    }
+
+    @MainActor
+    private func v2ExtensionSidebarWorkspacePayload(
+        workspace: Workspace,
+        index: Int,
+        selected: Bool,
+        rootPath: String?,
+        projectRootPath: String?
+    ) -> [String: Any] {
+        let latestNotificationText = TerminalNotificationStore.shared.latestNotification(forTabId: workspace.id).flatMap {
+            let text = $0.body.isEmpty ? $0.title : $0.body
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return [
+            "id": workspace.id.uuidString,
+            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "index": index,
+            "title": workspace.title,
+            "description": v2OrNull(workspace.customDescription),
+            "selected": selected,
+            "pinned": workspace.isPinned,
+            "root_path": v2OrNull(rootPath),
+            "project_root_path": v2OrNull(projectRootPath),
+            "branch_summary": v2OrNull(workspace.gitBranch?.branch),
+            "remote_display_target": v2OrNull(workspace.remoteDisplayTarget),
+            "remote_connection_state": workspace.remoteConnectionState.rawValue,
+            "remote": workspace.remoteStatusPayload(),
+            "current_directory": v2OrNull(workspace.currentDirectory),
+            "custom_color": v2OrNull(workspace.customColor),
+            "unread_count": TerminalNotificationStore.shared.unreadCount(forTabId: workspace.id),
+            "latest_notification_text": v2OrNull(latestNotificationText),
+            "latest_conversation_message": v2OrNull(workspace.latestConversationMessage),
+            "latest_submitted_message": v2OrNull(workspace.latestSubmittedMessage),
+            "latest_submitted_at": v2OrNull(workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp)),
+            "listening_ports": workspace.listeningPorts,
+            "pull_request_urls": workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString },
+            "panel_directories": workspace.sidebarDirectoriesInDisplayOrder(),
+            "git_branches": workspace.sidebarGitBranchesInDisplayOrder().map { branch in
+                [
+                    "branch": branch.branch,
+                    "dirty": branch.isDirty
+                ] as [String: Any]
+            }
+        ]
+    }
+
+    private func v2ExtensionSidebarRootPath(for workspace: Workspace) -> String? {
+        let trimmed = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private func v2WorkspaceCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -4923,6 +5528,7 @@ class TerminalController {
         }
 
         var newId: UUID?
+        var initialSurfaceId: UUID?
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
         v2MainSync {
             let ws = tabManager.addWorkspace(
@@ -4938,6 +5544,7 @@ class TerminalController {
                 ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
             }
             newId = ws.id
+            initialSurfaceId = ws.focusedPanelId
         }
 
         guard let newId else {
@@ -4948,7 +5555,9 @@ class TerminalController {
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": newId.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: newId)
+            "workspace_ref": v2Ref(kind: .workspace, uuid: newId),
+            "surface_id": v2OrNull(initialSurfaceId?.uuidString),
+            "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
         ])
     }
     private func v2WorkspaceSelect(params: [String: Any]) -> V2CallResult {
@@ -5385,9 +5994,7 @@ class TerminalController {
                 message: message,
                 iMessageModeEnabled: iMessageModeEnabled
             )
-            if iMessageModeEnabled {
-                preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestConversationMessage
-            }
+            preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestSubmittedMessage
         }
 
         guard let outcome else {
@@ -5682,6 +6289,15 @@ class TerminalController {
         } else {
             daemonWebSocketEndpoint = nil
         }
+        let preserveAfterTerminalExit = v2Bool(params, "preserve_after_terminal_exit") ?? false
+        if v2HasNonNullParam(params, "preserve_after_terminal_exit"),
+           v2Bool(params, "preserve_after_terminal_exit") == nil {
+            return .err(
+                code: "invalid_params",
+                message: "preserve_after_terminal_exit must be a boolean",
+                data: nil
+            )
+        }
         let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
         if relayPort != nil {
             guard let relayID, !relayID.isEmpty else {
@@ -5728,9 +6344,11 @@ class TerminalController {
                 terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
+                preserveAfterTerminalExit: preserveAfterTerminalExit,
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+            notifyRemotePTYControllerAvailabilityChanged()
 
             let windowId = v2ResolveWindowId(tabManager: owner)
             result = .ok([
@@ -5815,6 +6433,7 @@ class TerminalController {
             }
 
             workspace.reconnectRemoteConnection()
+            notifyRemotePTYControllerAvailabilityChanged()
             let windowId = v2ResolveWindowId(tabManager: owner)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -5854,6 +6473,7 @@ class TerminalController {
             }
 
             workspace.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
+            notifyRemotePTYControllerAvailabilityChanged()
             let windowId = v2ResolveWindowId(tabManager: owner)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -5895,6 +6515,638 @@ class TerminalController {
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": workspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "remote": workspace.remoteStatusPayload(),
+            ])
+        }
+
+        return result
+    }
+
+    private nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
+        workspaceId: UUID?,
+        error: V2CallResult?
+    ) {
+        var workspaceId: UUID?
+        var invalidWorkspaceID = false
+        v2MainSync {
+            v2RefreshKnownRefs()
+            workspaceId = v2UUID(params, "workspace_id")
+            invalidWorkspaceID = v2HasNonNullParam(params, "workspace_id") && workspaceId == nil
+        }
+        if invalidWorkspaceID {
+            return (
+                nil,
+                .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+            )
+        }
+        return (workspaceId, nil)
+    }
+
+    private nonisolated func v2RequestedRemotePTYSurfaceID(params: [String: Any]) -> (
+        surfaceId: UUID?,
+        error: V2CallResult?
+    ) {
+        var surfaceId: UUID?
+        var invalidSurfaceID = false
+        v2MainSync {
+            v2RefreshKnownRefs()
+            surfaceId = v2UUID(params, "surface_id")
+            invalidSurfaceID = v2HasNonNullParam(params, "surface_id") && surfaceId == nil
+        }
+        if invalidSurfaceID {
+            return (
+                nil,
+                .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+            )
+        }
+        return (surfaceId, nil)
+    }
+
+    private nonisolated func v2ResolveRemotePTYTarget(
+        params: [String: Any],
+        requestedWorkspaceId: UUID?,
+        preferredSurfaceId: UUID? = nil
+    ) -> (target: RemotePTYSocketTarget?, error: V2CallResult?) {
+        if v2HasNonNullParam(params, "allow_moved_surface"),
+           v2Bool(params, "allow_moved_surface") == nil {
+            return (
+                nil,
+                .err(code: "invalid_params", message: "Missing or invalid allow_moved_surface", data: nil)
+            )
+        }
+        let allowMovedSurface = v2Bool(params, "allow_moved_surface") ?? false
+        let requestedSessionID = v2RawString(params, "session_id").flatMap { raw -> String? in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        var resolvedWorkspaceId: UUID?
+        var target: RemotePTYSocketTarget?
+        var workspaceMismatchData: [String: Any]?
+
+        v2MainSync {
+            v2RefreshKnownRefs()
+            let fallbackTabManager = v2ResolveTabManager(params: params)
+            let fallbackWorkspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
+            var owner: TabManager?
+            var workspace: Workspace?
+            if let preferredSurfaceId {
+                if let fallbackTabManager,
+                   let surfaceWorkspace = fallbackTabManager.tabs.first(where: {
+                       $0.panels[preferredSurfaceId] != nil
+                           && $0.surfaceIdFromPanelId(preferredSurfaceId) != nil
+                   }) {
+                    owner = fallbackTabManager
+                    workspace = surfaceWorkspace
+                } else if let located = AppDelegate.shared?.workspaceContainingPanel(
+                    panelId: preferredSurfaceId,
+                    preferredWorkspaceId: fallbackWorkspaceId
+                ) {
+                    owner = located.tabManager
+                    workspace = located.workspace
+                }
+            }
+            if workspace == nil,
+               let fallbackWorkspaceId,
+               let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: fallbackWorkspaceId),
+               let fallbackWorkspace = fallbackOwner.tabs.first(where: { $0.id == fallbackWorkspaceId }) {
+                owner = fallbackOwner
+                workspace = fallbackWorkspace
+            }
+            resolvedWorkspaceId = workspace?.id ?? fallbackWorkspaceId
+            guard let owner, let workspace else {
+                return
+            }
+            if let requestedWorkspaceId,
+               workspace.id != requestedWorkspaceId {
+                let matchedMovedSurface = allowMovedSurface
+                    && preferredSurfaceId.map {
+                        workspace.remotePTYSessionIDMatches(panelId: $0, sessionID: requestedSessionID)
+                    } == true
+                guard matchedMovedSurface else {
+                    workspaceMismatchData = [
+                        "workspace_id": requestedWorkspaceId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: requestedWorkspaceId),
+                        "surface_id": v2OrNull(preferredSurfaceId?.uuidString),
+                        "surface_ref": v2Ref(kind: .surface, uuid: preferredSurfaceId),
+                        "resolved_workspace_id": workspace.id.uuidString,
+                        "resolved_workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    ]
+                    return
+                }
+            }
+
+            let windowId = v2ResolveWindowId(tabManager: owner)
+            target = RemotePTYSocketTarget(
+                controller: workspace.remotePTYSessionControllerForSocketCommand(),
+                windowId: windowId,
+                windowRef: v2Ref(kind: .window, uuid: windowId),
+                workspaceId: workspace.id,
+                workspaceRef: v2Ref(kind: .workspace, uuid: workspace.id),
+                workspaceTitle: workspace.title
+            )
+        }
+
+        if let workspaceMismatchData {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: "surface_id does not belong to workspace_id",
+                    data: workspaceMismatchData
+                )
+            )
+        }
+        guard let resolvedWorkspaceId else {
+            return (
+                nil,
+                .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
+            )
+        }
+        guard let target else {
+            return (
+                nil,
+                .err(
+                    code: "not_found",
+                    message: "Workspace not found",
+                    data: v2RemotePTYWorkspaceData(workspaceId: resolvedWorkspaceId)
+                )
+            )
+        }
+        return (target, nil)
+    }
+
+    nonisolated func notifyRemotePTYControllerAvailabilityChanged() {
+        remotePTYControllerAvailabilityCondition.lock()
+        remotePTYControllerAvailabilityGeneration &+= 1
+        remotePTYControllerAvailabilityCondition.broadcast()
+        remotePTYControllerAvailabilityCondition.unlock()
+    }
+
+    private nonisolated func v2ResolveRemotePTYTargetWaitingForController(
+        params: [String: Any],
+        requestedWorkspaceId: UUID?,
+        preferredSurfaceId: UUID?,
+        deadline: Date
+    ) -> (target: RemotePTYSocketTarget?, error: V2CallResult?) {
+        var observedGeneration: UInt64?
+
+        while true {
+            let resolved = v2ResolveRemotePTYTarget(
+                params: params,
+                requestedWorkspaceId: requestedWorkspaceId,
+                preferredSurfaceId: preferredSurfaceId
+            )
+            if let error = resolved.error {
+                return (nil, error)
+            }
+            guard let target = resolved.target else {
+                return resolved
+            }
+            if target.controller != nil || Date() >= deadline {
+                return (target, nil)
+            }
+
+            remotePTYControllerAvailabilityCondition.lock()
+            let currentGeneration = remotePTYControllerAvailabilityGeneration
+            guard let previousGeneration = observedGeneration else {
+                observedGeneration = currentGeneration
+                remotePTYControllerAvailabilityCondition.unlock()
+                continue
+            }
+            if previousGeneration != currentGeneration {
+                observedGeneration = currentGeneration
+                remotePTYControllerAvailabilityCondition.unlock()
+                continue
+            }
+            _ = remotePTYControllerAvailabilityCondition.wait(until: deadline)
+            observedGeneration = remotePTYControllerAvailabilityGeneration
+            remotePTYControllerAvailabilityCondition.unlock()
+        }
+    }
+
+    private nonisolated func v2RemotePTYWorkspaceData(workspaceId: UUID) -> [String: Any] {
+        var workspaceRef: Any = NSNull()
+        v2MainSync {
+            workspaceRef = v2Ref(kind: .workspace, uuid: workspaceId)
+        }
+        return [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": workspaceRef,
+        ]
+    }
+
+    private nonisolated func v2RemotePTYTargetPayload(_ target: RemotePTYSocketTarget) -> [String: Any] {
+        [
+            "window_id": v2OrNull(target.windowId?.uuidString),
+            "window_ref": target.windowRef,
+            "workspace_id": target.workspaceId.uuidString,
+            "workspace_ref": target.workspaceRef,
+            "workspace_title": target.workspaceTitle,
+        ]
+    }
+
+    private nonisolated func v2WorkspaceRemotePTYSessions(params: [String: Any]) -> V2CallResult {
+        if v2HasNonNullParam(params, "all_workspaces"), v2Bool(params, "all_workspaces") == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid all_workspaces", data: nil)
+        }
+        let allWorkspaces = v2Bool(params, "all_workspaces") ?? false
+        let workspaceSelection = v2RequestedRemotePTYWorkspaceID(params: params)
+        if let error = workspaceSelection.error { return error }
+        let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
+        if let error = surfaceSelection.error { return error }
+        let requestedWorkspaceId = workspaceSelection.workspaceId
+        if allWorkspaces, requestedWorkspaceId != nil {
+            return .err(code: "invalid_params", message: "all_workspaces cannot be combined with workspace_id", data: nil)
+        }
+        if allWorkspaces {
+            var targets: [RemotePTYSocketTarget] = []
+            v2MainSync {
+                v2RefreshKnownRefs()
+                guard let app = AppDelegate.shared else { return }
+                for summary in app.listMainWindowSummaries() {
+                    guard let owner = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                    for workspace in owner.tabs where workspace.isRemoteWorkspace {
+                        targets.append(
+                            RemotePTYSocketTarget(
+                                controller: workspace.remotePTYSessionControllerForSocketCommand(),
+                                windowId: summary.windowId,
+                                windowRef: v2Ref(kind: .window, uuid: summary.windowId),
+                                workspaceId: workspace.id,
+                                workspaceRef: v2Ref(kind: .workspace, uuid: workspace.id),
+                                workspaceTitle: workspace.title
+                            )
+                        )
+                    }
+                }
+            }
+
+            var sessions: [[String: Any]] = []
+            var errors: [[String: Any]] = []
+            for target in targets {
+                guard let controller = target.controller else {
+                    var payload = v2RemotePTYTargetPayload(target)
+                    payload["error"] = "remote connection is not active"
+                    errors.append(payload)
+                    continue
+                }
+                do {
+                    let workspaceSessions = try controller.listPTYSessions()
+                    sessions.append(contentsOf: workspaceSessions.map {
+                        v2RemotePTYSessionPayload($0, target: target)
+                    })
+                } catch {
+                    var payload = v2RemotePTYTargetPayload(target)
+                    payload["error"] = v2RemotePTYUserFacingErrorMessage(error)
+                    errors.append(payload)
+                }
+            }
+
+            return .ok([
+                "all_workspaces": true,
+                "workspace_count": targets.count,
+                "sessions": sessions,
+                "errors": errors,
+            ])
+        }
+
+        let resolved = v2ResolveRemotePTYTarget(
+            params: params,
+            requestedWorkspaceId: requestedWorkspaceId,
+            preferredSurfaceId: surfaceSelection.surfaceId
+        )
+        if let error = resolved.error { return error }
+        guard let target = resolved.target else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        guard let controller = target.controller else {
+            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
+                "workspace_id": target.workspaceId.uuidString,
+                "workspace_ref": target.workspaceRef,
+            ])
+        }
+
+        do {
+            let sessions = try controller.listPTYSessions()
+            var payload = v2RemotePTYTargetPayload(target)
+            payload["sessions"] = sessions.map { v2RemotePTYSessionPayload($0, target: target) }
+            return .ok(payload)
+        } catch {
+            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
+                "workspace_id": target.workspaceId.uuidString,
+                "workspace_ref": target.workspaceRef,
+            ])
+        }
+    }
+
+    private nonisolated func v2RemotePTYSessionPayload(
+        _ session: [String: Any],
+        target: RemotePTYSocketTarget
+    ) -> [String: Any] {
+        var payload = session
+        payload["window_id"] = v2OrNull(target.windowId?.uuidString)
+        payload["window_ref"] = target.windowRef
+        payload["workspace_id"] = target.workspaceId.uuidString
+        payload["workspace_ref"] = target.workspaceRef
+        payload["workspace_title"] = target.workspaceTitle
+        return payload
+    }
+
+    private nonisolated func v2WorkspaceRemotePTYClose(params: [String: Any]) -> V2CallResult {
+        let workspaceSelection = v2RequestedRemotePTYWorkspaceID(params: params)
+        if let error = workspaceSelection.error { return error }
+        guard let sessionID = v2RawString(params, "session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+        let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
+        if let error = surfaceSelection.error { return error }
+
+        let resolved = v2ResolveRemotePTYTarget(
+            params: params,
+            requestedWorkspaceId: workspaceSelection.workspaceId,
+            preferredSurfaceId: surfaceSelection.surfaceId
+        )
+        if let error = resolved.error { return error }
+        guard let target = resolved.target else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        guard let controller = target.controller else {
+            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
+                "workspace_id": target.workspaceId.uuidString,
+                "workspace_ref": target.workspaceRef,
+                "session_id": sessionID,
+            ])
+        }
+
+        do {
+            try controller.closePTYSession(sessionID: sessionID)
+            var payload = v2RemotePTYTargetPayload(target)
+            payload["session_id"] = sessionID
+            payload["closed"] = true
+            return .ok(payload)
+        } catch {
+            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
+                "workspace_id": target.workspaceId.uuidString,
+                "workspace_ref": target.workspaceRef,
+                "session_id": sessionID,
+            ])
+        }
+    }
+
+    private nonisolated func v2WorkspaceRemotePTYDetach(params: [String: Any]) -> V2CallResult {
+        let workspaceSelection = v2RequestedRemotePTYWorkspaceID(params: params)
+        if let error = workspaceSelection.error { return error }
+        guard let sessionID = v2RawString(params, "session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+        guard let attachmentID = v2RawString(params, "attachment_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachmentID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing attachment_id", data: nil)
+        }
+        guard let attachmentToken = v2RawString(params, "attachment_token")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachmentToken.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing attachment_token", data: nil)
+        }
+        let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
+        if let error = surfaceSelection.error { return error }
+
+        let resolved = v2ResolveRemotePTYTarget(
+            params: params,
+            requestedWorkspaceId: workspaceSelection.workspaceId,
+            preferredSurfaceId: surfaceSelection.surfaceId
+        )
+        if let error = resolved.error { return error }
+        guard let target = resolved.target else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        guard let controller = target.controller else {
+            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
+                "workspace_id": target.workspaceId.uuidString,
+                "workspace_ref": target.workspaceRef,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+            ])
+        }
+
+        do {
+            try controller.detachPTYSession(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken
+            )
+            var payload = v2RemotePTYTargetPayload(target)
+            payload["session_id"] = sessionID
+            payload["attachment_id"] = attachmentID
+            payload["detached"] = true
+            return .ok(payload)
+        } catch {
+            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
+                "workspace_id": target.workspaceId.uuidString,
+                "workspace_ref": target.workspaceRef,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+            ])
+        }
+    }
+
+    private nonisolated func v2WorkspaceRemotePTYBridge(params: [String: Any]) -> V2CallResult {
+        let workspaceSelection = v2RequestedRemotePTYWorkspaceID(params: params)
+        if let error = workspaceSelection.error { return error }
+        guard let sessionID = v2RawString(params, "session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+        let attachmentID = (v2RawString(params, "attachment_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? UUID().uuidString.lowercased()
+        let command = v2RawString(params, "command")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requireExisting = v2Bool(params, "require_existing") ?? false
+        let waitForReady = v2Bool(params, "wait_for_ready") ?? false
+        let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
+        if let error = surfaceSelection.error { return error }
+        let preferredSurfaceId = surfaceSelection.surfaceId ?? UUID(uuidString: attachmentID)
+
+        let controllerDeadline = Date().addingTimeInterval(waitForReady ? 90.0 : 8.0)
+        let resolved = waitForReady
+            ? v2ResolveRemotePTYTargetWaitingForController(
+                params: params,
+                requestedWorkspaceId: workspaceSelection.workspaceId,
+                preferredSurfaceId: preferredSurfaceId,
+                deadline: controllerDeadline
+            )
+            : v2ResolveRemotePTYTarget(
+                params: params,
+                requestedWorkspaceId: workspaceSelection.workspaceId,
+                preferredSurfaceId: preferredSurfaceId
+            )
+        if let error = resolved.error { return error }
+        guard let target = resolved.target else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        guard let controller = target.controller else {
+            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
+                "workspace_id": target.workspaceId.uuidString,
+                "workspace_ref": target.workspaceRef,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+            ])
+        }
+
+        do {
+            let endpoint = try controller.startPTYBridge(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command?.isEmpty == true ? nil : command,
+                requireExisting: requireExisting,
+                waitForReady: waitForReady,
+                timeout: waitForReady ? 90.0 : max(0.1, controllerDeadline.timeIntervalSinceNow)
+            )
+            var payload = v2RemotePTYTargetPayload(target)
+            payload["host"] = endpoint.host
+            payload["port"] = endpoint.port
+            payload["token"] = endpoint.token
+            payload["session_id"] = endpoint.sessionID
+            payload["attachment_id"] = endpoint.attachmentID
+            return .ok(payload)
+        } catch {
+            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
+                "workspace_id": target.workspaceId.uuidString,
+                "workspace_ref": target.workspaceRef,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+            ])
+        }
+    }
+
+    private nonisolated func v2WorkspaceRemotePTYResize(params: [String: Any]) -> V2CallResult {
+        let workspaceSelection = v2RequestedRemotePTYWorkspaceID(params: params)
+        if let error = workspaceSelection.error { return error }
+        guard let sessionID = v2RawString(params, "session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+        guard let attachmentID = v2RawString(params, "attachment_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachmentID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing attachment_id", data: nil)
+        }
+        guard let attachmentToken = v2RawString(params, "attachment_token")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachmentToken.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing attachment_token", data: nil)
+        }
+        guard let cols = v2StrictInt(params, "cols"), cols > 0,
+              let rows = v2StrictInt(params, "rows"), rows > 0 else {
+            return .err(code: "invalid_params", message: "cols and rows must be positive integers", data: nil)
+        }
+        let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
+        if let error = surfaceSelection.error { return error }
+
+        let resolved = v2ResolveRemotePTYTarget(
+            params: params,
+            requestedWorkspaceId: workspaceSelection.workspaceId,
+            preferredSurfaceId: surfaceSelection.surfaceId
+        )
+        if let error = resolved.error { return error }
+        guard let target = resolved.target else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        guard let controller = target.controller else {
+            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
+                "workspace_id": target.workspaceId.uuidString,
+                "workspace_ref": target.workspaceRef,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+            ])
+        }
+
+        do {
+            try controller.resizePTY(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken,
+                cols: cols,
+                rows: rows
+            )
+            var payload = v2RemotePTYTargetPayload(target)
+            payload["session_id"] = sessionID
+            payload["attachment_id"] = attachmentID
+            payload["attachment_token"] = attachmentToken
+            payload["cols"] = cols
+            payload["rows"] = rows
+            payload["resized"] = true
+            return .ok(payload)
+        } catch {
+            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
+                "workspace_id": target.workspaceId.uuidString,
+                "workspace_ref": target.workspaceRef,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+            ])
+        }
+    }
+
+    private func v2WorkspaceRemotePTYAttachEnd(params: [String: Any]) -> V2CallResult {
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let sessionID = v2RawString(params, "session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+
+        var result: V2CallResult = .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "session_id": sessionID,
+            "workspace_found": false,
+            "cleared_remote_pty_session": false,
+            "untracked_remote_terminal": false,
+        ])
+
+        v2MainSync {
+            v2RefreshKnownRefs()
+            let located = AppDelegate.shared?.workspaceContainingPanel(
+                panelId: surfaceId,
+                preferredWorkspaceId: workspaceId
+            )
+            let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
+            let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
+            guard let owner = located?.tabManager ?? fallbackOwner,
+                  let workspace = located?.workspace ?? fallbackWorkspace else {
+                return
+            }
+            let outcome = workspace.markRemotePTYAttachEnded(
+                surfaceId: surfaceId,
+                sessionID: sessionID
+            )
+            let windowId = v2ResolveWindowId(tabManager: owner)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "session_id": sessionID,
+                "workspace_found": true,
+                "cleared_remote_pty_session": outcome.clearedRemotePTYSession,
+                "untracked_remote_terminal": outcome.untrackedRemoteTerminal,
                 "remote": workspace.remoteStatusPayload(),
             ])
         }
@@ -7165,6 +8417,7 @@ class TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        let remotePTYSessionID = v2OptionalTrimmedRawString(params, "remote_pty_session_id")
         let startupEnvironment = v2TrimmedStringMap(params, keys: ["startup_environment", "initial_env"])
         let parsedInitialDivider = v2InitialDividerPosition(params)
         if let error = parsedInitialDivider.error {
@@ -7224,7 +8477,8 @@ class TerminalController {
                     initialCommand: initialCommand,
                     tmuxStartCommand: tmuxStartCommand,
                     startupEnvironment: startupEnvironment,
-                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
+                    remotePTYSessionID: remotePTYSessionID
                 )
             }
 
@@ -7259,6 +8513,7 @@ class TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        let remotePTYSessionID = v2OptionalTrimmedRawString(params, "remote_pty_session_id")
         let startupEnvironment = v2TrimmedStringMap(params, keys: ["startup_environment", "initial_env"])
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
@@ -7302,7 +8557,8 @@ class TerminalController {
                     workingDirectory: workingDirectory,
                     initialCommand: initialCommand,
                     tmuxStartCommand: tmuxStartCommand,
-                    startupEnvironment: startupEnvironment
+                    startupEnvironment: startupEnvironment,
+                    remotePTYSessionID: remotePTYSessionID
                 )?.id
             }
 

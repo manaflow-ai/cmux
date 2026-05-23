@@ -851,9 +851,12 @@ struct cmuxApp: App {
     private func updateSocketController() {
         let mode = SocketControlSettings.effectiveMode(userMode: currentSocketMode)
         if mode != .off {
+            let socketPath = TerminalController.shared.activeSocketPath(
+                preferredPath: SocketControlSettings.socketPath()
+            )
             TerminalController.shared.start(
                 tabManager: activeTabManager,
-                socketPath: SocketControlSettings.socketPath(),
+                socketPath: socketPath,
                 accessMode: mode
             )
         } else {
@@ -1184,6 +1187,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.aboutTitlebarDebug",
     "cmux.debugWindowControls",
     "cmux.browserImportHintDebug",
+    "cmux.extensionSidebarInspector",
     "cmux.sidebarDebug",
     "cmux.menubarDebug",
     "cmux.backgroundDebug",
@@ -4589,24 +4593,139 @@ final class AppIconAppearanceObserver: NSObject {
 
 enum QuitWarningSettings {
     static let warnBeforeQuitKey = "warnBeforeQuitShortcut"
+    static let confirmQuitKey = "confirmQuit"
     static let defaultWarnBeforeQuit = true
+    static let defaultConfirmQuitMode = QuitConfirmationMode.always
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: warnBeforeQuitKey) == nil {
-            return defaultWarnBeforeQuit
-        }
-        return defaults.bool(forKey: warnBeforeQuitKey)
+        confirmQuitMode(defaults: defaults) != .never
     }
 
     static func shouldShowConfirmation(
         isQuitWarningConfirmed: Bool,
         defaults: UserDefaults = .standard
     ) -> Bool {
-        !isQuitWarningConfirmed && isEnabled(defaults: defaults)
+        shouldShowConfirmation(
+            isQuitWarningConfirmed: isQuitWarningConfirmed,
+            hasDirtyWorkspaces: true,
+            buildFlavor: .current,
+            defaults: defaults
+        )
+    }
+
+    static func shouldShowConfirmation(
+        isQuitWarningConfirmed: Bool,
+        hasDirtyWorkspaces: Bool,
+        buildFlavor: BuildFlavor,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard !isQuitWarningConfirmed else { return false }
+        guard buildFlavor != .dev else { return false }
+
+        switch confirmQuitMode(defaults: defaults) {
+        case .always:
+            return true
+        case .dirtyOnly:
+            return hasDirtyWorkspaces
+        case .never:
+            return false
+        }
+    }
+
+    static func confirmQuitMode(defaults: UserDefaults = .standard) -> QuitConfirmationMode {
+        if let rawValue = defaults.string(forKey: confirmQuitKey),
+           let mode = QuitConfirmationMode(rawValue: rawValue) {
+            return mode
+        }
+        if defaults.object(forKey: warnBeforeQuitKey) == nil {
+            return defaultConfirmQuitMode
+        }
+        return defaults.bool(forKey: warnBeforeQuitKey) ? .always : .never
+    }
+
+    static func setMode(_ mode: QuitConfirmationMode, defaults: UserDefaults = .standard) {
+        defaults.set(mode.rawValue, forKey: confirmQuitKey)
+        defaults.set(mode != .never, forKey: warnBeforeQuitKey)
     }
 
     static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
-        defaults.set(isEnabled, forKey: warnBeforeQuitKey)
+        setMode(isEnabled ? .always : .never, defaults: defaults)
+    }
+}
+
+nonisolated enum QuitConfirmationMode: String, CaseIterable, Sendable {
+    case always
+    case dirtyOnly = "dirty-only"
+    case never
+
+    var localizedSettingsTitle: String {
+        switch self {
+        case .always:
+            return String(localized: "settings.app.confirmQuit.always", defaultValue: "Always")
+        case .dirtyOnly:
+            return String(localized: "settings.app.confirmQuit.dirtyOnly", defaultValue: "Dirty Only")
+        case .never:
+            return String(localized: "settings.app.confirmQuit.never", defaultValue: "Never")
+        }
+    }
+}
+
+nonisolated enum BuildFlavor: String, Sendable {
+    case dev
+    case nightly
+    case stable
+
+    static var current: BuildFlavor {
+        let bundle = Bundle.main
+        return detect(
+            bundleNames: [
+                bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
+                bundle.object(forInfoDictionaryKey: "CFBundleName") as? String,
+                ProcessInfo.processInfo.processName,
+            ].compactMap { $0 },
+            bundleIdentifier: bundle.bundleIdentifier
+        )
+    }
+
+    static func detect(bundleName: String?, bundleIdentifier: String?) -> BuildFlavor {
+        detect(bundleNames: [bundleName].compactMap { $0 }, bundleIdentifier: bundleIdentifier)
+    }
+
+    static func detect(bundleNames: [String], bundleIdentifier: String?) -> BuildFlavor {
+        if bundleNames.contains(where: containsDevToken) {
+            return .dev
+        }
+
+        let normalizedBundleIdentifier = bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if SocketControlSettings.isDebugLikeBundleIdentifier(normalizedBundleIdentifier) {
+            return .dev
+        }
+        if normalizedBundleIdentifier == "com.cmuxterm.app.nightly"
+            || normalizedBundleIdentifier?.hasPrefix("com.cmuxterm.app.nightly.") == true {
+            return .nightly
+        }
+        if bundleNames.contains(where: containsNightlyToken) {
+            return .nightly
+        }
+        return .stable
+    }
+
+    private static func containsDevToken(_ name: String) -> Bool {
+        containsToken("DEV", in: name)
+    }
+
+    private static func containsNightlyToken(_ name: String) -> Bool {
+        containsToken("NIGHTLY", in: name)
+    }
+
+    private static func containsToken(_ token: String, in name: String) -> Bool {
+        name
+            .uppercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .contains { String($0) == token }
     }
 }
 
@@ -5082,6 +5201,8 @@ struct SettingsView: View {
     @AppStorage(NotificationPaneFlashSettings.enabledKey) private var notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
     @AppStorage(MenuBarExtraSettings.showInMenuBarKey) private var showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
     @AppStorage(MenuBarOnlySettings.menuBarOnlyKey) private var menuBarOnly = MenuBarOnlySettings.defaultMenuBarOnly
+    @AppStorage(QuitWarningSettings.confirmQuitKey)
+    private var confirmQuitModeRaw = QuitWarningSettings.defaultConfirmQuitMode.rawValue
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabKey) private var warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
@@ -5097,6 +5218,8 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(TerminalCopyOnSelectSettings.copyOnSelectKey)
+    private var terminalCopyOnSelect = TerminalCopyOnSelectSettings.defaultCopyOnSelect
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -5232,6 +5355,54 @@ struct SettingsView: View {
         )
     }
 
+    private var confirmQuitModeBinding: Binding<QuitConfirmationMode> {
+        Binding(
+            get: { QuitWarningSettings.confirmQuitMode() },
+            set: { mode in
+                QuitWarningSettings.setMode(mode)
+                confirmQuitModeRaw = mode.rawValue
+                warnBeforeQuitShortcut = mode != .never
+            }
+        )
+    }
+
+    private var confirmQuitModeForSettingsDisplay: QuitConfirmationMode {
+        _ = confirmQuitModeRaw
+        _ = warnBeforeQuitShortcut
+        return QuitWarningSettings.confirmQuitMode()
+    }
+
+    private var confirmQuitDevOverrideActive: Bool {
+        BuildFlavor.current == .dev
+    }
+
+    private var confirmQuitModeSubtitle: String {
+        if confirmQuitDevOverrideActive {
+            return String(
+                localized: "settings.app.confirmQuit.subtitleDevOverride",
+                defaultValue: "DEV build: quit confirmations are disabled."
+            )
+        }
+
+        switch confirmQuitModeForSettingsDisplay {
+        case .always:
+            return String(
+                localized: "settings.app.warnBeforeQuit.subtitleOn",
+                defaultValue: "Show a confirmation before quitting with Cmd+Q."
+            )
+        case .dirtyOnly:
+            return String(
+                localized: "settings.app.confirmQuit.subtitleDirtyOnly",
+                defaultValue: "Show a confirmation only when a workspace needs close confirmation."
+            )
+        case .never:
+            return String(
+                localized: "settings.app.warnBeforeQuit.subtitleOff",
+                defaultValue: "Cmd+Q quits immediately without confirmation."
+            )
+        }
+    }
+
     private var showTerminalScrollBarBinding: Binding<Bool> {
         Binding(
             get: { showTerminalScrollBar },
@@ -5239,6 +5410,17 @@ struct SettingsView: View {
                 guard showTerminalScrollBar != newValue else { return }
                 showTerminalScrollBar = newValue
                 TerminalScrollBarSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var terminalCopyOnSelectBinding: Binding<Bool> {
+        Binding(
+            get: { terminalCopyOnSelect },
+            set: { newValue in
+                guard terminalCopyOnSelect != newValue else { return }
+                terminalCopyOnSelect = newValue
+                TerminalCopyOnSelectSettings.notifyDidChange()
             }
         )
     }
@@ -6312,15 +6494,20 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            configurationReview: .json("app.warnBeforeQuit"),
+                            configurationReview: .json("app.confirmQuit", "app.warnBeforeQuit"),
                             String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"),
-                            subtitle: warnBeforeQuitShortcut
-                                ? String(localized: "settings.app.warnBeforeQuit.subtitleOn", defaultValue: "Show a confirmation before quitting with Cmd+Q.")
-                                : String(localized: "settings.app.warnBeforeQuit.subtitleOff", defaultValue: "Cmd+Q quits immediately without confirmation.")
+                            subtitle: confirmQuitModeSubtitle,
+                            controlWidth: pickerColumnWidth
                         ) {
-                            Toggle("", isOn: $warnBeforeQuitShortcut)
+                            Picker("", selection: confirmQuitModeBinding) {
+                                ForEach(QuitConfirmationMode.allCases, id: \.self) { mode in
+                                    Text(mode.localizedSettingsTitle).tag(mode)
+                                }
+                            }
                                 .labelsHidden()
+                                .pickerStyle(.segmented)
                                 .controlSize(.small)
+                                .disabled(confirmQuitDevOverrideActive)
                         }
 
                         SettingsCardDivider()
@@ -6387,6 +6574,24 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.copyOnSelect"),
+                            String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),
+                            subtitle: terminalCopyOnSelect
+                                ? String(localized: "settings.terminal.copyOnSelect.subtitleOn", defaultValue: "Selected terminal text is copied to the system clipboard when the selection is committed.")
+                                : String(localized: "settings.terminal.copyOnSelect.subtitleOff", defaultValue: "Terminal selections do not replace the system clipboard. Use Cmd+C to copy manually.")
+                        ) {
+                            Toggle("", isOn: terminalCopyOnSelectBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection")
                                 )
                         }
 
@@ -7603,7 +7808,9 @@ struct SettingsView: View {
         notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
         showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
         menuBarOnly = MenuBarOnlySettings.defaultMenuBarOnly
-        warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+        QuitWarningSettings.setMode(QuitWarningSettings.defaultConfirmQuitMode)
+        confirmQuitModeRaw = QuitWarningSettings.defaultConfirmQuitMode.rawValue
+        warnBeforeQuitShortcut = QuitWarningSettings.defaultConfirmQuitMode != .never
         warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
@@ -7621,6 +7828,11 @@ struct SettingsView: View {
         showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
+        }
+        let previousTerminalCopyOnSelect = terminalCopyOnSelect
+        terminalCopyOnSelect = TerminalCopyOnSelectSettings.defaultCopyOnSelect
+        if previousTerminalCopyOnSelect != terminalCopyOnSelect {
+            TerminalCopyOnSelectSettings.notifyDidChange()
         }
         fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
         let previousAutoResumeAgentSessions = autoResumeAgentSessions

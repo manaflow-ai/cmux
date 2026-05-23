@@ -5376,6 +5376,12 @@ class TabManager: ObservableObject {
             object: self,
             userInfo: [WorkspaceOrderChangeNotificationKey.movedWorkspaceIds: movedWorkspaceIds]
         )
+        CmuxEventBus.shared.publishWorkspaceReordered(
+            workspaceIds: tabs.map(\.id),
+            movedWorkspaceIds: movedWorkspaceIds,
+            pinnedWorkspaceIds: tabs.filter(\.isPinned).map(\.id),
+            source: "workspace.lifecycle"
+        )
     }
 
     @discardableResult
@@ -5512,6 +5518,7 @@ class TabManager: ObservableObject {
         guard tab.isPinned != pinned else { return }
         tab.isPinned = pinned
         reorderTabForPinnedState(tab)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [tab.id])
     }
 
     private func reorderTabForPinnedState(_ tab: Workspace) {
@@ -7318,7 +7325,8 @@ class TabManager: ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        remotePTYSessionID: String? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
@@ -7330,7 +7338,8 @@ class TabManager: ObservableObject {
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             startupEnvironment: startupEnvironment,
-            initialDividerPosition: initialDividerPosition
+            initialDividerPosition: initialDividerPosition,
+            remotePTYSessionID: remotePTYSessionID
         )?.id
     }
 

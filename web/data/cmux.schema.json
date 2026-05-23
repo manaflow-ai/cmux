@@ -278,10 +278,18 @@
           "default": true,
           "description": "Allow anonymous telemetry."
         },
+        "confirmQuit": {
+          "type": "string",
+          "enum": ["always", "dirty-only", "never"],
+          "default": "always",
+          "descriptionKey": "schemaDescriptions.app.confirmQuit",
+          "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
+        },
         "warnBeforeQuit": {
           "type": "boolean",
           "default": true,
-          "description": "Show a confirmation before quitting cmux."
+          "descriptionKey": "schemaDescriptions.app.warnBeforeQuit",
+          "description": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
         },
         "warnBeforeClosingTab": {
           "type": "boolean",
@@ -310,6 +318,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
+        },
+        "copyOnSelect": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
+          "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
