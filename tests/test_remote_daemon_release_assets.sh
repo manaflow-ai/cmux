@@ -9,6 +9,7 @@ trap 'rm -rf "$OUTPUT_DIR"' EXIT
   --version "0.62.0-test" \
   --release-tag "v0.62.0-test" \
   --repo "manaflow-ai/cmux" \
+  --signer-workflow "manaflow-ai/cmux/.github/workflows/release.yml" \
   --output-dir "$OUTPUT_DIR" >/dev/null
 
 for asset in \
@@ -48,6 +49,8 @@ if manifest["appVersion"] != "0.62.0-test":
     raise SystemExit(f"FAIL: unexpected appVersion {manifest['appVersion']}")
 if manifest["releaseTag"] != "v0.62.0-test":
     raise SystemExit(f"FAIL: unexpected releaseTag {manifest['releaseTag']}")
+if manifest["signerWorkflow"] != "manaflow-ai/cmux/.github/workflows/release.yml":
+    raise SystemExit(f"FAIL: unexpected signerWorkflow {manifest['signerWorkflow']}")
 if not manifest["checksumsURL"].endswith("/cmuxd-remote-checksums.txt"):
     raise SystemExit(f"FAIL: unexpected checksumsURL {manifest['checksumsURL']}")
 
@@ -74,6 +77,7 @@ trap 'rm -rf "$OUTPUT_DIR" "$SUFFIX_DIR"' EXIT
   --version "0.62.0-nightly.123456" \
   --release-tag "nightly" \
   --repo "manaflow-ai/cmux" \
+  --signer-workflow "manaflow-ai/cmux/.github/workflows/nightly.yml" \
   --output-dir "$SUFFIX_DIR" \
   --asset-suffix "123456" >/dev/null
 
@@ -97,6 +101,9 @@ import sys
 from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+
+if manifest["signerWorkflow"] != "manaflow-ai/cmux/.github/workflows/nightly.yml":
+    raise SystemExit(f"FAIL: unexpected signerWorkflow {manifest['signerWorkflow']}")
 
 for entry in manifest["entries"]:
     if not entry["assetName"].endswith("-123456"):

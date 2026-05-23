@@ -125,6 +125,19 @@ def write_marker(home: str, marker_name: str, socket_path: str) -> None:
         f.write(f"{socket_path}\n")
 
 
+def create_stale_socket_file(socket_path: str) -> None:
+    os.makedirs(os.path.dirname(socket_path), exist_ok=True)
+    try:
+        os.remove(socket_path)
+    except OSError:
+        pass
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        server.bind(socket_path)
+    finally:
+        server.close()
+
+
 def temporary_socket_home(prefix: str) -> tempfile.TemporaryDirectory:
     # Darwin caps Unix socket paths at a little over 100 bytes. Keep fake HOME
     # roots short because stable sockets live under ~/Library/Application Support.
@@ -246,6 +259,62 @@ def expect_ping_uses_socket(cli_path: str, home: str, socket_path: str, label: s
 
     if proc.stdout.strip() != "PONG":
         print(f"FAIL: {label} cmux ping did not use the expected socket")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    return True
+
+
+def expect_ping_prefers_socket_over_default(
+    cli_path: str,
+    home: str,
+    socket_path: str,
+    default_socket_path: str,
+    label: str,
+) -> bool:
+    server = PingServer(socket_path)
+    default_server = PingServer(default_socket_path, response=b"WRONG\n", accept_timeout=5.0)
+    server.start()
+    default_server.start()
+
+    for server_label, active_server in [
+        (label, server),
+        (f"{label} default", default_server),
+    ]:
+        if not active_server.wait_ready(2.0):
+            print(f"FAIL: {server_label} socket server did not become ready")
+            return False
+        if active_server.error is not None:
+            print(f"FAIL: {server_label} socket server failed to start: {active_server.error}")
+            return False
+
+    try:
+        proc = run_ping(cli_path, home)
+    except Exception as exc:
+        print(f"FAIL: invoking {label} cmux ping failed: {exc}")
+        return False
+    finally:
+        server.join(timeout=2.0)
+        default_server.join(timeout=2.0)
+        for path in [socket_path, default_socket_path]:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    if server.error is not None:
+        print(f"FAIL: {label} socket server error: {server.error}")
+        return False
+
+    if proc.returncode != 0:
+        print(f"FAIL: {label} cmux ping returned non-zero status")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if proc.stdout.strip() != "PONG":
+        print(f"FAIL: {label} cmux ping did not prefer the marker socket")
         print(f"stdout={proc.stdout!r}")
         print(f"stderr={proc.stderr!r}")
         return False
@@ -459,10 +528,118 @@ def test_python_client_treats_stable_override_as_implicit() -> bool:
     return True
 
 
+def test_python_client_supports_rc_variant() -> bool:
+    pid = os.getpid()
+    rc_socket = f"/tmp/cmux-python-rc-{pid}.sock"
+
+    with temporary_socket_home("cmux-py-") as home:
+        write_marker(home, "rc-last-socket-path", rc_socket)
+        server = PingServer(rc_socket, accept_timeout=5.0)
+        server.start()
+
+        if not server.wait_ready(2.0):
+            print("FAIL: python client RC socket server did not become ready")
+            return False
+
+        if server.error is not None:
+            print(f"FAIL: python client RC socket server failed to start: {server.error}")
+            return False
+
+        try:
+            actual_socket = python_client_default_socket_path({
+                "HOME": home,
+                "CFFIXED_USER_HOME": home,
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app.rc",
+            })
+        finally:
+            server.join(timeout=2.0)
+            try:
+                os.remove(rc_socket)
+            except OSError:
+                pass
+
+    if actual_socket != rc_socket:
+        print("FAIL: python client did not use RC marker socket")
+        print(f"expected={rc_socket!r}")
+        print(f"actual={actual_socket!r}")
+        return False
+
+    actual_bundle = python_client_default_bundle_id({
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.rc",
+        "CMUX_TAG": "ignored-for-known-rc",
+    })
+    if actual_bundle != "com.cmuxterm.app.rc":
+        print("FAIL: python client rejected known RC CMUX_BUNDLE_ID")
+        print(f"actual={actual_bundle!r}")
+        return False
+
+    actual_tagged_socket = python_client_default_socket_path({
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.rc.smoke-test",
+    })
+    if actual_tagged_socket != "/tmp/cmux-rc-smoke-test.sock":
+        print("FAIL: python client did not derive tagged RC default socket")
+        print(f"actual={actual_tagged_socket!r}")
+        return False
+
+    print("PASS: python client supports RC bundle variants")
+    return True
+
+
+def test_cli_prefers_rc_default_socket_file_over_stale_marker(cli_path: str) -> bool:
+    pid = os.getpid()
+    slug = f"fallback-{pid}"
+    stale_marker_socket = f"/tmp/cmux-stale-rc-marker-{pid}.sock"
+    rc_default_socket = f"/tmp/cmux-rc-{slug}.sock"
+
+    with temporary_socket_home("cmux-rc-stale-") as home:
+        apps = os.path.join(home, "Apps")
+        os.makedirs(apps, exist_ok=True)
+        rc_cli = bundled_cli_for_variant(
+            cli_path,
+            apps,
+            "cmux RC fallback",
+            f"com.cmuxterm.app.rc.{slug}",
+        )
+        write_marker(home, f"rc-{slug}-last-socket-path", stale_marker_socket)
+        try:
+            create_stale_socket_file(stale_marker_socket)
+            create_stale_socket_file(rc_default_socket)
+            proc = run_ping(rc_cli, home)
+        finally:
+            for path in [stale_marker_socket, rc_default_socket]:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+    combined_output = f"{proc.stdout}\n{proc.stderr}"
+    if proc.returncode == 0:
+        print("FAIL: cmux ping unexpectedly succeeded against stale socket fixtures")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+    if rc_default_socket not in combined_output:
+        print("FAIL: cmux ping did not choose the RC default socket file fallback")
+        print(f"expected path in output={rc_default_socket!r}")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+    if stale_marker_socket in combined_output:
+        print("FAIL: cmux ping chose stale RC marker socket before the default fallback")
+        print(f"stale marker={stale_marker_socket!r}")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    print("PASS: CLI prefers RC default socket file over stale marker fallback")
+    return True
+
+
 def test_variant_last_socket_markers(cli_path: str) -> bool:
     pid = os.getpid()
     stable_socket = f"/tmp/cmux-issue3542-stable-{pid}.sock"
     nightly_socket = f"/tmp/cmux-issue3542-nightly-{pid}.sock"
+    rc_socket = f"/tmp/cmux-issue3542-rc-{pid}.sock"
     dev_agent_socket = f"/tmp/cmux-issue3542-dev-agent-{pid}.sock"
     rogue_stable_socket = f"/tmp/cmux-debug-rogue-stable-{pid}.sock"
     rogue_stable_tag = f"rogue-stable-{pid}"
@@ -485,6 +662,12 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
             "cmux NIGHTLY",
             "com.cmuxterm.app.nightly",
         )
+        rc_cli = bundled_cli_for_variant(
+            cli_path,
+            apps,
+            "cmux RC",
+            "com.cmuxterm.app.rc",
+        )
         isolated_nightly_cli = bundled_cli_for_variant(
             cli_path,
             apps,
@@ -500,12 +683,28 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
 
         write_marker(home, "last-socket-path", stable_socket)
         write_marker(home, "nightly-last-socket-path", nightly_socket)
+        write_marker(home, "rc-last-socket-path", rc_socket)
         write_marker(home, "dev-agent-last-socket-path", dev_agent_socket)
 
         try:
-            if not expect_ping_uses_socket(stable_cli, home, stable_socket, "stable"):
+            stable_default_socket = os.path.join(
+                home,
+                "Library",
+                "Application Support",
+                "cmux",
+                "cmux.sock",
+            )
+            if not expect_ping_prefers_socket_over_default(
+                stable_cli,
+                home,
+                stable_socket,
+                stable_default_socket,
+                "stable",
+            ):
                 return False
             if not expect_ping_uses_socket(nightly_cli, home, nightly_socket, "nightly"):
+                return False
+            if not expect_ping_uses_socket(rc_cli, home, rc_socket, "rc"):
                 return False
             if not expect_ping_uses_socket(dev_agent_cli, home, dev_agent_socket, "dev-agent"):
                 return False
@@ -537,13 +736,6 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
             ):
                 return False
 
-            stable_default_socket = os.path.join(
-                home,
-                "Library",
-                "Application Support",
-                "cmux",
-                "cmux.sock",
-            )
             if not expect_ping_does_not_use_socket(
                 isolated_nightly_cli,
                 home,
@@ -555,6 +747,7 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
             for path in [
                 stable_socket,
                 nightly_socket,
+                rc_socket,
                 dev_agent_socket,
                 rogue_stable_socket,
                 rogue_nightly_socket,
@@ -651,6 +844,12 @@ def main() -> int:
         return 1
 
     if not test_python_client_treats_stable_override_as_implicit():
+        return 1
+
+    if not test_python_client_supports_rc_variant():
+        return 1
+
+    if not test_cli_prefers_rc_default_socket_file_over_stale_marker(cli_path):
         return 1
 
     print("PASS: cmux ping auto-discovers tagged socket from CMUX_TAG")

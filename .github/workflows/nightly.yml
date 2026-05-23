@@ -329,6 +329,7 @@ jobs:
             --version "$NIGHTLY_REMOTE_DAEMON_VERSION" \
             --release-tag "nightly" \
             --repo "manaflow-ai/cmux" \
+            --signer-workflow "manaflow-ai/cmux/.github/workflows/nightly.yml" \
             --output-dir "remote-daemon-assets" \
             --asset-suffix "$NIGHTLY_BUILD"
           MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json")"

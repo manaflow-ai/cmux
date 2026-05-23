@@ -50,6 +50,7 @@ _STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
 _LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
 _STABLE_BUNDLE_ID = "com.cmuxterm.app"
 _NIGHTLY_BUNDLE_ID = "com.cmuxterm.app.nightly"
+_RC_BUNDLE_ID = "com.cmuxterm.app.rc"
 _STAGING_BUNDLE_ID = "com.cmuxterm.app.staging"
 _DEFAULT_DEBUG_BUNDLE_ID = "com.cmuxterm.app.debug"
 
@@ -79,6 +80,8 @@ def _is_known_cmux_bundle_id(bundle_id: str) -> bool:
         bundle_id == _STABLE_BUNDLE_ID
         or bundle_id == _NIGHTLY_BUNDLE_ID
         or bundle_id.startswith(f"{_NIGHTLY_BUNDLE_ID}.")
+        or bundle_id == _RC_BUNDLE_ID
+        or bundle_id.startswith(f"{_RC_BUNDLE_ID}.")
         or bundle_id == _STAGING_BUNDLE_ID
         or bundle_id.startswith(f"{_STAGING_BUNDLE_ID}.")
         or bundle_id == _DEFAULT_DEBUG_BUNDLE_ID
@@ -106,6 +109,11 @@ def _socket_variant() -> Tuple[str, Optional[str]]:
     if bundle_id.startswith(f"{_NIGHTLY_BUNDLE_ID}."):
         suffix = bundle_id.removeprefix(f"{_NIGHTLY_BUNDLE_ID}.")
         return ("nightly", _sanitize_marker_slug(suffix))
+    if bundle_id == _RC_BUNDLE_ID:
+        return ("rc", None)
+    if bundle_id.startswith(f"{_RC_BUNDLE_ID}."):
+        suffix = bundle_id.removeprefix(f"{_RC_BUNDLE_ID}.")
+        return ("rc", _sanitize_marker_slug(suffix))
     if bundle_id == _STAGING_BUNDLE_ID:
         return ("staging", None)
     if bundle_id.startswith(f"{_STAGING_BUNDLE_ID}."):
@@ -128,6 +136,9 @@ def _last_socket_path_files() -> List[str]:
     if variant == "nightly":
         marker = f"nightly-{slug}-last-socket-path" if slug else "nightly-last-socket-path"
         tmp_marker = f"/tmp/cmux-nightly-{slug}-last-socket-path" if slug else "/tmp/cmux-nightly-last-socket-path"
+    elif variant == "rc":
+        marker = f"rc-{slug}-last-socket-path" if slug else "rc-last-socket-path"
+        tmp_marker = f"/tmp/cmux-rc-{slug}-last-socket-path" if slug else "/tmp/cmux-rc-last-socket-path"
     elif variant == "staging":
         marker = f"staging-{slug}-last-socket-path" if slug else "staging-last-socket-path"
         tmp_marker = f"/tmp/cmux-staging-{slug}-last-socket-path" if slug else "/tmp/cmux-staging-last-socket-path"
@@ -145,6 +156,8 @@ def _variant_socket_candidates() -> List[str]:
     variant, slug = _socket_variant()
     if variant == "nightly":
         return [f"/tmp/cmux-nightly-{slug}.sock"] if slug else ["/tmp/cmux-nightly.sock"]
+    if variant == "rc":
+        return [f"/tmp/cmux-rc-{slug}.sock"] if slug else ["/tmp/cmux-rc.sock"]
     if variant == "staging":
         return [f"/tmp/cmux-staging-{slug}.sock"] if slug else ["/tmp/cmux-staging.sock"]
     if variant == "dev":

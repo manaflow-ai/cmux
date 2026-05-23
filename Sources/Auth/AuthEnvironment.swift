@@ -18,8 +18,14 @@ enum AuthEnvironment {
         // with the installed stable app.
         return "cmux-dev"
         #else
-        if Bundle.main.bundleIdentifier == "com.cmuxterm.app.nightly" {
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? ""
+        if bundleIdentifier == "com.cmuxterm.app.nightly"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.nightly.") {
             return "cmux-nightly"
+        }
+        if bundleIdentifier == "com.cmuxterm.app.rc"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.rc.") {
+            return "cmux-rc"
         }
         return "cmux"
         #endif

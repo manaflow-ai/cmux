@@ -6303,6 +6303,7 @@ struct CMUXCLI {
         let releaseURL: String
         let checksumsAssetName: String
         let checksumsURL: String
+        let signerWorkflow: String?
         let entries: [Entry]
 
         func entry(goOS: String, goArch: String) -> Entry? {
@@ -9323,9 +9324,8 @@ struct CMUXCLI {
         let downloadCommand = "gh release download \(releaseTag) --repo manaflow-ai/cmux --pattern \(assetName)"
         let downloadChecksumsCommand = "gh release download \(releaseTag) --repo manaflow-ai/cmux --pattern \(checksumsAssetName)"
         let checksumVerifyCommand = "shasum -a 256 -c \(checksumsAssetName) --ignore-missing"
-        let signerWorkflow = releaseTag == "nightly"
-            ? "manaflow-ai/cmux/.github/workflows/nightly.yml"
-            : "manaflow-ai/cmux/.github/workflows/release.yml"
+        let signerWorkflow = manifest?.signerWorkflow
+            ?? remoteDaemonAttestationSignerWorkflow(releaseTag: releaseTag)
         let verifyCommand = "gh attestation verify ./\(assetName) --repo manaflow-ai/cmux --signer-workflow \(signerWorkflow)"
 
         let payload: [String: Any] = [
@@ -9388,6 +9388,19 @@ struct CMUXCLI {
         if manifest == nil {
             print("note: this build has no embedded remote daemon manifest. Set CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 only for dev builds.")
         }
+    }
+
+    private func remoteDaemonAttestationSignerWorkflow(releaseTag: String) -> String {
+        if releaseTag == "nightly" {
+            return "manaflow-ai/cmux/.github/workflows/nightly.yml"
+        }
+        if releaseTag.range(
+            of: #"^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$"#,
+            options: .regularExpression
+        ) != nil {
+            return "manaflow-ai/cmux/.github/workflows/release-candidate.yml"
+        }
+        return "manaflow-ai/cmux/.github/workflows/release.yml"
     }
 
     private func defaultRemoteDaemonPlatform(requestedOS: String?, requestedArch: String?) -> (goOS: String, goArch: String) {

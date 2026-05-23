@@ -7,7 +7,7 @@ import { OpenNativeClient } from "./OpenNativeClient";
 export const dynamic = "force-dynamic";
 
 const NATIVE_SCHEME = "cmux://";
-const NATIVE_SCHEMES = [NATIVE_SCHEME, "cmux-nightly://", "cmux-dev://"];
+const NATIVE_SCHEMES = [NATIVE_SCHEME, "cmux-nightly://", "cmux-rc://", "cmux-dev://"];
 
 function findStackCookie(
   cookieStore: { getAll: () => { name: string; value: string }[] },

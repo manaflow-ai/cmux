@@ -1193,6 +1193,7 @@ final class WorkspaceRemoteDaemonManifestTests: XCTestCase {
           "releaseURL": "https://github.com/manaflow-ai/cmux/releases/tag/v0.62.0",
           "checksumsAssetName": "cmuxd-remote-checksums.txt",
           "checksumsURL": "https://github.com/manaflow-ai/cmux/releases/download/v0.62.0/cmuxd-remote-checksums.txt",
+          "signerWorkflow": "manaflow-ai/cmux/.github/workflows/release-candidate.yml",
           "entries": [
             {
               "goOS": "linux",
@@ -1210,6 +1211,7 @@ final class WorkspaceRemoteDaemonManifestTests: XCTestCase {
         ])
 
         XCTAssertEqual(manifest?.releaseTag, "v0.62.0")
+        XCTAssertEqual(manifest?.signerWorkflow, "manaflow-ai/cmux/.github/workflows/release-candidate.yml")
         XCTAssertEqual(manifest?.entry(goOS: "linux", goArch: "amd64")?.assetName, "cmuxd-remote-linux-amd64")
     }
 

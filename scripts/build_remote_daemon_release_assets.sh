@@ -8,6 +8,7 @@ Usage: scripts/build_remote_daemon_release_assets.sh \
   --release-tag <tag> \
   --repo <owner/repo> \
   --output-dir <dir> \
+  [--signer-workflow <owner/repo/.github/workflows/file.yml>] \
   [--asset-suffix <suffix>]
 
 Builds cmuxd-remote release assets for the supported remote platforms and emits:
@@ -26,6 +27,7 @@ RELEASE_TAG=""
 REPO=""
 OUTPUT_DIR=""
 ASSET_SUFFIX=""
+SIGNER_WORKFLOW=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -43,6 +45,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --output-dir)
       OUTPUT_DIR="${2:-}"
+      shift 2
+      ;;
+    --signer-workflow)
+      SIGNER_WORKFLOW="${2:-}"
       shift 2
       ;;
     --asset-suffix)
@@ -134,13 +140,13 @@ for target in "${TARGETS[@]}"; do
   printf '%s\t%s\t%s\t%s\n' "$GOOS" "$GOARCH" "$ASSET_NAME" "$SHA256" >> "$ENTRIES_FILE"
 done
 
-python3 - <<'PY' "$VERSION" "$RELEASE_TAG" "$REPO" "$CHECKSUMS_ASSET_NAME" "$CHECKSUMS_PATH" "$MANIFEST_PATH" "$ENTRIES_FILE"
+python3 - <<'PY' "$VERSION" "$RELEASE_TAG" "$REPO" "$CHECKSUMS_ASSET_NAME" "$CHECKSUMS_PATH" "$MANIFEST_PATH" "$ENTRIES_FILE" "$SIGNER_WORKFLOW"
 import json
 import sys
 import urllib.parse
 from pathlib import Path
 
-version, release_tag, repo, checksums_asset_name, checksums_path, manifest_path, entries_file = sys.argv[1:]
+version, release_tag, repo, checksums_asset_name, checksums_path, manifest_path, entries_file, signer_workflow = sys.argv[1:]
 quoted_tag = urllib.parse.quote(release_tag, safe="")
 release_url = f"https://github.com/{repo}/releases/download/{quoted_tag}"
 checksums_url = f"{release_url}/{urllib.parse.quote(checksums_asset_name, safe='')}"
@@ -167,6 +173,8 @@ manifest = {
     "checksumsURL": checksums_url,
     "entries": entries,
 }
+if signer_workflow:
+    manifest["signerWorkflow"] = signer_workflow
 Path(manifest_path).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
 

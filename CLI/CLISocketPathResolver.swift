@@ -85,6 +85,7 @@ enum CLISocketPathResolver {
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
     private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
+    private static let rcSocketPath = "/tmp/cmux-rc.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
 
     static func defaultSocketPath(
@@ -98,6 +99,7 @@ enum CLISocketPathResolver {
             stableSocketPath: stableDefaultSocketPath,
             debugSocketPath: fallbackSocketPath,
             nightlySocketPath: nightlySocketPath,
+            rcSocketPath: rcSocketPath,
             stagingSocketPath: stagingSocketPath
         )
     }
@@ -138,8 +140,10 @@ enum CLISocketPathResolver {
             return path
         }
 
-        // If the listener is still starting, prefer existing socket files.
-        for path in candidates where isSocketFile(path) {
+        // If the listener is still starting, prefer the channel default socket
+        // file over a last-run marker that may have gone stale.
+        let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
+        for path in dedupe([defaultPath] + candidates) where isSocketFile(path) {
             return path
         }
 
@@ -155,10 +159,10 @@ enum CLISocketPathResolver {
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
 
-        candidates.append(defaultPath)
         if let last = readLastSocketPath(bundleIdentifier: bundleIdentifier, environment: environment) {
             candidates.append(last)
         }
+        candidates.append(defaultPath)
         if shouldIncludeImplicitRequestedPath(
             requestedPath,
             defaultPath: defaultPath,
@@ -185,7 +189,7 @@ enum CLISocketPathResolver {
         switch variant {
         case .stable:
             return true
-        case .nightly, .staging, .dev:
+        case .nightly, .rc, .staging, .dev:
             return requestedPath == defaultPath || !stableImplicitDefaultPaths().contains(requestedPath)
         }
     }
@@ -194,7 +198,7 @@ enum CLISocketPathResolver {
         switch variant {
         case .stable:
             return stableImplicitDefaultPaths()
-        case .nightly, .staging, .dev:
+        case .nightly, .rc, .staging, .dev:
             return []
         }
     }
@@ -211,7 +215,7 @@ enum CLISocketPathResolver {
             let bundleId = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return bundleId == SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier
                 && normalized(environment["CMUX_TAG"]) != nil
-        case .stable, .nightly, .staging:
+        case .stable, .nightly, .rc, .staging:
             return false
         }
     }
@@ -337,6 +341,7 @@ enum CLISocketPathResolver {
             legacyDefaultSocketPath,
             fallbackSocketPath,
             nightlySocketPath,
+            rcSocketPath,
             stagingSocketPath,
         ]))
     }
