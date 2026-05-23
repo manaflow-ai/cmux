@@ -6104,68 +6104,18 @@ class TerminalController {
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
             let tree = ws.bonsplitController.treeSnapshot()
-            let equalizeResult = Self.equalizeSplitsProportionally(
+            let equalizeResult = SplitEqualizer.equalize(
                 in: tree,
                 controller: ws.bonsplitController,
-                fromExternal: true,
                 orientationFilter: orientationFilter
             )
             result = .ok([
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "equalized": equalizeResult.foundSplit
+                "equalized": equalizeResult.didFullyEqualize
             ])
         }
         return result
-    }
-
-    struct EqualizeSplitsResult {
-        let foundSplit: Bool
-        let allSucceeded: Bool
-
-        var didFullyEqualize: Bool { foundSplit && allSucceeded }
-    }
-
-    /// Proportionally equalize splits so each leaf pane gets equal space.
-    /// When an orientation filter is set, only matching splits are adjusted, while leaf counts still come from the full subtree.
-    @discardableResult
-    static func equalizeSplitsProportionally(
-        in node: ExternalTreeNode,
-        controller: BonsplitController,
-        fromExternal: Bool,
-        orientationFilter: String? = nil
-    ) -> EqualizeSplitsResult {
-        var foundSplit = false
-        var allSucceeded = true
-
-        @discardableResult
-        func equalize(_ node: ExternalTreeNode) -> Int {
-            switch node {
-            case .pane:
-                return 1
-            case .split(let split):
-                let firstLeafCount = equalize(split.first)
-                let secondLeafCount = equalize(split.second)
-                let totalLeafCount = firstLeafCount + secondLeafCount
-
-                if orientationFilter == nil || split.orientation == orientationFilter {
-                    foundSplit = true
-                    if let splitId = UUID(uuidString: split.id) {
-                        let position = CGFloat(firstLeafCount) / CGFloat(totalLeafCount)
-                        if !controller.setDividerPosition(position, forSplit: splitId, fromExternal: fromExternal) {
-                            allSucceeded = false
-                        }
-                    } else {
-                        allSucceeded = false
-                    }
-                }
-
-                return totalLeafCount
-            }
-        }
-
-        equalize(node)
-        return EqualizeSplitsResult(foundSplit: foundSplit, allSucceeded: allSucceeded)
     }
 
     private func v2WorkspaceRemoteConfigure(params: [String: Any]) -> V2CallResult {
