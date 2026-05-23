@@ -585,12 +585,14 @@ def acquire_slot(slot, blocking):
                 os.close(fd)
                 return None
 
-        flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-        fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
         return fd
     except OSError:
         os.close(fd)
         raise
+
+def make_inheritable(fd):
+    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+    fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
 
 errors = []
 for slot in range(1, max_concurrency + 1):
@@ -630,6 +632,7 @@ else:
         if len(errors) == max_concurrency:
             raise SystemExit(f"error: acquire xcodebuild slot: {errors[0]}")
 
+make_inheritable(acquired_fd)
 try:
     os.execvp(command[0], command)
 except OSError as exc:
