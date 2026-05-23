@@ -9888,7 +9888,7 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceIdToPanelId[surfaceId]
     }
 
-    func markExplicitClose(surfaceId: TabID, trigger: CloseTabConfirmationTrigger = .tabCloseButton) {
+    func markExplicitClose(surfaceId: TabID, trigger: CloseTabConfirmationTrigger) {
         explicitUserCloseTabSources[surfaceId] = trigger
     }
 
@@ -16393,7 +16393,8 @@ extension Workspace: BonsplitDelegate {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
                CloseTabConfirmationPolicy.shouldConfirm(
-                   requiresConfirmation: panelNeedsConfirmClose(panelId: panelId)
+                   requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+                   trigger: .shortcut
                ) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false

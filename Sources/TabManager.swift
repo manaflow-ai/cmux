@@ -5834,7 +5834,7 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true) {
+        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true, trigger: .shortcut) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
                 title: prompt.title,
@@ -5881,7 +5881,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func closeWorkspaceFromCloseTabGesture(
         _ workspace: Workspace,
-        trigger: CloseTabConfirmationTrigger = .shortcut
+        trigger: CloseTabConfirmationTrigger
     ) -> Bool {
         let source: CloseConfirmationSource
         switch trigger {
@@ -5915,7 +5915,7 @@ class TabManager: ObservableObject {
         let workspaces = orderedClosableWorkspaces(workspaceIds, allowPinned: allowPinned)
         guard !workspaces.isEmpty else { return }
         guard workspaces.count > 1 else {
-            closeWorkspaceFromCloseTabGesture(workspaces[0])
+            closeWorkspaceFromCloseTabGesture(workspaces[0], trigger: .shortcut)
             return
         }
 
@@ -6293,7 +6293,7 @@ class TabManager: ObservableObject {
             requiresConfirmation = false
         }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation) {
+        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation, trigger: .shortcut) {
             guard confirmClose(
                 title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                 message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),

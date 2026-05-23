@@ -4759,20 +4759,20 @@ enum CloseTabWarningSettings {
     }
 }
 
-enum CloseTabConfirmationTrigger {
+nonisolated enum CloseTabConfirmationTrigger: Sendable {
     case shortcut
     case tabCloseButton
 }
 
-enum CloseTabConfirmationPolicy {
-    enum Decision: Equatable {
+nonisolated enum CloseTabConfirmationPolicy: Sendable {
+    enum Decision: Equatable, Sendable {
         case closeImmediately
         case confirmBeforeClosing
     }
 
     static func decision(
         requiresConfirmation: Bool,
-        trigger: CloseTabConfirmationTrigger = .shortcut,
+        trigger: CloseTabConfirmationTrigger,
         defaults: UserDefaults = .standard
     ) -> Decision {
         guard requiresConfirmation else {
@@ -4791,7 +4791,7 @@ enum CloseTabConfirmationPolicy {
 
     static func shouldConfirm(
         requiresConfirmation: Bool,
-        trigger: CloseTabConfirmationTrigger = .shortcut,
+        trigger: CloseTabConfirmationTrigger,
         defaults: UserDefaults = .standard
     ) -> Bool {
         decision(requiresConfirmation: requiresConfirmation, trigger: trigger, defaults: defaults) == .confirmBeforeClosing

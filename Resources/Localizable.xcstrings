@@ -60975,6 +60975,114 @@
             "state": "translated",
             "value": "X ボタンでタブを閉じる前に警告"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before X-Button Tab Close"
+          }
         }
       }
     },
@@ -60992,6 +61100,114 @@
             "state": "translated",
             "value": "タブの X ボタンはすぐにタブを閉じます。"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab X button closes tabs immediately."
+          }
         }
       }
     },
@@ -61008,6 +61224,114 @@
           "stringUnit": {
             "state": "translated",
             "value": "タブの X ボタンで閉じる前にも同じ確認を表示します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the same confirmation before closing a tab with its X button."
           }
         }
       }
@@ -77418,6 +77742,114 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface タブを閉じる 確認 警告"
+                }
+            },
+            "ar": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "bs": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "da": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "de": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "es": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "fr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "it": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "nb": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "pl": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "pt-BR": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "ru": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "th": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "tr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "uk": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "zh-Hans": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
+                }
+            },
+            "zh-Hant": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTabXButton close tab confirmation x button mouse click tab strip terminal surface"
                 }
             }
         }

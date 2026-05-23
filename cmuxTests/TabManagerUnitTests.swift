@@ -1509,7 +1509,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             return
         }
 
-        secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId)
+        secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId, trigger: .tabCloseButton)
         XCTAssertFalse(secondWorkspace.closePanel(secondPanelId))
         drainMainQueue()
         drainMainQueue()
@@ -1547,7 +1547,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             return
         }
 
-        secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId)
+        secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId, trigger: .tabCloseButton)
         XCTAssertFalse(secondWorkspace.closePanel(secondPanelId))
         drainMainQueue()
         drainMainQueue()
