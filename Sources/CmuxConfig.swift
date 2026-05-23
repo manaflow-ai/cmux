@@ -1423,7 +1423,9 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
                 tooltip: tooltip,
                 action: .builtIn(builtIn),
                 confirm: confirm,
-                terminalCommandTarget: terminalCommandTarget
+                terminalCommandTarget: terminalCommandTarget,
+                actionSourcePath: actionSourcePath,
+                iconSourcePath: iconSourcePath
             )
         }
 
@@ -2761,7 +2763,9 @@ final class CmuxConfigStore: ObservableObject {
                     tooltip: button.tooltip,
                     action: .builtIn(builtIn),
                     confirm: button.confirm,
-                    terminalCommandTarget: button.terminalCommandTarget
+                    terminalCommandTarget: button.terminalCommandTarget,
+                    actionSourcePath: button.actionSourcePath,
+                    iconSourcePath: button.iconSourcePath
                 ),
                 terminalCommandSourcePath: nil
             )
