@@ -5233,7 +5233,8 @@ struct SettingsView: View {
     private var confirmQuitModeRaw = QuitWarningSettings.defaultConfirmQuitMode.rawValue
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabKey) private var warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
-    @State private var warnBeforeClosingTabXButton = CloseTabWarningSettings.isXButtonWarningEnabled()
+    @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
+    private var warnBeforeClosingTabXButtonStored = CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
@@ -5401,12 +5402,17 @@ struct SettingsView: View {
         return QuitWarningSettings.confirmQuitMode()
     }
 
+    private var warnBeforeClosingTabXButtonEffectiveValue: Bool {
+        _ = warnBeforeClosingTab
+        _ = warnBeforeClosingTabXButtonStored
+        return CloseTabWarningSettings.isXButtonWarningEnabled()
+    }
+
     private var warnBeforeClosingTabXButtonBinding: Binding<Bool> {
         Binding(
-            get: { warnBeforeClosingTabXButton },
+            get: { warnBeforeClosingTabXButtonEffectiveValue },
             set: { isEnabled in
-                CloseTabWarningSettings.setXButtonWarningEnabled(isEnabled)
-                warnBeforeClosingTabXButton = isEnabled
+                warnBeforeClosingTabXButtonStored = isEnabled
             }
         )
     }
@@ -6568,7 +6574,7 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("app.warnBeforeClosingTabXButton"),
                             String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before X-Button Tab Close"),
-                            subtitle: warnBeforeClosingTabXButton
+                            subtitle: warnBeforeClosingTabXButtonEffectiveValue
                                 ? String(localized: "settings.app.warnBeforeClosingTabXButton.subtitleOn", defaultValue: "Show the same confirmation before closing a tab with its X button.")
                                 : String(localized: "settings.app.warnBeforeClosingTabXButton.subtitleOff", defaultValue: "The tab X button closes tabs immediately.")
                         ) {
@@ -7699,7 +7705,6 @@ struct SettingsView: View {
             browserHistoryEntryCount = didLoadBrowserHistoryForSettings ? BrowserHistoryStore.shared.entries.count : 0
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
             reloadWorkspaceTabColorSettings()
-            reloadCloseTabWarningSettings()
             refreshNotificationCustomSoundStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
                 ?? SettingsNavigationTarget(rawValue: selectedSettingsSectionRaw)
@@ -7732,7 +7737,6 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             reloadWorkspaceTabColorSettings()
-            reloadCloseTabWarningSettings()
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
@@ -7868,7 +7872,6 @@ struct SettingsView: View {
         warnBeforeQuitShortcut = QuitWarningSettings.defaultConfirmQuitMode != .never
         warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
         CloseTabWarningSettings.resetXButtonWarning()
-        warnBeforeClosingTabXButton = CloseTabWarningSettings.isXButtonWarningEnabled()
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
@@ -7976,10 +7979,6 @@ struct SettingsView: View {
 
     private func reloadWorkspaceTabColorSettings() {
         workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
-    }
-
-    private func reloadCloseTabWarningSettings() {
-        warnBeforeClosingTabXButton = CloseTabWarningSettings.isXButtonWarningEnabled()
     }
 
     private func saveBrowserInsecureHTTPAllowlist() {
