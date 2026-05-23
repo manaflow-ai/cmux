@@ -26,6 +26,10 @@ if [[ -n "$COMMIT" && -f "$INFO_PLIST" ]]; then
     || /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $COMMIT" "$INFO_PLIST" 2>/dev/null \
     || true
 fi
+if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
+  echo "error: codesign failed for $APP_PATH" >&2
+  exit 1
+fi
 
 # Dev shells (including CI/Codex) often force-disable paging by exporting these.
 # Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.

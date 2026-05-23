@@ -367,6 +367,18 @@ write_cmuxd_source_stamp() {
   cmuxd_source_manifest > "$stamp"
 }
 
+stamp_app_commit() {
+  local app_path="$1"
+  local info_plist="$app_path/Contents/Info.plist"
+  local commit
+  [[ -f "$info_plist" ]] || return 0
+  commit="$(git -C "$PWD" rev-parse --short=9 HEAD 2>/dev/null || true)"
+  [[ -n "$commit" ]] || return 0
+  /usr/libexec/PlistBuddy -c "Set :CMUXCommit $commit" "$info_plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $commit" "$info_plist" 2>/dev/null \
+    || true
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag)
@@ -744,6 +756,8 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
   exit 1
 fi
 
+stamp_app_commit "$APP_PATH"
+
 if [[ -n "${TAG_SLUG:-}" ]]; then
   TMP_COMPAT_DERIVED_LINK="/tmp/cmux-${TAG_SLUG}"
   if [[ "$DERIVED_DATA" != "$TMP_COMPAT_DERIVED_LINK" ]]; then
@@ -768,12 +782,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$INFO_PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
-    COMMIT="$(git -C "$PWD" rev-parse --short=9 HEAD 2>/dev/null || true)"
-    if [[ -n "$COMMIT" ]]; then
-      /usr/libexec/PlistBuddy -c "Set :CMUXCommit $COMMIT" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $COMMIT" "$INFO_PLIST" 2>/dev/null \
-        || true
-    fi
+    stamp_app_commit "$TAG_APP_PATH"
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"

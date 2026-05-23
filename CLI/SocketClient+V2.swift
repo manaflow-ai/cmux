@@ -42,10 +42,9 @@ extension SocketClient {
         }
 
         if let ok = response["ok"] as? Bool, ok {
-            guard let result = response["result"] as? [String: Any] else {
-                throw CLIError(message: "Invalid v2 response from server")
-            }
-            return result
+            // Some mutation endpoints legitimately reply with {"ok": true}
+            // and no result payload.
+            return (response["result"] as? [String: Any]) ?? [:]
         }
 
         if let error = response["error"] as? [String: Any] {
@@ -168,6 +167,12 @@ extension SocketClient {
                 throw CLIError(message: "Not connected")
             }
             try connect()
+        }
+        let shouldCloseAfterStream = isRelayBacked
+        defer {
+            if shouldCloseAfterStream {
+                close()
+            }
         }
         let request: [String: Any] = [
             "id": UUID().uuidString,
