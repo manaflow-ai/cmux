@@ -3869,8 +3869,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
         let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
         try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
         let nativeConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
+        let currentConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
         try "theme = Dracula\n"
             .write(to: nativeConfig, atomically: true, encoding: .utf8)
+        try "".write(to: currentConfig, atomically: true, encoding: .utf8)
 
         let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
             currentBundleIdentifier: "com.example.cmux-dev",
@@ -3879,6 +3881,31 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         XCTAssertTrue(paths.contains(nativeConfig.path))
         XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: paths))
+    }
+
+    func testLoadedGhosttyConfigScanPathsSkipsNativeLegacyConfigWhenCurrentConfigIsNonEmpty() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-appearance-app-support-current-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appSupport) }
+
+        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+        try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
+        let legacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
+        let currentConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        try "theme = Dracula\n"
+            .write(to: legacyConfig, atomically: true, encoding: .utf8)
+        try "font-size = 13\n"
+            .write(to: currentConfig, atomically: true, encoding: .utf8)
+
+        let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
+            currentBundleIdentifier: "com.example.cmux-dev",
+            appSupportDirectory: appSupport
+        )
+
+        XCTAssertTrue(paths.contains(currentConfig.path))
+        XCTAssertFalse(paths.contains(legacyConfig.path))
+        XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: paths))
     }
 
     // MARK: shouldApplyManagedDefaultAppearance

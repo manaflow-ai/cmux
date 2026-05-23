@@ -2820,8 +2820,15 @@ class GhosttyApp {
         guard let appSupportDirectory else { return paths }
 
         let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        paths.append(ghosttyDir.appendingPathComponent("config", isDirectory: false).path)
-        paths.append(ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false).path)
+        let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
+        let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        paths.append(nativeConfig.path)
+        if shouldLoadLegacyGhosttyConfig(
+            newConfigFileSize: configFileSize(at: nativeConfig),
+            legacyConfigFileSize: configFileSize(at: nativeLegacyConfig)
+        ) {
+            paths.append(nativeLegacyConfig.path)
+        }
 
         guard let bundleId = currentBundleIdentifier,
               !bundleId.isEmpty else { return paths }
