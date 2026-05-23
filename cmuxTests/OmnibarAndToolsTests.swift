@@ -668,6 +668,36 @@ final class OmnibarStateMachineTests: XCTestCase {
             NSRange(location: "news.".utf16.count, length: 0)
         )
     }
+
+    @MainActor
+    func testOptionBackspaceAfterURLSeparatorContinuesURLAwareDeletion() throws {
+        let harness = OmnibarPlainDeletionHarness(text: "news.ycombinator.")
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(harness.state.buffer, "news.")
+        XCTAssertEqual(harness.editor.string, "news.")
+        XCTAssertEqual(
+            harness.editor.selectedRange(),
+            NSRange(location: "news.".utf16.count, length: 0)
+        )
+    }
+
+    @MainActor
+    func testDeleteWordBackwardCommandUsesURLAwareDeletionForPlainURL() throws {
+        let harness = OmnibarPlainDeletionHarness(text: "news.ycombinator.com")
+
+        let handled = harness.dispatchCommand(#selector(NSResponder.deleteWordBackward(_:)))
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(harness.state.buffer, "news.ycombinator.")
+        XCTAssertEqual(harness.editor.string, "news.ycombinator.")
+        XCTAssertEqual(
+            harness.editor.selectedRange(),
+            NSRange(location: "news.ycombinator.".utf16.count, length: 0)
+        )
+    }
 }
 
 @MainActor
@@ -998,6 +1028,10 @@ private final class OmnibarPlainDeletionHarness {
         )
 
         return makeCoordinator().handleKeyEvent(event, editor: editor)
+    }
+
+    func dispatchCommand(_ commandSelector: Selector) -> Bool {
+        makeCoordinator().control(NSTextField(), textView: editor, doCommandBy: commandSelector)
     }
 
     private func makeCoordinator() -> OmnibarTextFieldRepresentable.Coordinator {
