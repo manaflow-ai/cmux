@@ -3550,7 +3550,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func evaluateBrowserEngineJavaScript(
         _ script: String,
-        completion: @escaping (Any?, Error?) -> Void
+        completion: @escaping @Sendable (Any?, Error?) -> Void
     ) {
         guard usesOwlChromiumBrowserEngine else {
             webView.evaluateJavaScript(script, completionHandler: completion)
