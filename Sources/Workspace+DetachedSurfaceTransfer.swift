@@ -24,7 +24,7 @@ extension Workspace {
         let cachedTitle: String?
         let customTitle: String?
         let manuallyUnread: Bool
-        let restoredUnread: Bool
+        let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
         let resumeBinding: SurfaceResumeBindingSnapshot?
@@ -50,7 +50,7 @@ extension Workspace {
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
                 manuallyUnread: manuallyUnread,
-                restoredUnread: restoredUnread,
+                restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 resumeBinding: resumeBinding,
