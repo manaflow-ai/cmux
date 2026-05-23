@@ -303,6 +303,7 @@ final class BrowserOwlChromiumEngineAdapter: BrowserEngineAdapter {
     func load(_ request: URLRequest) {
         guard let url = request.url else { return }
         latestURL = url
+        hostView.prepareForBrowserNavigationPlaceholder()
         engine.navigate(
             tabID: tabID,
             url: url.absoluteString,
@@ -313,14 +314,17 @@ final class BrowserOwlChromiumEngineAdapter: BrowserEngineAdapter {
     }
 
     func goBack() {
+        hostView.prepareForBrowserNavigationPlaceholder()
         engine.goBack(tabID: tabID)
     }
 
     func goForward() {
+        hostView.prepareForBrowserNavigationPlaceholder()
         engine.goForward(tabID: tabID)
     }
 
     func reload() {
+        hostView.prepareForBrowserNavigationPlaceholder()
         engine.reload(tabID: tabID)
     }
 
