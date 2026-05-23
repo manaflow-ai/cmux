@@ -19,33 +19,33 @@ enum LargeTextSelectionPolicy {
         }
 
         var lineFragments = 0
-        var currentLineBytes = 0
-        var sawAnyByte = false
-        var previousByteWasNewline = false
+        var currentLineCharacters = 0
+        var sawAnyCharacter = false
+        var previousCharacterWasNewline = false
 
         func appendLineFragment() -> Bool {
-            currentLineBytes = 0
+            currentLineCharacters = 0
             lineFragments += 1
             return lineFragments <= maximumLineFragments
         }
 
-        for byte in text.utf8 {
-            sawAnyByte = true
-            if byte == 10 {
-                if currentLineBytes > 0 || previousByteWasNewline || lineFragments == 0 {
+        for scalar in text.unicodeScalars {
+            sawAnyCharacter = true
+            if scalar.value == 10 {
+                if currentLineCharacters > 0 || previousCharacterWasNewline || lineFragments == 0 {
                     guard appendLineFragment() else { return .copyOnly }
                 }
-                previousByteWasNewline = true
+                previousCharacterWasNewline = true
             } else {
-                previousByteWasNewline = false
-                currentLineBytes += 1
-                if currentLineBytes >= charactersPerWrappedLine {
+                previousCharacterWasNewline = false
+                currentLineCharacters += 1
+                if currentLineCharacters >= charactersPerWrappedLine {
                     guard appendLineFragment() else { return .copyOnly }
                 }
             }
         }
 
-        if currentLineBytes > 0 || !sawAnyByte || previousByteWasNewline {
+        if currentLineCharacters > 0 || !sawAnyCharacter || previousCharacterWasNewline {
             guard appendLineFragment() else { return .copyOnly }
         }
         return .liveSelection
