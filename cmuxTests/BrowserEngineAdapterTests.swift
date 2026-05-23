@@ -176,7 +176,7 @@ private final class TestChromiumBrowserEngineAdapter: BrowserEngineAdapter {
         script
     }
 
-    func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
+    func takeSnapshot(completion: @escaping @Sendable (NSImage?) -> Void) {
         completion(nil)
     }
 

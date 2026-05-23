@@ -1528,7 +1528,8 @@ struct BrowserPanelView: View {
             BrowserEngineNativeViewRepresentable(
                 panel: panel,
                 shouldAttachNativeView: isVisibleInUI && isCurrentPaneOwner,
-                shouldFocusWebView: shouldFocusSurface
+                shouldFocusWebView: shouldFocusSurface,
+                fallbackColor: browserChromeBackgroundColor
             )
             .accessibilityIdentifier("BrowserChromiumSurface")
             .id("\(panel.browserEngineInstanceID.uuidString)-\(paneId.id.uuidString)")
@@ -4863,14 +4864,15 @@ struct BrowserEngineNativeViewRepresentable: NSViewRepresentable {
     let panel: BrowserPanel
     let shouldAttachNativeView: Bool
     let shouldFocusWebView: Bool
+    let fallbackColor: NSColor
 
     final class HostContainerView: NSView {
         private weak var hostedView: NSView?
 
-        override init(frame frameRect: NSRect) {
+        init(frame frameRect: NSRect, fallbackColor: NSColor) {
             super.init(frame: frameRect)
             wantsLayer = true
-            layer?.backgroundColor = NSColor.white.cgColor
+            layer?.backgroundColor = fallbackColor.cgColor
             autoresizesSubviews = true
         }
 
@@ -4880,6 +4882,10 @@ struct BrowserEngineNativeViewRepresentable: NSViewRepresentable {
         }
 
         override var isFlipped: Bool { true }
+
+        func updateFallbackColor(_ color: NSColor) {
+            layer?.backgroundColor = color.cgColor
+        }
 
         func attach(_ view: NSView) {
             if hostedView !== view {
@@ -4919,10 +4925,11 @@ struct BrowserEngineNativeViewRepresentable: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> HostContainerView {
-        HostContainerView(frame: .zero)
+        HostContainerView(frame: .zero, fallbackColor: fallbackColor)
     }
 
     func updateNSView(_ nsView: HostContainerView, context: Context) {
+        nsView.updateFallbackColor(fallbackColor)
         if shouldAttachNativeView {
             nsView.attach(panel.browserEngineNativeView)
         } else {

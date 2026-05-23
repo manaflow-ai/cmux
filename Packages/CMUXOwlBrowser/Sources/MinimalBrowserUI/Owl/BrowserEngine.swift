@@ -781,7 +781,11 @@ public final class BrowserEngine {
                 changedTabIDs.insert(session.tabID)
             }
             if let surfaceTree = snapshot.surfaceTree, surfaceTree != session.surfaceTree {
-                let shouldPublishSurfaceTree = shouldPublish(surfaceTree: surfaceTree, for: session)
+                let shouldPublishSurfaceTree = shouldPublish(
+                    surfaceTree: surfaceTree,
+                    for: session,
+                    snapshot: snapshot
+                )
                 if shouldPublishSurfaceTree {
                     session.surfaceTree = surfaceTree
                     changedTabIDs.insert(session.tabID)
@@ -835,8 +839,9 @@ public final class BrowserEngine {
         for session: BrowserEngineSession,
         expectation: BrowserSurfaceTreeExpectation? = nil
     ) {
+        session.nextSurfaceFlushAt = .distantPast
+        session.surfaceFlushRequested = true
         if let expectation {
-            session.nextSurfaceFlushAt = .distantPast
             session.surfaceTreeExpectation = expectation
             session.surfaceTreeExpectationDeadline = Date().addingTimeInterval(surfaceExpectationTimeout)
         }
@@ -847,7 +852,7 @@ public final class BrowserEngine {
         var changed = false
         for session in Array(sessions.values) where
             sessions[session.tabID] === session &&
-            session.surfaceTreeExpectation != nil &&
+            (session.surfaceFlushRequested || session.surfaceTreeExpectation != nil) &&
             now >= session.nextSurfaceFlushAt {
             session.nextSurfaceFlushAt = now.addingTimeInterval(surfaceFlushInterval)
             do {
@@ -860,7 +865,10 @@ public final class BrowserEngine {
                 if session.surfaceTreeExpectation != nil {
                     changed = refreshExpectedSurfaceTreeIfNeeded(for: session, now: now) || changed
                 } else if flushed {
-                    changed = true
+                    session.surfaceFlushRequested = false
+                    changed = refreshSurfaceTreeIfNeeded(for: session, reason: "flush") || changed
+                } else {
+                    session.surfaceFlushRequested = false
                 }
             } catch {
                 recordCommandError(error, for: session.tabID)
@@ -929,7 +937,11 @@ public final class BrowserEngine {
         do {
             let tree = try session.controller.getSurfaceTree()
             let isSatisfied = expectation.isSatisfied(by: tree)
-            let shouldPublishSurfaceTree = shouldPublish(surfaceTree: tree, for: session)
+            let shouldPublishSurfaceTree = shouldPublish(
+                surfaceTree: tree,
+                for: session,
+                snapshot: session.events.snapshot()
+            )
             let changed = (timedOut || shouldPublishSurfaceTree) && tree != session.surfaceTree
             if timedOut || shouldPublishSurfaceTree {
                 session.surfaceTree = tree
@@ -963,12 +975,41 @@ public final class BrowserEngine {
         }
     }
 
+    private func refreshSurfaceTreeIfNeeded(for session: BrowserEngineSession, reason: String) -> Bool {
+        do {
+            let tree = try session.controller.getSurfaceTree()
+            let snapshot = session.events.snapshot()
+            guard shouldPublish(surfaceTree: tree, for: session, snapshot: snapshot) else {
+                return false
+            }
+            guard tree != session.surfaceTree else {
+                return false
+            }
+            session.surfaceTree = tree
+            browserEngineLogger.info(
+                "Refreshed surface tree reason=\(reason, privacy: .public) generation=\(tree.generation) surfaces=\(surfaceSummary(tree), privacy: .public)"
+            )
+            return true
+        } catch {
+            if isPeerClosed(error) {
+                recordPeerClosed(error: error, for: session.tabID)
+                return true
+            }
+            record(error: error, for: session.tabID)
+            return true
+        }
+    }
+
     private func publishNativeSurfaceTreeAfterMouseButtonEvent(for session: BrowserEngineSession) throws {
         let tree = try session.controller.getSurfaceTree()
         guard tree.hasVisibleNativeSurface || session.surfaceTree?.hasVisibleNativeSurface == true else {
             return
         }
-        let shouldPublishSurfaceTree = shouldPublish(surfaceTree: tree, for: session)
+        let shouldPublishSurfaceTree = shouldPublish(
+            surfaceTree: tree,
+            for: session,
+            snapshot: session.events.snapshot()
+        )
         guard shouldPublishSurfaceTree, tree != session.surfaceTree else {
             return
         }
@@ -979,12 +1020,34 @@ public final class BrowserEngine {
         advanceRenderGenerationAndPublish(tabIDs: [session.tabID])
     }
 
-    private func shouldPublish(surfaceTree: OwlFreshSurfaceTree, for session: BrowserEngineSession) -> Bool {
+    private func shouldPublish(
+        surfaceTree: OwlFreshSurfaceTree,
+        for session: BrowserEngineSession,
+        snapshot: OwlBrowserSessionEventSnapshot
+    ) -> Bool {
         if surfaceTree.hasVisibleNativeSurface {
             return true
         }
         guard let expectation = session.surfaceTreeExpectation else {
-            return true
+            guard snapshot.loading,
+                  let currentTree = session.surfaceTree,
+                  let currentContextID = currentTree.primaryRenderableContextID else {
+                return true
+            }
+            guard let nextContextID = surfaceTree.primaryRenderableContextID else {
+                browserEngineLogger.info(
+                    "Deferring surface tree without primary context during navigation generation=\(surfaceTree.generation)"
+                )
+                return false
+            }
+            guard nextContextID != currentContextID else {
+                return true
+            }
+            browserEngineLogger.info(
+                "Deferring navigation surface context switch current=\(currentContextID) next=\(nextContextID) generation=\(surfaceTree.generation)"
+            )
+            session.surfaceFlushRequested = true
+            return false
         }
         return session.surfaceTree == nil || expectation.isSatisfied(by: surfaceTree)
     }
@@ -1126,6 +1189,19 @@ private func surfaceSummary(_ tree: OwlFreshSurfaceTree) -> String {
 }
 
 private extension OwlFreshSurfaceTree {
+    var primaryRenderableContextID: UInt32? {
+        let visibleSurfaces = surfaces
+            .filter(\.visible)
+            .sorted { lhs, rhs in
+                if lhs.zIndex != rhs.zIndex {
+                    return lhs.zIndex < rhs.zIndex
+                }
+                return lhs.surfaceId < rhs.surfaceId
+            }
+        return visibleSurfaces.first(where: { $0.kind == .webView && $0.contextId != 0 })?.contextId ??
+            visibleSurfaces.first(where: { $0.contextId != 0 })?.contextId
+    }
+
     var hasVisibleNativeSurface: Bool {
         surfaces.contains {
             $0.visible && (
@@ -1149,6 +1225,7 @@ private final class BrowserEngineSession {
     var lastError: String?
     var lastUpdate: BrowserEngineTabUpdate?
     var nextSurfaceFlushAt: Date = .distantPast
+    var surfaceFlushRequested = false
     var surfaceTreeExpectation: BrowserSurfaceTreeExpectation?
     var surfaceTreeExpectationDeadline: Date = .distantPast
     var activeDevToolsPlacement: BrowserEngineDevToolsPlacement?

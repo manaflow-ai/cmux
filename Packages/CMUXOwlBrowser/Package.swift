@@ -12,7 +12,12 @@ let package = Package(
         .library(name: "CMUXOwlBrowser", targets: ["CMUXOwlBrowser"])
     ],
     targets: [
-        .target(name: "MinimalBrowserCore"),
+        .target(
+            name: "MinimalBrowserCore",
+            resources: [
+                .process("Resources")
+            ]
+        ),
         .target(name: "OwlMojoSystem"),
         .target(name: "OwlMojoBindingsGenerated"),
         .target(

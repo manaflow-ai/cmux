@@ -68,24 +68,33 @@ public final class SwiftContentShellBrowserRuntime: OwlBrowserRuntime, OwlFreshM
         let retained = Unmanaged.passRetained(session).toOpaque()
         let handle = OwlFreshMojoSessionHandle(rawValue: OpaquePointer(retained))
         storeDirectSession(handle, events: events)
-        let directSession = directSession(for: handle)
-        directSession.contentShellSession = session
-        directSession.profileDirectory = userDataDirectory
-        directSession.hostPID = Int32(session.process.processIdentifier)
-        events.recordHostPID(directSession.hostPID)
-        try bindShellController(
-            remoteHandle: session.shellControllerRemoteHandle,
-            directSession: directSession
-        )
-        return handle
+        do {
+            let directSession = try requireDirectSession(for: handle)
+            directSession.contentShellSession = session
+            directSession.profileDirectory = userDataDirectory
+            directSession.hostPID = Int32(session.process.processIdentifier)
+            events.recordHostPID(directSession.hostPID)
+            try bindShellController(
+                remoteHandle: session.shellControllerRemoteHandle,
+                directSession: directSession
+            )
+            return handle
+        } catch {
+            _ = removeDirectSession(handle)
+            session.destroy()
+            Unmanaged<SwiftContentShellSession>.fromOpaque(retained).release()
+            throw error
+        }
     }
 
     public func destroy(_ session: OwlFreshMojoSessionHandle) {
         guard let rawValue = session.rawValue else {
             return
         }
-        let directSession = removeDirectSession(session)
-        try? directSession?.shellController?.shutdown()
+        guard let directSession = removeDirectSession(session) else {
+            return
+        }
+        try? directSession.shellController?.shutdown()
         let unmanaged = Unmanaged<SwiftContentShellSession>.fromOpaque(UnsafeMutableRawPointer(rawValue))
         unmanaged.takeUnretainedValue().destroy()
         unmanaged.release()
@@ -102,7 +111,7 @@ public final class SwiftContentShellBrowserRuntime: OwlBrowserRuntime, OwlFreshM
 
     public func sessionSetClient(_ session: OwlFreshMojoSessionHandle, client: OwlFreshClientRemote) throws {
         let pair = try requireEndpointPair(for: client.handle, interfaceName: "OwlFreshClient")
-        let directSession = directSession(for: session)
+        let directSession = try requireDirectSession(for: session)
         try requireDirectTransport(directSession.session, "OwlFreshSession")
             .setClient(remoteHandle: pair.remoteHandle)
         directSession.client = OwlFreshClientDirectMojoReceiver(
@@ -115,7 +124,7 @@ public final class SwiftContentShellBrowserRuntime: OwlBrowserRuntime, OwlFreshM
 
     public func sessionBindProfile(_ session: OwlFreshMojoSessionHandle, profile: OwlFreshProfileReceiver) throws {
         let pair = try requireEndpointPair(for: profile.handle, interfaceName: "OwlFreshProfile")
-        let directSession = directSession(for: session)
+        let directSession = try requireDirectSession(for: session)
         try requireDirectTransport(directSession.session, "OwlFreshSession")
             .bindProfile(receiverHandle: pair.receiverHandle)
         directSession.profile = OwlFreshProfileDirectMojoTransport(
@@ -128,7 +137,7 @@ public final class SwiftContentShellBrowserRuntime: OwlBrowserRuntime, OwlFreshM
 
     public func sessionBindWebView(_ session: OwlFreshMojoSessionHandle, webView: OwlFreshWebViewReceiver) throws {
         let pair = try requireEndpointPair(for: webView.handle, interfaceName: "OwlFreshWebView")
-        let directSession = directSession(for: session)
+        let directSession = try requireDirectSession(for: session)
         try requireDirectTransport(directSession.session, "OwlFreshSession")
             .bindWebView(receiverHandle: pair.receiverHandle)
         directSession.webView = OwlFreshWebViewDirectMojoTransport(
@@ -140,7 +149,7 @@ public final class SwiftContentShellBrowserRuntime: OwlBrowserRuntime, OwlFreshM
 
     public func sessionBindInput(_ session: OwlFreshMojoSessionHandle, input: OwlFreshInputReceiver) throws {
         let pair = try requireEndpointPair(for: input.handle, interfaceName: "OwlFreshInput")
-        let directSession = directSession(for: session)
+        let directSession = try requireDirectSession(for: session)
         try requireDirectTransport(directSession.session, "OwlFreshSession")
             .bindInput(receiverHandle: pair.receiverHandle)
         directSession.input = OwlFreshInputDirectMojoTransport(
@@ -155,7 +164,7 @@ public final class SwiftContentShellBrowserRuntime: OwlBrowserRuntime, OwlFreshM
         surfaceTree: OwlFreshSurfaceTreeHostReceiver
     ) throws {
         let pair = try requireEndpointPair(for: surfaceTree.handle, interfaceName: "OwlFreshSurfaceTreeHost")
-        let directSession = directSession(for: session)
+        let directSession = try requireDirectSession(for: session)
         try requireDirectTransport(directSession.session, "OwlFreshSession")
             .bindSurfaceTree(receiverHandle: pair.receiverHandle)
         directSession.surfaceTreeHost = OwlFreshSurfaceTreeHostDirectMojoTransport(
@@ -171,7 +180,7 @@ public final class SwiftContentShellBrowserRuntime: OwlBrowserRuntime, OwlFreshM
         nativeSurfaceHost: OwlFreshNativeSurfaceHostReceiver
     ) throws {
         let pair = try requireEndpointPair(for: nativeSurfaceHost.handle, interfaceName: "OwlFreshNativeSurfaceHost")
-        let directSession = directSession(for: session)
+        let directSession = try requireDirectSession(for: session)
         try requireDirectTransport(directSession.session, "OwlFreshSession")
             .bindNativeSurfaceHost(receiverHandle: pair.receiverHandle)
         directSession.nativeSurfaceHost = OwlFreshNativeSurfaceHostDirectMojoTransport(
@@ -187,7 +196,7 @@ public final class SwiftContentShellBrowserRuntime: OwlBrowserRuntime, OwlFreshM
         devtoolsHost: OwlFreshDevToolsHostReceiver
     ) throws {
         let pair = try requireEndpointPair(for: devtoolsHost.handle, interfaceName: "OwlFreshDevToolsHost")
-        let directSession = directSession(for: session)
+        let directSession = try requireDirectSession(for: session)
         try requireDirectTransport(directSession.session, "OwlFreshSession")
             .bindDevToolsHost(receiverHandle: pair.receiverHandle)
         directSession.devToolsHost = OwlFreshDevToolsHostDirectMojoTransport(
@@ -379,18 +388,6 @@ public final class SwiftContentShellBrowserRuntime: OwlBrowserRuntime, OwlFreshM
         }
         return directSessionsLock.withLock {
             directSessions.removeValue(forKey: key)
-        }
-    }
-
-    private func directSession(for session: OwlFreshMojoSessionHandle) -> DirectSessionTransports {
-        let key = sessionKey(session) ?? 0
-        return directSessionsLock.withLock {
-            if let existing = directSessions[key] {
-                return existing
-            }
-            let created = DirectSessionTransports(events: OwlBrowserSessionEvents())
-            directSessions[key] = created
-            return created
         }
     }
 

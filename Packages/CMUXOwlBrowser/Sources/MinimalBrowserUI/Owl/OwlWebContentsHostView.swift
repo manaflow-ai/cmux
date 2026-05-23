@@ -37,7 +37,7 @@ struct OwlWebContentsHostRepresentable: NSViewRepresentable {
 @MainActor
 public final class OwlWebContentsHostView: NSView {
     private let webContentsController: OwlWebContentsController
-    private let surfacePresenter = OwlSurfaceTreePresenter(fallbackColor: owlWebContentFallbackColor)
+    private let surfacePresenter: OwlSurfaceTreePresenter
     private var mouseTrackingArea: NSTrackingArea?
     private var appliedWebContentFocusRequestID: UUID?
     private let liveResizeCoordinator = OwlLiveResizeCoordinator()
@@ -78,10 +78,13 @@ public final class OwlWebContentsHostView: NSView {
     public init(
         tabID: BrowserTab.ID,
         engine: BrowserEngine,
+        fallbackColor: CGColor? = nil,
         automationKeyboardInputSourceID: String? = nil
     ) {
+        let resolvedFallbackColor = fallbackColor ?? owlWebContentFallbackColor
         self.automationKeyboardInputSourceID = automationKeyboardInputSourceID
         self.webContentsController = OwlWebContentsController(tabID: tabID, engine: engine)
+        self.surfacePresenter = OwlSurfaceTreePresenter(fallbackColor: resolvedFallbackColor)
         if ResizeVisualOracle.enabled {
             hostOracleBandView = ResizeVisualOracleBandView(color: ResizeVisualOracle.hostBandColor)
         } else {
@@ -90,7 +93,7 @@ public final class OwlWebContentsHostView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         autoresizesSubviews = true
-        layer?.backgroundColor = owlWebContentFallbackColor
+        layer?.backgroundColor = resolvedFallbackColor
         layer?.masksToBounds = true
         layer?.addSublayer(surfacePresenter.rootLayer)
         clipsToBounds = true

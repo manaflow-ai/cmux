@@ -13,7 +13,7 @@ public struct BrowserTab: Identifiable, Codable, Equatable, Sendable {
 
     public init(
         id: UUID = UUID(),
-        title: String = "New Tab",
+        title: String = URLDisplay.newTabTitle,
         committedURL: String = "about:blank",
         history: [String] = ["about:blank"],
         historyIndex: Int = 0,
