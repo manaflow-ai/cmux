@@ -2040,6 +2040,21 @@ final class UpdateDriverTimeoutTests: XCTestCase {
         XCTAssertEqual(retryCount, 0)
     }
 
+    func testRetryAfterTimeoutKeepsCheckingVisible() {
+        let viewModel = UpdateViewModel()
+        let driver = makeDriver(viewModel: viewModel)
+
+        driver.showUserInitiatedUpdateCheck {}
+        XCTAssertNotNil(waitForTimeoutError(viewModel: viewModel))
+
+        viewModel.cancelActiveStateForNewCheck()
+
+        guard case .checking = viewModel.state else {
+            XCTFail("Expected retry to keep checking visible, got \(viewModel.state)")
+            return
+        }
+    }
+
     private func makeDriver(viewModel: UpdateViewModel) -> UpdateDriver {
         UpdateDriver(
             viewModel: viewModel,
