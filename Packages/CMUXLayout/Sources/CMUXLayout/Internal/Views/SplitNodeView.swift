@@ -89,7 +89,7 @@ final class SplitArrangedContainerView: NSView {
 /// Wrapper that uses NSHostingController for proper AppKit layout constraints
 struct SinglePaneWrapper<Content: View, EmptyContent: View>: NSViewRepresentable {
     @Environment(SplitViewController.self) private var controller
-    
+
     let pane: PaneState
     let contentBuilder: (SurfaceItem, PaneID) -> Content
     let emptyPaneBuilder: (PaneID) -> EmptyContent

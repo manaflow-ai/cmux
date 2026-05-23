@@ -286,7 +286,7 @@ public final class WorkspaceLayoutController {
         guard let (pane, tabIndex) = findTabInternal(tabId) else { return false }
         return closeTab(tabId, with: tabIndex, in: pane)
     }
-    
+
     /// Close a tab by ID in a specific pane.
     /// - Parameter tabId: The tab to close
     /// - Parameter paneId: The pane in which to close the tab
@@ -295,10 +295,10 @@ public final class WorkspaceLayoutController {
               let tabIndex = pane.tabs.firstIndex(where: { $0.id == tabId.id }) else {
             return false
         }
-        
+
         return closeTab(tabId, with: tabIndex, in: pane)
     }
-    
+
     /// Internal helper to close a tab given its index in a pane
     /// - Parameter tabId: The tab to close
     /// - Parameter tabIndex: The position of the tab within the pane

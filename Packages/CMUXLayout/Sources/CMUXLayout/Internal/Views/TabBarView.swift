@@ -749,7 +749,7 @@ struct TabContextMenuState {
 struct TabBarView: View {
     @Environment(WorkspaceLayoutController.self) private var controller
     @Environment(SplitViewController.self) private var splitViewController
-    
+
     @Bindable var pane: PaneState
     let isFocused: Bool
     var showSplitButtons: Bool = true
