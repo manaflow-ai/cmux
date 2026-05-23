@@ -44,6 +44,33 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         )
     }
 
+    func testCommandPaletteMoveWorkspaceToTopKeepsMovedWorkspaceVisible() {
+        let app = XCUIApplication()
+        configureLaunch(app)
+        launchAndEnsureRunning(app)
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: 1, count: 1, app: app, timeout: 8.0),
+            "Expected the initial workspace row to be visible"
+        )
+
+        let workspaceCount = 20
+        for expectedCount in 2...workspaceCount {
+            app.typeKey("n", modifierFlags: [.command])
+            XCTAssertTrue(
+                waitForWorkspaceRowHittable(index: expectedCount, count: expectedCount, app: app, timeout: 6.0),
+                "Expected the newly selected workspace \(expectedCount) to be visible"
+            )
+        }
+
+        runCommandPaletteMoveToTop(app: app)
+
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: 1, count: workspaceCount, app: app, timeout: 6.0),
+            "Expected Cmd+Shift+P Move to Top to scroll the moved workspace back into view"
+        )
+    }
+
     func testSidebarScrollerVisibilityFollowsWorkspaceOverflow() {
         let app = XCUIApplication()
         configureLaunch(app)
@@ -155,6 +182,36 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
     ) -> Bool {
         pollUntil(timeout: timeout) {
             !visibleSidebarVerticalScrollers(app: app, sidebar: sidebar).isEmpty
+        }
+    }
+
+    private func runCommandPaletteMoveToTop(app: XCUIApplication) {
+        let searchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        app.typeKey("p", modifierFlags: [.command, .shift])
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
+        searchField.click()
+        searchField.typeText("move to top")
+
+        let row = app.descendants(matching: .any)
+            .matching(
+                NSPredicate(
+                    format: "identifier BEGINSWITH %@ AND value == %@",
+                    "CommandPaletteResultRow.",
+                    "palette.moveWorkspaceToTop"
+                )
+            )
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5.0), "Expected Move to Top command palette row")
+        row.click()
+        XCTAssertTrue(
+            waitForNonExistence(searchField, timeout: 5.0),
+            "Expected command palette to dismiss after Move to Top"
+        )
+    }
+
+    private func waitForNonExistence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout) {
+            !element.exists
         }
     }
 

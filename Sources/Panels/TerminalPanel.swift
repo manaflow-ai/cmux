@@ -105,6 +105,7 @@ final class TerminalPanel: Panel, ObservableObject {
             context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
@@ -112,7 +113,6 @@ final class TerminalPanel: Panel, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement
         )
-        surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)
     }
 
@@ -144,15 +144,17 @@ final class TerminalPanel: Panel, ObservableObject {
         // `unfocus()` force-disables active state to stop stale retries from stealing focus.
         // Re-enable it immediately for explicit focus requests (socket/UI) so ensureFocus can run.
         hostedView.setActive(true)
+        let focusWindow = surface.uiWindow
         guard AppDelegate.shared?.allowsTerminalKeyboardFocus(
             workspaceId: workspaceId,
             panelId: id,
-            in: hostedView.window
+            in: focusWindow
         ) != false else {
             surface.setFocus(false)
             return
         }
         surface.setFocus(true)
+        guard focusWindow != nil else { return }
         hostedView.ensureFocus(for: workspaceId, surfaceId: id)
     }
 
@@ -178,7 +180,7 @@ final class TerminalPanel: Panel, ObservableObject {
         cmuxDebugLog(
             "surface.panel.close.begin panel=\(id.uuidString.prefix(5)) " +
             "workspace=\(workspaceId.uuidString.prefix(5)) runtimeSurface=\(surface.surface != nil ? 1 : 0) " +
-            "inWindow=\(hostedView.window != nil ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
+            "inWindow=\(surface.isViewInWindow ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
             "hidden=\(hostedView.isHidden ? 1 : 0) frame=\(frame) bounds=\(bounds)"
         )
 #endif
@@ -188,7 +190,7 @@ final class TerminalPanel: Panel, ObservableObject {
 #if DEBUG
         cmuxDebugLog(
             "surface.panel.close.end panel=\(id.uuidString.prefix(5)) " +
-            "inWindow=\(hostedView.window != nil ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
+            "inWindow=\(surface.isViewInWindow ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
             "hidden=\(hostedView.isHidden ? 1 : 0)"
         )
 #endif

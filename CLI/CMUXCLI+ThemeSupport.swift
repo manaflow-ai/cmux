@@ -75,7 +75,7 @@ extension CMUXCLI {
                     )
                 }
 
-                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
+                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
                 let repoThemes = current.appendingPathComponent("Resources/ghostty/themes", isDirectory: true)
                 if fileManager.fileExists(atPath: projectMarker.path),
                    fileManager.fileExists(atPath: repoThemes.path) {
@@ -99,6 +99,13 @@ extension CMUXCLI {
 
         appendIfExisting(URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes", isDirectory: true))
         appendIfExisting(URL(fileURLWithPath: NSString(string: "~/.config/ghostty/themes").expandingTildeInPath, isDirectory: true))
+        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(environment: processEnv) {
+            appendIfExisting(
+                appSupportDirectory
+                    .appendingPathComponent(Self.cmuxThemeOverrideBundleIdentifier, isDirectory: true)
+                    .appendingPathComponent("themes", isDirectory: true)
+            )
+        }
         appendIfExisting(
             URL(
                 fileURLWithPath: NSString(
@@ -125,14 +132,24 @@ extension CMUXCLI {
         throw CLIError(message: "Unknown theme '\(trimmed)'. Run 'cmux themes' to list available themes.")
     }
 
-    func themeConfigSearchURLs() -> [URL] {
+    func themeConfigSearchURLs(targetBundleIdentifier: String) -> [URL] {
         let fileManager = FileManager.default
         var urls = [
             configURL("~/.config/ghostty/config"),
             configURL("~/.config/ghostty/config.ghostty"),
         ]
+        var seen = Set(urls.map { $0.standardizedFileURL.path })
 
-        if let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        func append(_ url: URL) {
+            let standardized = url.standardizedFileURL
+            if seen.insert(standardized.path).inserted {
+                urls.append(standardized)
+            }
+        }
+
+        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(
+            environment: ProcessInfo.processInfo.environment
+        ) {
             let ghosttyDirectory = appSupportDirectory.appendingPathComponent(
                 "com.mitchellh.ghostty",
                 isDirectory: true
@@ -140,25 +157,22 @@ extension CMUXCLI {
             let legacyGhosttyConfigURL = ghosttyDirectory.appendingPathComponent("config", isDirectory: false)
             let currentGhosttyConfigURL = ghosttyDirectory.appendingPathComponent("config.ghostty", isDirectory: false)
 
-            urls.append(currentGhosttyConfigURL)
+            append(currentGhosttyConfigURL)
             if shouldLoadLegacyGhosttyConfig(
                 newConfigURL: currentGhosttyConfigURL,
                 legacyConfigURL: legacyGhosttyConfigURL,
                 fileManager: fileManager
             ) {
-                urls.append(legacyGhosttyConfigURL)
+                append(legacyGhosttyConfigURL)
             }
 
-            let cmuxDirectory = appSupportDirectory.appendingPathComponent(
-                Self.cmuxThemeOverrideBundleIdentifier,
-                isDirectory: true
-            )
-            urls.append(cmuxDirectory.appendingPathComponent("config", isDirectory: false))
-            urls.append(cmuxDirectory.appendingPathComponent("config.ghostty", isDirectory: false))
-        } else {
-            urls.append(configURL("~/Library/Application Support/com.mitchellh.ghostty/config.ghostty"))
-            urls.append(configURL("~/Library/Application Support/\(Self.cmuxThemeOverrideBundleIdentifier)/config"))
-            urls.append(configURL("~/Library/Application Support/\(Self.cmuxThemeOverrideBundleIdentifier)/config.ghostty"))
+            for url in CmuxGhosttyConfigPathResolver.loadConfigURLs(
+                currentBundleIdentifier: targetBundleIdentifier,
+                appSupportDirectory: appSupportDirectory,
+                fileManager: fileManager
+            ) {
+                append(url)
+            }
         }
 
         return urls
@@ -210,18 +224,22 @@ extension CMUXCLI {
         return lastValue
     }
 
-    func cmuxThemeOverrideConfigURL() throws -> URL {
+    func cmuxThemeOverrideConfigURL(targetBundleIdentifier: String) throws -> URL {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             throw CLIError(message: "Unable to resolve Application Support directory")
         }
-        return appSupport
-            .appendingPathComponent(Self.cmuxThemeOverrideBundleIdentifier, isDirectory: true)
-            .appendingPathComponent("config.ghostty", isDirectory: false)
+        return CmuxGhosttyConfigPathResolver.editableConfigURL(
+            currentBundleIdentifier: targetBundleIdentifier,
+            appSupportDirectory: appSupport
+        )
     }
 
-    func writeManagedThemeOverride(rawThemeValue: String) throws -> URL {
+    func writeManagedThemeOverride(
+        rawThemeValue: String,
+        targetBundleIdentifier: String
+    ) throws -> URL {
         let fileManager = FileManager.default
-        let configURL = try cmuxThemeOverrideConfigURL()
+        let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
         let directoryURL = configURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
 
@@ -239,9 +257,9 @@ extension CMUXCLI {
         return configURL
     }
 
-    func clearManagedThemeOverride() throws -> URL {
+    func clearManagedThemeOverride(targetBundleIdentifier: String) throws -> URL {
         let fileManager = FileManager.default
-        let configURL = try cmuxThemeOverrideConfigURL()
+        let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
         guard let existingContents = try readOptionalThemeOverrideContents(at: configURL) else {
             return configURL
         }
@@ -296,14 +314,72 @@ extension CMUXCLI {
         return regex.stringByReplacingMatches(in: contents, options: [], range: fullRange, withTemplate: "")
     }
 
-    func reloadThemesIfPossible() -> ThemeReloadStatus {
-        let bundleIdentifier = currentCmuxAppBundleIdentifier() ?? Self.cmuxThemeOverrideBundleIdentifier
+    func reloadThemesIfPossible(
+        socketPath: String,
+        targetBundleIdentifier: String,
+        explicitPassword _: String?
+    ) -> ThemeReloadStatus {
         DistributedNotificationCenter.default().post(
             name: Notification.Name(Self.cmuxThemesReloadNotificationName),
             object: nil,
-            userInfo: ["bundleIdentifier": bundleIdentifier]
+            userInfo: [
+                "bundleIdentifier": targetBundleIdentifier,
+                "socketPath": socketPath,
+                "phase": "final",
+            ]
         )
-        return ThemeReloadStatus(requested: true, targetBundleIdentifier: bundleIdentifier)
+        return ThemeReloadStatus(requested: true, targetBundleIdentifier: targetBundleIdentifier)
+    }
+
+    func themeTargetBundleIdentifier(socketPath: String) -> String {
+        bundleIdentifierForThemeReloadSocketPath(socketPath)
+            ?? currentCmuxAppBundleIdentifier()
+            ?? Self.cmuxThemeOverrideBundleIdentifier
+    }
+
+    private func bundleIdentifierForThemeReloadSocketPath(_ socketPath: String) -> String? {
+        let name = URL(fileURLWithPath: socketPath).lastPathComponent
+        switch name {
+        case "cmux.sock":
+            return Self.cmuxThemeOverrideBundleIdentifier
+        case "cmux-debug.sock":
+            return "com.cmuxterm.app.debug"
+        case "cmux-nightly.sock":
+            return "com.cmuxterm.app.nightly"
+        case "cmux-staging.sock":
+            return "com.cmuxterm.app.staging"
+        default:
+            break
+        }
+
+        if name.range(of: #"^cmux-\d+\.sock$"#, options: .regularExpression) != nil {
+            return Self.cmuxThemeOverrideBundleIdentifier
+        }
+
+        if let slug = themeReloadSocketSlug(name, prefix: "cmux-debug-", suffix: ".sock") {
+            return "com.cmuxterm.app.debug.\(slug)"
+        }
+        if let slug = themeReloadSocketSlug(name, prefix: "cmux-nightly-", suffix: ".sock") {
+            return "com.cmuxterm.app.nightly.\(slug)"
+        }
+        if let slug = themeReloadSocketSlug(name, prefix: "cmux-staging-", suffix: ".sock") {
+            return "com.cmuxterm.app.staging.\(slug)"
+        }
+        return nil
+    }
+
+    private func themeReloadSocketSlug(_ name: String, prefix: String, suffix: String) -> String? {
+        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else {
+            return nil
+        }
+        let start = name.index(name.startIndex, offsetBy: prefix.count)
+        let end = name.index(name.endIndex, offsetBy: -suffix.count)
+        let rawSlug = String(name[start..<end])
+        let bundleSlug = rawSlug
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: ".", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return bundleSlug.isEmpty ? nil : bundleSlug
     }
 
     func currentCmuxAppBundleIdentifier() -> String? {

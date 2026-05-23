@@ -57,6 +57,17 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    func testCommandPaletteUnreadActionsUseConfigurableShortcutActions() {
+        XCTAssertEqual(
+            ContentView.commandPaletteShortcutAction(forCommandID: "palette.toggleUnread"),
+            .toggleUnread
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteShortcutAction(forCommandID: "palette.markOldestUnreadAndJumpNext"),
+            .markOldestUnreadAndJumpNext
+        )
+    }
+
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
