@@ -619,6 +619,7 @@ final class CmuxWebView: WKWebView {
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
             event,
             webView: self,
@@ -628,14 +629,14 @@ final class CmuxWebView: WKWebView {
             case .inactive:
                 break
             case .forwardToWebView:
-                if flags.isEmpty && event.keyCode == 53 {
+                if normalizedFlags.isEmpty && event.keyCode == 53 {
                     super.keyDown(with: event)
                     return finish(true)
                 }
                 let result = super.performKeyEquivalent(with: event)
                 // While focus mode is active, the page gets the shortcut once and cmux/main-menu
                 // fallback must not see unhandled command equivalents.
-                return finish(result || flags.contains(.command))
+                return finish(result || normalizedFlags.contains(.command))
             case .consume:
                 return finish(true)
             }

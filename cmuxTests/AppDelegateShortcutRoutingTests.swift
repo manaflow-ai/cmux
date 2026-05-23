@@ -6665,6 +6665,55 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
     }
 
+    func testBrowserFocusModeExitArmExpiresAndNextEscapeRearms() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        let baseTimestamp = ProcessInfo.processInfo.systemUptime
+        guard let firstEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 0.01),
+              let secondEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 2.0),
+              let thirdEscape = makeKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53, windowNumber: harness.window.windowNumber, timestamp: baseTimestamp + 2.1) else {
+            XCTFail("Failed to construct browser focus mode timeout Escape events")
+            return
+        }
+
+        XCTAssertTrue(
+            harness.panel.setBrowserFocusModeActive(true, reason: "unit.exitArmTimeout", focusWebView: false)
+        )
+        XCTAssertEqual(
+            appDelegate.handleBrowserFocusModeKeyEvent(firstEscape, webView: harness.webView, source: "unit.exitArmTimeout.first"),
+            .forwardToWebView
+        )
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+        XCTAssertTrue(harness.panel.isBrowserFocusModeExitArmed)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.2) {
+                !harness.panel.isBrowserFocusModeExitArmed
+            },
+            "Exit arm should clear after the focus-mode timeout"
+        )
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+
+        XCTAssertEqual(
+            appDelegate.handleBrowserFocusModeKeyEvent(secondEscape, webView: harness.webView, source: "unit.exitArmTimeout.rearm"),
+            .forwardToWebView
+        )
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+        XCTAssertTrue(harness.panel.isBrowserFocusModeExitArmed)
+
+        XCTAssertEqual(
+            appDelegate.handleBrowserFocusModeKeyEvent(thirdEscape, webView: harness.webView, source: "unit.exitArmTimeout.exit"),
+            .consume
+        )
+        XCTAssertFalse(harness.panel.isBrowserFocusModeActive)
+        XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
+    }
+
     func testBrowserFocusModeClearsWhenWebViewLeavesInteractiveHost() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
