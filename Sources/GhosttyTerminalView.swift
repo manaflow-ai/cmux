@@ -6876,6 +6876,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
+    private var nonInlineIMECompositionActive = false
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeViewportRow: Int?
     /// Tracks whether the user has explicitly entered visual selection mode (v).
@@ -8460,6 +8461,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
         if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+            nonInlineIMECompositionActive = false
             imeConsumedKeyUps.insert(event.keyCode)
 #if DEBUG
             let syncPreeditStart = ProcessInfo.processInfo.systemUptime
@@ -8481,6 +8483,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         let accumulatedText = keyTextAccumulator ?? []
+        let nonInlineIMEDecision = shouldSuppressGhosttyKeyForwardingForNonInlineIMEHandling(
+            before: markedStateBefore,
+            after: (markedText.string, markedSelectedRange),
+            accumulatedText: accumulatedText,
+            event: textInputEvent,
+            inputSourceId: keyboardIdBefore,
+            compositionActive: nonInlineIMECompositionActive
+        )
+        nonInlineIMECompositionActive = nonInlineIMEDecision.compositionActive
+        if nonInlineIMEDecision.suppress {
+            imeConsumedKeyUps.insert(event.keyCode)
+            return
+        }
+
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: markedStateBefore,
             after: (markedText.string, markedSelectedRange),
@@ -13838,6 +13854,7 @@ extension GhosttyNSView: NSTextInputClient {
         if markedText.length > 0 {
             markedText.mutableString.setString("")
             markedSelectedRange = NSRange(location: NSNotFound, length: 0)
+            nonInlineIMECompositionActive = false
             syncPreedit()
             invalidateTextInputCoordinates(selectionChanged: true)
         }
@@ -13999,6 +14016,8 @@ extension GhosttyNSView: NSTextInputClient {
             insertBopomofoPreeditText(chars, replacementRange: replacementRange)
             return
         }
+
+        nonInlineIMECompositionActive = false
 
         // Clear marked text since we're inserting
         unmarkText()
