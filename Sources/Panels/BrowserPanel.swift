@@ -3484,7 +3484,8 @@ final class BrowserPanel: Panel, ObservableObject {
         browserEngine = BrowserEngineAdapterFactory.makePreferred(
             webView: webView,
             profileID: profileID,
-            workspaceID: workspaceId
+            workspaceID: workspaceId,
+            allowOwlChromium: !usesRemoteWorkspaceProxy
         )
         browserEngineInstanceID = UUID()
         bindBrowserEngineStateObservation(reason: reason)
@@ -3688,7 +3689,8 @@ final class BrowserPanel: Panel, ObservableObject {
         let initialBrowserEngine = BrowserEngineAdapterFactory.makePreferred(
             webView: webView,
             profileID: resolvedProfileID,
-            workspaceID: workspaceId
+            workspaceID: workspaceId,
+            allowOwlChromium: !isRemoteWorkspace
         )
         self.browserEngine = initialBrowserEngine
         self.browserEngineDescriptor = initialBrowserEngine.descriptor

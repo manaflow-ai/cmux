@@ -126,12 +126,13 @@ public final class BrowserEngine {
         // Swift 6 deinit isolation prevents touching Timer/runtime state here.
     }
 
-    public func start() {
+    public func start() throws {
         do {
             try ensureRuntimeStarted()
         } catch {
             statusMessage = String(describing: error)
             renderGeneration += 1
+            throw error
         }
     }
 

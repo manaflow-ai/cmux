@@ -32,16 +32,65 @@ final class MachPortRendezvousServer: @unchecked Sendable {
 
     private init() throws {
         var port: mach_port_t = Self.nullPort
+        let allocateResult = mach_port_allocate(
+            mach_task_self_,
+            mach_port_right_t(MACH_PORT_RIGHT_RECEIVE),
+            &port
+        )
+        guard allocateResult == KERN_SUCCESS else {
+            throw OwlBrowserError.launch("mach_port_allocate rendezvous server failed with result \(allocateResult)")
+        }
+
+        let insertResult = mach_port_insert_right(
+            mach_task_self_,
+            port,
+            port,
+            mach_msg_type_name_t(MACH_MSG_TYPE_MAKE_SEND)
+        )
+        guard insertResult == KERN_SUCCESS else {
+            mach_port_mod_refs(
+                mach_task_self_,
+                port,
+                mach_port_right_t(MACH_PORT_RIGHT_RECEIVE),
+                -1
+            )
+            throw OwlBrowserError.launch("mach_port_insert_right rendezvous server failed with result \(insertResult)")
+        }
+
         var bootstrapPort: mach_port_t = Self.nullPort
         let bootstrapResult = task_get_special_port(mach_task_self_, TASK_BOOTSTRAP_PORT, &bootstrapPort)
         guard bootstrapResult == KERN_SUCCESS else {
+            mach_port_mod_refs(
+                mach_task_self_,
+                port,
+                mach_port_right_t(MACH_PORT_RIGHT_SEND),
+                -1
+            )
+            mach_port_mod_refs(
+                mach_task_self_,
+                port,
+                mach_port_right_t(MACH_PORT_RIGHT_RECEIVE),
+                -1
+            )
             throw OwlBrowserError.launch("task_get_special_port(TASK_BOOTSTRAP_PORT) failed with result \(bootstrapResult)")
         }
         let result = Self.bootstrapName.withCString { name in
-            bootstrap_check_in(bootstrapPort, name, &port)
+            bootstrap_register(bootstrapPort, name, port)
         }
         guard result == KERN_SUCCESS else {
-            throw OwlBrowserError.launch("bootstrap_check_in \(Self.bootstrapName) failed with result \(result)")
+            mach_port_mod_refs(
+                mach_task_self_,
+                port,
+                mach_port_right_t(MACH_PORT_RIGHT_SEND),
+                -1
+            )
+            mach_port_mod_refs(
+                mach_task_self_,
+                port,
+                mach_port_right_t(MACH_PORT_RIGHT_RECEIVE),
+                -1
+            )
+            throw OwlBrowserError.launch("bootstrap_register \(Self.bootstrapName) failed with result \(result)")
         }
         serverPort = port
         let source = DispatchSource.makeMachReceiveSource(port: port, queue: queue)
@@ -270,9 +319,9 @@ private extension NSCondition {
     }
 }
 
-@_silgen_name("bootstrap_check_in")
-private func bootstrap_check_in(
+@_silgen_name("bootstrap_register")
+private func bootstrap_register(
     _ bootstrapPort: mach_port_t,
     _ serviceName: UnsafePointer<CChar>,
-    _ serverPort: UnsafeMutablePointer<mach_port_t>
+    _ serverPort: mach_port_t
 ) -> kern_return_t

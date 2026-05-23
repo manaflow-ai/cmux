@@ -144,8 +144,7 @@ extension BrowserEngineCapabilities {
         .contextMenus,
         .filePicker,
         .permissionPrompts,
-        .authPrompts,
-        .profiles
+        .authPrompts
     ])
 }
 
@@ -271,7 +270,7 @@ final class BrowserOwlChromiumEngineAdapter: BrowserEngineAdapter {
         }
         _ = profileID
         _ = workspaceID
-        engine.start()
+        try engine.start()
     }
 
     var nativeView: NSView { hostView }
@@ -389,14 +388,16 @@ enum BrowserEngineAdapterFactory {
     static func makePreferred(
         webView: WKWebView,
         profileID: UUID,
-        workspaceID: UUID
+        workspaceID: UUID,
+        allowOwlChromium: Bool = true
     ) -> any BrowserEngineAdapter {
         let configuration = cmuxOwlConfiguration(profileID: profileID)
         return makePreferred(
             webView: webView,
             profileID: profileID,
             workspaceID: workspaceID,
-            configuration: configuration
+            configuration: configuration,
+            allowOwlChromium: allowOwlChromium
         )
     }
 
@@ -404,8 +405,12 @@ enum BrowserEngineAdapterFactory {
         webView: WKWebView,
         profileID: UUID,
         workspaceID: UUID,
-        configuration: BrowserEngineConfiguration
+        configuration: BrowserEngineConfiguration,
+        allowOwlChromium: Bool = true
     ) -> any BrowserEngineAdapter {
+        guard allowOwlChromium else {
+            return BrowserWebKitEngineAdapter(webView: webView, fallbackReason: "owl_runtime_remote_proxy_unavailable")
+        }
         guard configuration.isConfigured,
               FileManager.default.isExecutableFile(atPath: configuration.chromiumHostPath),
               FileManager.default.fileExists(atPath: configuration.mojoRuntimePath) else {
