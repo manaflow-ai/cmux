@@ -625,7 +625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private final class MainWindowController: NSWindowController, NSWindowDelegate {
         var onClose: (() -> Void)?
-        var shouldClose: (() -> Bool)?
+        var shouldClose: ((NSWindow) -> Bool)?
 
         #if DEBUG
         private func logWindowEvent(_ event: String, notification: Notification) {
@@ -668,7 +668,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
 
         func windowShouldClose(_ sender: NSWindow) -> Bool {
-            let shouldClose = shouldClose?() ?? true
+            let shouldClose = shouldClose?(sender) ?? true
             if shouldClose {
                 WebViewInspectorTeardown.closeAllInspectors(in: sender)
             }
@@ -7464,7 +7464,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self, let controller else { return }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
-        controller.shouldClose = { [weak self] in self?.handleMainTerminalWindowShouldClose() ?? true }
+        controller.shouldClose = { [weak self] window in self?.handleMainTerminalWindowShouldClose(window) ?? true }
         window.delegate = controller
         mainWindowControllers.append(controller)
 
@@ -14546,13 +14546,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func handleMainTerminalWindowShouldClose() -> Bool {
-        // XCTest has no UI for the warn-before-quit dialog and would either block
-        // on runModal or have NSApp.terminate kill the test process.
+    private func handleMainTerminalWindowShouldClose(_ window: NSWindow) -> Bool {
+        // XCTest has no UI for modal dialogs unless a test installs the debug hook.
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil,
+           debugCloseMainWindowConfirmationHandler == nil {
+            return true
+        }
+        #else
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
-        guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
-        _ = handleQuitShortcutWarning()
-        return false
+        #endif
+        guard !isTerminatingApp, isMainTerminalWindow(window) else { return true }
+        #if DEBUG
+        cmuxDebugLog("mainWindow.closeButton.confirm window={\(debugWindowToken(window))}")
+        #endif
+        return confirmCloseMainWindow(window)
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {

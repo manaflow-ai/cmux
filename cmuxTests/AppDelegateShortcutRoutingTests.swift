@@ -1764,6 +1764,65 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testRedWindowCloseButtonPromptsBeforeClosingWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        guard let targetWindow = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+        targetWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        var promptedWindow: NSWindow?
+        appDelegate.debugCloseMainWindowConfirmationHandler = { candidate in
+            promptedWindow = candidate
+            return false
+        }
+        defer { appDelegate.debugCloseMainWindowConfirmationHandler = nil }
+
+        targetWindow.performClose(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(promptedWindow === targetWindow, "Red window close should prompt for the target main window")
+        XCTAssertTrue(targetWindow.isVisible, "Cancelling the red window close confirmation should keep the window open")
+    }
+
+    func testRedWindowCloseButtonClosesWindowAfterConfirmation() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        guard let targetWindow = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+        targetWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate.debugCloseMainWindowConfirmationHandler = nil }
+
+        targetWindow.performClose(nil)
+
+        waitUntil(timeout: 1.0) {
+            self.window(withId: windowId)?.isVisible != true
+        }
+
+        XCTAssertFalse(
+            self.window(withId: windowId)?.isVisible == true,
+            "Confirming the red window close should close the window"
+        )
+    }
+
     // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing
     // the last Ghostty surface tears down the PTY/shell, which blocks indefinitely
     // on headless runners. The xcodebuild test host doesn't inherit CI env vars,
