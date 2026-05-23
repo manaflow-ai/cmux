@@ -611,6 +611,26 @@ final class OmnibarStateMachineTests: XCTestCase {
     }
 
     @MainActor
+    func testOptionBackspaceDeletesURLLabelBeforeInlineCompletion() throws {
+        let harness = OmnibarInlineDeletionHarness(
+            typedText: "news.ycombinator.c",
+            displayText: "news.ycombinator.com",
+            suggestions: [
+                .history(url: "https://news.ycombinator.com/", title: "Hacker News"),
+            ]
+        )
+
+        try harness.dispatchBackspace(
+            modifiers: [.option],
+            fallbackCommand: #selector(NSResponder.deleteWordBackward(_:))
+        )
+
+        XCTAssertEqual(harness.state.buffer, "news.ycombinator.")
+        XCTAssertNil(harness.inlineCompletion)
+        XCTAssertTrue(harness.state.suggestions.isEmpty)
+    }
+
+    @MainActor
     func testPlainBackspaceStillDeletesSingleCharacterWithInlineCompletion() throws {
         let harness = OmnibarInlineDeletionHarness(
             typedText: "gma",
@@ -712,6 +732,17 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(harness.state.buffer, "example.com")
         XCTAssertEqual(harness.editor.string, "example.com")
         XCTAssertEqual(harness.editor.selectedRange(), NSRange(location: 0, length: 0))
+    }
+
+    @MainActor
+    func testOptionBackspaceForPlainSearchFallsThroughToNativeDeletion() throws {
+        let harness = OmnibarPlainDeletionHarness(text: "foo+bar")
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(harness.state.buffer, "foo+bar")
+        XCTAssertEqual(harness.editor.string, "foo+bar")
     }
 }
 
