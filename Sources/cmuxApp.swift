@@ -4772,18 +4772,15 @@ nonisolated enum CloseTabConfirmationPolicy: Sendable {
         trigger: CloseTabConfirmationTrigger,
         defaults: UserDefaults = .standard
     ) -> Decision {
-        guard requiresConfirmation else {
-            return .closeImmediately
-        }
-        let warningsEnabled: Bool
         switch trigger {
         case .shortcut:
-            warningsEnabled = CloseTabWarningSettings.isEnabled(defaults: defaults)
+            guard requiresConfirmation else { return .closeImmediately }
+            guard CloseTabWarningSettings.isEnabled(defaults: defaults) else { return .closeImmediately }
+            return .confirmBeforeClosing
         case .tabCloseButton:
-            warningsEnabled = CloseTabWarningSettings.isXButtonWarningEnabled(defaults: defaults)
+            guard CloseTabWarningSettings.isXButtonWarningEnabled(defaults: defaults) else { return .closeImmediately }
+            return .confirmBeforeClosing
         }
-        guard warningsEnabled else { return .closeImmediately }
-        return .confirmBeforeClosing
     }
 
     static func shouldConfirm(

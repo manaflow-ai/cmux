@@ -1313,6 +1313,17 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         )
     }
 
+    func testTabCloseButtonWarnsForPromptIdleTerminalWhenXButtonWarningEnabled() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTab: false,
+            warnBeforeClosingTabXButton: true,
+            shellActivityState: .promptIdle,
+            needsConfirmCloseOverride: true,
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
+        )
+    }
+
     func testTabCloseButtonWarnBeforeClosingTabXButtonDefaultsOnForLastWorkspaceSurface() throws {
         try withCloseTabWarningConfig(
             warnBeforeClosingTab: false,
@@ -1328,6 +1339,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             }
 
             terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+            workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
 
             var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
             manager.confirmCloseHandler = { title, message, acceptCmdD in
@@ -1529,37 +1541,53 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertNotEqual(workspace.focusedPanelId, initialPanelId)
     }
 
-    func testClosePanelButtonClosesWorkspaceWhenItOwnsTheLastSurface() {
-        let manager = TabManager()
-        let firstWorkspace = manager.tabs[0]
-        let secondWorkspace = manager.addWorkspace()
-        manager.selectWorkspace(secondWorkspace)
+    func testClosePanelButtonClosesWorkspaceWhenItOwnsTheLastSurface() throws {
+        try withCloseTabWarningConfig(
+            warnBeforeClosingTab: false,
+            warnBeforeClosingTabXButton: nil
+        ) {
+            let manager = TabManager()
+            let firstWorkspace = manager.tabs[0]
+            let secondWorkspace = manager.addWorkspace()
+            manager.selectWorkspace(secondWorkspace)
 
-        guard let secondPanelId = secondWorkspace.focusedPanelId else {
-            XCTFail("Expected focused panel in selected workspace")
-            return
+            guard let secondPanelId = secondWorkspace.focusedPanelId else {
+                XCTFail("Expected focused panel in selected workspace")
+                return
+            }
+
+            XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+            XCTAssertEqual(secondWorkspace.panels.count, 1)
+
+            guard let secondSurfaceId = secondWorkspace.surfaceIdFromPanelId(secondPanelId) else {
+                XCTFail("Expected bonsplit surface ID for focused panel")
+                return
+            }
+
+            var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+            manager.confirmCloseHandler = { title, message, acceptCmdD in
+                prompts.append((title, message, acceptCmdD))
+                return true
+            }
+
+            secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId, trigger: .tabCloseButton)
+            XCTAssertFalse(secondWorkspace.closePanel(secondPanelId))
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertEqual(prompts.count, 1)
+            XCTAssertEqual(
+                prompts.first?.title,
+                String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?")
+            )
+            XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
+            XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+            XCTAssertNil(secondWorkspace.panels[secondPanelId])
+            XCTAssertTrue(secondWorkspace.panels.isEmpty)
         }
-
-        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
-        XCTAssertEqual(secondWorkspace.panels.count, 1)
-
-        guard let secondSurfaceId = secondWorkspace.surfaceIdFromPanelId(secondPanelId) else {
-            XCTFail("Expected bonsplit surface ID for focused panel")
-            return
-        }
-
-        secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId, trigger: .tabCloseButton)
-        XCTAssertFalse(secondWorkspace.closePanel(secondPanelId))
-        drainMainQueue()
-        drainMainQueue()
-
-        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
-        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
-        XCTAssertNil(secondWorkspace.panels[secondPanelId])
-        XCTAssertTrue(secondWorkspace.panels.isEmpty)
     }
 
-    func testClosePanelButtonStillClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsEnabled() {
+    func testClosePanelButtonStillClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsEnabled() throws {
         let defaults = UserDefaults.standard
         let originalSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
         defaults.set(false, forKey: lastSurfaceCloseShortcutDefaultsKey)
@@ -1571,30 +1599,35 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             }
         }
 
-        let manager = TabManager()
-        let firstWorkspace = manager.tabs[0]
-        let secondWorkspace = manager.addWorkspace()
-        manager.selectWorkspace(secondWorkspace)
+        try withCloseTabWarningConfig(
+            warnBeforeClosingTab: false,
+            warnBeforeClosingTabXButton: false
+        ) {
+            let manager = TabManager()
+            let firstWorkspace = manager.tabs[0]
+            let secondWorkspace = manager.addWorkspace()
+            manager.selectWorkspace(secondWorkspace)
 
-        guard let secondPanelId = secondWorkspace.focusedPanelId else {
-            XCTFail("Expected focused panel in selected workspace")
-            return
+            guard let secondPanelId = secondWorkspace.focusedPanelId else {
+                XCTFail("Expected focused panel in selected workspace")
+                return
+            }
+
+            guard let secondSurfaceId = secondWorkspace.surfaceIdFromPanelId(secondPanelId) else {
+                XCTFail("Expected bonsplit surface ID for focused panel")
+                return
+            }
+
+            secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId, trigger: .tabCloseButton)
+            XCTAssertFalse(secondWorkspace.closePanel(secondPanelId))
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
+            XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+            XCTAssertNil(secondWorkspace.panels[secondPanelId])
+            XCTAssertTrue(secondWorkspace.panels.isEmpty)
         }
-
-        guard let secondSurfaceId = secondWorkspace.surfaceIdFromPanelId(secondPanelId) else {
-            XCTFail("Expected bonsplit surface ID for focused panel")
-            return
-        }
-
-        secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId, trigger: .tabCloseButton)
-        XCTAssertFalse(secondWorkspace.closePanel(secondPanelId))
-        drainMainQueue()
-        drainMainQueue()
-
-        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
-        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
-        XCTAssertNil(secondWorkspace.panels[secondPanelId])
-        XCTAssertTrue(secondWorkspace.panels.isEmpty)
     }
 
     func testGenericClosePanelKeepsWorkspaceOpenWithoutExplicitCloseMarker() {
@@ -1675,6 +1708,8 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     private func assertTabCloseButtonConfirmation(
         warnBeforeClosingTab: Bool? = true,
         warnBeforeClosingTabXButton: Bool?,
+        shellActivityState: Workspace.PanelShellActivityState? = nil,
+        needsConfirmCloseOverride: Bool = true,
         expectedPromptCount: Int,
         expectedPanelClosed: Bool,
         file: StaticString = #filePath,
@@ -1695,7 +1730,10 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
                 return
             }
             workspace.focusPanel(initialPanelId)
-            initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+            initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(needsConfirmCloseOverride)
+            if let shellActivityState {
+                workspace.updatePanelShellActivityState(panelId: initialPanelId, state: shellActivityState)
+            }
 
             var promptCount = 0
             manager.confirmCloseHandler = { _, _, _ in
