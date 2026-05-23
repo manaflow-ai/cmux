@@ -232,8 +232,10 @@ struct AgentExecutableResolver: Sendable {
     }
 
     private static func nodeVersionComponents(_ version: String) -> [Int] {
-        version
-            .trimmingCharacters(in: CharacterSet(charactersIn: "v"))
+        let normalizedVersion = version.hasPrefix("v")
+            ? String(version.dropFirst())
+            : version
+        return normalizedVersion
             .split(separator: ".")
             .map { Int($0) ?? 0 }
     }
