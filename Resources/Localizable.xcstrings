@@ -100254,6 +100254,506 @@
         }
       }
     },
+    "update.error.timeout.checking.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not check for updates in time. Check your network and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートを時間内に確認できませんでした。ネットワークを確認してからもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时检查更新。请检查网络连接，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時檢查更新。請檢查網路連線，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트를 확인하지 못했습니다. 네트워크를 확인한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte nicht rechtzeitig nach Updates suchen. Prüfe deine Netzwerkverbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo buscar actualizaciones a tiempo. Comprueba tu conexión de red e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu rechercher les mises à jour à temps. Vérifiez votre réseau, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a cercare aggiornamenti in tempo. Controlla la rete e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke søge efter opdateringer i tide. Tjek netværket, og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł sprawdzić aktualizacji na czas. Sprawdź sieć i spróbuj ponownie."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя проверить наличие обновлений. Проверьте сеть и повторите попытку."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme provjeriti ažuriranja. Provjeri mrežu i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux التحقق من التحديثات في الوقت المناسب. تحقق من الشبكة ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke se etter oppdateringer i tide. Sjekk nettverket og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu verificar atualizações a tempo. Verifique sua rede e tente novamente."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถตรวจหาการอัปเดตได้ทันเวลา โปรดตรวจสอบเครือข่ายแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncellemeleri zamanında denetleyemedi. Ağınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно перевірити наявність оновлень. Перевірте мережу й повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចពិនិត្យរកការអាប់ដេតបានទាន់ពេលទេ។ សូមពិនិត្យបណ្តាញរបស់អ្នក ហើយសាកល្បងម្តងទៀត។"
+          }
+        }
+      }
+    },
+    "update.error.timeout.downloading.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not download the update in time. Check your network and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートを時間内にダウンロードできませんでした。ネットワークを確認してからもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时下载更新。请检查网络连接，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時下載更新。請檢查網路連線，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트를 다운로드하지 못했습니다. 네트워크를 확인한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Update nicht rechtzeitig laden. Prüfe deine Netzwerkverbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo descargar la actualización a tiempo. Comprueba tu conexión de red e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu télécharger la mise à jour à temps. Vérifiez votre réseau, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a scaricare l’aggiornamento in tempo. Controlla la rete e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke hente opdateringen i tide. Tjek netværket, og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł pobrać aktualizacji na czas. Sprawdź sieć i spróbuj ponownie."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя скачать обновление. Проверьте сеть и повторите попытку."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme preuzeti ažuriranje. Provjeri mrežu i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux تنزيل التحديث في الوقت المناسب. تحقق من الشبكة ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke laste ned oppdateringen i tide. Sjekk nettverket og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu baixar a atualização a tempo. Verifique sua rede e tente novamente."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถดาวน์โหลดการอัปเดตได้ทันเวลา โปรดตรวจสอบเครือข่ายแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncellemeyi zamanında indiremedi. Ağınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно завантажити оновлення. Перевірте мережу й повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចទាញយកការអាប់ដេតបានទាន់ពេលទេ។ សូមពិនិត្យបណ្តាញរបស់អ្នក ហើយសាកល្បងម្តងទៀត។"
+          }
+        }
+      }
+    },
+    "update.error.timeout.preparing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not prepare the update in time. Try again later, or restart cmux and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートを時間内に準備できませんでした。しばらくしてからもう一度試すか、cmux を再起動してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时准备更新。请稍后重试，或重新启动 cmux 后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時準備更新。請稍後再試，或重新啟動 cmux 後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트를 준비하지 못했습니다. 나중에 다시 시도하거나 cmux를 다시 시작한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Update nicht rechtzeitig vorbereiten. Versuche es später erneut oder starte cmux neu und versuche es noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo preparar la actualización a tiempo. Inténtalo más tarde o reinicia cmux y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu préparer la mise à jour à temps. Réessayez plus tard ou redémarrez cmux, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a preparare l’aggiornamento in tempo. Riprova più tardi oppure riavvia cmux e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke forberede opdateringen i tide. Prøv igen senere, eller genstart cmux og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł przygotować aktualizacji na czas. Spróbuj ponownie później albo uruchom ponownie cmux i spróbuj jeszcze raz."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя подготовить обновление. Повторите попытку позже или перезапустите cmux и попробуйте снова."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme pripremiti ažuriranje. Pokušaj kasnije ili ponovo pokreni cmux i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux تجهيز التحديث في الوقت المناسب. حاول لاحقًا أو أعد تشغيل cmux ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke klargjøre oppdateringen i tide. Prøv igjen senere, eller start cmux på nytt og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu preparar a atualização a tempo. Tente novamente mais tarde ou reinicie o cmux e tente de novo."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเตรียมการอัปเดตได้ทันเวลา โปรดลองอีกครั้งภายหลัง หรือรีสตาร์ท cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncellemeyi zamanında hazırlayamadı. Daha sonra tekrar deneyin veya cmux’i yeniden başlatıp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно підготувати оновлення. Спробуйте пізніше або перезапустіть cmux і повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចរៀបចំការអាប់ដេតបានទាន់ពេលទេ។ សូមសាកល្បងនៅពេលក្រោយ ឬចាប់ផ្តើម cmux ឡើងវិញ ហើយសាកល្បងម្តងទៀត។"
+          }
+        }
+      }
+    },
+    "update.error.timeout.starting.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not start the update check in time. Restart cmux and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux でアップデートの確認を時間内に開始できませんでした。cmux を再起動してからもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及时开始更新检查。请重新启动 cmux，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未能及時開始檢查更新。請重新啟動 cmux，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 제때 업데이트 확인을 시작하지 못했습니다. cmux를 다시 시작한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die Update-Suche nicht rechtzeitig starten. Starte cmux neu und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo iniciar la búsqueda de actualizaciones a tiempo. Reinicia cmux e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu lancer la recherche de mises à jour à temps. Redémarrez cmux, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito ad avviare la ricerca di aggiornamenti in tempo. Riavvia cmux e riprova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte opdateringstjekket i tide. Genstart cmux, og prøv igen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł rozpocząć sprawdzania aktualizacji na czas. Uruchom ponownie cmux i spróbuj jeszcze raz."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось вовремя начать проверку обновлений. Перезапустите cmux и повторите попытку."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao na vrijeme pokrenuti provjeru ažuriranja. Ponovo pokreni cmux i pokušaj opet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux بدء التحقق من التحديثات في الوقت المناسب. أعد تشغيل cmux ثم حاول مرة أخرى."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte oppdateringssjekken i tide. Start cmux på nytt og prøv igjen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu iniciar a verificação de atualizações a tempo. Reinicie o cmux e tente novamente."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเริ่มตรวจหาการอัปเดตได้ทันเวลา โปรดรีสตาร์ท cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux güncelleme denetimini zamanında başlatamadı. cmux’i yeniden başlatıp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося вчасно почати перевірку оновлень. Перезапустіть cmux і повторіть спробу."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចាប់ផ្តើមពិនិត្យរកការអាប់ដេតបានទាន់ពេលទេ។ សូមចាប់ផ្តើម cmux ឡើងវិញ ហើយសាកល្បងម្តងទៀត។"
+          }
+        }
+      }
+    },
     "update.extracting.progress": {
       "extractionState": "manual",
       "localizations": {
