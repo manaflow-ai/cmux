@@ -697,6 +697,27 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(sessionAfterFeed["lastSubtitle"])
         XCTAssertNil(sessionAfterFeed["lastBody"])
 
+        let genericAfterFeedStart = context.state.commands.count
+        let genericAfterFeed = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude Code needs your attention"}"#
+        )
+        XCTAssertFalse(genericAfterFeed.timedOut, genericAfterFeed.stderr)
+        XCTAssertEqual(genericAfterFeed.status, 0, genericAfterFeed.stderr)
+
+        let genericAfterFeedCommands = Array(context.state.commands.dropFirst(genericAfterFeedStart))
+        let genericAfterFeedNotifyCommands = genericAfterFeedCommands
+            .filter { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) ") }
+        XCTAssertTrue(
+            genericAfterFeedNotifyCommands.isEmpty,
+            "Expected resolved Feed prompt to suppress the later generic Claude notification, saw \(genericAfterFeedNotifyCommands)"
+        )
+        XCTAssertFalse(
+            genericAfterFeedCommands.contains { $0.contains("set_status claude_code Needs input") },
+            genericAfterFeedCommands.joined(separator: "\n")
+        )
+
         let repeatedPermissionStart = context.state.commands.count
         let repeatedPermission = runClaudeHook(
             context: context,
@@ -5185,6 +5206,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             session["pendingNotificationClearedFingerprint"] = fingerprint
         }
         session["pendingNotificationClearedAt"] = now
+        session["resolvedPendingNotificationAt"] = now
         session["updatedAt"] = now
         session.removeValue(forKey: "pendingNotificationFingerprint")
         session.removeValue(forKey: "pendingNotificationStartedAt")
