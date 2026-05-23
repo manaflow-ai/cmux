@@ -12,6 +12,7 @@ COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
 TEST_BLACKSMITH_FILE="$ROOT_DIR/.github/workflows/test-blacksmith.yml"
+PERF_FILE="$ROOT_DIR/.github/workflows/perf-activation.yml"
 
 check_blacksmith_runner() {
   local file="$1" job="$2"
@@ -44,3 +45,4 @@ check_blacksmith_runner "$COMPAT_FILE" "compat-tests"
 check_blacksmith_runner "$NIGHTLY_FILE" "build-sign-notarize-nightly"
 check_blacksmith_runner "$RELEASE_FILE" "build-sign-notarize"
 check_blacksmith_runner "$TEST_BLACKSMITH_FILE" "tests"
+check_blacksmith_runner "$PERF_FILE" "activation-session"

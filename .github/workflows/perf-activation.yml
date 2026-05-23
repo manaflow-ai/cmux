@@ -11,10 +11,12 @@ on:
       runner:
         description: macOS runner
         required: false
-        default: warp-macos-15-arm64-6x
+        default: blacksmith-6vcpu-macos-15
         type: choice
+        # Depot stays available only for manual fallback and provider comparison
+        # runs. Pull requests use the Blacksmith fallback below.
         options:
-          - warp-macos-15-arm64-6x
+          - blacksmith-6vcpu-macos-15
           - depot-macos-latest
       workspace_count:
         description: Fixture workspace count
@@ -35,7 +37,7 @@ concurrency:
 
 jobs:
   activation-session:
-    runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 45
     env:
       PERF_TAG: perfci
