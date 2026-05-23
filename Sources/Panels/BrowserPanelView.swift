@@ -431,6 +431,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
+    @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
@@ -794,6 +795,7 @@ struct BrowserPanelView: View {
             }
         }
         .onAppear {
+            startOmnibarSuggestionRefreshConsumer()
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
                 BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
@@ -841,6 +843,8 @@ struct BrowserPanelView: View {
 #endif
         }
         .onDisappear {
+            stopOmnibarSuggestionRefreshConsumer()
+            cancelPendingOmnibarSuggestionWork()
             screenshotPageCopiedTimer?.invalidate()
             screenshotPageCopiedTimer = nil
             screenshotPageCopied = false
@@ -1015,9 +1019,6 @@ struct BrowserPanelView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshBrowserChromeStyle()
-        }
-        .task {
-            await consumeScheduledOmnibarSuggestionRefreshes()
         }
     }
 
@@ -2104,11 +2105,19 @@ struct BrowserPanelView: View {
         inlineCompletion = nil
     }
 
-    @MainActor
-    private func consumeScheduledOmnibarSuggestionRefreshes() async {
-        for await _ in omnibarSuggestionRefreshScheduler.refreshStream {
-            refreshSuggestions()
+    private func startOmnibarSuggestionRefreshConsumer() {
+        guard omnibarSuggestionRefreshConsumerTask == nil else { return }
+        let scheduler = omnibarSuggestionRefreshScheduler
+        omnibarSuggestionRefreshConsumerTask = Task { @MainActor in
+            for await _ in scheduler.refreshStream {
+                refreshSuggestions()
+            }
         }
+    }
+
+    private func stopOmnibarSuggestionRefreshConsumer() {
+        omnibarSuggestionRefreshConsumerTask?.cancel()
+        omnibarSuggestionRefreshConsumerTask = nil
     }
 
     private func cancelPendingOmnibarSuggestionWork() {
