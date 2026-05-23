@@ -15,7 +15,7 @@ export const testimonials = [
     name: "Peter Steinberger",
     handle: "@steipete",
     avatar: "/avatars/steipete.png",
-    text: "I'm late to the party, but cmux is great. current split: codex mac app: knowledege work, learning, reading; cmux + codex cli: coding.",
+    text: "I'm late to the party, but cmux is great. Current split: Codex Mac app for knowledge work, learning, reading; cmux + Codex CLI for coding.",
     lang: "en",
     url: "https://x.com/steipete/status/2058093406874689770",
     platform: "x" as const,
