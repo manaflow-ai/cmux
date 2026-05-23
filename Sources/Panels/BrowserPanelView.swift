@@ -717,6 +717,7 @@ struct BrowserPanelView: View {
         let title = panel.isBrowserFocusModeActive
             ? String(localized: "browser.focusMode.exit.help", defaultValue: "Exit browser focus mode")
             : String(localized: "browser.focusMode.enter.help", defaultValue: "Enter browser focus mode")
+        guard panel.isBrowserFocusModeActive else { return title }
         let format = String(localized: "browser.focusMode.helpWithShortcut.format", defaultValue: "%@ (%@)")
         return String(format: format, title, browserFocusModeShortcutHint)
     }
@@ -726,7 +727,8 @@ struct BrowserPanelView: View {
     }
 
     private var shouldShowBrowserFocusModeShortcutHint: Bool {
-        panel.canToggleBrowserFocusMode &&
+        panel.isBrowserFocusModeActive &&
+            panel.canToggleBrowserFocusMode &&
             (ShortcutHintDebugSettings.alwaysShowHints() || focusModeShortcutHintMonitor.isModifierPressed)
     }
 
