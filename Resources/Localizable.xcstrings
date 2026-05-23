@@ -43293,6 +43293,12 @@
             "value": "구성 다시 불러오기"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទុកការកំណត់រចនាសម្ព័ន្ធឡើងវិញ"
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
