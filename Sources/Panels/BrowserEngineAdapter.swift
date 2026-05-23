@@ -111,7 +111,7 @@ protocol BrowserEngineAdapter: AnyObject {
     func resize(to size: CGSize, scale: CGFloat)
     func evaluateJavaScript(_ script: String) async throws -> Any?
     func evaluateJavaScriptSynchronously(_ script: String) throws -> Any?
-    func takeSnapshot(completion: @escaping (NSImage?) -> Void)
+    func takeSnapshot(completion: @escaping @Sendable (NSImage?) -> Void)
     func close()
 }
 
@@ -219,7 +219,7 @@ final class BrowserWebKitEngineAdapter: BrowserEngineAdapter {
         throw BrowserEngineUnsupportedCapabilityError(engineKind: .webKit, capability: .javaScript)
     }
 
-    func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
+    func takeSnapshot(completion: @escaping @Sendable (NSImage?) -> Void) {
         let config = WKSnapshotConfiguration()
         webView.takeSnapshot(with: config) { image, error in
             if let error {
@@ -360,7 +360,7 @@ final class BrowserOwlChromiumEngineAdapter: BrowserEngineAdapter {
         return value
     }
 
-    func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
+    func takeSnapshot(completion: @escaping @Sendable (NSImage?) -> Void) {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-owl-\(UUID().uuidString).png", isDirectory: false)
         do {
