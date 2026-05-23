@@ -85,6 +85,7 @@ enum SidebarDropPlanner {
 
     struct WorkspaceDropTarget: Equatable {
         let workspaceId: UUID
+        let index: Int
         let isPinned: Bool
         let frame: CGRect
     }
@@ -96,49 +97,85 @@ enum SidebarDropPlanner {
 
     static func workspaceAction(
         for point: CGPoint,
-        targets: [WorkspaceDropTarget]
+        targets: [WorkspaceDropTarget],
+        workspaceCount: Int? = nil,
+        pinnedWorkspaceCount: Int? = nil
     ) -> WorkspaceDropAction? {
         guard !targets.isEmpty else { return nil }
         let orderedTargets = targets.sorted { $0.frame.minY < $1.frame.minY }
+        let totalWorkspaceCount = workspaceCount ?? orderedTargets.count
+        let totalPinnedWorkspaceCount = pinnedWorkspaceCount ?? orderedTargets.reduce(into: 0) { count, target in
+            if target.isPinned {
+                count += 1
+            }
+        }
         if let containingTarget = orderedTargets.first(where: { $0.frame.contains(point) }) {
-            return workspaceAction(for: point, in: containingTarget, orderedTargets: orderedTargets)
+            return workspaceAction(
+                for: point,
+                in: containingTarget,
+                orderedTargets: orderedTargets,
+                workspaceCount: totalWorkspaceCount,
+                pinnedWorkspaceCount: totalPinnedWorkspaceCount
+            )
         }
 
         let proposedInsertion: Int
         if let beforeTarget = orderedTargets.first(where: { point.y < $0.frame.minY }) {
-            proposedInsertion = orderedTargets.firstIndex(of: beforeTarget) ?? 0
+            proposedInsertion = beforeTarget.index
         } else {
-            proposedInsertion = orderedTargets.count
+            proposedInsertion = (orderedTargets.last?.index ?? -1) + 1
         }
         let insertionIndex = legalNewWorkspaceInsertionIndex(
             proposedInsertion,
-            orderedTargets: orderedTargets
+            workspaceCount: totalWorkspaceCount,
+            pinnedWorkspaceCount: totalPinnedWorkspaceCount
         )
         return .newWorkspace(
             insertionIndex: insertionIndex,
-            indicator: workspaceIndicator(forInsertionIndex: insertionIndex, orderedTargets: orderedTargets)
+            indicator: workspaceIndicator(
+                forInsertionIndex: insertionIndex,
+                workspaceCount: totalWorkspaceCount,
+                orderedTargets: orderedTargets
+            )
         )
     }
 
     private static func workspaceAction(
         for point: CGPoint,
         in target: WorkspaceDropTarget,
-        orderedTargets: [WorkspaceDropTarget]
+        orderedTargets: [WorkspaceDropTarget],
+        workspaceCount: Int,
+        pinnedWorkspaceCount: Int
     ) -> WorkspaceDropAction? {
-        guard let targetIndex = orderedTargets.firstIndex(of: target) else { return nil }
         let edgeBand = min(max(target.frame.height * 0.25, 10), target.frame.height / 2)
         if point.y <= target.frame.minY + edgeBand {
-            let insertionIndex = legalNewWorkspaceInsertionIndex(targetIndex, orderedTargets: orderedTargets)
+            let insertionIndex = legalNewWorkspaceInsertionIndex(
+                target.index,
+                workspaceCount: workspaceCount,
+                pinnedWorkspaceCount: pinnedWorkspaceCount
+            )
             return .newWorkspace(
                 insertionIndex: insertionIndex,
-                indicator: workspaceIndicator(forInsertionIndex: insertionIndex, orderedTargets: orderedTargets)
+                indicator: workspaceIndicator(
+                    forInsertionIndex: insertionIndex,
+                    workspaceCount: workspaceCount,
+                    orderedTargets: orderedTargets
+                )
             )
         }
         if point.y >= target.frame.maxY - edgeBand {
-            let insertionIndex = legalNewWorkspaceInsertionIndex(targetIndex + 1, orderedTargets: orderedTargets)
+            let insertionIndex = legalNewWorkspaceInsertionIndex(
+                target.index + 1,
+                workspaceCount: workspaceCount,
+                pinnedWorkspaceCount: pinnedWorkspaceCount
+            )
             return .newWorkspace(
                 insertionIndex: insertionIndex,
-                indicator: workspaceIndicator(forInsertionIndex: insertionIndex, orderedTargets: orderedTargets)
+                indicator: workspaceIndicator(
+                    forInsertionIndex: insertionIndex,
+                    workspaceCount: workspaceCount,
+                    orderedTargets: orderedTargets
+                )
             )
         }
         return .existingWorkspace(target.workspaceId)
@@ -146,26 +183,33 @@ enum SidebarDropPlanner {
 
     private static func legalNewWorkspaceInsertionIndex(
         _ proposedInsertion: Int,
-        orderedTargets: [WorkspaceDropTarget]
+        workspaceCount: Int,
+        pinnedWorkspaceCount: Int
     ) -> Int {
-        let clamped = max(0, min(proposedInsertion, orderedTargets.count))
-        let pinnedCount = orderedTargets.reduce(into: 0) { count, target in
-            if target.isPinned {
-                count += 1
-            }
-        }
-        return max(clamped, pinnedCount)
+        let clamped = max(0, min(proposedInsertion, workspaceCount))
+        return max(clamped, pinnedWorkspaceCount)
     }
 
     private static func workspaceIndicator(
         forInsertionIndex insertionIndex: Int,
+        workspaceCount: Int,
         orderedTargets: [WorkspaceDropTarget]
     ) -> SidebarDropIndicator {
-        let clampedInsertion = max(0, min(insertionIndex, orderedTargets.count))
-        if clampedInsertion >= orderedTargets.count {
+        let clampedInsertion = max(0, min(insertionIndex, workspaceCount))
+        if clampedInsertion >= workspaceCount {
             return SidebarDropIndicator(tabId: nil, edge: .bottom)
         }
-        return SidebarDropIndicator(tabId: orderedTargets[clampedInsertion].workspaceId, edge: .top)
+        let targetsByIndex = orderedTargets.sorted { $0.index < $1.index }
+        if let exactTarget = targetsByIndex.first(where: { $0.index == clampedInsertion }) {
+            return SidebarDropIndicator(tabId: exactTarget.workspaceId, edge: .top)
+        }
+        if let nextTarget = targetsByIndex.first(where: { $0.index > clampedInsertion }) {
+            return SidebarDropIndicator(tabId: nextTarget.workspaceId, edge: .top)
+        }
+        if let previousTarget = targetsByIndex.last(where: { $0.index < clampedInsertion }) {
+            return SidebarDropIndicator(tabId: previousTarget.workspaceId, edge: .bottom)
+        }
+        return SidebarDropIndicator(tabId: nil, edge: .bottom)
     }
 
     private static func indicatorForInsertionPosition(_ insertionPosition: Int, tabIds: [UUID]) -> SidebarDropIndicator {

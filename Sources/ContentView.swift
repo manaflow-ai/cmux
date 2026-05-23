@@ -9417,7 +9417,6 @@ struct VerticalTabsSidebar: View {
     @State private var dropIndicator: SidebarDropIndicator?
     @State private var frozenTabItemPresentation: SidebarTabItemPresentationSnapshot?
     @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
-    @State private var laidOutWorkspaceRowIds: Set<UUID> = []
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
@@ -9468,15 +9467,12 @@ struct VerticalTabsSidebar: View {
         flushPendingSelectedWorkspaceScroll(proxy)
     }
 
-    private func flushPendingSelectedWorkspaceScroll(
-        _ proxy: ScrollViewProxy,
-        laidOutWorkspaceRowIds: Set<UUID>? = nil
-    ) {
+    private func flushPendingSelectedWorkspaceScroll(_ proxy: ScrollViewProxy) {
         guard let selectedWorkspaceId = pendingSelectedWorkspaceScrollId else { return }
-        let rowIds = laidOutWorkspaceRowIds ?? self.laidOutWorkspaceRowIds
-        guard rowIds.contains(selectedWorkspaceId) else { return }
 
         // No anchor means SwiftUI scrolls the minimum needed to reveal the row.
+        // LazyVStack can resolve IDs for unmounted rows, so do not wait for
+        // visible-row anchor preferences here.
         proxy.scrollTo(selectedWorkspaceId)
         pendingSelectedWorkspaceScrollId = nil
     }
@@ -9743,10 +9739,6 @@ struct VerticalTabsSidebar: View {
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
                     requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
                 }
-                .onPreferenceChange(SidebarWorkspaceRowIdsPreferenceKey.self) { rowIds in
-                    laidOutWorkspaceRowIds = rowIds
-                    flushPendingSelectedWorkspaceScroll(scrollProxy, laidOutWorkspaceRowIds: rowIds)
-                }
             }
         }
     }
@@ -9773,9 +9765,9 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
-        // Workspaces are bounded, so prefer a non-lazy stack here.
-        // LazyVStack + drag-state invalidations can recurse through layout.
-        VStack(spacing: tabRowSpacing) {
+        // Keep row observers and drag handlers scoped to the visible lazy
+        // subtree so large workspaces lists scale with mounted rows.
+        LazyVStack(spacing: tabRowSpacing) {
             ForEach(renderContext.tabs, id: \.id) { tab in
                 workspaceRow(tab, renderContext: renderContext)
             }
@@ -9825,13 +9817,20 @@ struct VerticalTabsSidebar: View {
                     updateAutoscroll: {
                         dragAutoScrollController.updateFromDragLocation()
                     },
-                    targets: renderContext.tabs.compactMap { tab in
+                    targets: renderContext.tabs.enumerated().compactMap { index, tab in
                         guard let anchor = anchors[tab.id] else { return nil }
                         return SidebarDropPlanner.WorkspaceDropTarget(
                             workspaceId: tab.id,
+                            index: index,
                             isPinned: tab.isPinned,
                             frame: proxy[anchor]
                         )
+                    },
+                    workspaceCount: renderContext.workspaceCount,
+                    pinnedWorkspaceCount: renderContext.tabs.reduce(into: 0) { count, tab in
+                        if tab.isPinned {
+                            count += 1
+                        }
                     }
                 )
             }
@@ -9932,7 +9931,6 @@ struct VerticalTabsSidebar: View {
         .equatable()
         .id(tab.id)
         .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
-        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
         .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
             [tab.id: anchor]
         }
@@ -9941,14 +9939,6 @@ struct VerticalTabsSidebar: View {
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
-    }
-}
-
-private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
-    static let defaultValue: Set<UUID> = []
-
-    static func reduce(value: inout Set<UUID>, nextValue: () -> Set<UUID>) {
-        value.formUnion(nextValue())
     }
 }
 
@@ -12967,6 +12957,15 @@ private struct TabItemView: View, Equatable {
                     .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
             }
         }
+        .overlay(alignment: .bottom) {
+            if showsCenteredBottomDropIndicator {
+                Rectangle()
+                    .fill(cmuxAccentColor())
+                    .frame(height: 2)
+                    .padding(.horizontal, 8)
+                    .offset(y: rowSpacing / 2)
+            }
+        }
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
         }
@@ -13437,6 +13436,11 @@ private struct TabItemView: View, Equatable {
             return false
         }
         return tabManager.tabs[currentIndex - 1].id == indicator.tabId
+    }
+
+    private var showsCenteredBottomDropIndicator: Bool {
+        guard let indicator = dropIndicator else { return false }
+        return indicator.tabId == tab.id && indicator.edge == .bottom
     }
 
     private var accessibilityTitle: String {

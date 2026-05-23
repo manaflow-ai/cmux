@@ -117,13 +117,57 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         )
     }
 
+    func testWorkspaceDropUsesGlobalInsertionIndexForVisibleVirtualizedTargets() {
+        let visibleA = UUID()
+        let visibleB = UUID()
+        let targets = workspaceDropTargets([visibleA, visibleB], startIndex: 50)
+
+        let action = SidebarDropPlanner.workspaceAction(
+            for: CGPoint(x: 12, y: 65),
+            targets: targets,
+            workspaceCount: 100,
+            pinnedWorkspaceCount: 3
+        )
+
+        XCTAssertEqual(
+            action,
+            .newWorkspace(
+                insertionIndex: 52,
+                indicator: SidebarDropIndicator(tabId: visibleB, edge: .bottom)
+            )
+        )
+    }
+
+    func testWorkspaceDropClampsVirtualizedTargetsAfterGlobalPinnedRows() {
+        let visibleA = UUID()
+        let visibleB = UUID()
+        let targets = workspaceDropTargets([visibleA, visibleB], startIndex: 8)
+
+        let action = SidebarDropPlanner.workspaceAction(
+            for: CGPoint(x: 12, y: -4),
+            targets: targets,
+            workspaceCount: 100,
+            pinnedWorkspaceCount: 10
+        )
+
+        XCTAssertEqual(
+            action,
+            .newWorkspace(
+                insertionIndex: 10,
+                indicator: SidebarDropIndicator(tabId: visibleB, edge: .bottom)
+            )
+        )
+    }
+
     private func workspaceDropTargets(
         _ ids: [UUID],
-        pinnedIds: Set<UUID> = []
+        pinnedIds: Set<UUID> = [],
+        startIndex: Int = 0
     ) -> [SidebarDropPlanner.WorkspaceDropTarget] {
         ids.enumerated().map { index, id in
             SidebarDropPlanner.WorkspaceDropTarget(
                 workspaceId: id,
+                index: startIndex + index,
                 isPinned: pinnedIds.contains(id),
                 frame: CGRect(x: 0, y: CGFloat(index * 40), width: 180, height: 32)
             )
