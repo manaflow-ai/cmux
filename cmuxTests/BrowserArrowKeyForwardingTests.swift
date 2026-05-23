@@ -26,4 +26,24 @@ final class BrowserArrowKeyForwardingTests: XCTestCase {
         XCTAssertFalse(shouldDispatchBrowserArrowViaFirstResponderKeyDown(keyCode: 124, firstResponderIsBrowser: true, firstResponderHasMarkedText: true, flags: []))
         XCTAssertFalse(shouldDispatchBrowserArrowViaFirstResponderKeyDown(keyCode: 125, firstResponderIsBrowser: true, flags: [.command]))
     }
+
+    func testRoutesPlainAndShiftArrowKeysToEditableTextViews() {
+        let textView = NSTextView()
+        textView.isEditable = true
+
+        XCTAssertTrue(shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(keyCode: 123, responder: textView, flags: []))
+        XCTAssertTrue(shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(keyCode: 124, responder: textView, flags: [.shift]))
+    }
+
+    func testDoesNotStealModifiedArrowShortcutsFromEditableTextViews() {
+        let textView = NSTextView()
+        textView.isEditable = true
+
+        XCTAssertFalse(shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(keyCode: 125, responder: textView, flags: [.command]))
+        XCTAssertFalse(shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(keyCode: 126, responder: textView, flags: [.option]))
+        XCTAssertFalse(shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(keyCode: 126, responder: nil, flags: []))
+
+        textView.isEditable = false
+        XCTAssertFalse(shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(keyCode: 123, responder: textView, flags: []))
+    }
 }

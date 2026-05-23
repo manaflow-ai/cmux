@@ -1777,6 +1777,9 @@ class TerminalController {
         "note.open",
         "note.list",
         "note.path",
+        "note.read",
+        "note.write",
+        "note.append",
         "note.delete",
         "system.top",
         "system.memory",
@@ -1895,6 +1898,12 @@ class TerminalController {
             return v2Result(id: request.id, v2NoteList(params: request.params))
         case "note.path":
             return v2Result(id: request.id, v2NotePath(params: request.params))
+        case "note.read":
+            return v2Result(id: request.id, v2NoteRead(params: request.params))
+        case "note.write":
+            return v2Result(id: request.id, v2NoteWrite(params: request.params))
+        case "note.append":
+            return v2Result(id: request.id, v2NoteAppend(params: request.params))
         case "note.delete":
             return v2Result(id: request.id, v2NoteDelete(params: request.params))
         case "system.top":
@@ -3392,6 +3401,9 @@ class TerminalController {
             "note.open",
             "note.list",
             "note.path",
+            "note.read",
+            "note.write",
+            "note.append",
             "note.delete",
             "browser.open_split",
             "browser.navigate",

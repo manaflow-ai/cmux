@@ -243,6 +243,7 @@ extension Workspace {
             terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
+            noteAnchorId: noteAnchorId,
             layout: layout,
             panels: panelSnapshots,
             statusEntries: statusSnapshots,
@@ -263,6 +264,11 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        noteAnchorIdsByPanelId.removeAll(keepingCapacity: false)
+        if let snapshotNoteAnchorId = snapshot.noteAnchorId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !snapshotNoteAnchorId.isEmpty {
+            noteAnchorId = snapshotNoteAnchorId
+        }
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
         if let restoredRemoteConfiguration {
             configureRemoteConnection(
@@ -551,7 +557,9 @@ extension Workspace {
             markdownSnapshot = SessionMarkdownPanelSnapshot(
                 filePath: markdownPanel.filePath,
                 displayMode: markdownPanel.displayMode,
-                noteSlug: markdownPanel.noteSlug
+                noteSlug: markdownPanel.noteSlug,
+                noteID: markdownPanel.noteID,
+                noteBodyPath: markdownPanel.noteBodyPath
             )
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
@@ -584,6 +592,7 @@ extension Workspace {
             gitBranch: branchSnapshot,
             listeningPorts: listeningPorts,
             ttyName: ttyName,
+            noteAnchorId: noteAnchorIdsByPanelId[panelId],
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: markdownSnapshot,
@@ -1030,11 +1039,19 @@ extension Workspace {
         case .markdown:
             guard let snapshotMarkdown = snapshot.markdown else { return nil }
             // If this markdown panel was opened as a project-scoped note,
-            // reconstruct the canonical note path from the persisted slug and
-            // current workspace root. This avoids filesystem probes on the main
-            // actor and keeps moved projects from restoring the old absolute path.
+            // reconstruct the canonical note path from the persisted index path
+            // or legacy slug and current workspace root. This avoids filesystem
+            // probes on the main actor and keeps moved projects from restoring
+            // the old absolute path.
             let restorePath: String
-            if let rawSlug = snapshotMarkdown.noteSlug,
+            if let noteBodyPath = snapshotMarkdown.noteBodyPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !noteBodyPath.isEmpty,
+               let projectRoot = NoteSupport.restoredProjectRoot(
+                    forStoredNotePath: snapshotMarkdown.filePath,
+                    currentDirectory: currentDirectory
+               ) {
+                restorePath = CmuxNoteStore.absoluteBodyPath(bodyPath: noteBodyPath, projectRoot: projectRoot)
+            } else if let rawSlug = snapshotMarkdown.noteSlug,
                let slug = try? NoteSupport.validateSlug(rawSlug),
                let projectRoot = NoteSupport.restoredProjectRoot(
                     forStoredNotePath: snapshotMarkdown.filePath,
@@ -1053,7 +1070,11 @@ extension Workspace {
             }
             if let rawSlug = snapshotMarkdown.noteSlug,
                let slug = try? NoteSupport.validateSlug(rawSlug) {
-                markdownPanel.markAsProjectNote(slug: slug)
+                markdownPanel.markAsProjectNote(
+                    slug: slug,
+                    id: snapshotMarkdown.noteID,
+                    bodyPath: snapshotMarkdown.noteBodyPath
+                )
             }
             if let displayMode = snapshotMarkdown.displayMode {
                 markdownPanel.setDisplayMode(displayMode, focusTextEditor: false)
@@ -1089,6 +1110,10 @@ extension Workspace {
     private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
+        }
+        if let noteAnchor = snapshot.noteAnchorId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !noteAnchor.isEmpty {
+            noteAnchorIdsByPanelId[panelId] = noteAnchor
         }
 
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle)
@@ -7603,6 +7628,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
+    var noteAnchorId: String = CmuxNoteStore.newAnchorID()
+    var noteAnchorIdsByPanelId: [UUID: String] = [:]
     @Published var manualUnreadPanelIds: Set<UUID> = [] {
         didSet {
             guard manualUnreadPanelIds != oldValue else { return }
@@ -8633,6 +8660,32 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? FilePreviewPanel
     }
 
+    func noteAttachmentTargetForWorkspace() -> CmuxNoteAttachmentTarget {
+        .workspace(workspaceAnchorId: noteAnchorId)
+    }
+
+    func noteAttachmentTargetForPanel(panelId: UUID, requireTerminal: Bool = false) -> CmuxNoteAttachmentTarget? {
+        guard let panel = panels[panelId] else { return nil }
+        if requireTerminal, panel.panelType != .terminal {
+            return nil
+        }
+        let surfaceAnchorId = noteAnchorId(forPanelId: panelId)
+        return .surface(
+            workspaceAnchorId: noteAnchorId,
+            surfaceAnchorId: surfaceAnchorId,
+            surfaceKind: panel.panelType.rawValue
+        )
+    }
+
+    func noteAnchorId(forPanelId panelId: UUID) -> String {
+        if let existing = noteAnchorIdsByPanelId[panelId] {
+            return existing
+        }
+        let next = CmuxNoteStore.newAnchorID()
+        noteAnchorIdsByPanelId[panelId] = next
+        return next
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
@@ -9460,6 +9513,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
+        noteAnchorIdsByPanelId = noteAnchorIdsByPanelId.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         restoredUnreadPanelIds = restoredUnreadPanelIds.filter { validSurfaceIds.contains($0) }
@@ -11231,8 +11285,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Open (or focus) a project-scoped note as a surface in the given pane.
     /// Internally this is a `MarkdownPanel` — the "note" distinction lives at
     /// the storage convention and at the `CmuxSurfaceType.note` public surface
-    /// type. When `createIfMissing` is true, file creation completes off-main
-    /// before the main-actor panel lifecycle starts.
+    /// type. Note metadata lives in `<project>/.cmux/notes/index.json`; legacy
+    /// `.cmux/notes/<slug>.md` files are still opened through the same store.
     @discardableResult
     func newNoteSurface(
         inPane paneId: PaneID,
@@ -11241,15 +11295,71 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         reuseExisting: Bool = true
     ) async -> MarkdownPanel? {
-        let validatedSlug: String
-        do {
-            validatedSlug = try NoteSupport.validateSlug(slug)
-        } catch {
-            workspaceLogger.error(
-                "Invalid note slug for config note slug=\(slug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
-            )
+        await openOrCreateNoteSurface(
+            inPane: paneId,
+            slug: slug,
+            title: nil,
+            attachment: nil,
+            createIfMissing: createIfMissing,
+            focus: focus,
+            reuseExisting: reuseExisting,
+            preferAttachedExisting: false
+        )
+    }
+
+    @discardableResult
+    func openAttachedNoteForSurface(
+        inPane paneId: PaneID,
+        panelId: UUID,
+        focus: Bool = true,
+        requireTerminal: Bool = false
+    ) async -> MarkdownPanel? {
+        guard let attachment = noteAttachmentTargetForPanel(
+            panelId: panelId,
+            requireTerminal: requireTerminal
+        ) else {
             return nil
         }
+        return await openOrCreateNoteSurface(
+            inPane: paneId,
+            slug: nil,
+            title: nil,
+            attachment: attachment,
+            createIfMissing: true,
+            focus: focus,
+            reuseExisting: true,
+            preferAttachedExisting: true
+        )
+    }
+
+    @discardableResult
+    func openAttachedNoteForWorkspace(
+        inPane paneId: PaneID,
+        focus: Bool = true
+    ) async -> MarkdownPanel? {
+        await openOrCreateNoteSurface(
+            inPane: paneId,
+            slug: nil,
+            title: nil,
+            attachment: noteAttachmentTargetForWorkspace(),
+            createIfMissing: true,
+            focus: focus,
+            reuseExisting: true,
+            preferAttachedExisting: true
+        )
+    }
+
+    @discardableResult
+    func openOrCreateNoteSurface(
+        inPane paneId: PaneID,
+        slug: String?,
+        title: String? = nil,
+        attachment: CmuxNoteAttachmentTarget? = nil,
+        createIfMissing: Bool = true,
+        focus: Bool? = nil,
+        reuseExisting: Bool = true,
+        preferAttachedExisting: Bool = false
+    ) async -> MarkdownPanel? {
         let workspaceCurrentDirectory = currentDirectory
         let workspaceIsRemote = isRemoteWorkspace
         guard let root = await Self.noteProjectRootOffMain(
@@ -11259,32 +11369,63 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceLogger.error("Note surfaces are not available for remote workspaces")
             return nil
         }
-        let filePath: String
-        if createIfMissing {
-            do {
-                filePath = try await Self.ensureNoteFileOffMain(slug: validatedSlug, projectRoot: root)
-            } catch {
-                workspaceLogger.error(
-                    "Failed to create note file for config note slug=\(validatedSlug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
-                )
-                return nil
-            }
-        } else {
-            filePath = NoteSupport.notePath(forSlug: validatedSlug, projectRoot: root)
+        let noteResult: CmuxNoteStoreResult
+        do {
+            noteResult = try await Self.createOrOpenNoteOffMain(
+                slug: slug,
+                title: title,
+                projectRoot: root,
+                createIfMissing: createIfMissing,
+                attachment: attachment,
+                preferAttachedExisting: preferAttachedExisting
+            )
+        } catch {
+            workspaceLogger.error(
+                "Failed to open note surface slug=\(slug ?? "nil", privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+            )
+            return nil
         }
+
+        let filePath = noteResult.path
         if reuseExisting {
             let panel = openOrFocusMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus ?? false)
-            panel?.markAsProjectNote(slug: validatedSlug)
+            panel?.markAsProjectNote(
+                slug: noteResult.note.slug,
+                id: noteResult.note.id,
+                bodyPath: noteResult.note.bodyPath,
+                title: noteResult.note.title
+            )
+            panel?.setDisplayMode(.text, focusTextEditor: focus ?? false)
             return panel
         }
         let panel = newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
-        panel?.markAsProjectNote(slug: validatedSlug)
+        panel?.markAsProjectNote(
+            slug: noteResult.note.slug,
+            id: noteResult.note.id,
+            bodyPath: noteResult.note.bodyPath,
+            title: noteResult.note.title
+        )
+        panel?.setDisplayMode(.text, focusTextEditor: focus ?? false)
         return panel
     }
 
-    private nonisolated static func ensureNoteFileOffMain(slug: String, projectRoot: String) async throws -> String {
+    private nonisolated static func createOrOpenNoteOffMain(
+        slug: String?,
+        title: String?,
+        projectRoot: String,
+        createIfMissing: Bool,
+        attachment: CmuxNoteAttachmentTarget?,
+        preferAttachedExisting: Bool
+    ) async throws -> CmuxNoteStoreResult {
         try await Task.detached(priority: .utility) {
-            try NoteSupport.ensureNoteFile(slug: slug, projectRoot: projectRoot)
+            try CmuxNoteStore.createOrOpen(
+                slug: slug,
+                title: title,
+                projectRoot: projectRoot,
+                createIfMissing: createIfMissing,
+                attachment: attachment,
+                preferAttachedExisting: preferAttachedExisting
+            )
         }.value
     }
 
@@ -15043,6 +15184,22 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
+            case .newNote:
+                bonsplitController.focusPane(pane)
+                let selectedPanelId = bonsplitController.selectedTab(inPane: pane)
+                    .flatMap { panelIdFromSurfaceId($0.id) }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if let selectedPanelId, panels[selectedPanelId] != nil {
+                        _ = await openAttachedNoteForSurface(
+                            inPane: pane,
+                            panelId: selectedPanelId,
+                            focus: true
+                        )
+                    } else {
+                        _ = await openAttachedNoteForWorkspace(inPane: pane, focus: true)
+                    }
+                }
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

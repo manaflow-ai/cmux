@@ -6127,6 +6127,8 @@ struct ContentView: View {
             return CmuxSurfaceTabBarBuiltInAction.newTerminal.configID
         case "palette.newBrowserTab":
             return CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
+        case "palette.newNoteForCurrentSurface":
+            return CmuxSurfaceTabBarBuiltInAction.newNote.configID
         case "palette.terminalSplitRight":
             return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
         case "palette.terminalSplitDown":
@@ -6432,6 +6434,22 @@ struct ContentView: View {
                 shortcutHint: "⌘⇧L",
                 keywords: ["new", "browser", "tab", "web"],
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newNoteForCurrentSurface",
+                title: constant(String(localized: "command.newNoteForCurrentSurface.title", defaultValue: "New Note for Current Surface")),
+                subtitle: constant(String(localized: "command.newNoteForCurrentSurface.subtitle", defaultValue: "Note")),
+                keywords: ["new", "note", "markdown", "attach", "surface"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newNoteForWorkspace",
+                title: constant(String(localized: "command.newNoteForWorkspace.title", defaultValue: "New Note for Workspace")),
+                subtitle: constant(String(localized: "command.newNoteForWorkspace.subtitle", defaultValue: "Note")),
+                keywords: ["new", "note", "markdown", "attach", "workspace"]
             )
         )
         contributions.append(
@@ -7422,6 +7440,41 @@ struct ContentView: View {
             // is not blocked by the palette visibility guard.
             DispatchQueue.main.async {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+            }
+        }
+        registry.register(commandId: "palette.newNoteForCurrentSurface") {
+            if executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newNote.configID) {
+                return
+            }
+            guard let workspace = tabManager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+                NSSound.beep()
+                return
+            }
+            let panelId = workspace.focusedPanelId
+                ?? workspace.bonsplitController.selectedTab(inPane: paneId).flatMap { workspace.panelIdFromSurfaceId($0.id) }
+            guard let panelId else {
+                Task { @MainActor in
+                    _ = await workspace.openAttachedNoteForWorkspace(inPane: paneId, focus: true)
+                }
+                return
+            }
+            Task { @MainActor in
+                _ = await workspace.openAttachedNoteForSurface(
+                    inPane: paneId,
+                    panelId: panelId,
+                    focus: true
+                )
+            }
+        }
+        registry.register(commandId: "palette.newNoteForWorkspace") {
+            guard let workspace = tabManager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+                NSSound.beep()
+                return
+            }
+            Task { @MainActor in
+                _ = await workspace.openAttachedNoteForWorkspace(inPane: paneId, focus: true)
             }
         }
         registry.register(commandId: "palette.closeTab") {

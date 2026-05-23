@@ -22,6 +22,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Project-scoped note slug when this Markdown panel was opened through
     /// the note surface path. Plain Markdown panels never infer this from path.
     private(set) var noteSlug: String?
+    private(set) var noteID: String?
+    private(set) var noteBodyPath: String?
+    private(set) var noteTitle: String?
 
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
@@ -120,7 +123,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     }
 
     func setDisplayMode(_ mode: MarkdownPanelDisplayMode, focusTextEditor: Bool = true) {
-        guard displayMode != mode else { return }
+        guard displayMode != mode else {
+            if mode == .text, focusTextEditor {
+                focus()
+            }
+            return
+        }
         displayMode = mode
         if mode == .text, focusTextEditor {
             focus()
@@ -129,8 +137,22 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         }
     }
 
-    func markAsProjectNote(slug: String) {
+    func markAsProjectNote(
+        slug: String,
+        id: String? = nil,
+        bodyPath: String? = nil,
+        title: String? = nil
+    ) {
         noteSlug = slug
+        noteID = id
+        noteBodyPath = bodyPath
+        noteTitle = title
+        let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let resolvedTitle, !resolvedTitle.isEmpty {
+            displayTitle = resolvedTitle
+        } else {
+            displayTitle = slug
+        }
     }
 
     func attachTextView(_ textView: NSTextView) {

@@ -165,6 +165,27 @@ func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
     }
 }
 
+func shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    responder: NSResponder?,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard (123...126).contains(keyCode),
+          let textView = responder as? NSTextView,
+          textView.isEditable,
+          !textView.hasMarkedText() else {
+        return false
+    }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+
+    // Keep app-level pane/workspace shortcuts on modified arrows. Plain and
+    // Shift-arrow belong to the editor for cursor movement and selection.
+    return normalizedFlags.isEmpty || normalizedFlags == [.shift]
+}
+
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,

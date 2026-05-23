@@ -1272,6 +1272,10 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     /// (`.cmux/notes/<noteSlug>.md`) so the panel survives the project moving
     /// to a different absolute path.
     var noteSlug: String? = nil
+    var noteID: String? = nil
+    /// Relative path under `.cmux/` for indexed notes, e.g. `notes/<note-id>.md`.
+    /// Legacy slug notes omit this and restore through `noteSlug`.
+    var noteBodyPath: String? = nil
 }
 
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
@@ -1355,6 +1359,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
     var ttyName: String?
+    var noteAnchorId: String? = nil
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
@@ -1445,6 +1450,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
     var focusedPanelId: UUID?
+    var noteAnchorId: String? = nil
     var layout: SessionWorkspaceLayoutSnapshot
     var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]

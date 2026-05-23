@@ -18,8 +18,16 @@ private enum NoteRPCMessage {
     static let surfaceCreateFailed = String(localized: "rpc.note.error.surfaceCreateFailed", defaultValue: "Failed to create note surface")
     static let listFailed = String(localized: "rpc.note.error.listFailed", defaultValue: "Failed to list notes")
     static let pathFailed = String(localized: "rpc.note.error.pathFailed", defaultValue: "Failed to resolve note path")
+    static let readFailed = String(localized: "rpc.note.error.readFailed", defaultValue: "Failed to read note")
+    static let writeFailed = String(localized: "rpc.note.error.writeFailed", defaultValue: "Failed to write note")
+    static let appendFailed = String(localized: "rpc.note.error.appendFailed", defaultValue: "Failed to append note")
     static let deleteFailed = String(localized: "rpc.note.error.deleteFailed", defaultValue: "Failed to delete note")
+    static let missingContent = String(localized: "rpc.note.error.missingContent", defaultValue: "Missing 'content' parameter")
     static let remoteUnavailable = String(localized: "rpc.note.error.remoteUnavailable", defaultValue: "Notes are not available for remote workspaces")
+    static let terminalAttachRequiresTerminal = String(
+        localized: "rpc.note.error.terminalAttachRequiresTerminal",
+        defaultValue: "Cannot attach a terminal note to a non-terminal surface"
+    )
 
     static func invalidDirection(_ direction: String) -> String {
         String(
@@ -31,9 +39,35 @@ private enum NoteRPCMessage {
             direction
         )
     }
+
+    static func invalidAttachMode(_ mode: String) -> String {
+        String(
+            format: String(
+                localized: "rpc.note.error.invalidAttachMode",
+                defaultValue: "Invalid attach mode '%@' (none|workspace|surface|terminal)"
+            ),
+            locale: .current,
+            mode
+        )
+    }
+
+    static func invalidBoolean(_ name: String) -> String {
+        String(
+            format: String(
+                localized: "rpc.note.error.invalidBoolean",
+                defaultValue: "Invalid boolean for '%@' (true|false)"
+            ),
+            locale: .current,
+            name
+        )
+    }
 }
 
 private enum NoteRPCParam {
+    static func rawString(_ params: [String: Any], _ key: String) -> String? {
+        params[key] as? String
+    }
+
     static func string(_ params: [String: Any], _ key: String) -> String? {
         guard let raw = params[key] as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -57,13 +91,57 @@ private enum NoteRPCParam {
     }
 }
 
+private enum NoteRPCAttachMode: String {
+    case none
+    case workspace
+    case surface
+    case terminal
+}
+
+private func noteAttachmentPayload(_ attachment: CmuxNoteAttachment) -> [String: Any] {
+    [
+        "kind": attachment.kind.rawValue,
+        "workspace_anchor_id": attachment.workspaceAnchorId,
+        "surface_anchor_id": (attachment.surfaceAnchorId as Any?) ?? NSNull(),
+        "surface_kind": (attachment.surfaceKind as Any?) ?? NSNull(),
+        "created_at": attachment.createdAt
+    ]
+}
+
+private func noteRecordPayload(note: CmuxNoteRecord, path: String) -> [String: Any] {
+    [
+        "id": note.id,
+        "slug": note.slug,
+        "title": note.title,
+        "body_path": note.bodyPath,
+        "path": path,
+        "created_at": note.createdAt,
+        "updated_at": note.updatedAt,
+        "attachments": note.attachments.map(noteAttachmentPayload)
+    ]
+}
+
+private func noteFilePayload(path: String) -> [String: Any] {
+    let url = URL(fileURLWithPath: path)
+    let values = try? url.resourceValues(forKeys: [
+        .isRegularFileKey,
+        .fileSizeKey,
+        .contentModificationDateKey
+    ])
+    return [
+        "exists": values?.isRegularFile == true,
+        "size_bytes": Int64(values?.fileSize ?? 0),
+        "mtime": (values?.contentModificationDate ?? .distantPast).timeIntervalSince1970
+    ]
+}
+
 extension TerminalController {
     // MARK: - Notes
 
     nonisolated func v2NoteCreate(params: [String: Any]) -> V2CallResult {
         let hasSlugParameter = params.keys.contains("slug")
         let providedSlug = NoteRPCParam.string(params, "slug")
-        let slug: String
+        let slug: String?
         if hasSlugParameter {
             guard let providedSlug, !providedSlug.isEmpty else {
                 return .err(code: "invalid_params", message: NoteRPCMessage.emptySlug, data: nil)
@@ -74,7 +152,7 @@ extension TerminalController {
                 return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
             }
         } else {
-            slug = NoteSupport.autoSlug()
+            slug = nil
         }
         return v2NoteOpenSplit(slug: slug, params: params, createIfMissing: true)
     }
@@ -100,7 +178,7 @@ extension TerminalController {
     /// surface. When `createIfMissing` is true the file is ensured to exist;
     /// otherwise opening a missing slug returns `not_found`.
     private nonisolated func v2NoteOpenSplit(
-        slug: String,
+        slug: String?,
         params: [String: Any],
         createIfMissing: Bool
     ) -> V2CallResult {
@@ -111,6 +189,7 @@ extension TerminalController {
         var resolvedOrientation: SplitOrientation?
         var resolvedInsertFirst = false
         var resolvedFocusAllowed = false
+        var resolvedAttachment: CmuxNoteAttachmentTarget?
         v2MainSync {
             v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -152,6 +231,37 @@ extension TerminalController {
             let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
             let insertFirst = (direction == .left || direction == .up)
             let focusAllowed = v2FocusAllowed(requested: NoteRPCParam.bool(params, "focus") ?? false)
+            let attachModeRaw = (NoteRPCParam.string(params, "attach") ?? (createIfMissing ? "surface" : "none")).lowercased()
+            guard let attachMode = NoteRPCAttachMode(rawValue: attachModeRaw) else {
+                result = .err(
+                    code: "invalid_params",
+                    message: NoteRPCMessage.invalidAttachMode(attachModeRaw),
+                    data: nil
+                )
+                return
+            }
+            let attachment: CmuxNoteAttachmentTarget?
+            switch attachMode {
+            case .none:
+                attachment = nil
+            case .workspace:
+                attachment = ws.noteAttachmentTargetForWorkspace()
+            case .surface:
+                attachment = ws.noteAttachmentTargetForPanel(panelId: sourceSurfaceId)
+            case .terminal:
+                guard let target = ws.noteAttachmentTargetForPanel(
+                    panelId: sourceSurfaceId,
+                    requireTerminal: true
+                ) else {
+                    result = .err(
+                        code: "invalid_params",
+                        message: NoteRPCMessage.terminalAttachRequiresTerminal,
+                        data: ["surface_id": sourceSurfaceId.uuidString]
+                    )
+                    return
+                }
+                attachment = target
+            }
 
             resolvedWorkspaceId = ws.id
             resolvedCurrentDirectory = ws.currentDirectory
@@ -159,6 +269,7 @@ extension TerminalController {
             resolvedOrientation = orientation
             resolvedInsertFirst = insertFirst
             resolvedFocusAllowed = focusAllowed
+            resolvedAttachment = attachment
         }
 
         guard let workspaceId = resolvedWorkspaceId,
@@ -168,55 +279,46 @@ extension TerminalController {
             return result
         }
         let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
-        let notePath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
-
-        let fileExistedBeforeCall: Bool
+        let noteResult: CmuxNoteStoreResult
         do {
-            fileExistedBeforeCall = try NoteSupport.noteFileExists(forSlug: slug, projectRoot: projectRoot)
+            noteResult = try CmuxNoteStore.createOrOpen(
+                slug: slug,
+                title: NoteRPCParam.string(params, "title"),
+                projectRoot: projectRoot,
+                createIfMissing: createIfMissing,
+                attachment: resolvedAttachment,
+                preferAttachedExisting: createIfMissing && slug == nil && resolvedAttachment != nil
+            )
         } catch {
             terminalNoteLogger.error(
-                "Failed to inspect note slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+                "Failed to open note slug=\(slug ?? "nil", privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
             )
+            if let storeError = error as? CmuxNoteStoreError,
+               case .noteNotFound(let missingSlug) = storeError {
+                return .err(
+                    code: "not_found",
+                    message: NoteRPCMessage.noteNotFound,
+                    data: ["slug": missingSlug, "project_root": projectRoot]
+                )
+            }
             return .err(
                 code: "io_error",
-                message: NoteRPCMessage.accessFailed,
+                message: createIfMissing ? NoteRPCMessage.createFailed : NoteRPCMessage.accessFailed,
                 data: [
-                    "slug": slug,
-                    "path": notePath,
+                    "slug": slug ?? "",
+                    "path": slug.map { NoteSupport.notePath(forSlug: $0, projectRoot: projectRoot) } ?? "",
                     "project_root": projectRoot
                 ]
             )
         }
-        if !createIfMissing {
-            guard fileExistedBeforeCall else {
-                return .err(
-                    code: "not_found",
-                    message: NoteRPCMessage.noteNotFound,
-                    data: ["slug": slug, "path": notePath, "project_root": projectRoot]
-                )
-            }
-        } else {
-            do {
-                try NoteSupport.ensureNoteFile(slug: slug, projectRoot: projectRoot)
-            } catch {
-                terminalNoteLogger.error(
-                    "Failed to create note slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
-                )
-                return .err(
-                    code: "io_error",
-                    message: NoteRPCMessage.createFailed,
-                    data: [
-                        "slug": slug,
-                        "path": notePath,
-                        "project_root": projectRoot
-                    ]
-                )
-            }
-        }
-        // Open new (empty) notes directly in text-edit mode so the user can
-        // start writing without clicking the mode toggle. Existing notes with
-        // content default to preview (MarkdownPanel default).
-        let openInTextMode = !fileExistedBeforeCall
+        // Project notes are writing surfaces first. Keep them in edit mode by
+        // default; preview remains one click away in the panel toolbar.
+        let openInTextMode = true
+        let notePath = noteResult.path
+        let note = noteResult.note
+        let hasRequestedAttachment = resolvedAttachment.map { target in
+            note.attachments.contains(where: { $0.matches(target) })
+        } ?? false
 
         v2MainSync {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
@@ -243,16 +345,22 @@ extension TerminalController {
             for (existingId, existingPanel) in ws.panels {
                 guard let md = existingPanel as? MarkdownPanel else { continue }
                 if (md.filePath as NSString).resolvingSymlinksInPath == canonical {
-                    md.markAsProjectNote(slug: slug)
+                    md.markAsProjectNote(
+                        slug: note.slug,
+                        id: note.id,
+                        bodyPath: note.bodyPath,
+                        title: note.title
+                    )
                     if openInTextMode {
-                        md.setDisplayMode(.text)
+                        md.setDisplayMode(.text, focusTextEditor: resolvedFocusAllowed)
                     }
                     if resolvedFocusAllowed {
                         ws.focusPanel(existingId)
                     }
                     let targetPaneUUID = ws.paneId(forPanelId: existingId)?.id
                     let windowId = v2ResolveWindowId(tabManager: tabManager)
-                    result = .ok([
+                    var payload = noteRecordPayload(note: note, path: notePath)
+                    payload.merge([
                         "window_id": v2OrNull(windowId?.uuidString),
                         "window_ref": v2Ref(kind: .window, uuid: windowId),
                         "workspace_id": ws.id.uuidString,
@@ -267,11 +375,13 @@ extension TerminalController {
                         "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
                         "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                         "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
-                        "slug": slug,
-                        "path": notePath,
                         "project_root": projectRoot,
+                        "created": noteResult.created,
+                        "attached": hasRequestedAttachment,
+                        "attachment_created": noteResult.attached,
                         "reused": true
-                    ])
+                    ]) { _, new in new }
+                    result = .ok(payload)
                     return
                 }
             }
@@ -288,14 +398,20 @@ extension TerminalController {
                 result = .err(code: "internal_error", message: NoteRPCMessage.surfaceCreateFailed, data: nil)
                 return
             }
-            panel.markAsProjectNote(slug: slug)
+            panel.markAsProjectNote(
+                slug: note.slug,
+                id: note.id,
+                bodyPath: note.bodyPath,
+                title: note.title
+            )
             if openInTextMode {
-                panel.setDisplayMode(.text)
+                panel.setDisplayMode(.text, focusTextEditor: resolvedFocusAllowed)
             }
 
             let targetPaneUUID = ws.paneId(forPanelId: panel.id)?.id
             let windowId = v2ResolveWindowId(tabManager: tabManager)
-            result = .ok([
+            var payload = noteRecordPayload(note: note, path: notePath)
+            payload.merge([
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": ws.id.uuidString,
@@ -310,11 +426,13 @@ extension TerminalController {
                 "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
                 "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
-                "slug": slug,
-                "path": notePath,
                 "project_root": projectRoot,
+                "created": noteResult.created,
+                "attached": hasRequestedAttachment,
+                "attachment_created": noteResult.attached,
                 "reused": false
-            ])
+            ]) { _, new in new }
+            result = .ok(payload)
         }
         return result
     }
@@ -342,14 +460,11 @@ extension TerminalController {
             return result
         }
         let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
-        let entries = NoteSupport.listNotes(forProjectRoot: projectRoot)
-        let payload: [[String: Any]] = entries.map { entry in
-            [
-                "slug": entry.slug,
-                "path": entry.path,
-                "size_bytes": entry.sizeBytes,
-                "mtime": entry.mtime.timeIntervalSince1970
-            ]
+        let payload: [[String: Any]] = CmuxNoteStore.list(projectRoot: projectRoot).map { note in
+            let path = CmuxNoteStore.noteBodyPath(for: note, projectRoot: projectRoot)
+            var notePayload = noteRecordPayload(note: note, path: path)
+            notePayload.merge(noteFilePayload(path: path)) { _, new in new }
+            return notePayload
         }
         result = .ok([
             "project_root": projectRoot,
@@ -393,30 +508,210 @@ extension TerminalController {
             return result
         }
         let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
-        let resolvedPath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
-        let exists: Bool
         do {
-            exists = try NoteSupport.noteFileExists(forSlug: slug, projectRoot: projectRoot)
+            let resolved = try CmuxNoteStore.path(slug: slug, projectRoot: projectRoot)
+            var payload = noteRecordPayload(note: resolved.note, path: resolved.path)
+            payload.merge(noteFilePayload(path: resolved.path)) { _, new in new }
+            payload["exists"] = resolved.exists
+            payload["project_root"] = projectRoot
+            result = .ok(payload)
         } catch {
             terminalNoteLogger.error(
                 "Failed to resolve note path slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
             )
+            if let storeError = error as? CmuxNoteStoreError,
+               case .noteNotFound = storeError {
+                return .err(
+                    code: "not_found",
+                    message: NoteRPCMessage.noteNotFound,
+                    data: ["slug": slug, "project_root": projectRoot]
+                )
+            }
             return .err(
                 code: "io_error",
                 message: NoteRPCMessage.accessFailed,
                 data: [
                     "slug": slug,
-                    "path": resolvedPath,
                     "project_root": projectRoot
                 ]
             )
         }
-        result = .ok([
-            "slug": slug,
-            "path": resolvedPath,
-            "exists": exists,
-            "project_root": projectRoot
-        ])
+        return result
+    }
+
+    nonisolated func v2NoteRead(params: [String: Any]) -> V2CallResult {
+        guard params.keys.contains("slug") else {
+            return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
+        }
+        guard let rawSlug = NoteRPCParam.string(params, "slug"), !rawSlug.isEmpty else {
+            return .err(code: "invalid_params", message: NoteRPCMessage.emptySlug, data: nil)
+        }
+        let slug: String
+        do {
+            slug = try NoteSupport.validateSlug(rawSlug)
+        } catch {
+            return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
+        }
+        var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.readFailed, data: nil)
+        var currentDirectory: String?
+        v2MainSync {
+            v2RefreshKnownRefs()
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                result = .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
+                return
+            }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
+                return
+            }
+            guard !ws.isRemoteWorkspace else {
+                result = .err(code: "unavailable", message: NoteRPCMessage.remoteUnavailable, data: nil)
+                return
+            }
+            currentDirectory = ws.currentDirectory
+        }
+        guard let currentDirectory else {
+            return result
+        }
+        let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
+        do {
+            let read = try CmuxNoteStore.read(slug: slug, projectRoot: projectRoot)
+            var payload = noteRecordPayload(note: read.note, path: read.path)
+            payload.merge(noteFilePayload(path: read.path)) { _, new in new }
+            payload["content"] = read.content
+            payload["project_root"] = projectRoot
+            result = .ok(payload)
+        } catch {
+            terminalNoteLogger.error(
+                "Failed to read note slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+            )
+            if let storeError = error as? CmuxNoteStoreError,
+               case .noteNotFound = storeError {
+                return .err(
+                    code: "not_found",
+                    message: NoteRPCMessage.noteNotFound,
+                    data: ["slug": slug, "project_root": projectRoot]
+                )
+            }
+            return .err(
+                code: "io_error",
+                message: NoteRPCMessage.readFailed,
+                data: [
+                    "slug": slug,
+                    "project_root": projectRoot
+                ]
+            )
+        }
+        return result
+    }
+
+    nonisolated func v2NoteWrite(params: [String: Any]) -> V2CallResult {
+        v2NoteWriteContent(params: params, append: false)
+    }
+
+    nonisolated func v2NoteAppend(params: [String: Any]) -> V2CallResult {
+        v2NoteWriteContent(params: params, append: true)
+    }
+
+    private nonisolated func v2NoteWriteContent(params: [String: Any], append: Bool) -> V2CallResult {
+        guard params.keys.contains("slug") else {
+            return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
+        }
+        guard let rawSlug = NoteRPCParam.string(params, "slug"), !rawSlug.isEmpty else {
+            return .err(code: "invalid_params", message: NoteRPCMessage.emptySlug, data: nil)
+        }
+        let slug: String
+        do {
+            slug = try NoteSupport.validateSlug(rawSlug)
+        } catch {
+            return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
+        }
+        let hasContent = params.keys.contains("content")
+        let hasText = params.keys.contains("text")
+        guard hasContent || hasText,
+              let content = NoteRPCParam.rawString(params, hasContent ? "content" : "text") else {
+            return .err(code: "invalid_params", message: NoteRPCMessage.missingContent, data: nil)
+        }
+        let createIfMissing: Bool
+        if params.keys.contains("create") {
+            guard let parsed = NoteRPCParam.bool(params, "create") else {
+                return .err(code: "invalid_params", message: NoteRPCMessage.invalidBoolean("create"), data: nil)
+            }
+            createIfMissing = parsed
+        } else {
+            createIfMissing = true
+        }
+
+        let failureMessage = append ? NoteRPCMessage.appendFailed : NoteRPCMessage.writeFailed
+        var result: V2CallResult = .err(code: "internal_error", message: failureMessage, data: nil)
+        var currentDirectory: String?
+        v2MainSync {
+            v2RefreshKnownRefs()
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                result = .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
+                return
+            }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
+                return
+            }
+            guard !ws.isRemoteWorkspace else {
+                result = .err(code: "unavailable", message: NoteRPCMessage.remoteUnavailable, data: nil)
+                return
+            }
+            currentDirectory = ws.currentDirectory
+        }
+        guard let currentDirectory else {
+            return result
+        }
+        let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
+        do {
+            let written: CmuxNoteWriteResult
+            if append {
+                written = try CmuxNoteStore.append(
+                    slug: slug,
+                    title: NoteRPCParam.string(params, "title"),
+                    content: content,
+                    projectRoot: projectRoot,
+                    createIfMissing: createIfMissing
+                )
+            } else {
+                written = try CmuxNoteStore.write(
+                    slug: slug,
+                    title: NoteRPCParam.string(params, "title"),
+                    content: content,
+                    projectRoot: projectRoot,
+                    createIfMissing: createIfMissing
+                )
+            }
+            var payload = noteRecordPayload(note: written.note, path: written.path)
+            payload.merge(noteFilePayload(path: written.path)) { _, new in new }
+            payload["bytes"] = Int64(Data(content.utf8).count)
+            payload["size_bytes"] = written.sizeBytes
+            payload["operation"] = append ? "append" : "write"
+            payload["project_root"] = projectRoot
+            result = .ok(payload)
+        } catch {
+            terminalNoteLogger.error(
+                "Failed to \(append ? "append" : "write") note slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+            )
+            if let storeError = error as? CmuxNoteStoreError,
+               case .noteNotFound = storeError {
+                return .err(
+                    code: "not_found",
+                    message: NoteRPCMessage.noteNotFound,
+                    data: ["slug": slug, "project_root": projectRoot]
+                )
+            }
+            return .err(
+                code: "io_error",
+                message: failureMessage,
+                data: [
+                    "slug": slug,
+                    "project_root": projectRoot
+                ]
+            )
+        }
         return result
     }
 
@@ -456,7 +751,7 @@ extension TerminalController {
         }
         let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
         do {
-            let deleted = try NoteSupport.deleteNote(slug: slug, projectRoot: projectRoot)
+            let deleted = try CmuxNoteStore.delete(slug: slug, projectRoot: projectRoot)
             result = .ok([
                 "slug": slug,
                 "deleted": deleted,

@@ -2172,4 +2172,103 @@ final class NoteSupportTests: XCTestCase {
 
         XCTAssertFalse(try NoteSupport.deleteNote(slug: "todo", projectRoot: root.path))
     }
+
+    func testIndexedNoteCreateAttachesAndReusesCurrentSurfaceNote() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let target = CmuxNoteAttachmentTarget.surface(
+            workspaceAnchorId: "workspace-anchor",
+            surfaceAnchorId: "surface-anchor",
+            surfaceKind: PanelType.terminal.rawValue
+        )
+        let created = try CmuxNoteStore.createOrOpen(
+            slug: nil,
+            title: "Build Notes",
+            projectRoot: root.path,
+            createIfMissing: true,
+            attachment: target,
+            preferAttachedExisting: true
+        )
+
+        XCTAssertTrue(created.created)
+        XCTAssertTrue(created.attached)
+        XCTAssertEqual(created.note.title, "Build Notes")
+        XCTAssertEqual(created.note.attachments.count, 1)
+        XCTAssertEqual(created.note.attachments.first?.workspaceAnchorId, "workspace-anchor")
+        XCTAssertEqual(created.note.attachments.first?.surfaceAnchorId, "surface-anchor")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: created.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: CmuxNoteStore.indexPath(forProjectRoot: root.path)))
+
+        let reopened = try CmuxNoteStore.createOrOpen(
+            slug: nil,
+            projectRoot: root.path,
+            createIfMissing: true,
+            attachment: target,
+            preferAttachedExisting: true
+        )
+
+        XCTAssertFalse(reopened.created)
+        XCTAssertFalse(reopened.attached)
+        XCTAssertEqual(reopened.note.id, created.note.id)
+        XCTAssertEqual(reopened.path, created.path)
+    }
+
+    func testIndexedNoteStoreKeepsLegacySlugFilesAddressable() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let legacyPath = try NoteSupport.ensureNoteFile(slug: "todo", projectRoot: root.path)
+        try "# Todo\n".write(toFile: legacyPath, atomically: true, encoding: .utf8)
+
+        let opened = try CmuxNoteStore.createOrOpen(
+            slug: "todo",
+            projectRoot: root.path,
+            createIfMissing: false
+        )
+
+        XCTAssertFalse(opened.created)
+        XCTAssertEqual(opened.note.id, "legacy-todo")
+        XCTAssertEqual(opened.note.bodyPath, "notes/todo.md")
+        XCTAssertEqual(opened.path, legacyPath)
+        XCTAssertEqual(try CmuxNoteStore.path(slug: "todo", projectRoot: root.path).path, legacyPath)
+    }
+
+    func testIndexedNoteStoreReadsWritesAndAppendsContent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let written = try CmuxNoteStore.write(
+            slug: "agent-notes",
+            title: "Agent Notes",
+            content: "alpha",
+            projectRoot: root.path
+        )
+        XCTAssertEqual(written.note.slug, "agent-notes")
+        XCTAssertEqual(written.note.title, "Agent Notes")
+        XCTAssertEqual(try CmuxNoteStore.read(slug: "agent-notes", projectRoot: root.path).content, "alpha")
+
+        let appended = try CmuxNoteStore.append(
+            slug: "agent-notes",
+            content: "\nbeta",
+            projectRoot: root.path
+        )
+        XCTAssertEqual(appended.note.id, written.note.id)
+        XCTAssertEqual(try CmuxNoteStore.read(slug: "agent-notes", projectRoot: root.path).content, "alpha\nbeta")
+
+        XCTAssertThrowsError(
+            try CmuxNoteStore.write(
+                slug: "missing",
+                content: "nope",
+                projectRoot: root.path,
+                createIfMissing: false
+            )
+        )
+    }
 }

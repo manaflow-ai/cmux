@@ -59,9 +59,6 @@ final class SessionPersistenceTests: XCTestCase {
         try FileManager.default.createDirectory(at: newRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let oldNotePath = NoteSupport.notePath(forSlug: "todo", projectRoot: oldRoot.path)
-        let expectedRestoredPath = NoteSupport.notePath(forSlug: "todo", projectRoot: newRoot.path)
-
         let workspace = Workspace()
         workspace.currentDirectory = oldRoot.path
         let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -71,11 +68,20 @@ final class SessionPersistenceTests: XCTestCase {
             focus: true
         )
         let notePanel = try XCTUnwrap(createdPanel)
+        let noteBodyPath = try XCTUnwrap(notePanel.noteBodyPath)
+        let oldNotePath = CmuxNoteStore.absoluteBodyPath(bodyPath: noteBodyPath, projectRoot: oldRoot.path)
+        let expectedRestoredPath = CmuxNoteStore.absoluteBodyPath(bodyPath: noteBodyPath, projectRoot: newRoot.path)
         XCTAssertEqual(notePanel.filePath, oldNotePath)
+        let originalWorkspaceAnchorId = workspace.noteAnchorId
+        let originalPanelAnchorId = workspace.noteAnchorId(forPanelId: notePanel.id)
 
         workspace.currentDirectory = newRoot.path
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
-        XCTAssertEqual(snapshot.panels.compactMap(\.markdown).first?.noteSlug, "todo")
+        let markdownSnapshot = try XCTUnwrap(snapshot.panels.compactMap(\.markdown).first)
+        XCTAssertEqual(markdownSnapshot.noteSlug, "todo")
+        XCTAssertEqual(markdownSnapshot.noteBodyPath, noteBodyPath)
+        XCTAssertEqual(snapshot.noteAnchorId, originalWorkspaceAnchorId)
+        XCTAssertEqual(snapshot.panels.first { $0.id == notePanel.id }?.noteAnchorId, originalPanelAnchorId)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
@@ -83,6 +89,8 @@ final class SessionPersistenceTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredPanel = try XCTUnwrap(restored.markdownPanel(for: restoredPanelId))
         XCTAssertEqual(restoredPanel.filePath, expectedRestoredPath)
+        XCTAssertEqual(restored.noteAnchorId, originalWorkspaceAnchorId)
+        XCTAssertEqual(restored.noteAnchorIdsByPanelId[restoredPanelId], originalPanelAnchorId)
     }
 
     @MainActor
