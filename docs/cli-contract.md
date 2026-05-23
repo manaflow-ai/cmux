@@ -82,7 +82,8 @@ Environment:
 | `capabilities` | Print server capabilities as JSON. |
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `auth` | Manage auth status, login, and logout through the app. |
-| `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
+| `cloud` | Manage cloud VMs through the Rust-backed cloud CLI. |
+| `vm` | Compatibility command for cloud VM operations. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
 | `identify` | Print server identity and caller context. |
 | `list-windows` | List windows. |
@@ -176,10 +177,18 @@ Auth subcommands:
 | `auth login` | Begin sign-in through the app and wait for completion. |
 | `auth logout` | Clear the current session. |
 
-VM subcommands:
+Cloud VM subcommands:
 
 | Command | Contract |
 | --- | --- |
+| `cloud ls`, `cloud list` | List VMs. |
+| `cloud new`, `cloud create` | Create a VM. Supports `--image`, `--provider`, `--detach`, and `-d`. |
+| `cloud shell`, `cloud attach` | Open an interactive shell for an existing VM. |
+| `cloud rm`, `cloud destroy`, `cloud delete` | Destroy a VM. |
+| `cloud ssh` | Open a cmux-managed SSH workspace for an existing VM. |
+| `cloud ssh-info` | Print SSH connection info. |
+| `cloud ssh-attach` | Internal attach helper. |
+| `cloud exec` | Run a shell command inside a VM. |
 | `vm ls`, `vm list` | List VMs. |
 | `vm new`, `vm create` | Create a VM. Supports `--image`, `--provider`, `--detach`, and `-d`. |
 | `vm shell`, `vm attach` | Open an interactive shell for an existing VM. |
