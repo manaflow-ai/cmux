@@ -1000,7 +1000,11 @@ private final class OmnibarInlineDeletionHarness {
 
     private func deleteWordBeforeInlineCompletion() {
         guard let inlineCompletion else { return }
-        let updated = omnibarPrefixAfterDeletingTrailingWord(from: inlineCompletion.typedText)
+        let typedRange = NSRange(location: inlineCompletion.typedText.utf16.count, length: 0)
+        let updated = omnibarTextAfterDeletingURLWordBackward(
+            text: inlineCompletion.typedText,
+            selectedRange: typedRange
+        )?.text ?? omnibarPrefixAfterDeletingTrailingWord(from: inlineCompletion.typedText)
         replaceTypedPrefixAndDismissSuggestions(with: updated)
     }
 

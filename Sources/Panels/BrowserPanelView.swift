@@ -2178,7 +2178,11 @@ struct BrowserPanelView: View {
 
     private func handleInlineDeleteWordBackward() {
         guard let completion = inlineCompletion else { return }
-        let updated = omnibarPrefixAfterDeletingTrailingWord(from: completion.typedText)
+        let typedRange = NSRange(location: completion.typedText.utf16.count, length: 0)
+        let updated = omnibarTextAfterDeletingURLWordBackward(
+            text: completion.typedText,
+            selectedRange: typedRange
+        )?.text ?? omnibarPrefixAfterDeletingTrailingWord(from: completion.typedText)
         // Modified Backspace dismisses the current inline suggestion instead of
         // refetching suggestions for the shorter prefix.
         _ = omnibarReduce(state: &omnibarState, event: .bufferChanged(updated))
@@ -3149,11 +3153,16 @@ struct OmnibarURLWordDeletion: Equatable {
 
 private let omnibarURLWordBoundaryCharacterSet = CharacterSet.whitespacesAndNewlines
     .union(CharacterSet(charactersIn: ".:/?#&=@"))
+private let omnibarURLStructuralBoundaryCharacterSet = CharacterSet(charactersIn: ".:/?#&=@")
 
 func omnibarTextAfterDeletingURLWordBackward(
     text: String,
     selectedRange: NSRange
 ) -> OmnibarURLWordDeletion? {
+    guard text.rangeOfCharacter(from: omnibarURLStructuralBoundaryCharacterSet) != nil else {
+        return nil
+    }
+
     let nsText = text as NSString
     let textLength = nsText.length
     guard selectedRange.location != NSNotFound,
