@@ -352,6 +352,80 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testRIMENoInlineCompositionSurvivesSyntheticReparentFocus() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            surfaceView.suppressingReparentFocus = false
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "im.rime.inputmethod.Squirrel"
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, events in
+            guard candidateView === surfaceView,
+                  let event = events.first else {
+                return false
+            }
+            switch Int(event.keyCode) {
+            case kVK_ANSI_N, kVK_DownArrow:
+                return true
+            default:
+                return false
+            }
+        }
+
+        var forwardedPresses: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedPresses.append(keyEvent.keycode)
+        }
+
+        let composeEvent = try keyEvent(
+            text: "n",
+            keyCode: UInt16(kVK_ANSI_N),
+            windowNumber: window.windowNumber
+        )
+        let candidateDownEvent = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            window.sendEvent(composeEvent)
+            XCTAssertEqual(
+                forwardedPresses,
+                [],
+                "The no-inline RIME compose key should start IME-owned candidate state"
+            )
+
+            surfaceView.suppressingReparentFocus = true
+            XCTAssertTrue(surfaceView.becomeFirstResponder())
+            surfaceView.suppressingReparentFocus = false
+
+            window.sendEvent(candidateDownEvent)
+        }
+
+        XCTAssertEqual(
+            forwardedPresses,
+            [],
+            "Synthetic reparent focus must not drop active RIME candidate state before arrow navigation"
+        )
+    }
+
     func testKeyDownForKoreanPostCompositionHorizontalArrowsForwardsToTerminal() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let terminalSurface = hostedTerminal.surface

@@ -7913,14 +7913,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.becomeFirstResponder()
         var shouldApplySurfaceFocus = false
         if result {
-            imeConsumedKeyUps.removeAll()
-            nonInlineIMECompositionActive = false
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
                    panelId: terminalSurface.id,
                    in: window
                ) == false {
+                imeConsumedKeyUps.removeAll()
+                nonInlineIMECompositionActive = false
                 desiredFocus = false
                 terminalSurface.recordExternalFocusState(false)
 #if DEBUG
@@ -7942,6 +7942,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
                 return result
             }
+
+            imeConsumedKeyUps.removeAll()
+            nonInlineIMECompositionActive = false
 
             // Always notify the host app that this pane became the first responder so bonsplit
             // focus/selection can converge. Previously this was gated on `surface != nil`, which
