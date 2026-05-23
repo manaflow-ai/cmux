@@ -19,7 +19,7 @@ extension SessionAgent {
         switch self {
         case .claude: return "AgentIcons/Claude"
         case .codex: return "AgentIcons/Codex"
-        case .grok: return nil
+        case .grok: return "AgentIcons/Grok"
         case .opencode: return "AgentIcons/OpenCode"
         case .rovodev: return "AgentIcons/RovoDev"
         case .registered(let agent):

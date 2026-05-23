@@ -512,8 +512,12 @@ struct GhosttyConfig {
         }
     }
 
-    static func currentColorSchemePreference(appAppearance: NSAppearance? = nil, defaults: UserDefaults = .standard, systemAppearance: AppearanceSettings.SystemAppearance? = nil) -> ColorSchemePreference {
-        AppearanceSettings.colorSchemePreference(appAppearance: appAppearance, defaults: defaults, systemAppearance: systemAppearance)
+    static func currentColorSchemePreference(
+        appAppearance _: NSAppearance? = nil,
+        defaults: UserDefaults = .standard,
+        systemAppearance: AppearanceSettings.SystemAppearance? = nil
+    ) -> ColorSchemePreference {
+        return AppearanceSettings.terminalColorSchemePreference(defaults: defaults, systemAppearance: systemAppearance)
     }
 
     static func resolveThemeName(
@@ -577,6 +581,39 @@ struct GhosttyConfig {
             return lightTheme
         }
         return rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func themeValueUsesSameResolvedThemeInBothColorSchemes(_ rawThemeValue: String) -> Bool {
+        let lightTheme = resolveThemeName(from: rawThemeValue, preferredColorScheme: .light)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let darkTheme = resolveThemeName(from: rawThemeValue, preferredColorScheme: .dark)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lightTheme.isEmpty, !darkTheme.isEmpty else { return false }
+        return lightTheme.caseInsensitiveCompare(darkTheme) == .orderedSame
+    }
+
+    static func lastThemeDirective(in contents: String) -> String? {
+        var lastValue: String?
+
+        for line in contents.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") {
+                continue
+            }
+
+            let parts = trimmed.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { continue }
+            guard parts[0].trimmingCharacters(in: .whitespacesAndNewlines) == "theme" else { continue }
+
+            let value = parts[1]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            if !value.isEmpty {
+                lastValue = value
+            }
+        }
+
+        return lastValue
     }
 
     static func themeNameCandidates(from rawName: String) -> [String] {

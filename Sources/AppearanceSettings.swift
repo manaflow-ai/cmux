@@ -100,15 +100,23 @@ enum AppearanceSettings {
         return resolved
     }
 
+    /// Returns the Ghostty terminal color-scheme preference.
+    /// - Note: `colorSchemePreference` keeps the `appAppearance` parameter for API compatibility
+    ///   and intentionally ignores it.
     static func colorSchemePreference(
-        appAppearance: NSAppearance? = nil,
+        appAppearance _: NSAppearance? = nil,
         defaults: UserDefaults = .standard,
         systemAppearance: SystemAppearance? = nil
     ) -> GhosttyConfig.ColorSchemePreference {
-        if let appAppearance {
-            return appAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
-        }
+        terminalColorSchemePreference(defaults: defaults, systemAppearance: systemAppearance)
+    }
 
+    // Ghostty split-theme resolution follows cmux's persisted appearance mode.
+    // AppKit view/window appearances can lag during live mode changes.
+    static func terminalColorSchemePreference(
+        defaults: UserDefaults = .standard,
+        systemAppearance: SystemAppearance? = nil
+    ) -> GhosttyConfig.ColorSchemePreference {
         let mode = mode(for: defaults.string(forKey: appearanceModeKey))
         if mode == .light { return .light }
         if mode == .dark { return .dark }
@@ -220,6 +228,88 @@ enum AppearanceSettings {
         liveEnvironmentProvider = {
             AppearanceSettings.defaultLiveEnvironment()
         }
+    }
+}
+
+final class AppearanceSettingsUserDefaultsObserver {
+    struct Environment {
+        let addDefaultsObserver: (@escaping () -> Void) -> NSObjectProtocol
+        let removeObserver: (NSObjectProtocol) -> Void
+        let currentRawValue: () -> String?
+        let applyStoredMode: (String?, String) -> AppearanceMode
+
+        static func live(
+            defaults: UserDefaults = .standard,
+            notificationCenter: NotificationCenter = .default
+        ) -> Environment {
+            Environment(
+                addDefaultsObserver: { handler in
+                    notificationCenter.addObserver(
+                        forName: UserDefaults.didChangeNotification,
+                        object: nil,
+                        queue: .main
+                    ) { _ in
+                        handler()
+                    }
+                },
+                removeObserver: { observer in
+                    notificationCenter.removeObserver(observer)
+                },
+                currentRawValue: {
+                    defaults.string(forKey: AppearanceSettings.appearanceModeKey)
+                },
+                applyStoredMode: { rawValue, source in
+                    AppearanceSettings.applyStoredMode(
+                        rawValue: rawValue,
+                        defaults: defaults,
+                        source: source
+                    )
+                }
+            )
+        }
+    }
+
+    static let shared = AppearanceSettingsUserDefaultsObserver()
+
+    private let environment: Environment
+    private var defaultsObserver: NSObjectProtocol?
+    private var lastObservedRawValue: String?
+    private var source: String
+
+    init(
+        environment: Environment = .live(),
+        source: String = "cmuxApp.appearanceDefaultsChanged"
+    ) {
+        self.environment = environment
+        self.source = source
+    }
+
+    deinit {
+        stopObserving()
+    }
+
+    func startObserving(source: String? = nil) {
+        if let source {
+            self.source = source
+        }
+        lastObservedRawValue = environment.currentRawValue()
+        guard defaultsObserver == nil else { return }
+        defaultsObserver = environment.addDefaultsObserver { [weak self] in
+            self?.applyIfChanged()
+        }
+    }
+
+    func stopObserving() {
+        guard let defaultsObserver else { return }
+        environment.removeObserver(defaultsObserver)
+        self.defaultsObserver = nil
+    }
+
+    private func applyIfChanged() {
+        let rawValue = environment.currentRawValue()
+        guard rawValue != lastObservedRawValue else { return }
+        let appliedMode = environment.applyStoredMode(rawValue, source)
+        lastObservedRawValue = appliedMode.rawValue
     }
 }
 

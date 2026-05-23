@@ -1,0 +1,474 @@
+$(SRCROOT)/Resources/ghostty/terminfo/78/xterm-ghostty
+$(SRCROOT)/Resources/ghostty/themes/0x96f
+$(SRCROOT)/Resources/ghostty/themes/12-bit Rainbow
+$(SRCROOT)/Resources/ghostty/themes/3024 Day
+$(SRCROOT)/Resources/ghostty/themes/3024 Night
+$(SRCROOT)/Resources/ghostty/themes/Aardvark Blue
+$(SRCROOT)/Resources/ghostty/themes/Abernathy
+$(SRCROOT)/Resources/ghostty/themes/Adventure
+$(SRCROOT)/Resources/ghostty/themes/Adventure Time
+$(SRCROOT)/Resources/ghostty/themes/Adwaita
+$(SRCROOT)/Resources/ghostty/themes/Adwaita Dark
+$(SRCROOT)/Resources/ghostty/themes/Afterglow
+$(SRCROOT)/Resources/ghostty/themes/Aizen Dark
+$(SRCROOT)/Resources/ghostty/themes/Aizen Light
+$(SRCROOT)/Resources/ghostty/themes/Alabaster
+$(SRCROOT)/Resources/ghostty/themes/Alien Blood
+$(SRCROOT)/Resources/ghostty/themes/Andromeda
+$(SRCROOT)/Resources/ghostty/themes/Apple Classic
+$(SRCROOT)/Resources/ghostty/themes/Apple System Colors
+$(SRCROOT)/Resources/ghostty/themes/Apple System Colors Light
+$(SRCROOT)/Resources/ghostty/themes/Arcoiris
+$(SRCROOT)/Resources/ghostty/themes/Ardoise
+$(SRCROOT)/Resources/ghostty/themes/Argonaut
+$(SRCROOT)/Resources/ghostty/themes/Arthur
+$(SRCROOT)/Resources/ghostty/themes/Atelier Sulphurpool
+$(SRCROOT)/Resources/ghostty/themes/Atom
+$(SRCROOT)/Resources/ghostty/themes/Atom One Dark
+$(SRCROOT)/Resources/ghostty/themes/Atom One Light
+$(SRCROOT)/Resources/ghostty/themes/Aura
+$(SRCROOT)/Resources/ghostty/themes/Aurora
+$(SRCROOT)/Resources/ghostty/themes/Ayu
+$(SRCROOT)/Resources/ghostty/themes/Ayu Light
+$(SRCROOT)/Resources/ghostty/themes/Ayu Mirage
+$(SRCROOT)/Resources/ghostty/themes/Banana Blueberry
+$(SRCROOT)/Resources/ghostty/themes/Batman
+$(SRCROOT)/Resources/ghostty/themes/Belafonte Day
+$(SRCROOT)/Resources/ghostty/themes/Belafonte Night
+$(SRCROOT)/Resources/ghostty/themes/Birds Of Paradise
+$(SRCROOT)/Resources/ghostty/themes/Black Metal
+$(SRCROOT)/Resources/ghostty/themes/Black Metal (Bathory)
+$(SRCROOT)/Resources/ghostty/themes/Black Metal (Burzum)
+$(SRCROOT)/Resources/ghostty/themes/Black Metal (Dark Funeral)
+$(SRCROOT)/Resources/ghostty/themes/Black Metal (Gorgoroth)
+$(SRCROOT)/Resources/ghostty/themes/Black Metal (Immortal)
+$(SRCROOT)/Resources/ghostty/themes/Black Metal (Khold)
+$(SRCROOT)/Resources/ghostty/themes/Black Metal (Marduk)
+$(SRCROOT)/Resources/ghostty/themes/Black Metal (Mayhem)
+$(SRCROOT)/Resources/ghostty/themes/Black Metal (Nile)
+$(SRCROOT)/Resources/ghostty/themes/Black Metal (Venom)
+$(SRCROOT)/Resources/ghostty/themes/Blazer
+$(SRCROOT)/Resources/ghostty/themes/Blue Berry Pie
+$(SRCROOT)/Resources/ghostty/themes/Blue Dolphin
+$(SRCROOT)/Resources/ghostty/themes/Blue Matrix
+$(SRCROOT)/Resources/ghostty/themes/Bluloco Dark
+$(SRCROOT)/Resources/ghostty/themes/Bluloco Light
+$(SRCROOT)/Resources/ghostty/themes/Borland
+$(SRCROOT)/Resources/ghostty/themes/Box
+$(SRCROOT)/Resources/ghostty/themes/Breadog
+$(SRCROOT)/Resources/ghostty/themes/Breeze
+$(SRCROOT)/Resources/ghostty/themes/Bright Lights
+$(SRCROOT)/Resources/ghostty/themes/Broadcast
+$(SRCROOT)/Resources/ghostty/themes/Brogrammer
+$(SRCROOT)/Resources/ghostty/themes/Builtin Dark
+$(SRCROOT)/Resources/ghostty/themes/Builtin Light
+$(SRCROOT)/Resources/ghostty/themes/Builtin Pastel Dark
+$(SRCROOT)/Resources/ghostty/themes/Builtin Tango Dark
+$(SRCROOT)/Resources/ghostty/themes/Builtin Tango Light
+$(SRCROOT)/Resources/ghostty/themes/C64
+$(SRCROOT)/Resources/ghostty/themes/CGA
+$(SRCROOT)/Resources/ghostty/themes/CLRS
+$(SRCROOT)/Resources/ghostty/themes/Calamity
+$(SRCROOT)/Resources/ghostty/themes/Carbonfox
+$(SRCROOT)/Resources/ghostty/themes/Catppuccin Frappe
+$(SRCROOT)/Resources/ghostty/themes/Catppuccin Latte
+$(SRCROOT)/Resources/ghostty/themes/Catppuccin Macchiato
+$(SRCROOT)/Resources/ghostty/themes/Catppuccin Mocha
+$(SRCROOT)/Resources/ghostty/themes/Chalk
+$(SRCROOT)/Resources/ghostty/themes/Chalkboard
+$(SRCROOT)/Resources/ghostty/themes/Challenger Deep
+$(SRCROOT)/Resources/ghostty/themes/Chester
+$(SRCROOT)/Resources/ghostty/themes/Ciapre
+$(SRCROOT)/Resources/ghostty/themes/Citruszest
+$(SRCROOT)/Resources/ghostty/themes/Cobalt Neon
+$(SRCROOT)/Resources/ghostty/themes/Cobalt Next
+$(SRCROOT)/Resources/ghostty/themes/Cobalt Next Dark
+$(SRCROOT)/Resources/ghostty/themes/Cobalt Next Minimal
+$(SRCROOT)/Resources/ghostty/themes/Cobalt2
+$(SRCROOT)/Resources/ghostty/themes/Coffee Theme
+$(SRCROOT)/Resources/ghostty/themes/Crayon Pony Fish
+$(SRCROOT)/Resources/ghostty/themes/Cursor Dark
+$(SRCROOT)/Resources/ghostty/themes/Cutie Pro
+$(SRCROOT)/Resources/ghostty/themes/Cyberdyne
+$(SRCROOT)/Resources/ghostty/themes/Cyberpunk
+$(SRCROOT)/Resources/ghostty/themes/Cyberpunk Scarlet Protocol
+$(SRCROOT)/Resources/ghostty/themes/Dark Modern
+$(SRCROOT)/Resources/ghostty/themes/Dark Pastel
+$(SRCROOT)/Resources/ghostty/themes/Dark+
+$(SRCROOT)/Resources/ghostty/themes/Darkermatrix
+$(SRCROOT)/Resources/ghostty/themes/Darkmatrix
+$(SRCROOT)/Resources/ghostty/themes/Darkside
+$(SRCROOT)/Resources/ghostty/themes/Dawnfox
+$(SRCROOT)/Resources/ghostty/themes/Dayfox
+$(SRCROOT)/Resources/ghostty/themes/Deep
+$(SRCROOT)/Resources/ghostty/themes/Desert
+$(SRCROOT)/Resources/ghostty/themes/Detuned
+$(SRCROOT)/Resources/ghostty/themes/Dimidium
+$(SRCROOT)/Resources/ghostty/themes/Dimmed Monokai
+$(SRCROOT)/Resources/ghostty/themes/Django
+$(SRCROOT)/Resources/ghostty/themes/Django Reborn Again
+$(SRCROOT)/Resources/ghostty/themes/Django Smooth
+$(SRCROOT)/Resources/ghostty/themes/Doom One
+$(SRCROOT)/Resources/ghostty/themes/Doom Peacock
+$(SRCROOT)/Resources/ghostty/themes/Dot Gov
+$(SRCROOT)/Resources/ghostty/themes/Dracula
+$(SRCROOT)/Resources/ghostty/themes/Dracula+
+$(SRCROOT)/Resources/ghostty/themes/Duckbones
+$(SRCROOT)/Resources/ghostty/themes/Duotone Dark
+$(SRCROOT)/Resources/ghostty/themes/Duskfox
+$(SRCROOT)/Resources/ghostty/themes/ENCOM
+$(SRCROOT)/Resources/ghostty/themes/Earthsong
+$(SRCROOT)/Resources/ghostty/themes/Electron Highlighter
+$(SRCROOT)/Resources/ghostty/themes/Elegant
+$(SRCROOT)/Resources/ghostty/themes/Elemental
+$(SRCROOT)/Resources/ghostty/themes/Elementary
+$(SRCROOT)/Resources/ghostty/themes/Embark
+$(SRCROOT)/Resources/ghostty/themes/Embers Dark
+$(SRCROOT)/Resources/ghostty/themes/Espresso
+$(SRCROOT)/Resources/ghostty/themes/Espresso Libre
+$(SRCROOT)/Resources/ghostty/themes/Everblush
+$(SRCROOT)/Resources/ghostty/themes/Everforest Dark Hard
+$(SRCROOT)/Resources/ghostty/themes/Everforest Light Med
+$(SRCROOT)/Resources/ghostty/themes/Fahrenheit
+$(SRCROOT)/Resources/ghostty/themes/Fairyfloss
+$(SRCROOT)/Resources/ghostty/themes/Farmhouse Dark
+$(SRCROOT)/Resources/ghostty/themes/Farmhouse Light
+$(SRCROOT)/Resources/ghostty/themes/Fideloper
+$(SRCROOT)/Resources/ghostty/themes/Firefly Traditional
+$(SRCROOT)/Resources/ghostty/themes/Firefox Dev
+$(SRCROOT)/Resources/ghostty/themes/Firewatch
+$(SRCROOT)/Resources/ghostty/themes/Fish Tank
+$(SRCROOT)/Resources/ghostty/themes/Flat
+$(SRCROOT)/Resources/ghostty/themes/Flatland
+$(SRCROOT)/Resources/ghostty/themes/Flexoki Dark
+$(SRCROOT)/Resources/ghostty/themes/Flexoki Light
+$(SRCROOT)/Resources/ghostty/themes/Floraverse
+$(SRCROOT)/Resources/ghostty/themes/Forest Blue
+$(SRCROOT)/Resources/ghostty/themes/Framer
+$(SRCROOT)/Resources/ghostty/themes/Front End Delight
+$(SRCROOT)/Resources/ghostty/themes/Fun Forrest
+$(SRCROOT)/Resources/ghostty/themes/Galaxy
+$(SRCROOT)/Resources/ghostty/themes/Galizur
+$(SRCROOT)/Resources/ghostty/themes/Ghostty Default Style Dark
+$(SRCROOT)/Resources/ghostty/themes/GitHub
+$(SRCROOT)/Resources/ghostty/themes/GitHub Dark
+$(SRCROOT)/Resources/ghostty/themes/GitHub Dark Colorblind
+$(SRCROOT)/Resources/ghostty/themes/GitHub Dark Default
+$(SRCROOT)/Resources/ghostty/themes/GitHub Dark Dimmed
+$(SRCROOT)/Resources/ghostty/themes/GitHub Dark High Contrast
+$(SRCROOT)/Resources/ghostty/themes/GitHub Light Colorblind
+$(SRCROOT)/Resources/ghostty/themes/GitHub Light Default
+$(SRCROOT)/Resources/ghostty/themes/GitHub Light High Contrast
+$(SRCROOT)/Resources/ghostty/themes/GitLab Dark
+$(SRCROOT)/Resources/ghostty/themes/GitLab Dark Grey
+$(SRCROOT)/Resources/ghostty/themes/GitLab Light
+$(SRCROOT)/Resources/ghostty/themes/Glacier
+$(SRCROOT)/Resources/ghostty/themes/Grape
+$(SRCROOT)/Resources/ghostty/themes/Grass
+$(SRCROOT)/Resources/ghostty/themes/Grey Green
+$(SRCROOT)/Resources/ghostty/themes/Gruber Darker
+$(SRCROOT)/Resources/ghostty/themes/Gruvbox Dark
+$(SRCROOT)/Resources/ghostty/themes/Gruvbox Dark Hard
+$(SRCROOT)/Resources/ghostty/themes/Gruvbox Light
+$(SRCROOT)/Resources/ghostty/themes/Gruvbox Light Hard
+$(SRCROOT)/Resources/ghostty/themes/Gruvbox Material
+$(SRCROOT)/Resources/ghostty/themes/Gruvbox Material Dark
+$(SRCROOT)/Resources/ghostty/themes/Gruvbox Material Light
+$(SRCROOT)/Resources/ghostty/themes/Guezwhoz
+$(SRCROOT)/Resources/ghostty/themes/HaX0R Blue
+$(SRCROOT)/Resources/ghostty/themes/HaX0R Gr33N
+$(SRCROOT)/Resources/ghostty/themes/HaX0R R3D
+$(SRCROOT)/Resources/ghostty/themes/Hacktober
+$(SRCROOT)/Resources/ghostty/themes/Hardcore
+$(SRCROOT)/Resources/ghostty/themes/Harper
+$(SRCROOT)/Resources/ghostty/themes/Havn Daggry
+$(SRCROOT)/Resources/ghostty/themes/Havn Skumring
+$(SRCROOT)/Resources/ghostty/themes/Heeler
+$(SRCROOT)/Resources/ghostty/themes/Highway
+$(SRCROOT)/Resources/ghostty/themes/Hipster Green
+$(SRCROOT)/Resources/ghostty/themes/Hivacruz
+$(SRCROOT)/Resources/ghostty/themes/Homebrew
+$(SRCROOT)/Resources/ghostty/themes/Hopscotch
+$(SRCROOT)/Resources/ghostty/themes/Hopscotch.256
+$(SRCROOT)/Resources/ghostty/themes/Horizon
+$(SRCROOT)/Resources/ghostty/themes/Horizon Bright
+$(SRCROOT)/Resources/ghostty/themes/Hot Dog Stand
+$(SRCROOT)/Resources/ghostty/themes/Hot Dog Stand (Mustard)
+$(SRCROOT)/Resources/ghostty/themes/Hurtado
+$(SRCROOT)/Resources/ghostty/themes/Hybrid
+$(SRCROOT)/Resources/ghostty/themes/IBM 5153 CGA
+$(SRCROOT)/Resources/ghostty/themes/IBM 5153 CGA (Black)
+$(SRCROOT)/Resources/ghostty/themes/IC Green PPL
+$(SRCROOT)/Resources/ghostty/themes/IC Orange PPL
+$(SRCROOT)/Resources/ghostty/themes/IR Black
+$(SRCROOT)/Resources/ghostty/themes/IRIX Console
+$(SRCROOT)/Resources/ghostty/themes/IRIX Terminal
+$(SRCROOT)/Resources/ghostty/themes/Iceberg Dark
+$(SRCROOT)/Resources/ghostty/themes/Iceberg Light
+$(SRCROOT)/Resources/ghostty/themes/Idea
+$(SRCROOT)/Resources/ghostty/themes/Idle Toes
+$(SRCROOT)/Resources/ghostty/themes/Jackie Brown
+$(SRCROOT)/Resources/ghostty/themes/Japanesque
+$(SRCROOT)/Resources/ghostty/themes/Jellybeans
+$(SRCROOT)/Resources/ghostty/themes/JetBrains Darcula
+$(SRCROOT)/Resources/ghostty/themes/Jubi
+$(SRCROOT)/Resources/ghostty/themes/Kanagawa Dragon
+$(SRCROOT)/Resources/ghostty/themes/Kanagawa Lotus
+$(SRCROOT)/Resources/ghostty/themes/Kanagawa Wave
+$(SRCROOT)/Resources/ghostty/themes/Kanagawabones
+$(SRCROOT)/Resources/ghostty/themes/Kanso Ink
+$(SRCROOT)/Resources/ghostty/themes/Kanso Mist
+$(SRCROOT)/Resources/ghostty/themes/Kanso Pearl
+$(SRCROOT)/Resources/ghostty/themes/Kanso Zen
+$(SRCROOT)/Resources/ghostty/themes/Kibble
+$(SRCROOT)/Resources/ghostty/themes/Kitty Default
+$(SRCROOT)/Resources/ghostty/themes/Kitty Low Contrast
+$(SRCROOT)/Resources/ghostty/themes/Kolorit
+$(SRCROOT)/Resources/ghostty/themes/Konsolas
+$(SRCROOT)/Resources/ghostty/themes/Kurokula
+$(SRCROOT)/Resources/ghostty/themes/Lab Fox
+$(SRCROOT)/Resources/ghostty/themes/Laser
+$(SRCROOT)/Resources/ghostty/themes/Later This Evening
+$(SRCROOT)/Resources/ghostty/themes/Lavandula
+$(SRCROOT)/Resources/ghostty/themes/Light Owl
+$(SRCROOT)/Resources/ghostty/themes/Liquid Carbon
+$(SRCROOT)/Resources/ghostty/themes/Liquid Carbon Transparent
+$(SRCROOT)/Resources/ghostty/themes/Lovelace
+$(SRCROOT)/Resources/ghostty/themes/Man Page
+$(SRCROOT)/Resources/ghostty/themes/Mariana
+$(SRCROOT)/Resources/ghostty/themes/Material
+$(SRCROOT)/Resources/ghostty/themes/Material Dark
+$(SRCROOT)/Resources/ghostty/themes/Material Darker
+$(SRCROOT)/Resources/ghostty/themes/Material Design Colors
+$(SRCROOT)/Resources/ghostty/themes/Material Ocean
+$(SRCROOT)/Resources/ghostty/themes/Mathias
+$(SRCROOT)/Resources/ghostty/themes/Matrix
+$(SRCROOT)/Resources/ghostty/themes/Matte Black
+$(SRCROOT)/Resources/ghostty/themes/Medallion
+$(SRCROOT)/Resources/ghostty/themes/Melange Dark
+$(SRCROOT)/Resources/ghostty/themes/Melange Light
+$(SRCROOT)/Resources/ghostty/themes/Mellifluous
+$(SRCROOT)/Resources/ghostty/themes/Mellow
+$(SRCROOT)/Resources/ghostty/themes/Miasma
+$(SRCROOT)/Resources/ghostty/themes/Midnight In Mojave
+$(SRCROOT)/Resources/ghostty/themes/Mirage
+$(SRCROOT)/Resources/ghostty/themes/Misterioso
+$(SRCROOT)/Resources/ghostty/themes/Modus Operandi
+$(SRCROOT)/Resources/ghostty/themes/Modus Operandi Tinted
+$(SRCROOT)/Resources/ghostty/themes/Modus Vivendi
+$(SRCROOT)/Resources/ghostty/themes/Modus Vivendi Tinted
+$(SRCROOT)/Resources/ghostty/themes/Molokai
+$(SRCROOT)/Resources/ghostty/themes/Mona Lisa
+$(SRCROOT)/Resources/ghostty/themes/Monokai Classic
+$(SRCROOT)/Resources/ghostty/themes/Monokai Pro
+$(SRCROOT)/Resources/ghostty/themes/Monokai Pro Light
+$(SRCROOT)/Resources/ghostty/themes/Monokai Pro Light Sun
+$(SRCROOT)/Resources/ghostty/themes/Monokai Pro Machine
+$(SRCROOT)/Resources/ghostty/themes/Monokai Pro Octagon
+$(SRCROOT)/Resources/ghostty/themes/Monokai Pro Ristretto
+$(SRCROOT)/Resources/ghostty/themes/Monokai Pro Spectrum
+$(SRCROOT)/Resources/ghostty/themes/Monokai Remastered
+$(SRCROOT)/Resources/ghostty/themes/Monokai Soda
+$(SRCROOT)/Resources/ghostty/themes/Monokai Vivid
+$(SRCROOT)/Resources/ghostty/themes/Moonfly
+$(SRCROOT)/Resources/ghostty/themes/N0Tch2K
+$(SRCROOT)/Resources/ghostty/themes/Neobones Dark
+$(SRCROOT)/Resources/ghostty/themes/Neobones Light
+$(SRCROOT)/Resources/ghostty/themes/Neon
+$(SRCROOT)/Resources/ghostty/themes/Neopolitan
+$(SRCROOT)/Resources/ghostty/themes/Neutron
+$(SRCROOT)/Resources/ghostty/themes/Night Lion V1
+$(SRCROOT)/Resources/ghostty/themes/Night Lion V2
+$(SRCROOT)/Resources/ghostty/themes/Night Owl
+$(SRCROOT)/Resources/ghostty/themes/Night Owlish Light
+$(SRCROOT)/Resources/ghostty/themes/Nightfox
+$(SRCROOT)/Resources/ghostty/themes/Niji
+$(SRCROOT)/Resources/ghostty/themes/No Clown Fiesta
+$(SRCROOT)/Resources/ghostty/themes/No Clown Fiesta Light
+$(SRCROOT)/Resources/ghostty/themes/Nocturnal Winter
+$(SRCROOT)/Resources/ghostty/themes/Nord
+$(SRCROOT)/Resources/ghostty/themes/Nord Light
+$(SRCROOT)/Resources/ghostty/themes/Nord Wave
+$(SRCROOT)/Resources/ghostty/themes/Nordfox
+$(SRCROOT)/Resources/ghostty/themes/Novel
+$(SRCROOT)/Resources/ghostty/themes/Nvim Dark
+$(SRCROOT)/Resources/ghostty/themes/Nvim Light
+$(SRCROOT)/Resources/ghostty/themes/Obsidian
+$(SRCROOT)/Resources/ghostty/themes/Ocean
+$(SRCROOT)/Resources/ghostty/themes/Oceanic Material
+$(SRCROOT)/Resources/ghostty/themes/Oceanic Next
+$(SRCROOT)/Resources/ghostty/themes/Ollie
+$(SRCROOT)/Resources/ghostty/themes/One Dark Two
+$(SRCROOT)/Resources/ghostty/themes/One Double Dark
+$(SRCROOT)/Resources/ghostty/themes/One Double Light
+$(SRCROOT)/Resources/ghostty/themes/One Half Dark
+$(SRCROOT)/Resources/ghostty/themes/One Half Light
+$(SRCROOT)/Resources/ghostty/themes/Onenord
+$(SRCROOT)/Resources/ghostty/themes/Onenord Light
+$(SRCROOT)/Resources/ghostty/themes/Operator Mono Dark
+$(SRCROOT)/Resources/ghostty/themes/Overnight Slumber
+$(SRCROOT)/Resources/ghostty/themes/Oxocarbon
+$(SRCROOT)/Resources/ghostty/themes/Pale Night Hc
+$(SRCROOT)/Resources/ghostty/themes/Pandora
+$(SRCROOT)/Resources/ghostty/themes/Paraiso Dark
+$(SRCROOT)/Resources/ghostty/themes/Paul Millr
+$(SRCROOT)/Resources/ghostty/themes/Pencil Dark
+$(SRCROOT)/Resources/ghostty/themes/Pencil Light
+$(SRCROOT)/Resources/ghostty/themes/Peppermint
+$(SRCROOT)/Resources/ghostty/themes/Phala Green Dark
+$(SRCROOT)/Resources/ghostty/themes/Piatto Light
+$(SRCROOT)/Resources/ghostty/themes/Pnevma
+$(SRCROOT)/Resources/ghostty/themes/Poimandres
+$(SRCROOT)/Resources/ghostty/themes/Poimandres Darker
+$(SRCROOT)/Resources/ghostty/themes/Poimandres Storm
+$(SRCROOT)/Resources/ghostty/themes/Poimandres White
+$(SRCROOT)/Resources/ghostty/themes/Popping And Locking
+$(SRCROOT)/Resources/ghostty/themes/Powershell
+$(SRCROOT)/Resources/ghostty/themes/Primary
+$(SRCROOT)/Resources/ghostty/themes/Pro
+$(SRCROOT)/Resources/ghostty/themes/Pro Light
+$(SRCROOT)/Resources/ghostty/themes/Purple Rain
+$(SRCROOT)/Resources/ghostty/themes/Purplepeter
+$(SRCROOT)/Resources/ghostty/themes/Rapture
+$(SRCROOT)/Resources/ghostty/themes/Raycast Dark
+$(SRCROOT)/Resources/ghostty/themes/Raycast Light
+$(SRCROOT)/Resources/ghostty/themes/Rebecca
+$(SRCROOT)/Resources/ghostty/themes/Red Alert
+$(SRCROOT)/Resources/ghostty/themes/Red Planet
+$(SRCROOT)/Resources/ghostty/themes/Red Sands
+$(SRCROOT)/Resources/ghostty/themes/Relaxed
+$(SRCROOT)/Resources/ghostty/themes/Retro
+$(SRCROOT)/Resources/ghostty/themes/Retro Legends
+$(SRCROOT)/Resources/ghostty/themes/Rippedcasts
+$(SRCROOT)/Resources/ghostty/themes/Rose Pine
+$(SRCROOT)/Resources/ghostty/themes/Rose Pine Dawn
+$(SRCROOT)/Resources/ghostty/themes/Rose Pine Moon
+$(SRCROOT)/Resources/ghostty/themes/Rouge 2
+$(SRCROOT)/Resources/ghostty/themes/Royal
+$(SRCROOT)/Resources/ghostty/themes/Ryuuko
+$(SRCROOT)/Resources/ghostty/themes/Sakura
+$(SRCROOT)/Resources/ghostty/themes/Scarlet Protocol
+$(SRCROOT)/Resources/ghostty/themes/Sea Shells
+$(SRCROOT)/Resources/ghostty/themes/Seafoam Pastel
+$(SRCROOT)/Resources/ghostty/themes/Selenized Black
+$(SRCROOT)/Resources/ghostty/themes/Selenized Dark
+$(SRCROOT)/Resources/ghostty/themes/Selenized Light
+$(SRCROOT)/Resources/ghostty/themes/Seoulbones Dark
+$(SRCROOT)/Resources/ghostty/themes/Seoulbones Light
+$(SRCROOT)/Resources/ghostty/themes/Seti
+$(SRCROOT)/Resources/ghostty/themes/Shades Of Purple
+$(SRCROOT)/Resources/ghostty/themes/Shaman
+$(SRCROOT)/Resources/ghostty/themes/Slate
+$(SRCROOT)/Resources/ghostty/themes/Sleepy Hollow
+$(SRCROOT)/Resources/ghostty/themes/Smyck
+$(SRCROOT)/Resources/ghostty/themes/Snazzy
+$(SRCROOT)/Resources/ghostty/themes/Snazzy Soft
+$(SRCROOT)/Resources/ghostty/themes/Soft Server
+$(SRCROOT)/Resources/ghostty/themes/Solarized Darcula
+$(SRCROOT)/Resources/ghostty/themes/Solarized Dark Higher Contrast
+$(SRCROOT)/Resources/ghostty/themes/Solarized Dark Patched
+$(SRCROOT)/Resources/ghostty/themes/Solarized Osaka Night
+$(SRCROOT)/Resources/ghostty/themes/Sonokai
+$(SRCROOT)/Resources/ghostty/themes/Spacedust
+$(SRCROOT)/Resources/ghostty/themes/Spacegray
+$(SRCROOT)/Resources/ghostty/themes/Spacegray Bright
+$(SRCROOT)/Resources/ghostty/themes/Spacegray Eighties
+$(SRCROOT)/Resources/ghostty/themes/Spacegray Eighties Dull
+$(SRCROOT)/Resources/ghostty/themes/Spiderman
+$(SRCROOT)/Resources/ghostty/themes/Spring
+$(SRCROOT)/Resources/ghostty/themes/Square
+$(SRCROOT)/Resources/ghostty/themes/Squirrelsong Dark
+$(SRCROOT)/Resources/ghostty/themes/Srcery
+$(SRCROOT)/Resources/ghostty/themes/Starlight
+$(SRCROOT)/Resources/ghostty/themes/Sublette
+$(SRCROOT)/Resources/ghostty/themes/Subliminal
+$(SRCROOT)/Resources/ghostty/themes/Sugarplum
+$(SRCROOT)/Resources/ghostty/themes/Sundried
+$(SRCROOT)/Resources/ghostty/themes/Sunset Drive
+$(SRCROOT)/Resources/ghostty/themes/Symfonic
+$(SRCROOT)/Resources/ghostty/themes/Synthwave
+$(SRCROOT)/Resources/ghostty/themes/Synthwave Alpha
+$(SRCROOT)/Resources/ghostty/themes/Synthwave Everything
+$(SRCROOT)/Resources/ghostty/themes/Tango Adapted
+$(SRCROOT)/Resources/ghostty/themes/Tango Half Adapted
+$(SRCROOT)/Resources/ghostty/themes/Tearout
+$(SRCROOT)/Resources/ghostty/themes/Teerb
+$(SRCROOT)/Resources/ghostty/themes/Terafox
+$(SRCROOT)/Resources/ghostty/themes/Terminal Basic
+$(SRCROOT)/Resources/ghostty/themes/Terminal Basic Dark
+$(SRCROOT)/Resources/ghostty/themes/Thayer Bright
+$(SRCROOT)/Resources/ghostty/themes/The Hulk
+$(SRCROOT)/Resources/ghostty/themes/Tinacious Design Dark
+$(SRCROOT)/Resources/ghostty/themes/Tinacious Design Light
+$(SRCROOT)/Resources/ghostty/themes/TokyoNight
+$(SRCROOT)/Resources/ghostty/themes/TokyoNight Day
+$(SRCROOT)/Resources/ghostty/themes/TokyoNight Moon
+$(SRCROOT)/Resources/ghostty/themes/TokyoNight Night
+$(SRCROOT)/Resources/ghostty/themes/TokyoNight Storm
+$(SRCROOT)/Resources/ghostty/themes/Tomorrow
+$(SRCROOT)/Resources/ghostty/themes/Tomorrow Night
+$(SRCROOT)/Resources/ghostty/themes/Tomorrow Night Blue
+$(SRCROOT)/Resources/ghostty/themes/Tomorrow Night Bright
+$(SRCROOT)/Resources/ghostty/themes/Tomorrow Night Burns
+$(SRCROOT)/Resources/ghostty/themes/Tomorrow Night Eighties
+$(SRCROOT)/Resources/ghostty/themes/Toy Chest
+$(SRCROOT)/Resources/ghostty/themes/Treehouse
+$(SRCROOT)/Resources/ghostty/themes/Twilight
+$(SRCROOT)/Resources/ghostty/themes/Ubuntu
+$(SRCROOT)/Resources/ghostty/themes/Ultra Dark
+$(SRCROOT)/Resources/ghostty/themes/Ultra Violent
+$(SRCROOT)/Resources/ghostty/themes/Under The Sea
+$(SRCROOT)/Resources/ghostty/themes/Unikitty
+$(SRCROOT)/Resources/ghostty/themes/Urple
+$(SRCROOT)/Resources/ghostty/themes/Vague
+$(SRCROOT)/Resources/ghostty/themes/Vaughn
+$(SRCROOT)/Resources/ghostty/themes/Vercel
+$(SRCROOT)/Resources/ghostty/themes/Vesper
+$(SRCROOT)/Resources/ghostty/themes/Vibrant Ink
+$(SRCROOT)/Resources/ghostty/themes/Vimbones
+$(SRCROOT)/Resources/ghostty/themes/Violet Dark
+$(SRCROOT)/Resources/ghostty/themes/Violet Light
+$(SRCROOT)/Resources/ghostty/themes/Violite
+$(SRCROOT)/Resources/ghostty/themes/Warm Neon
+$(SRCROOT)/Resources/ghostty/themes/Wez
+$(SRCROOT)/Resources/ghostty/themes/Whimsy
+$(SRCROOT)/Resources/ghostty/themes/Wild Cherry
+$(SRCROOT)/Resources/ghostty/themes/Wilmersdorf
+$(SRCROOT)/Resources/ghostty/themes/Wombat
+$(SRCROOT)/Resources/ghostty/themes/Wryan
+$(SRCROOT)/Resources/ghostty/themes/Xcode Dark
+$(SRCROOT)/Resources/ghostty/themes/Xcode Dark hc
+$(SRCROOT)/Resources/ghostty/themes/Xcode Light
+$(SRCROOT)/Resources/ghostty/themes/Xcode Light hc
+$(SRCROOT)/Resources/ghostty/themes/Xcode WWDC
+$(SRCROOT)/Resources/ghostty/themes/Zenbones
+$(SRCROOT)/Resources/ghostty/themes/Zenbones Dark
+$(SRCROOT)/Resources/ghostty/themes/Zenbones Light
+$(SRCROOT)/Resources/ghostty/themes/Zenburn
+$(SRCROOT)/Resources/ghostty/themes/Zenburned
+$(SRCROOT)/Resources/ghostty/themes/Zenwritten Dark
+$(SRCROOT)/Resources/ghostty/themes/Zenwritten Light
+$(SRCROOT)/Resources/ghostty/themes/branch
+$(SRCROOT)/Resources/ghostty/themes/iTerm2 Dark Background
+$(SRCROOT)/Resources/ghostty/themes/iTerm2 Default
+$(SRCROOT)/Resources/ghostty/themes/iTerm2 Light Background
+$(SRCROOT)/Resources/ghostty/themes/iTerm2 Pastel Dark Background
+$(SRCROOT)/Resources/ghostty/themes/iTerm2 Smoooooth
+$(SRCROOT)/Resources/ghostty/themes/iTerm2 Solarized Dark
+$(SRCROOT)/Resources/ghostty/themes/iTerm2 Solarized Light
+$(SRCROOT)/Resources/ghostty/themes/iTerm2 Tango Dark
+$(SRCROOT)/Resources/ghostty/themes/iTerm2 Tango Light
+$(SRCROOT)/Resources/ghostty/themes/novmbr
+$(SRCROOT)/Resources/ghostty/themes/owl
+$(SRCROOT)/Resources/ghostty/themes/traffic
+$(SRCROOT)/Resources/ghostty/themes/urban
+$(SRCROOT)/Resources/shell-integration/.zlogin
+$(SRCROOT)/Resources/shell-integration/.zprofile
+$(SRCROOT)/Resources/shell-integration/.zshenv
+$(SRCROOT)/Resources/shell-integration/.zshrc
+$(SRCROOT)/Resources/shell-integration/cmux-bash-integration.bash
+$(SRCROOT)/Resources/shell-integration/cmux-zsh-integration.zsh
+$(SRCROOT)/Resources/terminfo-overlay/67/ghostty
+$(SRCROOT)/Resources/terminfo-overlay/78/xterm-256color
+$(SRCROOT)/Resources/terminfo-overlay/78/xterm-ghostty
+$(SRCROOT)/Resources/terminfo-overlay/README.md

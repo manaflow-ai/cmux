@@ -509,6 +509,13 @@ XCODEBUILD_ARGS=(
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
 fi
+if [[ -n "${CMUX_SOURCE_PACKAGES_DIR:-}" ]]; then
+  mkdir -p "$CMUX_SOURCE_PACKAGES_DIR"
+  XCODEBUILD_ARGS+=(-clonedSourcePackagesDirPath "$CMUX_SOURCE_PACKAGES_DIR")
+fi
+if [[ "${CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION:-}" == "1" ]]; then
+  XCODEBUILD_ARGS+=(-disableAutomaticPackageResolution)
+fi
 if [[ -z "$TAG" ]]; then
   XCODEBUILD_ARGS+=(
     INFOPLIST_KEY_CFBundleName="$APP_NAME"
@@ -622,6 +629,9 @@ fi
 
 if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   TAG_APP_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
+  if [[ -d "$TAG_APP_PATH" ]]; then
+    pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+  fi
   mkdir -p "$TAG_APP_PATH"
   rsync -a --delete "$APP_PATH/" "$TAG_APP_PATH/"
   INFO_PLIST="$TAG_APP_PATH/Contents/Info.plist"
