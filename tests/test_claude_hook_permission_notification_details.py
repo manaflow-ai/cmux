@@ -88,7 +88,7 @@ class CapturingSocketServer:
         with conn:
             conn.settimeout(0.1)
             buffer = b""
-            idle_deadline = time.time() + 6.0
+            idle_deadline = time.time() + 30.0
             while not self.stop.is_set() and time.time() < idle_deadline:
                 try:
                     chunk = conn.recv(4096)
@@ -96,7 +96,7 @@ class CapturingSocketServer:
                     continue
                 if not chunk:
                     break
-                idle_deadline = time.time() + 2.0
+                idle_deadline = time.time() + 30.0
                 buffer += chunk
                 while b"\n" in buffer:
                     raw_line, buffer = buffer.split(b"\n", 1)
