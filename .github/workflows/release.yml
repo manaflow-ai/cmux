@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+      - "!v*-rc.*"
   workflow_dispatch:
 
 permissions:
@@ -19,6 +20,14 @@ jobs:
     runs-on: warp-macos-26-arm64-6x
     timeout-minutes: 20
     steps:
+      - name: Reject release candidate tags
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [[ "${GITHUB_REF_NAME:-}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            echo "release.yml must not run on release candidate tag ${GITHUB_REF_NAME}; use release-candidate.yml instead." >&2
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
