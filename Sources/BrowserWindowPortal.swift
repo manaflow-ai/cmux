@@ -3937,6 +3937,33 @@ final class WindowBrowserPortal: NSObject {
         return nil
     }
 
+    func browserSurfaceAtWindowPoint(_ windowPoint: NSPoint) -> WKWebView? {
+        guard ensureInstalled() else { return nil }
+        let point = hostView.convert(windowPoint, from: nil)
+        for subview in hostView.subviews.reversed() {
+            guard let container = subview as? WindowBrowserSlotView else { continue }
+            guard !container.isHidden else { continue }
+            guard browserSurfaceHitFrame(for: container).contains(point) else { continue }
+            guard let webView = entriesByWebViewId
+                .first(where: { _, entry in entry.containerView === container })?
+                .value
+                .webView else { continue }
+            return webView
+        }
+        return nil
+    }
+
+    private func browserSurfaceHitFrame(for container: WindowBrowserSlotView) -> NSRect {
+        var frame = container.frame
+        let topChromeHeight = container.effectivePaneTopChromeHeight()
+        guard topChromeHeight > 0 else { return frame }
+        if hostView.isFlipped {
+            frame.origin.y -= topChromeHeight
+        }
+        frame.size.height += topChromeHeight
+        return frame
+    }
+
     func browserPaneDropTargetAtWindowPoint(_ windowPoint: NSPoint) -> BrowserPaneDropTargetView? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
@@ -4170,6 +4197,12 @@ enum BrowserWindowPortalRegistry {
         let windowId = ObjectIdentifier(window)
         guard let portal = portalsByWindowId[windowId] else { return nil }
         return portal.webViewAtWindowPoint(windowPoint)
+    }
+
+    static func browserSurfaceAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> WKWebView? {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.browserSurfaceAtWindowPoint(windowPoint)
     }
 
     static func browserPaneDropTargetAtWindowPoint(

@@ -69,9 +69,9 @@ final class CmuxMainWindow: NSWindow {
         if event.type == .otherMouseDown {
             switch event.buttonNumber {
             case 3, 4:
-                // If the event is targeted at a browser web view, let the browser
-                // handle its own page history (CmuxWebView already consumes these).
-                if isPointerOverBrowserWebView(event) {
+                // If the event is targeted at browser content or chrome, let the
+                // browser handle its own page history.
+                if isPointerOverBrowserSurface(event) {
                     super.sendEvent(event)
                     return
                 }
@@ -99,8 +99,8 @@ final class CmuxMainWindow: NSWindow {
         super.sendEvent(event)
     }
 
-    private func isPointerOverBrowserWebView(_ event: NSEvent) -> Bool {
-        if BrowserWindowPortalRegistry.webViewAtWindowPoint(event.locationInWindow, in: self) is CmuxWebView {
+    private func isPointerOverBrowserSurface(_ event: NSEvent) -> Bool {
+        if BrowserWindowPortalRegistry.browserSurfaceAtWindowPoint(event.locationInWindow, in: self) is CmuxWebView {
             return true
         }
         guard let contentView else {
