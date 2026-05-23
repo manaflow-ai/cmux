@@ -255,6 +255,7 @@ jobs:
           xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
+            -skipPackagePluginValidation \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight \
