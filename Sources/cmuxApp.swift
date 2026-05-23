@@ -5444,6 +5444,25 @@ struct SettingsView: View {
         }
     }
 
+    private var warnBeforeClosingTabXButtonSubtitle: String {
+        if hideTabCloseButton {
+            return String(
+                localized: "settings.app.warnBeforeClosingTabXButton.subtitleHidden",
+                defaultValue: "Tab close buttons are hidden, so this warning is inactive."
+            )
+        }
+        if warnBeforeClosingTabXButton {
+            return String(
+                localized: "settings.app.warnBeforeClosingTabXButton.subtitleOn",
+                defaultValue: "The tab close button asks for confirmation before closing."
+            )
+        }
+        return String(
+            localized: "settings.app.warnBeforeClosingTabXButton.subtitleOff",
+            defaultValue: "The tab close button closes tabs immediately."
+        )
+    }
+
     private var showTerminalScrollBarBinding: Binding<Bool> {
         Binding(
             get: { showTerminalScrollBar },
@@ -6573,19 +6592,12 @@ struct SettingsView: View {
                                 localized: "settings.app.warnBeforeClosingTabXButton",
                                 defaultValue: "Warn Before Tab Close Button"
                             ),
-                            subtitle: warnBeforeClosingTabXButton
-                                ? String(
-                                    localized: "settings.app.warnBeforeClosingTabXButton.subtitleOn",
-                                    defaultValue: "The tab close button asks for confirmation before closing."
-                                )
-                                : String(
-                                    localized: "settings.app.warnBeforeClosingTabXButton.subtitleOff",
-                                    defaultValue: "The tab close button closes tabs immediately."
-                                )
+                            subtitle: warnBeforeClosingTabXButtonSubtitle
                         ) {
                             Toggle("", isOn: $warnBeforeClosingTabXButton)
                                 .labelsHidden()
                                 .controlSize(.small)
+                                .disabled(hideTabCloseButton)
                         }
 
                         SettingsCardDivider()
