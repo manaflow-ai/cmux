@@ -509,34 +509,61 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
 fi
 XCODEBUILD_ARGS+=(build)
 
-XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"
-# Xcode 26's SWBBuildService is a per-user singleton. Concurrent xcodebuild
-# invocations (even with separate -derivedDataPath) share that daemon and can
-# crash it, SIGTERMing in-flight builds. Serialize via a per-user lock so
-# parallel reload.sh runs queue instead of trampling each other.
+XCODEBUILD_LOCK_DIR="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).locks"
+XCODEBUILD_LOCK_CONCURRENCY="${CMUX_XCODEBUILD_LOCK_CONCURRENCY:-5}"
+if ! is_positive_integer "$XCODEBUILD_LOCK_CONCURRENCY"; then
+  echo "error: CMUX_XCODEBUILD_LOCK_CONCURRENCY must be a positive integer" >&2
+  exit 1
+fi
+# Xcode 26's SWBBuildService is a per-user singleton. Too many concurrent
+# xcodebuild invocations can trample that daemon, so cap reload.sh builds at
+# five per user while still allowing useful parallel tagged builds.
 python3 -c '
 import fcntl
 import os
 import sys
+import time
 
-lock_path = sys.argv[1]
-command = sys.argv[2:]
+lock_dir = sys.argv[1]
+concurrency = int(sys.argv[2])
+command = sys.argv[3:]
 
 try:
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    os.makedirs(lock_dir, mode=0o700, exist_ok=True)
 except OSError as exc:
-    raise SystemExit(f"error: open lock: {exc}")
+    raise SystemExit(f"error: create lock dir: {exc}")
 
-try:
-    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-    fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
-except OSError as exc:
-    raise SystemExit(f"error: fcntl lock fd: {exc}")
+def acquire_slot():
+    for slot in range(1, concurrency + 1):
+        lock_path = os.path.join(lock_dir, f"slot-{slot}.lock")
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        except OSError as exc:
+            raise SystemExit(f"error: open lock slot: {exc}")
 
-try:
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except BlockingIOError:
-    msg = f"==> Another xcodebuild is running; waiting for {lock_path}...\n"
+        try:
+            flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+            fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
+        except OSError as exc:
+            os.close(fd)
+            raise SystemExit(f"error: fcntl lock fd: {exc}")
+
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd, lock_path
+        except BlockingIOError:
+            os.close(fd)
+        except OSError as exc:
+            os.close(fd)
+            raise SystemExit(f"error: flock: {exc}")
+    return None, None
+
+fd, lock_path = acquire_slot()
+if fd is None:
+    msg = (
+        f"==> xcodebuild concurrency limit reached ({concurrency}); "
+        f"waiting for a slot in {lock_dir}...\n"
+    )
     # reload.sh saves the original stderr on fd 4 before redirecting to the
     # log file. Surface the wait notice to the terminal so the user knows
     # they are queued, not hung. Fall back to stderr (the log) if fd 4 is
@@ -546,18 +573,15 @@ except BlockingIOError:
     except OSError:
         sys.stderr.write(msg)
         sys.stderr.flush()
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-    except OSError as exc:
-        raise SystemExit(f"error: flock: {exc}")
-except OSError as exc:
-    raise SystemExit(f"error: flock: {exc}")
+    while fd is None:
+        time.sleep(0.2)
+        fd, lock_path = acquire_slot()
 
 try:
     os.execvp(command[0], command)
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}"
+' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" xcodebuild "${XCODEBUILD_ARGS[@]}"
 sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
