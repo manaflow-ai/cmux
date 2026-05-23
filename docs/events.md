@@ -236,8 +236,9 @@ Workspace:
 | `workspace.action` | Workspace action command completed. |
 | `workspace.prompt.submitted` | A prompt was submitted in a workspace. Used by extension sidebars to keep derived state fresh without polling. |
 
-`workspace.reordered` payloads include ordered `workspace_ids`,
-`moved_workspace_ids`, `pinned_workspace_ids`, and `count`.
+`workspace.reordered` payloads are published by the shared workspace lifecycle
+path and include ordered `workspace_ids`, `moved_workspace_ids`,
+`pinned_workspace_ids`, and `count`.
 
 `workspace.prompt.submitted` payloads include `workspace_id`, a redacted
 `message`, `message_preview`, `message_length`, and `redacted_fields`. This is
@@ -252,6 +253,21 @@ and an ordered `workspaces` array containing workspace ids/refs, title,
 description, pinned state, root/project paths, branch summary, remote status,
 latest submitted prompt preview/time, listening ports, pull request URLs,
 panel directories, and git branch summaries.
+
+Socket `workspace.reorder` and `workspace.reorder_many` command results include
+`plan` and `events` arrays that use short refs and final indexes. Those response
+fields describe the command result; they are not separate event-stream payloads:
+
+```json
+{
+  "window_id": "2FB4...",
+  "window_ref": "window:1",
+  "workspace_id": "8D10...",
+  "workspace_ref": "workspace:11",
+  "from_index": 12,
+  "to_index": 1
+}
+```
 
 Surface and pane:
 
