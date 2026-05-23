@@ -40,17 +40,29 @@
       "workspace": {
         "name": "Team Dev",
         "layout": {
-          "split": "horizontal",
+          "direction": "horizontal",
           "children": [
             {
-              "type": "terminal",
-              "name": "App",
-              "command": "npm run dev"
+              "pane": {
+                "surfaces": [
+                  {
+                    "type": "terminal",
+                    "name": "App",
+                    "command": "npm run dev"
+                  }
+                ]
+              }
             },
             {
-              "type": "terminal",
-              "name": "Tests",
-              "command": "npm test -- --watch"
+              "pane": {
+                "surfaces": [
+                  {
+                    "type": "terminal",
+                    "name": "Tests",
+                    "command": "npm test -- --watch"
+                  }
+                ]
+              }
             }
           ]
         }
