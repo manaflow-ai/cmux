@@ -616,6 +616,13 @@ struct GhosttyConfig {
             from: name,
             preferredColorScheme: preferredColorScheme ?? Self.currentColorSchemePreference()
         )
+        let expandedThemePath = NSString(string: resolvedThemeName).expandingTildeInPath
+        if (expandedThemePath as NSString).isAbsolutePath,
+           let contents = try? String(contentsOfFile: expandedThemePath, encoding: .utf8) {
+            parse(contents)
+            return
+        }
+
         for candidateName in Self.themeNameCandidates(from: resolvedThemeName) {
             for path in Self.themeSearchPaths(
                 forThemeName: candidateName,

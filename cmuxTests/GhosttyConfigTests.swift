@@ -313,6 +313,32 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(loaded.cursorTextColor), RGB(red: 17, green: 17, blue: 17))
     }
 
+    func testLoadThemeReadsAbsoluteThemeFilePath() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-absolute-theme-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let themeFile = root.appendingPathComponent("theme.conf", isDirectory: false)
+        try "background = #223344\nforeground = #ddeeff\n".write(
+            to: themeFile,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var config = GhosttyConfig()
+        config.loadTheme(
+            themeFile.path,
+            environment: [:],
+            bundleResourceURL: nil,
+            preferredColorScheme: .dark
+        )
+
+        XCTAssertEqual(config.backgroundColor.hexString(), "#223344")
+        XCTAssertEqual(config.foregroundColor.hexString(), "#DDEEFF")
+    }
+
     func testLoadThemeResolvesPairedThemeValueByColorScheme() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-theme-pair-\(UUID().uuidString)")
