@@ -191,10 +191,31 @@ enum GlobalSearchDocuments {
         let lineCapped = lines.count > GlobalSearchIndexingLimits.maxIndexedTerminalScrollbackLines
             ? Array(lines.suffix(GlobalSearchIndexingLimits.maxIndexedTerminalScrollbackLines))
             : lines
-        let cappedScrollback = cappedTailText(lineCapped.joined(separator: "\n"))
-        return cappedScrollback
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
+        return characterCappedTailLines(lineCapped)
+    }
+
+    nonisolated private static func characterCappedTailLines(_ lines: [String]) -> [String] {
+        var retainedReversed: [String] = []
+        var remainingCharacters = GlobalSearchIndexingLimits.maxIndexedTextCharacters
+
+        for line in lines.reversed() {
+            let separatorCharacters = retainedReversed.isEmpty ? 0 : 1
+            guard remainingCharacters > separatorCharacters else { break }
+
+            let lineBudget = remainingCharacters - separatorCharacters
+            if line.count <= lineBudget {
+                retainedReversed.append(line)
+                remainingCharacters = lineBudget - line.count
+            } else if retainedReversed.isEmpty {
+                let startIndex = line.index(line.endIndex, offsetBy: -lineBudget)
+                retainedReversed.append(String(line[startIndex...]))
+                remainingCharacters = 0
+            } else {
+                break
+            }
+        }
+
+        return retainedReversed.reversed()
     }
 
     nonisolated private static func strippedTerminalControlSequences(_ text: String) -> String {

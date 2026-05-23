@@ -671,25 +671,30 @@ actor SearchIndex {
         let positions: [Int]
     }
 
+    private struct FoldedCandidateScalar {
+        let scalar: UnicodeScalar
+        let originalOffset: Int
+    }
+
     private static func fuzzyMatch(query: String, candidate: String) -> FuzzyMatch? {
         let queryScalars = Array(query.lowercased().unicodeScalars)
-        let candidateScalars = Array(candidate.lowercased().unicodeScalars)
+        let candidateScalars = foldedCandidateScalars(candidate)
         guard !queryScalars.isEmpty, !candidateScalars.isEmpty else { return nil }
 
         var bestPositions = Array<[Int]?>(repeating: nil, count: queryScalars.count)
 
-        for (candidateIndex, candidateScalar) in candidateScalars.enumerated() {
+        for candidateScalar in candidateScalars {
             for queryIndex in stride(from: queryScalars.count - 1, through: 0, by: -1) {
-                guard queryScalars[queryIndex] == candidateScalar else { continue }
+                guard queryScalars[queryIndex] == candidateScalar.scalar else { continue }
 
                 let positions: [Int]
                 if queryIndex == 0 {
-                    positions = [candidateIndex]
+                    positions = [candidateScalar.originalOffset]
                 } else {
                     guard let previousPositions = bestPositions[queryIndex - 1] else {
                         continue
                     }
-                    positions = previousPositions + [candidateIndex]
+                    positions = previousPositions + [candidateScalar.originalOffset]
                 }
 
                 if isBetterFuzzyPrefix(positions, than: bestPositions[queryIndex]) {
@@ -717,6 +722,19 @@ actor SearchIndex {
         )
     }
 
+    private static func foldedCandidateScalars(_ candidate: String) -> [FoldedCandidateScalar] {
+        var folded: [FoldedCandidateScalar] = []
+        for (offset, scalar) in candidate.unicodeScalars.enumerated() {
+            let lowercaseScalars = String(scalar).lowercased().unicodeScalars
+            folded.append(
+                contentsOf: lowercaseScalars.map {
+                    FoldedCandidateScalar(scalar: $0, originalOffset: offset)
+                }
+            )
+        }
+        return folded
+    }
+
     private static func isBetterFuzzyPrefix(_ candidate: [Int], than current: [Int]?) -> Bool {
         guard let current,
               let candidateFirst = candidate.first,
@@ -741,7 +759,7 @@ actor SearchIndex {
 
         let lowercasedSource = source.lowercased()
         if let token = queryTokens(for: query).first(where: { lowercasedSource.contains($0) }),
-           let range = lowercasedSource.range(of: token) {
+           let range = source.range(of: token, options: [.caseInsensitive, .diacriticInsensitive]) {
             return snippet(from: source, around: range.lowerBound)
         }
 

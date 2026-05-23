@@ -75,6 +75,7 @@ final class GlobalSearchKeyboardFocusView: NSView {
     var placement: GlobalSearchSurfacePlacement = .rightSidebar
     var onFocusSearchField: (() -> Bool)?
     var ownsSearchFieldFocus: (() -> Bool)?
+    private weak var registeredWindow: NSWindow?
 
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
@@ -90,7 +91,12 @@ final class GlobalSearchKeyboardFocusView: NSView {
     }
 
     func registerWithKeyboardFocusCoordinatorIfNeeded() {
-        guard placement == .rightSidebar, let window else { return }
+        guard placement == .rightSidebar, let window else {
+            registeredWindow = nil
+            return
+        }
+        guard registeredWindow !== window else { return }
+        registeredWindow = window
         AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerGlobalSearchHost(self)
     }
 

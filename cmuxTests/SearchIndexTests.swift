@@ -219,6 +219,46 @@ final class SearchIndexTests: XCTestCase {
         XCTAssertEqual(lines.last, "line-\(maxLines + 2)")
     }
 
+    func testTerminalScrollbackNormalizationPreservesLineBoundariesWhenCharacterCapped() {
+        let maxLines = GlobalSearchIndexingLimits.maxIndexedTerminalScrollbackLines
+        let wideSuffix = String(repeating: "x", count: 120)
+        let scrollback = (1...maxLines)
+            .map { "line-\($0)-\(wideSuffix)" }
+            .joined(separator: "\n")
+
+        let lines = GlobalSearchDocuments.normalizedTerminalScrollbackLines(scrollback)
+        let joined = lines.joined(separator: "\n")
+
+        XCTAssertLessThan(lines.count, maxLines)
+        XCTAssertLessThanOrEqual(joined.count, GlobalSearchIndexingLimits.maxIndexedTextCharacters)
+        XCTAssertTrue(lines.first?.hasPrefix("line-") == true, lines.first ?? "")
+        XCTAssertEqual(lines.last, "line-\(maxLines)-\(wideSuffix)")
+    }
+
+    func testSearchSnippetUsesOriginalStringIndicesForCaseInsensitiveTokenMatch() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+        try await index.upsert(
+            SearchIndexDocument(
+                id: "expanded-lowercase-prefix",
+                windowID: UUID(),
+                workspaceID: UUID(),
+                panelID: UUID(),
+                kind: .terminal,
+                title: "Terminal",
+                location: "Window > Terminal > Line 1",
+                anchor: "line:1",
+                text: "\(String(repeating: "İ", count: 8)) needle after expanded lowercase prefix"
+            )
+        )
+
+        let hits = try await index.search("needle", limit: 10)
+        XCTAssertEqual(hits.map(\.id), ["expanded-lowercase-prefix"])
+        XCTAssertTrue(hits[0].snippet.contains("needle"), hits[0].snippet)
+    }
+
     func testUpsertReplacesExistingDocumentText() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
