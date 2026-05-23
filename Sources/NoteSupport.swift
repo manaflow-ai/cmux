@@ -427,6 +427,7 @@ enum CmuxNoteStore {
 
     private static let schemaVersion = 1
     private static let indexFileName = "index.json"
+    private static let storageQueue = DispatchQueue(label: "com.cmux.notes.store")
 
     static func newAnchorID() -> String {
         "anchor-\(UUID().uuidString.lowercased())"
@@ -451,6 +452,113 @@ enum CmuxNoteStore {
     }
 
     static func createOrOpen(
+        slug rawSlug: String?,
+        title rawTitle: String? = nil,
+        projectRoot: String,
+        createIfMissing: Bool,
+        attachment target: CmuxNoteAttachmentTarget? = nil,
+        preferAttachedExisting: Bool = false
+    ) throws -> CmuxNoteStoreResult {
+        try withStoreLock {
+            try createOrOpenUnlocked(
+                slug: rawSlug,
+                title: rawTitle,
+                projectRoot: projectRoot,
+                createIfMissing: createIfMissing,
+                attachment: target,
+                preferAttachedExisting: preferAttachedExisting
+            )
+        }
+    }
+
+    static func list(projectRoot: String) -> [CmuxNoteRecord] {
+        storageQueue.sync {
+            (try? loadIndex(projectRoot: projectRoot).notes.sorted(by: { lhs, rhs in
+                noteMTime(lhs, projectRoot: projectRoot) > noteMTime(rhs, projectRoot: projectRoot)
+            })) ?? []
+        }
+    }
+
+    static func path(slug rawSlug: String, projectRoot: String) throws -> (note: CmuxNoteRecord, path: String, exists: Bool) {
+        try withStoreLock {
+            let slug = try NoteSupport.validateSlug(rawSlug)
+            let index = try loadIndex(projectRoot: projectRoot)
+            guard let note = index.notes.first(where: { $0.slug == slug }) else {
+                throw CmuxNoteStoreError.noteNotFound(slug: slug)
+            }
+            let path = noteBodyPath(for: note, projectRoot: projectRoot)
+            return (note, path, NoteSupport.noteFileExists(atPath: path))
+        }
+    }
+
+    static func read(slug rawSlug: String, projectRoot: String) throws -> CmuxNoteReadResult {
+        try withStoreLock {
+            let resolved = try pathUnlocked(slug: rawSlug, projectRoot: projectRoot)
+            try requireExistingBodyFile(atPath: resolved.path, slug: resolved.note.slug)
+            let content = try String(contentsOfFile: resolved.path, encoding: .utf8)
+            return CmuxNoteReadResult(note: resolved.note, path: resolved.path, content: content)
+        }
+    }
+
+    static func write(
+        slug rawSlug: String,
+        title rawTitle: String? = nil,
+        content: String,
+        projectRoot: String,
+        createIfMissing: Bool = true
+    ) throws -> CmuxNoteWriteResult {
+        try withStoreLock {
+            try writeContentUnlocked(
+                slug: rawSlug,
+                title: rawTitle,
+                content: content,
+                projectRoot: projectRoot,
+                createIfMissing: createIfMissing,
+                append: false
+            )
+        }
+    }
+
+    static func append(
+        slug rawSlug: String,
+        title rawTitle: String? = nil,
+        content: String,
+        projectRoot: String,
+        createIfMissing: Bool = true
+    ) throws -> CmuxNoteWriteResult {
+        try withStoreLock {
+            try writeContentUnlocked(
+                slug: rawSlug,
+                title: rawTitle,
+                content: content,
+                projectRoot: projectRoot,
+                createIfMissing: createIfMissing,
+                append: true
+            )
+        }
+    }
+
+    @discardableResult
+    static func delete(slug rawSlug: String, projectRoot: String) throws -> Bool {
+        try withStoreLock {
+            let slug = try NoteSupport.validateSlug(rawSlug)
+            var index = try loadIndex(projectRoot: projectRoot)
+            guard let noteIndex = index.notes.firstIndex(where: { $0.slug == slug }) else {
+                return false
+            }
+            let note = index.notes.remove(at: noteIndex)
+            let path = noteBodyPath(for: note, projectRoot: projectRoot)
+            try writeIndex(index, projectRoot: projectRoot)
+            let deletedFile = try deleteBodyIfPresent(atPath: path)
+            return deletedFile || !NoteSupport.noteFileExists(atPath: path)
+        }
+    }
+
+    private static func withStoreLock<T>(_ work: () throws -> T) rethrows -> T {
+        try storageQueue.sync(execute: work)
+    }
+
+    private static func createOrOpenUnlocked(
         slug rawSlug: String?,
         title rawTitle: String? = nil,
         projectRoot: String,
@@ -515,13 +623,7 @@ enum CmuxNoteStore {
         return CmuxNoteStoreResult(note: record, path: path, created: true, attached: target != nil)
     }
 
-    static func list(projectRoot: String) -> [CmuxNoteRecord] {
-        (try? loadIndex(projectRoot: projectRoot).notes.sorted(by: { lhs, rhs in
-            noteMTime(lhs, projectRoot: projectRoot) > noteMTime(rhs, projectRoot: projectRoot)
-        })) ?? []
-    }
-
-    static func path(slug rawSlug: String, projectRoot: String) throws -> (note: CmuxNoteRecord, path: String, exists: Bool) {
+    private static func pathUnlocked(slug rawSlug: String, projectRoot: String) throws -> (note: CmuxNoteRecord, path: String, exists: Bool) {
         let slug = try NoteSupport.validateSlug(rawSlug)
         let index = try loadIndex(projectRoot: projectRoot)
         guard let note = index.notes.first(where: { $0.slug == slug }) else {
@@ -529,61 +631,6 @@ enum CmuxNoteStore {
         }
         let path = noteBodyPath(for: note, projectRoot: projectRoot)
         return (note, path, NoteSupport.noteFileExists(atPath: path))
-    }
-
-    static func read(slug rawSlug: String, projectRoot: String) throws -> CmuxNoteReadResult {
-        let resolved = try path(slug: rawSlug, projectRoot: projectRoot)
-        try requireExistingBodyFile(atPath: resolved.path, slug: resolved.note.slug)
-        let content = try String(contentsOfFile: resolved.path, encoding: .utf8)
-        return CmuxNoteReadResult(note: resolved.note, path: resolved.path, content: content)
-    }
-
-    static func write(
-        slug rawSlug: String,
-        title rawTitle: String? = nil,
-        content: String,
-        projectRoot: String,
-        createIfMissing: Bool = true
-    ) throws -> CmuxNoteWriteResult {
-        try writeContent(
-            slug: rawSlug,
-            title: rawTitle,
-            content: content,
-            projectRoot: projectRoot,
-            createIfMissing: createIfMissing,
-            append: false
-        )
-    }
-
-    static func append(
-        slug rawSlug: String,
-        title rawTitle: String? = nil,
-        content: String,
-        projectRoot: String,
-        createIfMissing: Bool = true
-    ) throws -> CmuxNoteWriteResult {
-        try writeContent(
-            slug: rawSlug,
-            title: rawTitle,
-            content: content,
-            projectRoot: projectRoot,
-            createIfMissing: createIfMissing,
-            append: true
-        )
-    }
-
-    @discardableResult
-    static func delete(slug rawSlug: String, projectRoot: String) throws -> Bool {
-        let slug = try NoteSupport.validateSlug(rawSlug)
-        var index = try loadIndex(projectRoot: projectRoot)
-        guard let noteIndex = index.notes.firstIndex(where: { $0.slug == slug }) else {
-            return false
-        }
-        let note = index.notes.remove(at: noteIndex)
-        let path = noteBodyPath(for: note, projectRoot: projectRoot)
-        let deletedFile = try deleteBodyIfPresent(atPath: path)
-        try writeIndex(index, projectRoot: projectRoot)
-        return deletedFile || !NoteSupport.noteFileExists(atPath: path)
     }
 
     private static func ensureResult(
@@ -615,7 +662,7 @@ enum CmuxNoteStore {
         return CmuxNoteStoreResult(note: note, path: path, created: false, attached: didAttach)
     }
 
-    private static func writeContent(
+    private static func writeContentUnlocked(
         slug rawSlug: String,
         title rawTitle: String?,
         content: String,
@@ -623,7 +670,7 @@ enum CmuxNoteStore {
         createIfMissing: Bool,
         append: Bool
     ) throws -> CmuxNoteWriteResult {
-        let opened = try createOrOpen(
+        let opened = try createOrOpenUnlocked(
             slug: rawSlug,
             title: rawTitle,
             projectRoot: projectRoot,
@@ -640,7 +687,7 @@ enum CmuxNoteStore {
             try content.write(toFile: opened.path, atomically: true, encoding: .utf8)
         }
 
-        let updatedNote = try updateNoteMetadata(
+        let updatedNote = try updateNoteMetadataUnlocked(
             noteID: opened.note.id,
             projectRoot: projectRoot
         ) { note in
@@ -653,7 +700,7 @@ enum CmuxNoteStore {
         )
     }
 
-    private static func updateNoteMetadata(
+    private static func updateNoteMetadataUnlocked(
         noteID: String,
         projectRoot: String,
         update: (inout CmuxNoteRecord) -> Void

@@ -315,11 +315,45 @@ extension TerminalController {
         // default; preview remains one click away in the panel toolbar.
         let openInTextMode = true
         let notePath = noteResult.path
-        let canonicalNotePath = (notePath as NSString).standardizingPath
+        let standardizedNotePath = (notePath as NSString).standardizingPath
         let note = noteResult.note
         let hasRequestedAttachment = resolvedAttachment.map { target in
             note.attachments.contains(where: { $0.matches(target) })
         } ?? false
+        struct NoteReuseCandidate {
+            let panelId: UUID
+            let filePath: String
+            let noteID: String?
+            let noteBodyPath: String?
+        }
+        let reuseCandidates = v2MainSync { () -> [NoteReuseCandidate] in
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let ws = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                return []
+            }
+            return ws.panels.compactMap { panelId, panel in
+                guard let md = panel as? MarkdownPanel else { return nil }
+                return NoteReuseCandidate(
+                    panelId: panelId,
+                    filePath: md.filePath,
+                    noteID: md.noteID,
+                    noteBodyPath: md.noteBodyPath
+                )
+            }
+        }
+        var resolvedNotePath: String?
+        let reusablePanelId = reuseCandidates.first { candidate in
+            if (candidate.filePath as NSString).standardizingPath == standardizedNotePath {
+                return true
+            }
+            guard candidate.noteID == note.id || candidate.noteBodyPath == note.bodyPath else {
+                return false
+            }
+            if resolvedNotePath == nil {
+                resolvedNotePath = (notePath as NSString).resolvingSymlinksInPath
+            }
+            return (candidate.filePath as NSString).resolvingSymlinksInPath == resolvedNotePath
+        }?.panelId
 
         v2MainSync {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
@@ -342,50 +376,46 @@ extension TerminalController {
             // Reuse an existing markdown panel that already shows this note,
             // so repeated `cmux note open <slug>` focuses rather than spawns
             // duplicates. Mirrors openOrFocusMarkdownSurface semantics.
-            for (existingId, existingPanel) in ws.panels {
-                guard let md = existingPanel as? MarkdownPanel else { continue }
-                let matchesProjectNote = md.noteID == note.id || md.noteBodyPath == note.bodyPath
-                let matchesPath = (md.filePath as NSString).standardizingPath == canonicalNotePath
-                if matchesProjectNote || matchesPath {
-                    md.markAsProjectNote(
-                        slug: note.slug,
-                        id: note.id,
-                        bodyPath: note.bodyPath,
-                        title: note.title
-                    )
-                    if openInTextMode {
-                        md.setDisplayMode(.text, focusTextEditor: resolvedFocusAllowed)
-                    }
-                    if resolvedFocusAllowed {
-                        ws.focusPanel(existingId)
-                    }
-                    let targetPaneUUID = ws.paneId(forPanelId: existingId)?.id
-                    let windowId = v2ResolveWindowId(tabManager: tabManager)
-                    var payload = noteRecordPayload(note: note, path: notePath)
-                    payload.merge([
-                        "window_id": v2OrNull(windowId?.uuidString),
-                        "window_ref": v2Ref(kind: .window, uuid: windowId),
-                        "workspace_id": ws.id.uuidString,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                        "pane_id": v2OrNull(targetPaneUUID?.uuidString),
-                        "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
-                        "surface_id": existingId.uuidString,
-                        "surface_ref": v2Ref(kind: .surface, uuid: existingId),
-                        "source_surface_id": sourceSurfaceId.uuidString,
-                        "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
-                        "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
-                        "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
-                        "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
-                        "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
-                        "project_root": projectRoot,
-                        "created": noteResult.created,
-                        "attached": hasRequestedAttachment,
-                        "attachment_created": noteResult.attached,
-                        "reused": true
-                    ]) { _, new in new }
-                    result = .ok(payload)
-                    return
+            if let existingId = reusablePanelId,
+               let md = ws.panels[existingId] as? MarkdownPanel {
+                md.markAsProjectNote(
+                    slug: note.slug,
+                    id: note.id,
+                    bodyPath: note.bodyPath,
+                    title: note.title
+                )
+                if openInTextMode {
+                    md.setDisplayMode(.text, focusTextEditor: resolvedFocusAllowed)
                 }
+                if resolvedFocusAllowed {
+                    ws.focusPanel(existingId)
+                }
+                let targetPaneUUID = ws.paneId(forPanelId: existingId)?.id
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                var payload = noteRecordPayload(note: note, path: notePath)
+                payload.merge([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                    "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                    "surface_id": existingId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: existingId),
+                    "source_surface_id": sourceSurfaceId.uuidString,
+                    "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
+                    "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
+                    "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
+                    "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                    "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                    "project_root": projectRoot,
+                    "created": noteResult.created,
+                    "attached": hasRequestedAttachment,
+                    "attachment_created": noteResult.attached,
+                    "reused": true
+                ]) { _, new in new }
+                result = .ok(payload)
+                return
             }
 
             let createdPanel = ws.newMarkdownSplit(
