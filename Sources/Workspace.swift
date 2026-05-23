@@ -10133,6 +10133,63 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func syncBonsplitTabPresentationState(forPanelIds panelIds: Set<UUID>) {
+        guard !panelIds.isEmpty else { return }
+        let notificationStore = AppDelegate.shared?.notificationStore
+        let isWorkspaceManuallyUnread = notificationStore?.hasManualUnread(forTabId: id) ?? false
+        let workspaceManualUnreadPanelId = isWorkspaceManuallyUnread
+            ? representativePanelIdForWorkspaceManualUnread()
+            : nil
+
+        for panelId in panelIds {
+            syncBonsplitTabPresentationState(
+                forPanelId: panelId,
+                notificationStore: notificationStore,
+                isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                workspaceManualUnreadPanelId: workspaceManualUnreadPanelId
+            )
+        }
+    }
+
+    func syncBonsplitTabPresentationStateForAllPanels() {
+        syncBonsplitTabPresentationState(forPanelIds: Set(panels.keys))
+    }
+
+    private func syncBonsplitTabPresentationState(
+        forPanelId panelId: UUID,
+        notificationStore: TerminalNotificationStore?,
+        isWorkspaceManuallyUnread: Bool,
+        workspaceManualUnreadPanelId: UUID?
+    ) {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let expectedKind = panelKind(panelId: panelId)
+        let expectedPinned = isPanelPinned(panelId)
+        let shouldShowUnread = Self.shouldShowUnreadIndicator(
+            hasUnreadNotification: notificationStore?.hasVisibleNotificationIndicator(
+                forTabId: id,
+                surfaceId: panelId
+            ) ?? false,
+            hasPanelUnreadIndicator: manualUnreadPanelIds.contains(panelId) || restoredUnreadPanelIds.contains(panelId),
+            isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+            isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
+        )
+        let kindUpdate: String?? = expectedKind.map { .some($0) }
+
+        guard let tab = bonsplitController.tab(tabId) else { return }
+        guard tab.showsNotificationBadge != shouldShowUnread ||
+            tab.isPinned != expectedPinned ||
+            (expectedKind != nil && tab.kind != expectedKind) else {
+            return
+        }
+
+        bonsplitController.updateTab(
+            tabId,
+            kind: kindUpdate,
+            showsNotificationBadge: shouldShowUnread,
+            isPinned: expectedPinned
+        )
+    }
+
     private func hasUnreadNotification(panelId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.hasVisibleNotificationIndicator(forTabId: id, surfaceId: panelId) ?? false
     }
@@ -10163,24 +10220,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func syncUnreadBadgeStateForPanel(_ panelId: UUID) {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
-        let notificationStore = AppDelegate.shared?.notificationStore
-        let shouldShowUnread = Self.shouldShowUnreadIndicator(
-            hasUnreadNotification: hasUnreadNotification(panelId: panelId),
-            hasPanelUnreadIndicator: manualUnreadPanelIds.contains(panelId) || restoredUnreadPanelIds.contains(panelId),
-            isWorkspaceManuallyUnread: notificationStore?.hasManualUnread(forTabId: id) ?? false,
-            isWorkspaceManualUnreadRepresentative: representativePanelIdForWorkspaceManualUnread() == panelId
-        )
-        if let existing = bonsplitController.tab(tabId), existing.showsNotificationBadge == shouldShowUnread {
-            return
-        }
-        bonsplitController.updateTab(tabId, showsNotificationBadge: shouldShowUnread)
+        syncBonsplitTabPresentationState(forPanelIds: [panelId])
     }
 
     private func syncUnreadBadgeStateForAllPanels() {
-        for panelId in panels.keys {
-            syncUnreadBadgeStateForPanel(panelId)
-        }
+        syncBonsplitTabPresentationStateForAllPanels()
     }
 
     func syncPanelDerivedWorkspaceUnread() {

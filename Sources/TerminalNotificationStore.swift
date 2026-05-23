@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import os
 import UserNotifications
@@ -739,6 +740,16 @@ struct TerminalNotification: Identifiable, Hashable {
     }
 }
 
+struct TerminalNotificationBadgeInvalidation: Equatable {
+    enum Scope: Equatable {
+        case panelIds(Set<UUID>)
+        case workspaceManualUnread
+    }
+
+    let tabId: UUID
+    let scope: Scope
+}
+
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -768,6 +779,7 @@ final class TerminalNotificationStore: ObservableObject {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
             refreshUnreadPresentation()
+            publishNotificationBadgeInvalidations(oldValue: oldValue, newValue: notifications)
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
     }
@@ -775,7 +787,10 @@ final class TerminalNotificationStore: ObservableObject {
     // Workspace-level unread drives sidebar workspace badges; pane-level manual
     // unread remains owned by Workspace.manualUnreadPanelIds.
     @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = [] {
-        didSet { refreshUnreadPresentation() }
+        didSet {
+            refreshUnreadPresentation()
+            publishWorkspaceManualUnreadInvalidations(oldValue: oldValue, newValue: manualUnreadWorkspaceIds)
+        }
     }
     @Published private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
@@ -783,7 +798,11 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
-    @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
+    @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:] {
+        didSet {
+            publishFocusedReadIndicatorInvalidations(oldValue: oldValue, newValue: focusedReadIndicatorByTabId)
+        }
+    }
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
 
@@ -831,6 +850,7 @@ final class TerminalNotificationStore: ObservableObject {
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
     private var indexes = NotificationIndexes()
+    private let badgeInvalidationSubject = PassthroughSubject<TerminalNotificationBadgeInvalidation, Never>()
 
     private init() {
         indexes = Self.buildIndexes(for: notifications)
@@ -1275,6 +1295,12 @@ final class TerminalNotificationStore: ObservableObject {
             key: key,
             previousDate: lastNotificationDateByCooldownKey[key]
         )
+    }
+
+    func badgeInvalidations(forTabId tabId: UUID) -> AnyPublisher<TerminalNotificationBadgeInvalidation, Never> {
+        badgeInvalidationSubject
+            .filter { $0.tabId == tabId }
+            .eraseToAnyPublisher()
     }
 
     private func commitCooldownReservation(
@@ -2145,6 +2171,70 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         return indexes
+    }
+
+    private func publishNotificationBadgeInvalidations(
+        oldValue: [TerminalNotification],
+        newValue: [TerminalNotification]
+    ) {
+        let oldPanelIdsByTabId = Self.unreadBadgePanelIdsByTabId(for: oldValue)
+        let newPanelIdsByTabId = Self.unreadBadgePanelIdsByTabId(for: newValue)
+        let tabIds = Set(oldPanelIdsByTabId.keys).union(newPanelIdsByTabId.keys)
+
+        for tabId in tabIds {
+            let changedPanelIds = (oldPanelIdsByTabId[tabId] ?? [])
+                .symmetricDifference(newPanelIdsByTabId[tabId] ?? [])
+            guard !changedPanelIds.isEmpty else { continue }
+            badgeInvalidationSubject.send(
+                TerminalNotificationBadgeInvalidation(tabId: tabId, scope: .panelIds(changedPanelIds))
+            )
+        }
+    }
+
+    private func publishWorkspaceManualUnreadInvalidations(
+        oldValue: Set<UUID>,
+        newValue: Set<UUID>
+    ) {
+        for tabId in oldValue.symmetricDifference(newValue) {
+            badgeInvalidationSubject.send(
+                TerminalNotificationBadgeInvalidation(tabId: tabId, scope: .workspaceManualUnread)
+            )
+        }
+    }
+
+    private func publishFocusedReadIndicatorInvalidations(
+        oldValue: [UUID: UUID],
+        newValue: [UUID: UUID]
+    ) {
+        let tabIds = Set(oldValue.keys).union(newValue.keys)
+        for tabId in tabIds {
+            var changedPanelIds = Set<UUID>()
+            if let oldPanelId = oldValue[tabId] {
+                changedPanelIds.insert(oldPanelId)
+            }
+            if let newPanelId = newValue[tabId] {
+                changedPanelIds.insert(newPanelId)
+            }
+            guard !changedPanelIds.isEmpty else { continue }
+            badgeInvalidationSubject.send(
+                TerminalNotificationBadgeInvalidation(tabId: tabId, scope: .panelIds(changedPanelIds))
+            )
+        }
+    }
+
+    private static func unreadBadgePanelIdsByTabId(
+        for notifications: [TerminalNotification]
+    ) -> [UUID: Set<UUID>] {
+        var panelIdsByTabId: [UUID: Set<UUID>] = [:]
+        for notification in notifications where !notification.isRead {
+            if let surfaceId = notification.surfaceId {
+                panelIdsByTabId[notification.tabId, default: []].insert(surfaceId)
+            }
+            if let panelId = notification.panelId {
+                panelIdsByTabId[notification.tabId, default: []].insert(panelId)
+            }
+        }
+        return panelIdsByTabId
     }
 
     private static func notificationSortPrecedes(_ lhs: TerminalNotification, _ rhs: TerminalNotification) -> Bool {
