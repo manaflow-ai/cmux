@@ -414,8 +414,9 @@ fn run_new(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
 
     println!("Created {id}  [{provider_text}]  {image_text}");
     drop(client);
-    clear_vm_create_idempotency(&idempotency)?;
 
+    // Keep the idempotency record if delegated attach fails, so a retry
+    // reuses the VM that was already created instead of provisioning another.
     let mut vm_args = vec!["shell".to_string(), id];
     if let Some(window) = target_window {
         vm_args.push("--window".to_string());

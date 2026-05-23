@@ -1524,6 +1524,10 @@ final class SocketClient {
         relayEndpoint != nil
     }
 
+    static func isRelaySocketPath(_ raw: String) -> Bool {
+        parseRelayEndpoint(raw) != nil
+    }
+
     func connectionAppearsOpen() -> Bool {
         if relayEndpoint != nil, socketFD < 0 {
             do {
@@ -3099,7 +3103,7 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
 
-        if command == "cloud" {
+        if command == "cloud", !SocketClient.isRelaySocketPath(resolvedSocketPath) {
             try runCloudRustCommand(
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
@@ -3234,7 +3238,7 @@ struct CMUXCLI {
                 throw CLIError(message: "Usage: cmux auth <status|login|logout>")
             }
 
-        case "vm":
+        case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
             let rest = Array(commandArgs.dropFirst())
             switch sub {
