@@ -126,6 +126,11 @@ SENSITIVE_QUERY_KEY_TOKENS = {
     sensitive_key_token(key)
     for key in SENSITIVE_QUERY_KEYS
 }
+URL_RE = re.compile(r"https?://[^\s\"'<>]+")
+SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"\b(?:access_token|api_key|apikey|auth|authorization|bearer|client_secret|code|cookie|id_token|key|password|refresh_token|session|session_token|sig|signature|token)=([^&\s\"'<>]+)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -317,6 +322,12 @@ def sanitize_url(value: str) -> str:
         query,
         "",
     ))
+
+
+def sanitize_failure_line(value: str) -> str:
+    text = URL_RE.sub(lambda match: sanitize_url(match.group(0)), value)
+    text = sanitize_text(text)
+    return SENSITIVE_ASSIGNMENT_RE.sub("<redacted-secret-param>", text)
 
 
 def is_reasoning_json_value(value: Any) -> bool:
@@ -846,9 +857,9 @@ def capture_agent(
     if return_code != 0 or not marker_observed or not entries:
         reason_parts = [f"exit={return_code}", f"marker={marker_observed}", f"entries={len(entries)}"]
         if stderr_text.strip():
-            reason_parts.append(sanitize_text(stderr_text.strip()).splitlines()[0][:200])
+            reason_parts.append(sanitize_failure_line(stderr_text.strip()).splitlines()[0][:200])
         if stdout_text.strip() and not marker_observed:
-            reason_parts.append(sanitize_text(stdout_text.strip()).splitlines()[0][:200])
+            reason_parts.append(sanitize_failure_line(stdout_text.strip()).splitlines()[0][:200])
         return None, {"agent": spec.agent, "reason": "; ".join(reason_parts)}
 
     capture = {
