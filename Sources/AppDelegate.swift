@@ -4168,13 +4168,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
-        if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
-            isTerminatingApp: isTerminatingApp,
-            didApplyStartupSessionRestore: didApplyStartupSessionRestore,
-            isApplyingSessionRestore: isApplyingSessionRestore
-        ) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+        let registeredContextRole = mainWindowContexts[key]?.role ?? role
+        if registeredContextRole.isSessionRestorable {
+            let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
+            if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: isTerminatingApp,
+                didApplyStartupSessionRestore: didApplyStartupSessionRestore,
+                isApplyingSessionRestore: isApplyingSessionRestore
+            ) {
+                saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+            }
         }
     }
 

@@ -66,14 +66,6 @@ final class GlobalHotkeyPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    override func keyDown(with event: NSEvent) {
-        if ShortcutStroke.isEscapeCancelEvent(event) {
-            cancelOperation(nil)
-            return
-        }
-        super.keyDown(with: event)
-    }
-
     override func cancelOperation(_ sender: Any?) {
         onCancel?()
     }
