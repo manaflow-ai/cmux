@@ -17,12 +17,19 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
 
     func testSuggestionRefreshSchedulerCoalescesTypingBurst() {
         let scheduler = OmnibarSuggestionRefreshScheduler(debounceDelay: .milliseconds(40))
-        let settled = expectation(description: "debounced refresh window settled")
+        let firstRefresh = expectation(description: "first debounced refresh emitted")
+        let noExtraRefresh = expectation(description: "no extra refresh emitted")
+        noExtraRefresh.isInverted = true
         var refreshCount = 0
 
         scheduler.refreshPublisher
             .sink {
                 refreshCount += 1
+                if refreshCount == 1 {
+                    firstRefresh.fulfill()
+                } else {
+                    noExtraRefresh.fulfill()
+                }
             }
             .store(in: &cancellables)
 
@@ -30,10 +37,7 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
             scheduler.scheduleRefresh()
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) {
-            settled.fulfill()
-        }
-        wait(for: [settled], timeout: 1)
+        wait(for: [firstRefresh, noExtraRefresh], timeout: 0.3)
 
         XCTAssertEqual(
             refreshCount,
@@ -44,22 +48,21 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
 
     func testSuggestionRefreshSchedulerCancelsPendingRefresh() {
         let scheduler = OmnibarSuggestionRefreshScheduler(debounceDelay: .milliseconds(40))
-        let settled = expectation(description: "pending refresh cancellation settled")
+        let noRefresh = expectation(description: "no refresh after cancellation")
+        noRefresh.isInverted = true
         var refreshCount = 0
 
         scheduler.refreshPublisher
             .sink {
                 refreshCount += 1
+                noRefresh.fulfill()
             }
             .store(in: &cancellables)
 
         scheduler.scheduleRefresh()
         scheduler.cancelPendingRefresh()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) {
-            settled.fulfill()
-        }
-        wait(for: [settled], timeout: 1)
+        wait(for: [noRefresh], timeout: 0.2)
 
         XCTAssertEqual(refreshCount, 0)
     }
