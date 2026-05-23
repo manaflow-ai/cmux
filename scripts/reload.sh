@@ -524,9 +524,12 @@ fi
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
 python3 -c '
+import array
 import fcntl
 import os
+import select
 import signal
+import socket
 import sys
 
 lock_dir = sys.argv[1]
@@ -539,55 +542,109 @@ try:
 except OSError as exc:
     raise SystemExit(f"error: create lock dir: {exc}")
 
-def next_ticket():
-    counter_path = os.path.join(lock_dir, "counter")
+def open_slot(slot):
+    lock_path = os.path.join(lock_dir, f"slot-{slot}.lock")
     try:
-        fd = os.open(counter_path, os.O_CREAT | os.O_RDWR, 0o600)
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     except OSError as exc:
-        raise SystemExit(f"error: open lock counter: {exc}")
+        raise SystemExit(f"error: open lock slot: {exc}")
 
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        raw = os.read(fd, 64).decode().strip()
-        current = int(raw) if raw else 0
-        os.lseek(fd, 0, os.SEEK_SET)
-        os.ftruncate(fd, 0)
-        os.write(fd, f"{current + 1}\n".encode())
-        return current
-    except ValueError:
-        raise SystemExit("error: xcodebuild lock counter is corrupt")
+        os.set_inheritable(fd, True)
     except OSError as exc:
-        raise SystemExit(f"error: update lock counter: {exc}")
-    finally:
+        os.close(fd)
+        raise SystemExit(f"error: fcntl lock fd: {exc}")
+    return fd, lock_path
+
+def try_acquire_any_slot():
+    for slot in range(1, concurrency + 1):
+        fd, lock_path = open_slot(slot)
         try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd, slot, lock_path
+        except BlockingIOError:
             os.close(fd)
+        except OSError as exc:
+            os.close(fd)
+            raise SystemExit(f"error: flock: {exc}")
+    return None, None, None
+
+def stop_waiters(children):
+    for pid in children:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            pass
+    for pid in children:
+        try:
+            os.waitpid(pid, 0)
+        except ChildProcessError:
+            pass
         except OSError:
             pass
 
-def timeout_handler(signum, frame):
-    raise TimeoutError()
+def wait_for_any_slot():
+    parent_sock, child_sock = socket.socketpair()
+    children = []
+    try:
+        for slot in range(1, concurrency + 1):
+            pid = os.fork()
+            if pid == 0:
+                parent_sock.close()
+                fd, _ = open_slot(slot)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+                    payload = array.array("i", [fd])
+                    child_sock.sendmsg(
+                        [f"{slot}".encode()],
+                        [(socket.SOL_SOCKET, socket.SCM_RIGHTS, payload)],
+                    )
+                except BaseException:
+                    os._exit(1)
+                os._exit(0)
+            children.append(pid)
+        child_sock.close()
 
-ticket = next_ticket()
-slot = (ticket % concurrency) + 1
-lock_path = os.path.join(lock_dir, f"slot-{slot}.lock")
-try:
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-except OSError as exc:
-    raise SystemExit(f"error: open lock slot: {exc}")
+        ready, _, _ = select.select([parent_sock], [], [], wait_seconds)
+        if not ready:
+            raise SystemExit(
+                f"error: timed out waiting for xcodebuild slot after {wait_seconds}s; "
+                "check for stuck xcodebuild processes"
+            )
 
-try:
-    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-    fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
-except OSError as exc:
-    os.close(fd)
-    raise SystemExit(f"error: fcntl lock fd: {exc}")
+        msg, ancdata, _, _ = parent_sock.recvmsg(
+            16,
+            socket.CMSG_LEN(array.array("i").itemsize),
+        )
+        received = array.array("i")
+        for level, ctype, data in ancdata:
+            if level == socket.SOL_SOCKET and ctype == socket.SCM_RIGHTS:
+                received.frombytes(data[: array.array("i").itemsize])
+        if not received:
+            raise SystemExit("error: failed to receive xcodebuild lock slot")
+        fd = received[0]
+        os.set_inheritable(fd, True)
+        try:
+            slot = int(msg.decode())
+        except ValueError:
+            slot = 0
+        lock_path = os.path.join(lock_dir, f"slot-{slot}.lock")
+        return fd, slot, lock_path
+    finally:
+        stop_waiters(children)
+        parent_sock.close()
+        try:
+            child_sock.close()
+        except OSError:
+            pass
 
-try:
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except BlockingIOError:
+fd, slot, lock_path = try_acquire_any_slot()
+if fd is None:
     msg = (
         f"==> xcodebuild concurrency limit reached ({concurrency}); "
-        f"waiting for slot {slot}/{concurrency}...\n"
+        "waiting for the next available slot...\n"
     )
     # reload.sh saves the original stderr on fd 4 before redirecting to the
     # log file. Surface the wait notice to the terminal so the user knows
@@ -598,25 +655,7 @@ except BlockingIOError:
     except OSError:
         sys.stderr.write(msg)
         sys.stderr.flush()
-    previous_handler = signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(wait_seconds)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-    except TimeoutError:
-        os.close(fd)
-        raise SystemExit(
-            f"error: timed out waiting for xcodebuild slot after {wait_seconds}s "
-            f"(slot {slot}/{concurrency}); check for stuck xcodebuild processes"
-        )
-    except OSError as exc:
-        os.close(fd)
-        raise SystemExit(f"error: flock: {exc}")
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, previous_handler)
-except OSError as exc:
-    os.close(fd)
-    raise SystemExit(f"error: flock: {exc}")
+    fd, slot, lock_path = wait_for_any_slot()
 
 try:
     os.execvp(command[0], command)
