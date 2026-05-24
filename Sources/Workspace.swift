@@ -10725,7 +10725,8 @@ final class Workspace: Identifiable, ObservableObject {
             guard panelRemoteSessions[panelId] != session else { return }
             panelRemoteSessions[panelId] = session
         } else {
-            guard panelRemoteSessions.removeValue(forKey: panelId) != nil else { return }
+            guard panelRemoteSessions[panelId] != nil else { return }
+            panelRemoteSessions.removeValue(forKey: panelId)
         }
 
         syncPanelPresentationTitle(panelId: panelId)
@@ -10751,7 +10752,8 @@ final class Workspace: Identifiable, ObservableObject {
     func updatePanelDirectory(panelId: UUID, directory: String) {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        if !isRemoteWorkspace, panelRemoteSessions.removeValue(forKey: panelId) != nil {
+        if !isRemoteWorkspace, panelRemoteSessions[panelId] != nil {
+            panelRemoteSessions.removeValue(forKey: panelId)
             syncPanelPresentationTitle(panelId: panelId)
         }
         if panelDirectories[panelId] != trimmed {
@@ -11121,7 +11123,10 @@ final class Workspace: Identifiable, ObservableObject {
             removePendingTerminalInputObservers(forPanelId: panelId)
         }
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
-        panelRemoteSessions = panelRemoteSessions.filter { validSurfaceIds.contains($0.key) }
+        let prunedPanelRemoteSessions = panelRemoteSessions.filter { validSurfaceIds.contains($0.key) }
+        if prunedPanelRemoteSessions != panelRemoteSessions {
+            panelRemoteSessions = prunedPanelRemoteSessions
+        }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
