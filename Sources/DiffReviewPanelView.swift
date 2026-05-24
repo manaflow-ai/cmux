@@ -192,16 +192,27 @@ private struct DiffReviewSummaryRow: View {
 
 enum DiffReviewSummaryFormatter {
     static func summaryText(snapshot: DiffReviewSnapshot) -> String {
-        let fileCount = Int64(snapshot.files.count)
+        let rawFileCount = snapshot.files.count
+        let fileCount = Int64(rawFileCount)
         let branchLabel = snapshot.selectedTarget.branchName ?? snapshot.currentBranch
         if let branchLabel, !branchLabel.isEmpty {
+            if rawFileCount == 1 {
+                let format = String(
+                    localized: "diffReview.summary.withBranch.one",
+                    defaultValue: "1 file on %@"
+                )
+                return String.localizedStringWithFormat(format, branchLabel)
+            }
             let format = String(
-                localized: "diffReview.summary.withBranch",
+                localized: "diffReview.summary.withBranch.other",
                 defaultValue: "%1$lld files on %2$@"
             )
             return String.localizedStringWithFormat(format, fileCount, branchLabel)
         }
-        let format = String(localized: "diffReview.summary.files", defaultValue: "%lld files")
+        if rawFileCount == 1 {
+            return String(localized: "diffReview.summary.files.one", defaultValue: "1 file")
+        }
+        let format = String(localized: "diffReview.summary.files.other", defaultValue: "%lld files")
         return String.localizedStringWithFormat(format, fileCount)
     }
 }

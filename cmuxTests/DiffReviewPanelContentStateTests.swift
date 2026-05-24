@@ -87,6 +87,42 @@ final class DiffReviewPanelContentStateTests: XCTestCase {
         XCTAssertFalse(summary.contains("feature"))
     }
 
+    func testSummaryFormatterUsesSingularFileLabel() {
+        let snapshot = DiffReviewSnapshot(
+            repositoryRoot: "/repo",
+            currentBranch: nil,
+            branches: [],
+            selectedTarget: .workingTree,
+            files: [
+                DiffReviewFile(
+                    id: "Sources/App.swift",
+                    path: "Sources/App.swift",
+                    oldPath: nil,
+                    status: .modified,
+                    hunks: [],
+                    addedLineCount: 0,
+                    deletedLineCount: 0
+                )
+            ],
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let summary = DiffReviewSummaryFormatter.summaryText(snapshot: snapshot)
+
+        XCTAssertTrue(summary.contains("1 file"))
+        XCTAssertFalse(summary.contains("1 files"))
+    }
+
+    func testGitFailureMessagesAreActionSpecificAndSanitized() {
+        let revertMessage = DiffReviewGitError.commandFailed(.hunkRevertFailed).localizedDescription
+        let diffMessage = DiffReviewGitError.commandFailed(.diffUnavailable).localizedDescription
+
+        XCTAssertTrue(revertMessage.contains("Refresh"))
+        XCTAssertTrue(diffMessage.contains("comparison"))
+        XCTAssertFalse(revertMessage.contains("patch failed"))
+        XCTAssertFalse(diffMessage.contains("fatal:"))
+    }
+
     @MainActor
     func testStopObservingClearsCancelledInitialLoadingState() {
         let store = DiffReviewStore()

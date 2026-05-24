@@ -2,18 +2,32 @@ import Foundation
 
 enum DiffReviewGitError: LocalizedError, Equatable, Sendable {
     case notGitRepository
-    case commandFailed(String)
+    case commandFailed(DiffReviewGitFailureReason)
 
     var errorDescription: String? {
         switch self {
         case .notGitRepository:
             return String(localized: "diffReview.error.notGitRepository", defaultValue: "The selected workspace is not a git repository.")
-        case .commandFailed(let detail):
-            return detail.isEmpty
-                ? String(localized: "diffReview.error.gitFailed", defaultValue: "Git command failed.")
-                : detail
+        case .commandFailed(.diffUnavailable):
+            return String(
+                localized: "diffReview.error.diffUnavailable",
+                defaultValue: "Could not load the selected comparison. Refresh Review or choose another base."
+            )
+        case .commandFailed(.hunkRevertFailed):
+            return String(
+                localized: "diffReview.error.hunkRevertFailed",
+                defaultValue: "Could not revert that hunk. Refresh Review and try again."
+            )
+        case .commandFailed(.generic):
+            return String(localized: "diffReview.error.gitFailed", defaultValue: "Git command failed.")
         }
     }
+}
+
+enum DiffReviewGitFailureReason: Equatable, Sendable {
+    case generic
+    case diffUnavailable
+    case hunkRevertFailed
 }
 
 enum DiffReviewGitClient {
@@ -29,7 +43,8 @@ enum DiffReviewGitClient {
                 in: repositoryRoot,
                 arguments: ["apply", "-R", "--whitespace=nowarn", "-"],
                 standardInput: patch,
-                acceptedStatuses: [0]
+                acceptedStatuses: [0],
+                failureReason: .hunkRevertFailed
             )
         }.value
     }
@@ -115,7 +130,8 @@ enum DiffReviewGitClient {
         let trackedOutput = try await runGit(
             in: repositoryRoot,
             arguments: trackedDiffArguments,
-            acceptedStatuses: [0, 1]
+            acceptedStatuses: [0, 1],
+            failureReason: .diffUnavailable
         ).stdout
         guard selectedTarget == .workingTree, !untrackedPaths.isEmpty else {
             return trackedOutput
@@ -165,7 +181,8 @@ enum DiffReviewGitClient {
         in directory: String,
         arguments: [String],
         standardInput: String? = nil,
-        acceptedStatuses: Set<Int32> = [0]
+        acceptedStatuses: Set<Int32> = [0],
+        failureReason: DiffReviewGitFailureReason = .generic
     ) async throws -> GitCommandResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -211,15 +228,13 @@ enum DiffReviewGitClient {
                 stderr: String(data: error, encoding: .utf8) ?? ""
             )
             guard acceptedStatuses.contains(result.status) else {
-                throw DiffReviewGitError.commandFailed(
-                    String(localized: "diffReview.error.gitFailed", defaultValue: "Git command failed.")
-                )
+                throw DiffReviewGitError.commandFailed(failureReason)
             }
             return result
         } catch let error as DiffReviewGitError {
             throw error
         } catch {
-            throw DiffReviewGitError.commandFailed(error.localizedDescription)
+            throw DiffReviewGitError.commandFailed(.generic)
         }
     }
 
