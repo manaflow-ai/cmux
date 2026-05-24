@@ -3589,52 +3589,46 @@ final class BrowserPanel: Panel, ObservableObject {
         // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
         // callbacks), then show NSSavePanel after the download completes.
         let dlDelegate = BrowserDownloadDelegate()
-        dlDelegate.onDownloadStarted = { [weak self] filename in
+        let postDownloadEvent: ([String: Any]) -> Void = { [weak self] event in
             guard let self else { return }
-            self.beginDownloadActivity()
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,
                 userInfo: [
                     "surfaceId": self.id,
                     "workspaceId": self.workspaceId,
-                    "event": [
-                        "type": "started",
-                        "filename": filename
-                    ]
+                    "event": event
                 ]
             )
+        }
+        dlDelegate.onDownloadStarted = { [weak self] filename in
+            guard let self else { return }
+            self.beginDownloadActivity()
+            postDownloadEvent([
+                "type": "started",
+                "filename": filename
+            ])
         }
         dlDelegate.onDownloadReadyToSave = { [weak self] in
             guard let self else { return }
             self.endDownloadActivity()
-            NotificationCenter.default.post(
-                name: .browserDownloadEventDidArrive,
-                object: self,
-                userInfo: [
-                    "surfaceId": self.id,
-                    "workspaceId": self.workspaceId,
-                    "event": [
-                        "type": "ready_to_save"
-                    ]
-                ]
-            )
+            postDownloadEvent([
+                "type": "ready_to_save"
+            ])
         }
         dlDelegate.onDownloadFailed = { [weak self] error in
             guard let self else { return }
             self.endDownloadActivity()
-            NotificationCenter.default.post(
-                name: .browserDownloadEventDidArrive,
-                object: self,
-                userInfo: [
-                    "surfaceId": self.id,
-                    "workspaceId": self.workspaceId,
-                    "event": [
-                        "type": "failed",
-                        "error": error.localizedDescription
-                    ]
-                ]
-            )
+            postDownloadEvent([
+                "type": "failed",
+                "error": error.localizedDescription
+            ])
+        }
+        dlDelegate.onDownloadSaveFailed = { error in
+            postDownloadEvent([
+                "type": "failed",
+                "error": error.localizedDescription
+            ])
         }
         navDelegate.downloadDelegate = dlDelegate
         self.downloadDelegate = dlDelegate
@@ -7236,6 +7230,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     var onDownloadStarted: ((String) -> Void)?
     var onDownloadReadyToSave: (() -> Void)?
     var onDownloadFailed: ((Error) -> Void)?
+    var onDownloadSaveFailed: ((Error) -> Void)?
 
     private static let tempDir: URL = {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
@@ -7405,7 +7400,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                 } catch {
                     NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
                     try? FileManager.default.removeItem(at: info.tempURL)
-                    self.onDownloadFailed?(error)
+                    self.onDownloadSaveFailed?(error)
                 }
             }
 
@@ -7460,7 +7455,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                     try data.write(to: destURL, options: .atomic)
                     NSLog("BrowserPanel PDF preview download saved: %@", destURL.path)
                 } catch {
-                    self.onDownloadFailed?(error)
+                    self.onDownloadSaveFailed?(error)
                     NSLog("BrowserPanel PDF preview download save failed: %@", error.localizedDescription)
                 }
             }
