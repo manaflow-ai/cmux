@@ -16,6 +16,31 @@ EOF
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GHOSTTY_DIR="$REPO_ROOT/ghostty"
+AUTO_SKIP_ZIG_BUILD_REASON=""
+
+should_skip_zig_build() {
+  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+    AUTO_SKIP_ZIG_BUILD_REASON="CMUX_SKIP_ZIG_BUILD=1"
+    return 0
+  fi
+
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    return 1
+  fi
+
+  local product_version zig_version major_version
+  product_version="$(sw_vers -productVersion 2>/dev/null || true)"
+  zig_version="$(zig version 2>/dev/null || true)"
+  major_version="${product_version%%.*}"
+
+  if [[ "$zig_version" == "0.15.2" ]] && [[ "$major_version" =~ ^[0-9]+$ ]] && (( major_version >= 26 )); then
+    AUTO_SKIP_ZIG_BUILD_REASON="macOS ${product_version} + zig ${zig_version}"
+    return 0
+  fi
+
+  AUTO_SKIP_ZIG_BUILD_REASON=""
+  return 1
+}
 
 OUTPUT_PATH=""
 TARGET_TRIPLE=""
@@ -116,8 +141,8 @@ fi
 
 # Allow CI to skip the zig build (e.g., macOS 26 where zig 0.15.2 can't link).
 # Creates a stub binary so the Xcode Run Script file-existence check passes.
-if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
-  echo "Skipping zig CLI helper build (CMUX_SKIP_ZIG_BUILD=1)"
+if should_skip_zig_build; then
+  echo "Skipping zig CLI helper build (${AUTO_SKIP_ZIG_BUILD_REASON})"
   mkdir -p "$(dirname "$OUTPUT_PATH")"
   printf '#!/bin/sh\necho "ghostty CLI helper stub (zig build skipped)" >&2\nexit 1\n' > "$OUTPUT_PATH"
   chmod +x "$OUTPUT_PATH"
