@@ -69,6 +69,51 @@ final class BundledCLILinkageTests: XCTestCase {
         )
     }
 
+    func testAppExecutableForwarderReportsMissingBundledCLIAsCommandNotFound() throws {
+        let fileManager = FileManager.default
+        let missingURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-missing-cli-\(UUID().uuidString)", isDirectory: false)
+
+        let decision = CmuxAppCLIForwarder.decision(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "welcome"],
+            bundledCLIURL: missingURL,
+            expectedBundledCLIPath: missingURL.path,
+            fileManager: fileManager
+        )
+
+        guard case .fail(let message, let exitCode) = decision else {
+            XCTFail("Expected missing CLI to fail, got \(decision)")
+            return
+        }
+        XCTAssertEqual(exitCode, 127)
+        XCTAssertTrue(message.contains(missingURL.path), message)
+    }
+
+    func testAppExecutableForwarderReportsNonExecutableBundledCLIAsCannotExecute() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-app-forwarder-tests-\(UUID().uuidString)", isDirectory: true)
+        let cliURL = root.appendingPathComponent("cmux.app/Contents/Resources/bin/cmux", isDirectory: false)
+        try fileManager.createDirectory(at: cliURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: cliURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: cliURL.path)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let decision = CmuxAppCLIForwarder.decision(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "welcome"],
+            bundledCLIURL: cliURL,
+            expectedBundledCLIPath: cliURL.path,
+            fileManager: fileManager
+        )
+
+        guard case .fail(let message, let exitCode) = decision else {
+            XCTFail("Expected non-executable CLI to fail, got \(decision)")
+            return
+        }
+        XCTAssertEqual(exitCode, 126)
+        XCTAssertTrue(message.contains(cliURL.path), message)
+    }
+
     func testBundledCLIDoesNotDependOnPrivateRPathFrameworks() throws {
         let cliURL = try bundledCLIURL()
         let linkedLibraries = try linkedLibraries(for: cliURL)
