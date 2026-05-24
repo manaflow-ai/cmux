@@ -500,7 +500,7 @@ extension Workspace {
             }()
             let resumeStartupInput = Self.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled() && (agentWasRunning ?? true),
+                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabledForCurrentLaunch() && (agentWasRunning ?? true),
                 promptForApproval: false
             )
             let shouldPersistScrollback = Self.shouldPersistSessionScrollback(
@@ -936,7 +936,7 @@ extension Workspace {
         case .terminal:
             let resumeBinding = snapshot.terminal?.resumeBinding
             let restorableAgent = snapshot.terminal?.agent
-            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
+            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabledForCurrentLaunch()
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true

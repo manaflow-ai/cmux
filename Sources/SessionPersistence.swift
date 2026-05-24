@@ -92,6 +92,8 @@ enum SessionPersistencePolicy {
 }
 
 enum SessionRestorePolicy {
+    // False is consumed as a one-time "skip restore" choice by shouldAttemptRestore.
+    // True and missing both keep the normal restore behavior for future launches.
     static let restoreLayoutOnNextLaunchKey = "session.restoreLayoutOnNextLaunch"
     static let defaultRestoreLayoutOnNextLaunch = true
 
@@ -152,13 +154,16 @@ enum SessionRestorePolicy {
             .dropFirst()
             .filter { !$0.hasPrefix("-psn_") }
 
-        // Any explicit launch argument is treated as an explicit open intent.
-        guard extraArgs.isEmpty else { return false }
-
+        // Consume the one-time restoreLayoutOnNextLaunchKey skip before the
+        // extraArgs guard. Otherwise a Finder/open-with launch would carry the
+        // skip into a later normal launch.
         guard shouldRestoreLayoutOnNextLaunch(defaults: defaults) else {
             defaults.removeObject(forKey: restoreLayoutOnNextLaunchKey)
             return false
         }
+
+        // Any explicit launch argument is treated as an explicit open intent.
+        guard extraArgs.isEmpty else { return false }
         return true
     }
 }
