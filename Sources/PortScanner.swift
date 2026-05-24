@@ -37,6 +37,9 @@ final class PortScanner: @unchecked Sendable {
     /// Workspaces with active agent PID tracking that need background rescans.
     private var trackedAgentWorkspaces: Set<UUID> = []
 
+    /// Last foreground SSH/mosh session state delivered per panel.
+    private var remoteSessionsByPanel: [PanelKey: DetectedRemoteTerminalSession] = [:]
+
     /// Panels that requested a scan since the last coalesce snapshot.
     private var pendingKicks: Set<PanelKey> = []
 
@@ -75,6 +78,7 @@ final class PortScanner: @unchecked Sendable {
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             ttyNames.removeValue(forKey: key)
             pendingKicks.remove(key)
+            remoteSessionsByPanel.removeValue(forKey: key)
         }
     }
 
@@ -257,16 +261,26 @@ final class PortScanner: @unchecked Sendable {
     ) -> [(PanelKey, DetectedRemoteTerminalSession?)] {
         guard onRemoteSessionUpdated != nil else { return [] }
 
-        var sessionsByTTY: [String: DetectedRemoteTerminalSession] = [:]
-        for tty in uniqueTTYs {
-            if let session = TerminalSSHSessionDetector.detectRemoteSession(forTTY: tty) {
-                sessionsByTTY[tty] = session
+        let sessionsByTTY = TerminalSSHSessionDetector.detectRemoteSessions(forTTYs: uniqueTTYs)
+        let validPanelKeys = Set(panelSnapshot.keys)
+        remoteSessionsByPanel = remoteSessionsByPanel.filter { validPanelKeys.contains($0.key) }
+
+        var changedResults: [(PanelKey, DetectedRemoteTerminalSession?)] = []
+        for (key, tty) in panelSnapshot {
+            let normalizedTTY = TerminalSSHSessionDetector.normalizedTTYName(tty)
+            let nextSession = sessionsByTTY[normalizedTTY]
+            let previousSession = remoteSessionsByPanel[key]
+            guard previousSession != nextSession else { continue }
+
+            if let nextSession {
+                remoteSessionsByPanel[key] = nextSession
+            } else {
+                remoteSessionsByPanel.removeValue(forKey: key)
             }
+            changedResults.append((key, nextSession))
         }
 
-        return panelSnapshot.map { entry in
-            (entry.key, sessionsByTTY[entry.value])
-        }
+        return changedResults
     }
 
     private func refreshAgentPortsLocked(workspaceId: UUID, agentPIDs: Set<Int>) {

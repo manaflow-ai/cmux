@@ -554,7 +554,7 @@ enum TerminalSSHSessionDetector {
     }
 
     static func detect(forTTY ttyName: String) -> DetectedSSHSession? {
-        let normalizedTTY = normalizeTTYName(ttyName)
+        let normalizedTTY = normalizedTTYName(ttyName)
         guard !normalizedTTY.isEmpty else { return nil }
         let processes = processSnapshots(forTTY: normalizedTTY)
         guard !processes.isEmpty else { return nil }
@@ -574,20 +574,31 @@ enum TerminalSSHSessionDetector {
     }
 
     static func detectRemoteSession(forTTY ttyName: String) -> DetectedRemoteTerminalSession? {
-        let normalizedTTY = normalizeTTYName(ttyName)
+        let normalizedTTY = normalizedTTYName(ttyName)
         guard !normalizedTTY.isEmpty else { return nil }
-        let processes = processSnapshots(forTTY: normalizedTTY)
-        guard !processes.isEmpty else { return nil }
+        return detectRemoteSessions(forTTYs: [normalizedTTY])[normalizedTTY]
+    }
+
+    static func detectRemoteSessions(forTTYs ttyNames: Set<String>) -> [String: DetectedRemoteTerminalSession] {
+        let normalizedTTYs = Set(ttyNames.map { normalizedTTYName($0) }.filter { !$0.isEmpty })
+        guard !normalizedTTYs.isEmpty else { return [:] }
+        let processes = processSnapshots(forTTYs: normalizedTTYs)
+        guard !processes.isEmpty else { return [:] }
 
         var argumentsByPID: [Int32: [String]] = [:]
-        for process in processes where isForegroundRemoteProcess(process, ttyName: normalizedTTY) {
+        for process in processes {
+            let processTTY = normalizedTTYName(process.tty)
+            guard normalizedTTYs.contains(processTTY),
+                  isForegroundRemoteProcess(process, ttyName: processTTY) else {
+                continue
+            }
             if let args = commandLineArguments(forPID: process.pid) {
                 argumentsByPID[process.pid] = args
             }
         }
 
-        return detectRemoteSessionForTesting(
-            ttyName: normalizedTTY,
+        return detectRemoteSessionsForTesting(
+            ttyNames: normalizedTTYs,
             processes: processes,
             argumentsByPID: argumentsByPID
         )
@@ -598,7 +609,7 @@ enum TerminalSSHSessionDetector {
         processes: [ProcessSnapshot],
         argumentsByPID: [Int32: [String]]
     ) -> DetectedSSHSession? {
-        let normalizedTTY = normalizeTTYName(ttyName)
+        let normalizedTTY = normalizedTTYName(ttyName)
         guard !normalizedTTY.isEmpty else { return nil }
 
         let candidates = processes
@@ -624,7 +635,7 @@ enum TerminalSSHSessionDetector {
         processes: [ProcessSnapshot],
         argumentsByPID: [Int32: [String]]
     ) -> DetectedRemoteTerminalSession? {
-        let normalizedTTY = normalizeTTYName(ttyName)
+        let normalizedTTY = normalizedTTYName(ttyName)
         guard !normalizedTTY.isEmpty else { return nil }
 
         let candidates = processes
@@ -655,6 +666,25 @@ enum TerminalSSHSessionDetector {
         }
 
         return nil
+    }
+
+    static func detectRemoteSessionsForTesting(
+        ttyNames: Set<String>,
+        processes: [ProcessSnapshot],
+        argumentsByPID: [Int32: [String]]
+    ) -> [String: DetectedRemoteTerminalSession] {
+        let normalizedTTYs = Set(ttyNames.map { normalizedTTYName($0) }.filter { !$0.isEmpty })
+        var sessionsByTTY: [String: DetectedRemoteTerminalSession] = [:]
+        for ttyName in normalizedTTYs {
+            if let session = detectRemoteSessionForTesting(
+                ttyName: ttyName,
+                processes: processes,
+                argumentsByPID: argumentsByPID
+            ) {
+                sessionsByTTY[ttyName] = session
+            }
+        }
+        return sessionsByTTY
     }
 
     private static let psPath = "/bin/ps"
@@ -689,7 +719,7 @@ enum TerminalSSHSessionDetector {
         "stdioforward",
     ]
 
-    private static func normalizeTTYName(_ ttyName: String) -> String {
+    static func normalizedTTYName(_ ttyName: String) -> String {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         if let lastComponent = trimmed.split(separator: "/").last {
@@ -709,7 +739,7 @@ enum TerminalSSHSessionDetector {
     }
 
     private static func isForegroundProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
-        normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
+        normalizedTTYName(process.tty) == normalizedTTYName(ttyName) &&
             process.pgid > 0 &&
             process.tpgid > 0 &&
             process.pgid == process.tpgid
@@ -720,6 +750,41 @@ enum TerminalSSHSessionDetector {
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: psPath)
         process.arguments = ["-ww", "-t", ttyName, "-o", "pid=,pgid=,tpgid=,tty=,ucomm="]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return []
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0,
+              let output = String(data: data, encoding: .utf8) else {
+            return []
+        }
+
+        return output
+            .split(separator: "\n")
+            .compactMap(parseProcessSnapshot)
+    }
+
+    private static func processSnapshots(forTTYs ttyNames: Set<String>) -> [ProcessSnapshot] {
+        let normalizedTTYs = ttyNames.map { normalizedTTYName($0) }.filter { !$0.isEmpty }
+        guard !normalizedTTYs.isEmpty else { return [] }
+
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: psPath)
+        process.arguments = [
+            "-ww",
+            "-t", normalizedTTYs.sorted().joined(separator: ","),
+            "-o", "pid=,pgid=,tpgid=,tty=,ucomm=",
+        ]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
