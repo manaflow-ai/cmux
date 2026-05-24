@@ -366,7 +366,7 @@ extension SessionIndexStore {
         limit: Int
     ) async -> [SessionEntry] {
         if registration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
-            return loadAntigravityEntries(
+            return await loadAntigravityEntries(
                 registration: registration,
                 needle: needle,
                 cwdFilter: cwdFilter,

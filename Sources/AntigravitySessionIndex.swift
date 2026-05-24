@@ -29,13 +29,16 @@ extension SessionIndexStore {
     nonisolated private static let antigravityLastConversationsByteCap = 1024 * 1024
     nonisolated private static let antigravityPendingHistoryMatchWindow: TimeInterval = 24 * 60 * 60
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     nonisolated static func loadAntigravityEntries(
         registration: CmuxVaultAgentRegistration,
         needle: String,
         cwdFilter: String?,
         offset: Int,
         limit: Int
-    ) -> [SessionEntry] {
+    ) async -> [SessionEntry] {
         guard limit > 0 else { return [] }
         let roots = antigravitySessionRoots(registration: registration)
         guard !roots.isEmpty else { return [] }

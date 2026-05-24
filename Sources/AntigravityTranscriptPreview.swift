@@ -1,8 +1,8 @@
 import Foundation
 
 enum AntigravityTranscriptPreview {
-    private static let maxPreviewBytes = 16 * 1024 * 1024
-    private static let maxTurnTextCharacters = 40_000
+    nonisolated private static let maxPreviewBytes = 16 * 1024 * 1024
+    nonisolated private static let maxTurnTextCharacters = 40_000
 
     static func load(from url: URL, sessionId: String, limit: Int) throws -> [SessionTranscriptTurn] {
         guard limit > 0 else { return [] }
