@@ -17159,10 +17159,6 @@ struct CMUXCLI {
             codexTeamsCollectDiagnosticStrings(object, keyPath: nil, pairs: &pairs)
         }
 
-        let signal = pairs
-            .flatMap { [$0.keyPath, $0.value] }
-            .joined(separator: " ")
-            .lowercased()
         if let fullHistoryError = codexTeamsFullHistoryForkErrorText(pairs: pairs, fallback: line) {
             return codexTeamsSpawnFailureDiagnostic(
                 kind: .fullHistoryForkOverride,
@@ -17171,7 +17167,7 @@ struct CMUXCLI {
             )
         }
 
-        guard codexTeamsSignalLooksLikeSpawnFailure(signal) else {
+        guard codexTeamsSignalLooksLikeSpawnFailure(pairs: pairs, fallback: line) else {
             return nil
         }
 
@@ -17268,21 +17264,83 @@ struct CMUXCLI {
         return pairs.first { $0.value.lowercased().contains(needle) }?.value
     }
 
-    private static func codexTeamsSignalLooksLikeSpawnFailure(_ signal: String) -> Bool {
-        let hasFailureSignal = signal.contains("error") ||
-            signal.contains("failed") ||
-            signal.contains("failure") ||
-            signal.contains("rejected") ||
-            signal.contains("invalid") ||
-            signal.contains("exception") ||
-            signal.contains("denied")
+    private static func codexTeamsSignalLooksLikeSpawnFailure(
+        pairs: [(keyPath: String, value: String)],
+        fallback: String
+    ) -> Bool {
+        let signal = pairs
+            .flatMap { [$0.keyPath, $0.value] }
+            .joined(separator: " ")
+            .lowercased()
         let hasSpawnContext = signal.contains("spawn_agent") ||
             signal.contains("spawn agent") ||
             signal.contains("thread_spawn") ||
             (signal.contains("spawn") && signal.contains("subagent")) ||
             (signal.contains("subagent") && signal.contains("creation")) ||
             (signal.contains("collab") && (signal.contains("agent") || signal.contains("subagent")))
-        return hasFailureSignal && hasSpawnContext
+        guard hasSpawnContext else { return false }
+        if pairs.contains(where: codexTeamsDiagnosticPairLooksLikeFailure) {
+            return true
+        }
+        return codexTeamsFreeformSignalLooksLikeFailure(signal) ||
+            codexTeamsFreeformSignalLooksLikeFailure(fallback.lowercased())
+    }
+
+    private static func codexTeamsDiagnosticPairLooksLikeFailure(_ pair: (keyPath: String, value: String)) -> Bool {
+        let key = pair.keyPath.lowercased()
+        guard key != "line" else { return false }
+        let value = pair.value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !codexTeamsDiagnosticValueLooksNonFailure(value) else { return false }
+        if key == "error" ||
+            key.hasSuffix(".error") ||
+            key.contains("error.") ||
+            key.contains(".error.") ||
+            key.contains("error_message") ||
+            key.contains("error-message") {
+            return true
+        }
+        if key.contains("error_code") || key.contains("errorcode") {
+            return true
+        }
+        if key.contains("status") || key.contains("state") || key.contains("level") {
+            return value == "error" || codexTeamsFreeformSignalLooksLikeFailure(value)
+        }
+        if key.contains("message") ||
+            key.contains("reason") ||
+            key.contains("description") ||
+            key.contains("details") ||
+            key.contains("body") ||
+            key.contains("text") {
+            return codexTeamsFreeformSignalLooksLikeFailure(value)
+        }
+        return false
+    }
+
+    private static func codexTeamsDiagnosticValueLooksNonFailure(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ||
+            normalized == "0" ||
+            normalized == "false" ||
+            normalized == "none" ||
+            normalized == "null" ||
+            normalized == "<null>" ||
+            normalized == "ok" ||
+            normalized == "success" ||
+            normalized == "successful"
+    }
+
+    private static func codexTeamsFreeformSignalLooksLikeFailure(_ signal: String) -> Bool {
+        signal.contains("failed") ||
+            signal.contains("failure") ||
+            signal.contains("rejected") ||
+            signal.contains("invalid") ||
+            signal.contains("exception") ||
+            signal.contains("denied") ||
+            signal.contains("could not") ||
+            signal.contains("cannot") ||
+            signal.contains("unable to") ||
+            signal.contains(" error:") ||
+            signal.contains(" error=")
     }
 
     private static func codexTeamsPreferredSpawnFailureErrorText(
