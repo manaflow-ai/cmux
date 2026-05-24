@@ -168,11 +168,73 @@ func parseTmuxArgs(args []string, valueFlags, boolFlags []string) *tmuxParsed {
 
 var tmuxFormatVarRe = regexp.MustCompile(`#\{[^}]+\}`)
 
+// tmuxShortFormVars maps tmux's documented single-character short-form format
+// tokens (e.g. `#S`, `#I`, `#D`) to the corresponding long-form context keys
+// (e.g. `session_name`, `window_index`, `pane_id`). See tmux(1) FORMATS.
+//
+// Without this mapping, callers that issue mixed format strings such as
+// `#S:#I #{pane_id}` (used by oh-my-claudecode's team mode) only get the
+// long-form token substituted, leaving the literal `#S:#I` prefix in the
+// output and breaking downstream parsers.
+var tmuxShortFormVars = map[byte]string{
+	'D': "pane_id",
+	'F': "window_flags",
+	'H': "host",
+	'I': "window_index",
+	'P': "pane_index",
+	'S': "session_name",
+	'T': "pane_title",
+	'W': "window_name",
+	'h': "host_short",
+}
+
+// tmuxExpandShortFormVars walks `format` and substitutes single-character
+// short-form variables (`#S`, `#I`, `#D`, ...) using `context`.
+//
+// `##` is a literal `#`. `#{...}` long-form tokens are left untouched here
+// (the caller substitutes them separately). Unknown short-forms pass through
+// unchanged, matching tmux's documented behavior.
+func tmuxExpandShortFormVars(format string, context map[string]string) string {
+	var b strings.Builder
+	b.Grow(len(format))
+	for i := 0; i < len(format); i++ {
+		c := format[i]
+		if c != '#' || i+1 >= len(format) {
+			b.WriteByte(c)
+			continue
+		}
+		next := format[i+1]
+		if next == '#' {
+			// `##` is a literal `#`.
+			b.WriteByte('#')
+			i++
+			continue
+		}
+		if next == '{' {
+			// Long-form `#{...}` — leave the `#` for the caller's pass.
+			b.WriteByte('#')
+			continue
+		}
+		if longKey, ok := tmuxShortFormVars[next]; ok {
+			if value, found := context[longKey]; found {
+				b.WriteString(value)
+				i++
+				continue
+			}
+		}
+		// Unknown / unresolved short-form: pass through literally.
+		b.WriteByte('#')
+	}
+	return b.String()
+}
+
 func tmuxRenderFormat(format string, context map[string]string, fallback string) string {
 	if format == "" {
 		return fallback
 	}
-	rendered := format
+	// Substitute short-form tokens first so the long-form pass and the
+	// `#{...}`-strip step below don't see them.
+	rendered := tmuxExpandShortFormVars(format, context)
 	for key, value := range context {
 		rendered = strings.ReplaceAll(rendered, "#{"+key+"}", value)
 	}

@@ -92,6 +92,84 @@ func TestTmuxRenderFormat(t *testing.T) {
 	}
 }
 
+// TestTmuxRenderFormatShortForm covers the single-character tmux format
+// tokens (`#S`, `#I`, `#D`, ...) and the `##` escape. The mixed-form case is
+// the exact regression that breaks oh-my-claudecode's `omc team` workers
+// inside cmux: OMC issues `display-message -p '#S:#I #{pane_id}'` and the
+// previous renderer left `#S:#I` literal, producing
+// `Failed to resolve tmux context: "#S:#I %<uuid>"` downstream.
+func TestTmuxRenderFormatShortForm(t *testing.T) {
+	ctx := map[string]string{
+		"session_name": "cmux",
+		"window_index": "0",
+		"pane_id":      "%abc-123",
+		"pane_index":   "1",
+		"window_name":  "main",
+		"window_flags": "*",
+		"pane_title":   "zsh",
+	}
+	tests := []struct {
+		name     string
+		format   string
+		fallback string
+		want     string
+	}{
+		{"short-form session", "#S", "fallback", "cmux"},
+		{"short-form session:window", "#S:#I", "", "cmux:0"},
+		{"short-form trio", "#S:#I #D", "", "cmux:0 %abc-123"},
+		{"OMC mixed short+long format", "#S:#I #{pane_id}", "", "cmux:0 %abc-123"},
+		{"all documented short-forms", "#S #I #D #P #W #F #T", "", "cmux 0 %abc-123 1 main * zsh"},
+		{"hash escape midstring", "a##b", "fallback", "a#b"},
+		{"hash escape preceding letter", "##S", "fallback", "#S"},
+		{"unknown short-form passes through", "#X", "fallback", "#X"},
+		{"trailing hash literal", "lit#", "fallback", "lit#"},
+		{"empty format returns fallback", "", "fallback", "fallback"},
+		{"long-form unchanged", "#{session_name}", "fallback", "cmux"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tmuxRenderFormat(tt.format, ctx, tt.fallback)
+			if got != tt.want {
+				t.Errorf("tmuxRenderFormat(%q) = %q, want %q", tt.format, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTmuxExpandShortFormVars exercises the short-form expansion helper in
+// isolation so its behavior is locked in independent of the long-form pass.
+func TestTmuxExpandShortFormVars(t *testing.T) {
+	ctx := map[string]string{
+		"session_name": "cmux",
+		"window_index": "0",
+		"pane_id":      "%abc-123",
+	}
+	tests := []struct {
+		name   string
+		format string
+		want   string
+	}{
+		{"plain text", "hello", "hello"},
+		{"single short-form", "#S", "cmux"},
+		{"hash escape", "a##b", "a#b"},
+		{"hash escape then letter", "##S", "#S"},
+		{"long-form left untouched", "#{pane_id}", "#{pane_id}"},
+		{"unknown short-form passes through", "#X", "#X"},
+		{"unknown var with key not in context", "#H", "#H"},
+		{"trailing hash", "abc#", "abc#"},
+		{"adjacent short-forms", "#S#I", "cmux0"},
+		{"short followed by long", "#S #{pane_id}", "cmux #{pane_id}"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tmuxExpandShortFormVars(tt.format, ctx)
+			if got != tt.want {
+				t.Errorf("tmuxExpandShortFormVars(%q) = %q, want %q", tt.format, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestTmuxSendKeysText(t *testing.T) {
 	tests := []struct {
 		name    string
