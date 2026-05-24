@@ -9064,7 +9064,7 @@ class TabManager: ObservableObject {
 
 extension TabManager {
     func sessionAutosaveFingerprint(
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
     ) -> Int {
         var hasher = Hasher()
@@ -9114,17 +9114,17 @@ extension TabManager {
                     notificationStore?.notifications(forTabId: workspace.id, surfaceId: panelId) ?? [],
                     into: &hasher
                 )
-                Self.hashRestorableAgentSnapshot(
-                    restorableAgentIndex.snapshot(
-                        workspaceId: workspace.id,
-                        panelId: panelId
-                    ),
-                    into: &hasher
+                let restorableAgent = restorableAgentIndex?.snapshot(
+                    workspaceId: workspace.id,
+                    panelId: panelId
                 )
+                Self.hashRestorableAgentSnapshot(restorableAgent, into: &hasher)
                 Self.hashSurfaceResumeBindingSnapshot(
                     workspace.effectiveSurfaceResumeBinding(
                         panelId: panelId,
-                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+                        restorableAgent: restorableAgent,
+                        restorableAgentIndexWasScanned: restorableAgentIndex != nil
                     ),
                     into: &hasher
                 )
@@ -9322,7 +9322,7 @@ extension TabManager {
 
     func sessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs

@@ -265,7 +265,342 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.source,
                 "agent-hook"
             )
+
+            let postRestoreScanSnapshot = restored.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty
+            )
+            XCTAssertEqual(
+                postRestoreScanSnapshot.panels.first?.terminal?.agent?.sessionId,
+                "codex-exited-binding-session"
+            )
+            XCTAssertEqual(
+                postRestoreScanSnapshot.panels.first?.terminal?.resumeBinding?.source,
+                "agent-hook"
+            )
         }
+    }
+
+    @MainActor
+    func testStaleAgentHookResumeBindingWithoutLiveRestorableAgentDoesNotAutoResume() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            XCTAssertTrue(
+                source.setSurfaceResumeBinding(
+                    SurfaceResumeBindingSnapshot(
+                        name: "Codex",
+                        kind: "codex",
+                        command: "codex resume killed-session",
+                        cwd: "/tmp/repo",
+                        checkpointId: "killed-session",
+                        source: "agent-hook",
+                        autoResume: true,
+                        updatedAt: 1_777_777_777
+                    ),
+                    panelId: sourcePanelId
+                )
+            )
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "killed-session",
+                    workingDirectory: "/tmp/repo"
+                ),
+                panelId: sourcePanelId
+            )
+
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty
+            )
+
+            XCTAssertNil(snapshot.panels.first?.terminal?.agent)
+            XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
+            XCTAssertNil(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId))
+            XCTAssertNil(source.surfaceResumeBinding(panelId: sourcePanelId))
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+            XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+            let restoredSnapshot = restored.sessionSnapshot(includeScrollback: false)
+            XCTAssertNil(restoredSnapshot.panels.first?.terminal?.agent)
+            XCTAssertNil(restoredSnapshot.panels.first?.terminal?.resumeBinding)
+        }
+    }
+
+    @MainActor
+    func testPendingAgentHookResumeBindingSurvivesEmptyScanWhileResumeStarts() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            XCTAssertTrue(
+                source.setSurfaceResumeBinding(
+                    SurfaceResumeBindingSnapshot(
+                        name: "Codex",
+                        kind: "codex",
+                        command: "codex resume pending-session",
+                        cwd: "/tmp/repo",
+                        checkpointId: "pending-session",
+                        source: "agent-hook",
+                        autoResume: true,
+                        updatedAt: 1_777_777_777
+                    ),
+                    panelId: sourcePanelId
+                )
+            )
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "pending-session",
+                    workingDirectory: "/tmp/repo"
+                ),
+                panelId: sourcePanelId
+            )
+            source.setRestoredAgentAutoResumePendingForTesting(true, panelId: sourcePanelId)
+
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty
+            )
+
+            XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.sessionId, "pending-session")
+            XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "pending-session")
+            XCTAssertEqual(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId)?.sessionId, "pending-session")
+            XCTAssertEqual(source.surfaceResumeBinding(panelId: sourcePanelId)?.checkpointId, "pending-session")
+        }
+    }
+
+    @MainActor
+    func testTabManagerPlainSnapshotPreservesPendingAgentHookResumeBinding() throws {
+        let manager = TabManager()
+        let source = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        XCTAssertTrue(
+            source.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume manager-pending-session",
+                    cwd: "/tmp/repo",
+                    checkpointId: "manager-pending-session",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 1_777_777_777
+                ),
+                panelId: sourcePanelId
+            )
+        )
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "manager-pending-session",
+                workingDirectory: "/tmp/repo"
+            ),
+            panelId: sourcePanelId
+        )
+        source.setRestoredAgentAutoResumePendingForTesting(true, panelId: sourcePanelId)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertEqual(snapshot.workspaces.first?.panels.first?.terminal?.agent?.sessionId, "manager-pending-session")
+        XCTAssertEqual(
+            snapshot.workspaces.first?.panels.first?.terminal?.resumeBinding?.checkpointId,
+            "manager-pending-session"
+        )
+        XCTAssertEqual(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId)?.sessionId, "manager-pending-session")
+        XCTAssertEqual(source.surfaceResumeBinding(panelId: sourcePanelId)?.checkpointId, "manager-pending-session")
+    }
+
+    @MainActor
+    func testPendingAgentHookResumeBindingSurvivesStartupPromptBeforeCommandRuns() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            XCTAssertTrue(
+                source.setSurfaceResumeBinding(
+                    SurfaceResumeBindingSnapshot(
+                        name: "Codex",
+                        kind: "codex",
+                        command: "codex resume prompt-before-command-session",
+                        cwd: "/tmp/repo",
+                        checkpointId: "prompt-before-command-session",
+                        source: "agent-hook",
+                        autoResume: true,
+                        updatedAt: 1_777_777_777
+                    ),
+                    panelId: sourcePanelId
+                )
+            )
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "prompt-before-command-session",
+                    workingDirectory: "/tmp/repo"
+                ),
+                panelId: sourcePanelId
+            )
+            source.setRestoredAgentAutoResumePendingForTesting(true, panelId: sourcePanelId)
+
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .promptIdle)
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty
+            )
+
+            XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.sessionId, "prompt-before-command-session")
+            XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "prompt-before-command-session")
+            XCTAssertEqual(
+                source.restoredAgentSnapshotForTesting(panelId: sourcePanelId)?.sessionId,
+                "prompt-before-command-session"
+            )
+            XCTAssertEqual(source.surfaceResumeBinding(panelId: sourcePanelId)?.checkpointId, "prompt-before-command-session")
+            XCTAssertTrue(source.restoredAgentAutoResumePendingForTesting(panelId: sourcePanelId))
+        }
+    }
+
+    @MainActor
+    func testRunningAgentHookResumeBindingClearsWhenLiveAgentDisappears() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            XCTAssertTrue(
+                source.setSurfaceResumeBinding(
+                    SurfaceResumeBindingSnapshot(
+                        name: "Codex",
+                        kind: "codex",
+                        command: "codex resume vanished-running-session",
+                        cwd: "/tmp/repo",
+                        checkpointId: "vanished-running-session",
+                        source: "agent-hook",
+                        autoResume: true,
+                        updatedAt: 1_777_777_777
+                    ),
+                    panelId: sourcePanelId
+                )
+            )
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "vanished-running-session",
+                    workingDirectory: "/tmp/repo"
+                ),
+                panelId: sourcePanelId
+            )
+            source.setRestoredAgentAutoResumePendingForTesting(true, panelId: sourcePanelId)
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty
+            )
+
+            XCTAssertNil(snapshot.panels.first?.terminal?.agent)
+            XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
+            XCTAssertNil(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId))
+            XCTAssertNil(source.surfaceResumeBinding(panelId: sourcePanelId))
+        }
+    }
+
+    @MainActor
+    func testPendingAgentHookBindingDoesNotOverrideDifferentLiveAgent() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            XCTAssertTrue(
+                source.setSurfaceResumeBinding(
+                    SurfaceResumeBindingSnapshot(
+                        name: "Codex",
+                        kind: "codex",
+                        command: "codex resume old-pending-session",
+                        cwd: "/tmp/repo",
+                        checkpointId: "old-pending-session",
+                        source: "agent-hook",
+                        autoResume: true,
+                        updatedAt: 1_777_777_777
+                    ),
+                    panelId: sourcePanelId
+                )
+            )
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "old-pending-session",
+                    workingDirectory: "/tmp/repo"
+                ),
+                panelId: sourcePanelId
+            )
+            source.setRestoredAgentAutoResumePendingForTesting(true, panelId: sourcePanelId)
+            let liveIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "new-live-session"
+            )
+
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: liveIndex
+            )
+
+            XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.sessionId, "new-live-session")
+            XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
+            XCTAssertEqual(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId)?.sessionId, "new-live-session")
+            XCTAssertNil(source.surfaceResumeBinding(panelId: sourcePanelId))
+        }
+    }
+
+    @MainActor
+    func testRegistryOwnedAgentHookBindingMatchesCustomRawValue() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceIndex = try makeRestorableAgentIndex(
+            kind: .pi,
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "pi-registry-session",
+            arguments: ["/usr/local/bin/pi", "--model", "anthropic/claude-sonnet-4-5"]
+        )
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Pi",
+                kind: "pi",
+                command: "pi resume pi-registry-session",
+                cwd: "/tmp/repo",
+                checkpointId: "pi-registry-session",
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            ),
+        ])
+
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: sourceIndex,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.kind, .custom("pi"))
+        XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.sessionId, "pi-registry-session")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.kind, "pi")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "pi-registry-session")
     }
 
     @MainActor
@@ -503,9 +838,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     private func makeRestorableAgentIndex(
+        kind: RestorableAgentKind = .codex,
         workspaceId: UUID,
         panelId: UUID,
-        sessionId: String
+        sessionId: String,
+        arguments: [String]? = nil
     ) throws -> RestorableAgentSessionIndex {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-auto-resume-\(UUID().uuidString)", isDirectory: true)
@@ -518,9 +855,20 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
             }
         }
-        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        let storeURL = kind.hookStoreFileURL(homeDirectory: home.path)
         try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
+        let executablePath = arguments?.first ?? "/usr/local/bin/\(kind.rawValue)"
+        let resolvedArguments = arguments ?? [executablePath, "--model", "gpt-5.4"]
+        let environment: [String: String]
+        switch kind {
+        case .codex:
+            environment = ["CODEX_HOME": "/tmp/codex"]
+        case .pi:
+            environment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
+        default:
+            environment = [:]
+        }
 
         let jsonObject: [String: Any] = [
             "version": 1,
@@ -532,11 +880,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                     "cwd": "/tmp/repo",
                     "updatedAt": Date().timeIntervalSince1970,
                     "launchCommand": [
-                        "launcher": "codex",
-                        "executablePath": "/usr/local/bin/codex",
-                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                        "launcher": kind.rawValue,
+                        "executablePath": executablePath,
+                        "arguments": resolvedArguments,
                         "workingDirectory": "/tmp/repo",
-                        "environment": ["CODEX_HOME": "/tmp/codex"],
+                        "environment": environment,
                         "capturedAt": Date().timeIntervalSince1970,
                         "source": "process",
                     ],
