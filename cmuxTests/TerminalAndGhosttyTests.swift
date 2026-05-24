@@ -3361,12 +3361,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         scrollView.scrollerStyle = .legacy
         scrollView.layoutSubtreeIfNeeded()
-        let legacyContentWidth = scrollView.contentSize.width
-        XCTAssertLessThan(
-            legacyContentWidth,
-            initialContentWidth,
-            "Legacy scrollbars should reserve width in the scroll view content area"
-        )
         assertPendingSurfaceWidth(
             initialSurfaceSize.width,
             "Changing the scroll view style alone should leave the terminal grid stale until the scroller-style observer runs"
@@ -3381,11 +3375,66 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             restoredContentWidth,
             initialContentWidth,
             accuracy: 0.5,
-            "Preferred scroller style changes should restore Ghostty's overlay scrollbar behavior so terminal content is not occluded by a persistent gutter"
+            "Preferred scroller style changes should restore Ghostty's overlay scrollbar behavior without a legacy gutter"
         )
         assertPendingSurfaceWidth(
             restoredContentWidth,
             "Preferred scroller style changes should restore the wider terminal grid when overlay scrollbars return"
+        )
+    }
+
+    func testSurfaceScrollViewMatchesGhosttyClipViewBehavior() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        guard let pendingSurfaceWidth = hostedView.debugPendingSurfaceSize()?.width else {
+            XCTFail("Expected a pending terminal surface size")
+            return
+        }
+
+        XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        XCTAssertFalse(
+            scrollView.contentView.clipsToBounds,
+            "The terminal wrapper should allow Ghostty to draw behind scroll-view chrome"
+        )
+        XCTAssertEqual(
+            pendingSurfaceWidth,
+            scrollView.contentSize.width,
+            accuracy: 0.5,
+            "The terminal grid should use the same content width that upstream Ghostty reports to the core"
         )
     }
 

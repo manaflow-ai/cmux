@@ -11197,7 +11197,9 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.scrollerStyle = .overlay
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
-        scrollView.contentView.clipsToBounds = true
+        // Match upstream Ghostty: allow the surface to draw behind scroll-view
+        // chrome while the core terminal grid uses the content size.
+        scrollView.contentView.clipsToBounds = false
         scrollView.contentView.drawsBackground = false
         scrollView.contentView.backgroundColor = .clear
         scrollView.surfaceView = surfaceView
@@ -13791,11 +13793,11 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.frame.origin = visibleRect.origin
     }
 
-    /// Match upstream Ghostty behavior: use content area width (excluding non-content
-    /// regions such as scrollbar space) when telling libghostty the terminal size.
+    /// Match upstream Ghostty behavior: render the surface across the full viewport,
+    /// but tell libghostty about the scroll view's content width.
     @discardableResult
     private func synchronizeCoreSurface() -> Bool {
-        let width = max(0, surfaceView.frame.width)
+        let width = scrollView.contentSize.width
         let height = surfaceView.frame.height
         guard width > 0, height > 0 else { return false }
         return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
