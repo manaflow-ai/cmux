@@ -531,14 +531,75 @@ enum NotificationSoundSettings {
         qos: .utility
     )
 
+    /// Split a shell-like command string into tokens without invoking a shell.
+    /// Handles single-quoted, double-quoted, and backslash-escaped sequences.
+    /// Empty quoted arguments (e.g. `""`) are preserved as empty strings.
+    /// Returns nil if the string is empty, contains only whitespace, or has
+    /// an unterminated quote.
+    static func splitCommandTokens(_ command: String) -> [String]? {
+        var tokens: [String] = []
+        var current = ""
+        var tokenStarted = false  // true once we've entered a quote or seen a non-space char
+        var inSingleQuote = false
+        var inDoubleQuote = false
+        var i = command.startIndex
+        while i < command.endIndex {
+            let c = command[i]
+            if inSingleQuote {
+                if c == "'" { inSingleQuote = false }
+                else { current.append(c) }
+            } else if inDoubleQuote {
+                if c == "\"" { inDoubleQuote = false }
+                else if c == "\\" {
+                    let next = command.index(after: i)
+                    if next < command.endIndex {
+                        i = next
+                        current.append(command[i])
+                    }
+                } else { current.append(c) }
+            } else {
+                if c == "'" { inSingleQuote = true; tokenStarted = true }
+                else if c == "\"" { inDoubleQuote = true; tokenStarted = true }
+                else if c == "\\" {
+                    let next = command.index(after: i)
+                    if next < command.endIndex {
+                        i = next
+                        current.append(command[i])
+                        tokenStarted = true
+                    }
+                } else if c.isWhitespace {
+                    if tokenStarted { tokens.append(current); current = ""; tokenStarted = false }
+                } else { current.append(c); tokenStarted = true }
+            }
+            i = command.index(after: i)
+        }
+        // Unterminated quote is a parse error — bail out rather than silently accepting
+        if inSingleQuote || inDoubleQuote { return nil }
+        if tokenStarted { tokens.append(current) }
+        return tokens.isEmpty ? nil : tokens
+    }
+
     static func runCustomCommand(title: String, subtitle: String, body: String, defaults: UserDefaults = .standard) {
         let command = (defaults.string(forKey: customCommandKey) ?? defaultCustomCommand)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return }
+        guard let tokens = splitCommandTokens(command), !tokens.isEmpty else { return }
         customCommandQueue.async {
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = ["-c", command]
+            // Execute the binary directly instead of via /bin/sh -c to prevent
+            // shell injection from a tampered UserDefaults entry.
+            // Expand leading ~ before treating the path as absolute.
+            let rawExe = tokens[0]
+            let expandedExe = (rawExe as NSString).expandingTildeInPath
+            if expandedExe.hasPrefix("/") || expandedExe.hasPrefix(".") {
+                // Absolute or explicitly relative path — invoke directly.
+                process.executableURL = URL(fileURLWithPath: expandedExe)
+                process.arguments = Array(tokens.dropFirst())
+            } else {
+                // Bare name (e.g. "say") — delegate PATH resolution to /usr/bin/env.
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                process.arguments = tokens
+            }
             var env = ProcessInfo.processInfo.environment
             env["CMUX_NOTIFICATION_TITLE"] = title
             env["CMUX_NOTIFICATION_SUBTITLE"] = subtitle
