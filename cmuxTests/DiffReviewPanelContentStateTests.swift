@@ -26,4 +26,16 @@ final class DiffReviewPanelContentStateTests: XCTestCase {
 
         XCTAssertEqual(state, .error("Could not apply reverse patch"))
     }
+
+    @MainActor
+    func testStopObservingClearsCancelledInitialLoadingState() {
+        let store = DiffReviewStore()
+
+        store.setDirectory("/repo")
+        XCTAssertTrue(store.isLoading)
+
+        store.stopObserving()
+
+        XCTAssertFalse(store.isLoading)
+    }
 }
