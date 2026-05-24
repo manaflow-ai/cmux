@@ -1677,7 +1677,13 @@ final class GhosttyTitleNotificationDispatcher {
     }
 
     private let lock = NSLock()
+    private let maximumTrackedTitles: Int
     private var lastPostedTitleBySurface: [SurfaceKey: String] = [:]
+    private var trackedTitleOrder: [SurfaceKey] = []
+
+    init(maximumTrackedTitles: Int = 1024) {
+        self.maximumTrackedTitles = max(1, maximumTrackedTitles)
+    }
 
     @discardableResult
     func postTitleIfChanged(
@@ -1715,8 +1721,19 @@ final class GhosttyTitleNotificationDispatcher {
         lock.lock()
         defer { lock.unlock() }
         guard lastPostedTitleBySurface[key] != title else { return false }
+        if lastPostedTitleBySurface[key] == nil {
+            trackedTitleOrder.append(key)
+        }
         lastPostedTitleBySurface[key] = title
+        evictTrackedTitlesIfNeeded()
         return true
+    }
+
+    private func evictTrackedTitlesIfNeeded() {
+        while lastPostedTitleBySurface.count > maximumTrackedTitles, !trackedTitleOrder.isEmpty {
+            let evicted = trackedTitleOrder.removeFirst()
+            lastPostedTitleBySurface.removeValue(forKey: evicted)
+        }
     }
 }
 
@@ -1724,6 +1741,12 @@ private struct GhosttyDesktopNotificationTarget: Sendable {
     let tabId: UUID
     let surfaceId: UUID?
     let tabTitle: String
+}
+
+private enum GhosttyDesktopNotificationRoute: Sendable {
+    case deliver(GhosttyDesktopNotificationTarget)
+    case suppress
+    case fallThrough
 }
 
 // Minimal Ghostty wrapper for terminal rendering
@@ -4162,21 +4185,23 @@ class GhosttyApp {
     }
 
     @MainActor
-    private static func appDesktopNotificationTarget() -> GhosttyDesktopNotificationTarget? {
+    private static func appDesktopNotificationRoute() -> GhosttyDesktopNotificationRoute {
         guard let tabManager = AppDelegate.shared?.tabManager,
               let tabId = tabManager.selectedTabId else {
-            return nil
+            return .fallThrough
         }
         let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
         let surfaceId = owningManager.focusedSurfaceId(for: tabId)
         if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
            workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-            return nil
+            return .suppress
         }
-        return GhosttyDesktopNotificationTarget(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            tabTitle: owningManager.titleForTab(tabId) ?? "Terminal"
+        return .deliver(
+            GhosttyDesktopNotificationTarget(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                tabTitle: owningManager.titleForTab(tabId) ?? "Terminal"
+            )
         )
     }
 
@@ -4343,7 +4368,11 @@ class GhosttyApp {
                     .flatMap { String(cString: $0) } ?? ""
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
-                guard let notificationTarget = performOnMain({ GhosttyApp.appDesktopNotificationTarget() }) else {
+                let route = performOnMain { GhosttyApp.appDesktopNotificationRoute() }
+                guard case .deliver(let notificationTarget) = route else {
+                    if case .fallThrough = route {
+                        return false
+                    }
                     return true
                 }
                 let command = actionTitle.isEmpty ? notificationTarget.tabTitle : actionTitle

@@ -1158,7 +1158,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         )
     }
 
-    func testPlainTypingDoesNotLookUpModeShortcutBindings() {
+    func testPlainTypingDoesNotLookUpModeShortcutBindings() throws {
         #if DEBUG
         var observedActions: [KeyboardShortcutSettings.Action] = []
         KeyboardShortcutSettings.shortcutLookupObserver = { action in
@@ -1176,7 +1176,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             "Plain terminal typing must return before resolving right-sidebar shortcut bindings"
         )
         #else
-        XCTFail("shortcutLookupObserver is only available in DEBUG")
+        throw XCTSkip("shortcutLookupObserver is only available in DEBUG builds")
         #endif
     }
 
