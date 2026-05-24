@@ -9569,58 +9569,22 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
 
 struct SidebarTabItemPresentationSnapshot: Equatable {
     let tabId: UUID
-    let unreadCount: Int
-    let latestNotificationText: String?
     let showsModifierShortcutHints: Bool
-
-    @MainActor
-    static func live(
-        tabId: UUID,
-        notificationStore: TerminalNotificationStore,
-        showsNotificationMessage: Bool,
-        showsModifierShortcutHints: Bool
-    ) -> SidebarTabItemPresentationSnapshot {
-        SidebarTabItemPresentationSnapshot(
-            tabId: tabId,
-            unreadCount: notificationStore.unreadCount(forTabId: tabId),
-            latestNotificationText: latestNotificationText(
-                tabId: tabId,
-                notificationStore: notificationStore,
-                showsNotificationMessage: showsNotificationMessage
-            ),
-            showsModifierShortcutHints: showsModifierShortcutHints
-        )
-    }
-
-    @MainActor
-    static func latestNotificationText(
-        tabId: UUID,
-        notificationStore: TerminalNotificationStore,
-        showsNotificationMessage: Bool
-    ) -> String? {
-        guard showsNotificationMessage,
-              let notification = notificationStore.latestNotification(forTabId: tabId) else {
-            return nil
-        }
-        let text = notification.body.isEmpty ? notification.title : notification.body
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
 }
 
-struct SidebarTabItemPresentationResolutionPolicy {
-    static func resolved(
-        live: SidebarTabItemPresentationSnapshot,
-        frozen: SidebarTabItemPresentationSnapshot?
-    ) -> SidebarTabItemPresentationSnapshot {
-        guard let frozen, frozen.tabId == live.tabId else { return live }
-        return SidebarTabItemPresentationSnapshot(
-            tabId: live.tabId,
-            unreadCount: live.unreadCount,
-            latestNotificationText: live.latestNotificationText,
-            showsModifierShortcutHints: frozen.showsModifierShortcutHints
-        )
+@MainActor
+private func sidebarLatestNotificationText(
+    tabId: UUID,
+    notificationStore: TerminalNotificationStore,
+    showsNotificationMessage: Bool
+) -> String? {
+    guard showsNotificationMessage,
+          let notification = notificationStore.latestNotification(forTabId: tabId) else {
+        return nil
     }
+    let text = notification.body.isEmpty ? notification.title : notification.body
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
 }
 
 struct VerticalTabsSidebar: View {
@@ -13390,7 +13354,7 @@ private struct SidebarWorkspaceLiveDetails: View {
     let remoteStatusColor: Color
 
     var body: some View {
-        let latestNotificationText = SidebarTabItemPresentationSnapshot.latestNotificationText(
+        let latestNotificationText = sidebarLatestNotificationText(
             tabId: tabId,
             notificationStore: notificationStore,
             showsNotificationMessage: showsNotificationMessage
@@ -14223,10 +14187,8 @@ private struct TabItemView: View, Equatable {
     }
 
     private func currentLivePresentation() -> SidebarTabItemPresentationSnapshot {
-        SidebarTabItemPresentationSnapshot.live(
+        SidebarTabItemPresentationSnapshot(
             tabId: tab.id,
-            notificationStore: notificationStore,
-            showsNotificationMessage: settings.showsNotificationMessage,
             showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed
         )
     }
