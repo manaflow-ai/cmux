@@ -500,7 +500,7 @@ extension Workspace {
             }()
             let resumeStartupInput = Self.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabledForCurrentLaunch() && (agentWasRunning ?? true),
+                autoResumeAgentSessions: AgentSessionAutoResumeSettings.shouldResumeAgentSessionsOnNextLaunch() && (agentWasRunning ?? true),
                 promptForApproval: false
             )
             let shouldPersistScrollback = Self.shouldPersistSessionScrollback(
