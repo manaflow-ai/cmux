@@ -12,8 +12,12 @@ extension Notification.Name {
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
-    // Posted by Workspace.updatePanelShellActivityState when the shell-integration-reported
-    // activity state for a panel changes. userInfo carries workspaceId, panelId, and the new state.
+    /// Posted by `Workspace.updatePanelShellActivityState` whenever the
+    /// shell-integration-reported activity state for a panel changes (and
+    /// only on real transitions — duplicates are suppressed). `userInfo`
+    /// carries `workspaceId`, `panelId`, and the new `state`. Consumed by
+    /// `Workspace.sendTextOnNextPromptIdle` to gate welcome-banner typing
+    /// on the shell being at an actual interactive prompt.
     static let panelShellActivityStateDidChange = Notification.Name("cmux.panelShellActivityStateDidChange")
 }
 
