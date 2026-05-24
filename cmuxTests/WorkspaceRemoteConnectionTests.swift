@@ -388,6 +388,46 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteWorkspaceDoesNotReportConnectedUntilTerminalSurfaceIsReady() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:test-pty-readiness",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "cmux vm-pty-attach --id test-pty-readiness",
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "connecting")
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        NotificationCenter.default.post(
+            name: .terminalSurfaceDidBecomeReady,
+            object: terminalPanel.surface,
+            userInfo: [
+                "surfaceId": terminalPanel.id,
+                "workspaceId": workspace.id,
+            ]
+        )
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "connected")
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+    }
+
+    @MainActor
     func testWebSocketVMWithDaemonEndpointStartsProxyCapableConnection() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
