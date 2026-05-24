@@ -350,28 +350,17 @@ class UpdateViewModel: ObservableObject {
     nonisolated static func errorDetails(for error: Swift.Error, technicalDetails: String?, feedURLString: String?) -> String {
         let nsError = error as NSError
         var lines: [String] = []
-        lines.append("Message: \(nsError.localizedDescription)")
-        let domain = nsError.domain == SUSparkleErrorDomain ? "cmux.update" : nsError.domain
-        lines.append("Domain: \(domain)")
+        lines.append("Message: \(userFacingErrorMessage(for: error))")
+        lines.append("Domain: \(displayDomain(for: nsError))")
         lines.append("Code: \(nsError.code)")
 
-        if let url = nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
-            lines.append("URL: \(url.absoluteString)")
-        } else if let urlString = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String {
-            lines.append("URL: \(urlString)")
-        }
-
-        if let failure = nsError.userInfo[NSLocalizedFailureReasonErrorKey] as? String,
-           !failure.isEmpty {
-            lines.append("Failure: \(failure)")
-        }
-        if let recovery = nsError.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String,
-           !recovery.isEmpty {
-            lines.append("Recovery: \(recovery)")
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            lines.append("Underlying Domain: \(displayDomain(for: underlying))")
+            lines.append("Underlying Code: \(underlying.code)")
         }
 
         if let feedURLString, !feedURLString.isEmpty {
-            lines.append("Feed: \(feedURLString)")
+            lines.append("Feed: configured")
         }
 
         if let technicalDetails, !technicalDetails.isEmpty {
@@ -380,6 +369,19 @@ class UpdateViewModel: ObservableObject {
 
         lines.append("Log: \(UpdateLogStore.shared.logPath())")
         return lines.joined(separator: "\n")
+    }
+
+    nonisolated private static func displayDomain(for error: NSError) -> String {
+        if error.domain == SUSparkleErrorDomain {
+            return "cmux.update"
+        }
+        if error.domain == NSURLErrorDomain {
+            return "network"
+        }
+        if error.domain.hasPrefix("cmux.") {
+            return error.domain
+        }
+        return "cmux.update"
     }
 
     nonisolated private static func networkError(from error: NSError) -> NSError? {

@@ -1965,6 +1965,32 @@ final class UpdateViewModelPresentationTests: XCTestCase {
         XCTAssertTrue(viewModel.showsDetectedBackgroundUpdate)
     }
 
+    func testErrorDetailsKeepDiagnosticsWithoutRawUpdateURLs() {
+        let error = NSError(
+            domain: SUSparkleErrorDomain,
+            code: 2001,
+            userInfo: [
+                NSLocalizedDescriptionKey: "SUDownloadError https://updates.example.com/appcast.xml",
+                NSLocalizedFailureReasonErrorKey: "raw upstream failure",
+                NSURLErrorFailingURLStringErrorKey: "https://updates.example.com/appcast.xml",
+                NSUnderlyingErrorKey: NSError(domain: NSURLErrorDomain, code: -1009),
+            ]
+        )
+
+        let details = UpdateViewModel.errorDetails(
+            for: error,
+            technicalDetails: "code=2001 | underlyingCode=-1009 | networkContext=available",
+            feedURLString: "https://updates.example.com/appcast.xml"
+        )
+
+        XCTAssertTrue(details.contains("Domain: cmux.update"))
+        XCTAssertTrue(details.contains("Underlying Domain: network"))
+        XCTAssertTrue(details.contains("Debug: code=2001 | underlyingCode=-1009 | networkContext=available"))
+        XCTAssertFalse(details.contains("https://updates.example.com"))
+        XCTAssertFalse(details.contains("SUDownloadError"))
+        XCTAssertFalse(details.contains("raw upstream failure"))
+    }
+
     private func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
         let enclosure: [String: Any] = [
             "url": "https://example.com/cmux.zip",

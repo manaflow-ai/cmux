@@ -76,6 +76,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     func showUpdaterError(_ error: any Error,
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
+        let displayDetails = formatErrorForDisplay(error)
         let feedURLString = lastFeedURLString
         UpdateLogStore.shared.append("show updater error: \(details)")
         runOnCoordinator { coordinator in
@@ -86,7 +87,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
                     delegate.checkForUpdates(nil)
                 },
                 dismiss: {},
-                technicalDetails: nil,
+                technicalDetails: displayDetails,
                 feedURLString: feedURLString
             )
         }
@@ -225,6 +226,22 @@ class UpdateDriver: NSObject, SPUUserDriver {
         }
         if let feed = lastFeedURLString {
             parts.append("feed=\(feed)")
+        }
+        return parts.joined(separator: " | ")
+    }
+
+    private func formatErrorForDisplay(_ error: Error) -> String {
+        let nsError = error as NSError
+        var parts: [String] = ["code=\(nsError.code)"]
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            parts.append("underlyingCode=\(underlying.code)")
+        }
+        if nsError.userInfo[NSURLErrorFailingURLErrorKey] != nil ||
+            nsError.userInfo[NSURLErrorFailingURLStringErrorKey] != nil {
+            parts.append("networkContext=available")
+        }
+        if lastFeedURLString != nil {
+            parts.append("feed=configured")
         }
         return parts.joined(separator: " | ")
     }
