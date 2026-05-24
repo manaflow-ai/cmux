@@ -126,6 +126,7 @@ extension SessionIndexStore {
                 guard seenSessionIDs.insert(metadata.sessionId).inserted else { continue }
                 let title = normalizedAntigravityValue(metadata.title) ?? metadata.sessionId
                 let cwd = normalizedAntigravityCWD(metadata.cwd)
+                    ?? cwdBySessionID[metadata.sessionId]
                 if let normalizedCWDFilter, cwd != normalizedCWDFilter { continue }
                 guard antigravityHistoryMatchesNeedle(
                     needle: needle,
