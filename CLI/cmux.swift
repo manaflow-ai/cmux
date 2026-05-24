@@ -8207,7 +8207,10 @@ struct CMUXCLI {
         VMPtyReadyReporter(
             client: client,
             workspaceId: workspaceId,
-            surfaceId: surfaceId
+            surfaceId: surfaceId,
+            log: { [self] message in
+                cliDebugLog(message)
+            }
         ).start()
     }
 
@@ -8215,6 +8218,7 @@ struct CMUXCLI {
         private let client: SocketClient
         private let workspaceId: String
         private let surfaceId: String
+        private let log: (String) -> Void
         // SocketClient is synchronous; isolate the readiness bridge on a private queue so
         // the PTY output loop is never held by daemon delivery retries.
         private let queue = DispatchQueue(label: "com.cmux.vm-pty.ready-report")
@@ -8223,10 +8227,11 @@ struct CMUXCLI {
         private var attempt = 0
         private var retryTimer: DispatchSourceTimer?
 
-        init(client: SocketClient, workspaceId: String, surfaceId: String) {
+        init(client: SocketClient, workspaceId: String, surfaceId: String, log: @escaping (String) -> Void) {
             self.client = client
             self.workspaceId = workspaceId
             self.surfaceId = surfaceId
+            self.log = log
         }
 
         func start() {
@@ -8246,14 +8251,14 @@ struct CMUXCLI {
                     ],
                     responseTimeout: 2
                 )
-                cliDebugLog("cli.vm.pty.ready.reported workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) attempt=\(attempt)")
+                log("cli.vm.pty.ready.reported workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) attempt=\(attempt)")
                 return
             } catch {
                 guard attempt < maxAttempts else {
-                    cliDebugLog("cli.vm.pty.ready.report_failed workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) attempts=\(attempt) error=\(String(describing: error))")
+                    log("cli.vm.pty.ready.report_failed workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) attempts=\(attempt) error=\(String(describing: error))")
                     return
                 }
-                cliDebugLog("cli.vm.pty.ready.retry workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) next_attempt=\(attempt + 1) error=\(String(describing: error))")
+                log("cli.vm.pty.ready.retry workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) next_attempt=\(attempt + 1) error=\(String(describing: error))")
                 scheduleRetry(after: retryDelays[min(attempt - 1, retryDelays.count - 1)])
             }
         }
