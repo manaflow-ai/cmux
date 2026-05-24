@@ -68,9 +68,14 @@ func TestParseTmuxArgsClusteredValueFlag(t *testing.T) {
 
 func TestTmuxRenderFormat(t *testing.T) {
 	ctx := map[string]string{
-		"pane_id":    "%abc123",
-		"pane_width": "80",
-		"window_id":  "@ws1",
+		"session_name": "cmux",
+		"pane_id":      "%abc123",
+		"pane_index":   "2",
+		"pane_width":   "80",
+		"window_flags": "*",
+		"window_id":    "@ws1",
+		"window_index": "4",
+		"window_name":  "editor",
 	}
 
 	tests := []struct {
@@ -80,6 +85,9 @@ func TestTmuxRenderFormat(t *testing.T) {
 	}{
 		{"#{pane_id}", "fallback", "%abc123"},
 		{"#{pane_id}:#{pane_width}", "", "%abc123:80"},
+		{"#S:#I.#P #W", "", "cmux:4.2 editor"},
+		{"#F #D", "", "* %abc123"},
+		{"##S #S", "", "##S cmux"},
 		{"#{unknown_var}", "fallback", "fallback"},
 		{"", "fallback", "fallback"},
 		{"#{pane_id} #{pane_width} #{window_id}", "", "%abc123 80 @ws1"},

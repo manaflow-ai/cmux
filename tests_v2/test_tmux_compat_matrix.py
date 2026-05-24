@@ -269,6 +269,10 @@ def main() -> int:
         shown = _run_cli(cli, ["display-message", "-p", msg])
         _must(msg in shown.stdout, f"display-message -p should print message: {shown.stdout!r}")
 
+        short_aliases = _run_cli(cli, ["display-message", "-p", "#S:#I.#P #W"])
+        _must(short_aliases.stdout.strip() == f"cmux:0.0 {ws}",
+              f"display-message short aliases should expand: {short_aliases.stdout!r}")
+
     print("PASS: tmux compatibility matrix commands are wired and tested")
     return 0
 
