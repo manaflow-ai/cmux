@@ -437,11 +437,21 @@ struct SessionEntry: Identifiable, Hashable {
 
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
+        if value.utf8.contains(where: { $0 >= 0x80 }) {
+            return shellPrintfQuote(value)
+        }
         if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
             return value
         }
         let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
         return "'\(escaped)'"
+    }
+
+    private static func shellPrintfQuote(_ value: String) -> String {
+        let octalBytes = value.utf8
+            .map { String(format: #"\%03o"#, Int($0)) }
+            .joined()
+        return #""$(printf '"# + octalBytes + #"')""#
     }
 
     var displayTitle: String {

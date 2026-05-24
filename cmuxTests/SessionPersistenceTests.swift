@@ -1948,6 +1948,52 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testRestorableAgentResumeCommandEscapesNonAsciiWorkingDirectoryAsAsciiShellInput() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-\(UUID().uuidString)", isDirectory: true)
+        let cwdURL = root
+            .appendingPathComponent("中文路径", isDirectory: true)
+            .appendingPathComponent("uam-service", isDirectory: true)
+        try FileManager.default.createDirectory(at: cwdURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: cwdURL.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet"
+                ],
+                workingDirectory: cwdURL.path,
+                environment: ["CLAUDE_CONFIG_DIR": cwdURL.path],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let command = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(command.utf8.allSatisfy { $0 < 0x80 })
+        let separator = try XCTUnwrap(command.range(of: " && "))
+        let cdCommand = String(command[..<separator.lowerBound])
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-fc", "\(cdCommand) && pwd"]
+        let output = Pipe()
+        process.standardOutput = output
+        try process.run()
+        process.waitUntilExit()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(String(data: data, encoding: .utf8)?.trimmingCharacters(in: .newlines), cwdURL.path)
+    }
+
     func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-resume-\(UUID().uuidString)", isDirectory: true)
@@ -1984,6 +2030,51 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             entry.resumeCommand,
             "cd /Users/tiffanysun/fun && claude --resume a22293b7-bcef-4707-8439-2f538c8517a4"
         )
+    }
+
+    func testSessionEntryClaudeResumeCommandEscapesNonAsciiCwdAsAsciiShellInput() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-resume-\(UUID().uuidString)", isDirectory: true)
+        let cwdURL = root
+            .appendingPathComponent("中文路径", isDirectory: true)
+            .appendingPathComponent("uam-service", isDirectory: true)
+        try FileManager.default.createDirectory(at: cwdURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let entry = SessionEntry(
+            id: "claude:4d8cfb79-ef17-41a7-a0ac-2f0c25ac1519",
+            agent: .claude,
+            sessionId: "4d8cfb79-ef17-41a7-a0ac-2f0c25ac1519",
+            title: "resume me",
+            cwd: cwdURL.path,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: nil,
+            specifics: .claude(
+                model: "gpt-5.5",
+                permissionMode: "bypassPermissions",
+                configDirectoryForResume: nil
+            )
+        )
+
+        let command = try XCTUnwrap(entry.resumeCommand)
+        XCTAssertTrue(
+            command.utf8.allSatisfy { $0 < 0x80 },
+            "Startup input for Ghostty must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-fc", "cd \(SessionEntry.shellQuote(cwdURL.path)) && pwd"]
+        let output = Pipe()
+        process.standardOutput = output
+        try process.run()
+        process.waitUntilExit()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(String(data: data, encoding: .utf8)?.trimmingCharacters(in: .newlines), cwdURL.path)
     }
 
     func testRestorableAgentStartupInputUsesInlineCommandWhenShort() {

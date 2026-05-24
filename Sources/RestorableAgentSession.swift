@@ -1,8 +1,14 @@
 import Foundation
 import CMUXAgentLaunch
 
-fileprivate func shellSingleQuoted(_ value: String) -> String {
-    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+fileprivate func shellQuoted(_ value: String) -> String {
+    if value.utf8.contains(where: { $0 >= 0x80 }) {
+        let octalBytes = value.utf8
+            .map { String(format: #"\%03o"#, Int($0)) }
+            .joined()
+        return #""$(printf '"# + octalBytes + #"')""#
+    }
+    return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
 enum AgentResumeCommandBuilder {
@@ -92,12 +98,12 @@ enum AgentResumeCommandBuilder {
         }
         commandParts.append(contentsOf: argv)
 
-        var shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
+        var shellCommand = commandParts.map(shellQuoted).joined(separator: " ")
         let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
         if let cwd {
-            shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
+            shellCommand = "cd \(shellQuoted(cwd)) && \(shellCommand)"
         }
         return shellCommand
     }
@@ -596,7 +602,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             return nil
         }
 
-        let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
+        let scriptInput = "/bin/zsh \(shellQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
     }
 }
