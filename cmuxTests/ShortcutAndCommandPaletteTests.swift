@@ -2094,6 +2094,37 @@ final class UpdateOperationCoordinatorTimeoutTests: XCTestCase {
         XCTAssertEqual(retryCount.value(), 1)
     }
 
+    func testExpectedCancellationAfterTimeoutDoesNotReplaceTimeoutError() {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationTimeoutScheduler()
+        let coordinator = UpdateOperationCoordinator(
+            viewModel: viewModel,
+            minimumCheckDuration: 0,
+            checkTimeoutDuration: 0.01,
+            downloadStallTimeoutDuration: 1,
+            timeoutScheduler: scheduler
+        )
+
+        coordinator.beginChecking(cancel: {}, retry: {})
+        scheduler.fireNext()
+
+        coordinator.showUpdaterError(
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled),
+            retry: {},
+            dismiss: {},
+            technicalDetails: "code=-999",
+            feedURLString: nil
+        )
+
+        guard case .error(let errorState) = viewModel.state else {
+            XCTFail("Expected timeout error to remain visible")
+            return
+        }
+        let nsError = errorState.error as NSError
+        XCTAssertEqual(nsError.domain, UpdateOperationTimeoutError.domain)
+        XCTAssertEqual(nsError.code, UpdateOperationTimeoutError.Code.checking.rawValue)
+    }
+
     func testDownloadStallTimeoutCancelsAndShowsRetryableError() async throws {
         let viewModel = UpdateViewModel()
         let scheduler = ManualUpdateOperationTimeoutScheduler()

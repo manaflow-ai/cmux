@@ -68,6 +68,10 @@ final class UpdateOperationCoordinator {
         technicalDetails: String?,
         feedURLString: String?
     ) {
+        guard !isShowingTimeoutError else {
+            UpdateLogStore.shared.append("ignored updater error while timeout is visible")
+            return
+        }
         setState(.error(.init(
             error: error,
             retry: { [weak self] in
@@ -326,6 +330,13 @@ final class UpdateOperationCoordinator {
     private func nextOperationID() -> Int {
         operationID += 1
         return operationID
+    }
+
+    private var isShowingTimeoutError: Bool {
+        guard case .error(let errorState) = viewModel.state else {
+            return false
+        }
+        return (errorState.error as NSError).domain == UpdateOperationTimeoutError.domain
     }
 
     private func retryUpdateCheck() {
