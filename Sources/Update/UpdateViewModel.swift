@@ -3,46 +3,6 @@ import AppKit
 import SwiftUI
 import Sparkle
 
-enum UpdateTimeoutError {
-    static let domain = "cmux.update.timeout"
-    static let code = 1
-
-    enum Stage: String {
-        case starting
-        case checking
-        case downloading
-        case preparing
-
-        var localizedDescription: String {
-            switch self {
-            case .starting:
-                return String(localized: "update.error.timeout.starting.message", defaultValue: "cmux could not start the update check in time. Restart cmux and try again.")
-            case .checking:
-                return String(localized: "update.error.timeout.checking.message", defaultValue: "cmux could not check for updates in time. Check your network and try again.")
-            case .downloading:
-                return String(localized: "update.error.timeout.downloading.message", defaultValue: "cmux could not download the update in time. Check your network and try again.")
-            case .preparing:
-                return String(localized: "update.error.timeout.preparing.message", defaultValue: "cmux could not prepare the update in time. Try again later, or restart cmux and try again.")
-            }
-        }
-    }
-
-    static func make(stage: Stage) -> NSError {
-        NSError(
-            domain: domain,
-            code: code,
-            userInfo: [
-                NSLocalizedDescriptionKey: stage.localizedDescription,
-                "cmux.update.timeout.stage": stage.rawValue,
-            ]
-        )
-    }
-
-    static func isTimeout(_ error: NSError) -> Bool {
-        error.domain == domain && error.code == code
-    }
-}
-
 class UpdateViewModel: ObservableObject {
     @Published var state: UpdateState = .idle
     @Published var overrideState: UpdateState?
@@ -290,9 +250,6 @@ class UpdateViewModel: ObservableObject {
 
     static func userFacingErrorTitle(for error: Swift.Error) -> String {
         let nsError = error as NSError
-        if UpdateTimeoutError.isTimeout(nsError) {
-            return String(localized: "update.error.timedOut.title", defaultValue: "Update Timed Out")
-        }
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
@@ -340,9 +297,6 @@ class UpdateViewModel: ObservableObject {
 
     static func userFacingErrorMessage(for error: Swift.Error) -> String {
         let nsError = error as NSError
-        if UpdateTimeoutError.isTimeout(nsError) {
-            return nsError.localizedDescription
-        }
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:

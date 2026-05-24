@@ -140,6 +140,41 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #endif
     }
 
+    func testDebugTextBoxEndpointsRejectBlankSurfaceID() throws {
+#if DEBUG
+        TerminalController.shared.setActiveTabManager(TabManager())
+        defer { TerminalController.shared.setActiveTabManager(nil) }
+
+        let requests: [(method: String, params: [String: Any], id: Int)] = [
+            ("debug.textbox.inline_fixture", ["surface_id": "   "], 1),
+            ("debug.textbox.interact", ["surface_id": "   ", "action": "select"], 2)
+        ]
+
+        for request in requests {
+            let payload: [String: Any] = [
+                "jsonrpc": "2.0",
+                "id": request.id,
+                "method": request.method,
+                "params": request.params
+            ]
+            let data = try JSONSerialization.data(withJSONObject: payload)
+            let line = try XCTUnwrap(String(data: data, encoding: .utf8))
+            let responseText = TerminalController.shared.handleSocketLine(line)
+            let responseData = try XCTUnwrap(responseText.data(using: .utf8))
+            let response = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+                "Unexpected JSON-RPC response: \(responseText)"
+            )
+            XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+            let error = try XCTUnwrap(response["error"] as? [String: Any])
+            XCTAssertEqual(error["code"] as? String, "invalid_params")
+            XCTAssertEqual(error["message"] as? String, "surface_id cannot be empty")
+        }
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testRemoteStatusPayloadOmitsSensitiveSSHConfiguration() {
         let tabManager = TabManager()
         let workspace = tabManager.addWorkspace(select: false, eagerLoadTerminal: false)
