@@ -1832,7 +1832,7 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
         let directoryURL = panelType == .codeEditor
             ? URL(fileURLWithPath: "/tmp/editor-\(index)", isDirectory: true)
             : nil
-        ClosedBrowserPanelRestoreSnapshot(
+        return ClosedBrowserPanelRestoreSnapshot(
             workspaceId: UUID(),
             panelType: panelType,
             url: URL(string: "https://example.com/\(index)"),

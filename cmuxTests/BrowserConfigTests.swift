@@ -1273,6 +1273,47 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertNil(panel.currentURL)
     }
 
+    func testRestoredCodeEditorRendersWhenBrowserIsDisabled() throws {
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        BrowserAvailabilitySettings.setDisabled(true)
+        defer {
+            if let previousBrowserDisabled {
+                defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+            defaults.synchronize()
+            NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
+        }
+
+        let snapshot = SessionBrowserPanelSnapshot(
+            urlString: "http://127.0.0.1:54321/?folder=/tmp/cmux-editor",
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        )
+        let browserPanel = BrowserPanel(
+            workspaceId: UUID(),
+            panelType: .browser,
+            renderInitialNavigation: false
+        )
+        let editorPanel = BrowserPanel(
+            workspaceId: UUID(),
+            panelType: .codeEditor,
+            renderInitialNavigation: false
+        )
+
+        browserPanel.restoreSessionSnapshot(snapshot)
+        editorPanel.restoreSessionSnapshot(snapshot)
+
+        XCTAssertFalse(browserPanel.shouldRenderWebView)
+        XCTAssertTrue(editorPanel.shouldRenderWebView)
+    }
+
     func testBrowserPanelLeavesNewTabPageStateWhenNavigationStarts() {
         let panel = BrowserPanel(workspaceId: UUID())
 
