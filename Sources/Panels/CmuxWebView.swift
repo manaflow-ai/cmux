@@ -267,7 +267,13 @@ final class CmuxWebView: WKWebView {
         document.addEventListener("focusin", (ev) => {
           publishForElement(ev && ev.target ? ev.target : document.activeElement);
         }, true);
-        document.addEventListener("focusout", () => {
+        document.addEventListener("focusout", (ev) => {
+          const nextTarget = ev && ev.relatedTarget ? ev.relatedTarget : null;
+          if (__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(nextTarget)) {
+            publish(true);
+            return;
+          }
+          publish(false);
           requestAnimationFrame(() => publishForElement(document.activeElement));
         }, true);
         document.addEventListener("selectionchange", () => {
@@ -552,10 +558,15 @@ final class CmuxWebView: WKWebView {
     }
 
     @discardableResult
-    private func performPasteAsPlainTextFromPasteboard(_ sender: Any? = nil) -> Bool {
+    private func performPasteAsPlainTextFromPasteboard(
+        _ sender: Any? = nil,
+        requireLiveFocusValidation: Bool = true
+    ) -> Bool {
         guard pasteAsPlainTextTargetAvailable,
-              NSPasteboard.general.string(forType: .string) != nil,
-              pageCanAcceptPlainTextPaste() else {
+              NSPasteboard.general.string(forType: .string) != nil else {
+            return false
+        }
+        if requireLiveFocusValidation && !pageCanAcceptPlainTextPaste() {
             return false
         }
 
@@ -620,7 +631,12 @@ final class CmuxWebView: WKWebView {
             } else {
                 lastPasteAsPlainTextPerformKeyEventTimestamp = nil
             }
-            let result = performPasteAsPlainTextFromPasteboard() || super.performKeyEquivalent(with: event)
+            // This command-equivalent path is latency-sensitive; rely on the
+            // focus-tracker cache here and keep the live JS preflight for the
+            // explicit menu/IBAction path.
+            let result = performPasteAsPlainTextFromPasteboard(
+                requireLiveFocusValidation: false
+            ) || super.performKeyEquivalent(with: event)
             if result {
                 lastPasteAsPlainTextPerformKeyEventTimestamp = nil
             }
