@@ -9572,6 +9572,19 @@ struct SidebarTabItemPresentationSnapshot: Equatable {
     let showsModifierShortcutHints: Bool
 }
 
+struct SidebarWorkspaceShortcutHintFreezePolicy {
+    static func showsModifierShortcutHints(
+        tabId: UUID,
+        liveModifierPressed: Bool,
+        frozenPresentation: SidebarTabItemPresentationSnapshot?
+    ) -> Bool {
+        guard let frozenPresentation, frozenPresentation.tabId == tabId else {
+            return liveModifierPressed
+        }
+        return frozenPresentation.showsModifierShortcutHints
+    }
+}
+
 @MainActor
 private func sidebarLatestNotificationText(
     tabId: UUID,
@@ -13409,10 +13422,11 @@ private struct SidebarWorkspaceTrailingAccessory: View {
     let closeAction: () -> Void
 
     private var showsModifierShortcutHints: Bool {
-        guard let frozenPresentation, frozenPresentation.tabId == tabId else {
-            return modifierKeyMonitor.isModifierPressed
-        }
-        return frozenPresentation.showsModifierShortcutHints
+        SidebarWorkspaceShortcutHintFreezePolicy.showsModifierShortcutHints(
+            tabId: tabId,
+            liveModifierPressed: modifierKeyMonitor.isModifierPressed,
+            frozenPresentation: frozenPresentation
+        )
     }
 
     private var shortcutHintModeActive: Bool {
