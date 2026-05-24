@@ -233,7 +233,7 @@ class TerminalController {
         let socketPathLockHeld: Bool
     }
 
-    struct SocketFileRecoveryRetryToken: Sendable {
+    nonisolated struct SocketFileRecoveryRetryToken: Sendable {
         let generation: UInt64
     }
 
