@@ -4,6 +4,27 @@ import Foundation
 import QuartzCore
 import SwiftUI
 
+/// Returns true when `options` already contains an SSH `-o`-style key=value
+/// (or `key value`) entry whose key matches `key` case-insensitively. Used by
+/// the file-explorer transport and `GitStatusProvider` to suppress cmux's
+/// injected default when the caller has already supplied the same option.
+///
+/// Mirrors the canonical copies in `WorkspaceRemoteConfiguration` and
+/// `TerminalSSHSessionDetector` (`$0 == "="` or `$0.isWhitespace` separator).
+/// Worth extracting into a shared `SSHOptionParsing` module — see PR #4713
+/// discussion.
+fileprivate func fileExplorerSSHOptionsContainKey(_ options: [String], key: String) -> Bool {
+    let loweredKey = key.lowercased()
+    return options.contains { option in
+        option
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased() == loweredKey
+    }
+}
+
 // MARK: - Explorer Visual Style
 
 enum FileExplorerStyle: Int, CaseIterable {
@@ -538,32 +559,11 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
         // Batch mode, no TTY, connection timeout
         args += ["-o", "BatchMode=yes", "-T"]
-        if !hasSSHOptionKey(connection.sshOptions, key: "ConnectTimeout") {
+        if !fileExplorerSSHOptionsContainKey(connection.sshOptions, key: "ConnectTimeout") {
             args += ["-o", "ConnectTimeout=30"]
         }
         args += [connection.destination, command]
         return args
-    }
-
-    /// Returns true when `options` already contains an SSH `-o`-style key=value
-    /// (or `key value`) entry whose key matches `key` case-insensitively. Used
-    /// to suppress cmux's injected default when the caller has already supplied
-    /// the same option.
-    ///
-    /// Kept in sync with the canonical copies in
-    /// `WorkspaceRemoteConfiguration` and `TerminalSSHSessionDetector`
-    /// (`$0 == "="` or `$0.isWhitespace` separator). Worth extracting into a
-    /// shared `SSHOptionParsing` module — see PR #4713 discussion.
-    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        return options.contains { option in
-            option
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-                .first
-                .map(String.init)?
-                .lowercased() == loweredKey
-        }
     }
 
     private static func runSSHListCommand(
@@ -1319,7 +1319,7 @@ enum GitStatusProvider {
         if let identityFile { args += ["-i", identityFile] }
         for option in sshOptions { args += ["-o", option] }
         args += ["-o", "BatchMode=yes", "-T"]
-        if !Self.hasSSHOptionKey(sshOptions, key: "ConnectTimeout") {
+        if !fileExplorerSSHOptionsContainKey(sshOptions, key: "ConnectTimeout") {
             args += ["-o", "ConnectTimeout=30"]
         }
         args += [destination, command]
