@@ -10776,6 +10776,7 @@ struct VerticalTabsSidebar: View {
         collapsedGroups.remove(group.id)
     }
 
+    @MainActor
     private func currentRenderedWorkspaceIdsForSidebarSelection() -> [UUID] {
         SidebarWorkspaceListRenderPolicy.renderedWorkspaceIds(
             in: tabManager,
@@ -10783,6 +10784,7 @@ struct VerticalTabsSidebar: View {
         )
     }
 
+    @MainActor
     private func syncLastSidebarSelectionIndexForCurrentRenderedOrder(_ workspaceId: UUID?) {
         guard let workspaceId else {
             lastSidebarSelectionIndex = nil
@@ -13145,7 +13147,7 @@ private struct SidebarEmptyArea: View {
     @EnvironmentObject var tabManager: TabManager
     let lastWorkspaceId: UUID? = nil
     let rowSpacing: CGFloat
-    let renderedWorkspaceIdsForSelection: () -> [UUID]
+    let renderedWorkspaceIdsForSelection: @MainActor () -> [UUID]
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -13417,8 +13419,8 @@ private struct TabItemView: View, Equatable {
     let index: Int
     let previousRenderedWorkspaceId: UUID?
     let workspaceOrderSignature: Int
-    let visualWorkspaceIdsForActions: () -> [UUID]
-    let renderedWorkspaceIdsForSelection: () -> [UUID]
+    let visualWorkspaceIdsForActions: @MainActor () -> [UUID]
+    let renderedWorkspaceIdsForSelection: @MainActor () -> [UUID]
     let isActive: Bool
     let workspaceShortcutDigit: Int?
     let workspaceShortcutModifierSymbol: String
@@ -15759,7 +15761,7 @@ private struct SidebarBonsplitTabDropDelegate: DropDelegate {
     let tabManager: TabManager
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    let sidebarIndexForTabId: (UUID) -> Int?
+    let sidebarIndexForTabId: @MainActor (UUID) -> Int?
 
     func validateDrop(info: DropInfo) -> Bool {
         guard info.hasItemsConforming(to: [BonsplitTabDragPayload.typeIdentifier]) else { return false }

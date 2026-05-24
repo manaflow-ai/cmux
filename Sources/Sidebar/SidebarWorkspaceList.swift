@@ -104,6 +104,7 @@ enum SidebarWorkspaceListRenderPolicy {
         return hasher.finalize()
     }
 
+    @MainActor
     static func groupingPlan(in tabManager: TabManager) -> SidebarWorkspaceGroupingPlan {
         SidebarWorkspaceGroupingPlanner.plan(
             for: tabManager.tabs.map {
@@ -116,6 +117,7 @@ enum SidebarWorkspaceListRenderPolicy {
         )
     }
 
+    @MainActor
     static func renderedWorkspaceIds(
         in tabManager: TabManager,
         collapsedGroupIds: Set<String>
@@ -128,6 +130,7 @@ enum SidebarWorkspaceListRenderPolicy {
         )
     }
 
+    @MainActor
     static func visibleWorkspaceIds(in tabManager: TabManager) -> [UUID] {
         groupingPlan(in: tabManager).visibleWorkspaceIds
     }
@@ -248,7 +251,7 @@ struct SidebarWorkspaceList<RowContent: View>: View {
                         tabManager.selectedTabId
                     },
                     sidebarIndexForTabId: { workspaceId in
-                        currentRenderedWorkspaceIds().firstIndex(of: workspaceId)
+                        renderContext.renderedWorkspaceIds.firstIndex(of: workspaceId)
                     },
                     moveToExistingWorkspace: onMoveBonsplitTabToExistingWorkspace,
                     moveToNewWorkspace: onMoveBonsplitTabToNewWorkspace,
@@ -285,6 +288,7 @@ struct SidebarWorkspaceList<RowContent: View>: View {
         collapsedGroupIds.remove(group.id)
     }
 
+    @MainActor
     private func currentRenderedWorkspaceIds() -> [UUID] {
         SidebarWorkspaceListRenderPolicy.renderedWorkspaceIds(
             in: tabManager,
@@ -309,7 +313,7 @@ private struct SidebarBookmarkHeader: View {
     @Binding var lastSidebarSelectionIndex: Int?
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var dropIndicator: SidebarDropIndicator?
-    let renderedWorkspaceIdsForSelection: () -> [UUID]
+    let renderedWorkspaceIdsForSelection: @MainActor () -> [UUID]
 
     var body: some View {
         HStack(spacing: 6) {
@@ -349,7 +353,7 @@ private struct SidebarGroupHeader: View {
     @Binding var lastSidebarSelectionIndex: Int?
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var dropIndicator: SidebarDropIndicator?
-    let renderedWorkspaceIdsForSelection: () -> [UUID]
+    let renderedWorkspaceIdsForSelection: @MainActor () -> [UUID]
     let onDropWorkspace: () -> Void
 
     var body: some View {
@@ -451,7 +455,7 @@ private struct SidebarGroupHeaderDropDelegate: DropDelegate {
     @Binding var lastSidebarSelectionIndex: Int?
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var dropIndicator: SidebarDropIndicator?
-    let renderedWorkspaceIdsForSelection: () -> [UUID]
+    let renderedWorkspaceIdsForSelection: @MainActor () -> [UUID]
     let onDropWorkspace: () -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
@@ -505,7 +509,7 @@ private struct SidebarBookmarkHeaderDropDelegate: DropDelegate {
     @Binding var lastSidebarSelectionIndex: Int?
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var dropIndicator: SidebarDropIndicator?
-    let renderedWorkspaceIdsForSelection: () -> [UUID]
+    let renderedWorkspaceIdsForSelection: @MainActor () -> [UUID]
 
     func validateDrop(info: DropInfo) -> Bool {
         info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]) && draggedTabId != nil
@@ -552,7 +556,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let targetRowHeight: CGFloat?
-    let planningTabIds: () -> [UUID]
+    let planningTabIds: @MainActor () -> [UUID]
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var dropIndicator: SidebarDropIndicator?
 
