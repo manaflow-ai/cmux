@@ -65,6 +65,14 @@ enum SettingsSearchAliasIndex {
         "app:telemetry": localized("settings.search.alias.setting.app.telemetry", defaultValue: "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
         "app:warn-before-quit": localized("settings.search.alias.setting.app.warn-before-quit", defaultValue: "app.warnBeforeQuit quit confirmation command-q cmd-q exit close app"),
         "app:warn-before-closing-tab": localized("settings.search.alias.setting.app.warn-before-closing-tab", defaultValue: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
+        "app:warn-before-closing-tab-x-button": localized(
+            "settings.search.alias.setting.app.warn-before-closing-tab-x-button",
+            defaultValue: "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface"
+        ),
+        "app:hide-tab-close-button": localized(
+            "settings.search.alias.setting.app.hide-tab-close-button",
+            defaultValue: "app.hideTabCloseButton hide close tab x button terminal surface"
+        ),
         "app:rename-selects-name": localized("settings.search.alias.setting.app.rename-selects-name", defaultValue: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),
         "app:palette-search-all": localized("settings.search.alias.setting.app.palette-search-all", defaultValue: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
