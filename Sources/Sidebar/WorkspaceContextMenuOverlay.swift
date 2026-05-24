@@ -14,7 +14,7 @@ enum WorkspaceContextMenuAction {
     case clearColor
     case chooseCustomColor
     case applyColor(hex: String)
-    case copySshError(error: String)
+    case copySshError
     case moveUp
     case moveDown
     case moveToTop
@@ -38,6 +38,7 @@ struct WorkspaceContextMenuOverlay: NSViewRepresentable {
     let hasCustomColorInSelection: Bool
     let index: Int
     let tabCount: Int
+    let orderedWorkspaceIds: [UUID]
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
@@ -57,6 +58,20 @@ struct WorkspaceContextMenuOverlay: NSViewRepresentable {
     let onAction: (WorkspaceContextMenuAction) -> Void
     let onMenuWillOpen: () -> Void
     let onMenuDidClose: () -> Void
+
+    nonisolated static func isMoveToTopEnabled(
+        contextMenuWorkspaceIds: [UUID],
+        orderedWorkspaceIds: [UUID],
+        fallbackIndex: Int
+    ) -> Bool {
+        guard !contextMenuWorkspaceIds.isEmpty else { return false }
+        let selectedIds = Set(contextMenuWorkspaceIds)
+        let selectedIndexes = orderedWorkspaceIds.indices.compactMap { index in
+            selectedIds.contains(orderedWorkspaceIds[index]) ? index : nil
+        }
+        let minSelectedIndex = selectedIndexes.min() ?? fallbackIndex
+        return minSelectedIndex > 0
+    }
 
     func makeNSView(context: Context) -> MenuHostView {
         let view = MenuHostView()
@@ -230,10 +245,10 @@ struct WorkspaceContextMenuOverlay: NSViewRepresentable {
             menu.addItem(colorSubmenuItem)
 
             // Copy SSH Error
-            if let sshError = overlay.copyableSidebarSSHError {
+            if overlay.copyableSidebarSSHError != nil {
                 let copySshItem = NSMenuItem(title: String(localized: "contextMenu.copySshError", defaultValue: "Copy SSH Error"), action: #selector(handleMenuItemAction(_:)), keyEquivalent: "")
                 copySshItem.target = self
-                copySshItem.representedObject = WorkspaceContextMenuAction.copySshError(error: sshError)
+                copySshItem.representedObject = WorkspaceContextMenuAction.copySshError
                 menu.addItem(copySshItem)
             }
 
@@ -257,7 +272,11 @@ struct WorkspaceContextMenuOverlay: NSViewRepresentable {
             let moveToTopItem = NSMenuItem(title: String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top"), action: #selector(handleMenuItemAction(_:)), keyEquivalent: "")
             moveToTopItem.target = self
             moveToTopItem.representedObject = WorkspaceContextMenuAction.moveToTop
-            moveToTopItem.isEnabled = overlay.index > 0 && !overlay.contextMenuWorkspaceIds.isEmpty
+            moveToTopItem.isEnabled = WorkspaceContextMenuOverlay.isMoveToTopEnabled(
+                contextMenuWorkspaceIds: overlay.contextMenuWorkspaceIds,
+                orderedWorkspaceIds: overlay.orderedWorkspaceIds,
+                fallbackIndex: overlay.index
+            )
             menu.addItem(moveToTopItem)
 
             // Move to Window submenu

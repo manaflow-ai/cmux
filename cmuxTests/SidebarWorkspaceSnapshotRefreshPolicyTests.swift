@@ -9,6 +9,41 @@ import XCTest
 #endif
 
 final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
+    func testMoveToTopIsDisabledWhenSelectedBlockAlreadyStartsAtTop() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        XCTAssertFalse(
+            WorkspaceContextMenuOverlay.isMoveToTopEnabled(
+                contextMenuWorkspaceIds: [first, second],
+                orderedWorkspaceIds: [first, second, third],
+                fallbackIndex: 1
+            )
+        )
+    }
+
+    func testMoveToTopUsesSelectedBlockMinimumIndex() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        XCTAssertTrue(
+            WorkspaceContextMenuOverlay.isMoveToTopEnabled(
+                contextMenuWorkspaceIds: [second, third],
+                orderedWorkspaceIds: [first, second, third],
+                fallbackIndex: 0
+            )
+        )
+    }
+
+    func testCopySshErrorActionCarriesNoRawMessage() {
+        if case .copySshError = WorkspaceContextMenuAction.copySshError {
+            return
+        }
+        XCTFail("copySshError should be an opaque action without raw SSH text")
+    }
+
     func testContextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
         let current = Self.snapshot(
             title: "lmao",

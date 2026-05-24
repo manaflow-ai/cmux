@@ -10800,6 +10800,7 @@ struct VerticalTabsSidebar: View {
         )
 
         let precomputedTabCount = tabManager.tabs.count
+        let orderedWorkspaceIds = tabManager.tabs.map(\.id)
         let precomputedHasLatestNotifications = contextMenuWorkspaceIds.contains { notificationStore.latestNotification(forTabId: $0) != nil }
         let canMarkWorkspaceRead = notificationStore.canMarkWorkspaceRead(forTabIds: contextMenuWorkspaceIds)
         let canMarkWorkspaceUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: contextMenuWorkspaceIds)
@@ -10840,6 +10841,7 @@ struct VerticalTabsSidebar: View {
             draggedTabId: $draggedTabId,
             dropIndicator: $dropIndicator,
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
+            orderedWorkspaceIds: orderedWorkspaceIds,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
@@ -13316,6 +13318,7 @@ private struct TabItemView: View, Equatable {
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
+        lhs.orderedWorkspaceIds == rhs.orderedWorkspaceIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
@@ -13356,6 +13359,7 @@ private struct TabItemView: View, Equatable {
     @Binding var draggedTabId: UUID?
     @Binding var dropIndicator: SidebarDropIndicator?
     let contextMenuWorkspaceIds: [UUID]
+    let orderedWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
@@ -14048,6 +14052,7 @@ private struct TabItemView: View, Equatable {
                 hasCustomColorInSelection: hasCustomColorInSelection,
                 index: index,
                 tabCount: tabCount,
+                orderedWorkspaceIds: orderedWorkspaceIds,
                 contextMenuWorkspaceIds: contextMenuWorkspaceIds,
                 remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
                 allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
@@ -14165,8 +14170,10 @@ private struct TabItemView: View, Equatable {
         case .applyColor(let hex):
             applyTabColor(hex, targetIds: targetIds)
             
-        case .copySshError(let error):
-            WorkspaceSurfaceIdentifierClipboardText.copy(error)
+        case .copySshError:
+            if let sanitizedError = sanitizedCopyableSidebarSSHError() {
+                WorkspaceSurfaceIdentifierClipboardText.copy(sanitizedError)
+            }
             
         case .moveUp:
             moveBy(-1)
@@ -14211,6 +14218,14 @@ private struct TabItemView: View, Equatable {
         case .showInFinder:
             workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
         }
+    }
+
+    private func sanitizedCopyableSidebarSSHError() -> String? {
+        guard let rawError = workspaceSnapshot.copyableSidebarSSHError else { return nil }
+        let trimmed = rawError.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        return trimmed.replacingOccurrences(of: homePath, with: "~")
     }
 
     private var backgroundColor: Color {
