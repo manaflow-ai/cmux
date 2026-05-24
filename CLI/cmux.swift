@@ -13150,33 +13150,33 @@ struct CMUXCLI {
               cmux sidebar-state --workspace workspace:2
             """
         case "right-sidebar":
-            return String(localized: "cli.rightSidebar.usage", defaultValue: """
-            Usage: cmux right-sidebar <command> [flags]
-
-            Control the right sidebar from the CLI.
-
-            Commands:
-              toggle                         Toggle right sidebar visibility
-              show                           Show the right sidebar
-              hide                           Hide the right sidebar
-              focus                          Focus the current right sidebar mode
-              set <files|find|vault|sessions|review|diff|feed|dock>
-                                             Show, switch mode, and focus
-              mode                           Print {"visible":bool,"mode":string}
-              files|find|vault|sessions|review|diff|feed|dock
-                                             Alias for show + set + focus
-
-            Flags:
-              --workspace <id|ref|index>     Target the window containing a workspace
-              --window <id|ref|index>        Target a window
-              --no-focus                     With set, switch mode without moving focus
-
-            Examples:
-              cmux right-sidebar toggle
-              cmux right-sidebar set review
-              cmux right-sidebar set vault --no-focus
-              cmux right-sidebar mode
-            """)
+            return [
+                String(localized: "cli.rightSidebar.usage.header", defaultValue: "Usage: cmux right-sidebar <command> [flags]"),
+                "",
+                String(localized: "cli.rightSidebar.usage.description", defaultValue: "Control the right sidebar from the CLI."),
+                "",
+                String(localized: "cli.rightSidebar.usage.commandsHeader", defaultValue: "Commands:"),
+                String(localized: "cli.rightSidebar.usage.command.toggle", defaultValue: "  toggle                         Toggle right sidebar visibility"),
+                String(localized: "cli.rightSidebar.usage.command.show", defaultValue: "  show                           Show the right sidebar"),
+                String(localized: "cli.rightSidebar.usage.command.hide", defaultValue: "  hide                           Hide the right sidebar"),
+                String(localized: "cli.rightSidebar.usage.command.focus", defaultValue: "  focus                          Focus the current right sidebar mode"),
+                String(localized: "cli.rightSidebar.usage.command.set", defaultValue: "  set <files|find|vault|sessions|review|diff|feed|dock>"),
+                String(localized: "cli.rightSidebar.usage.command.set.description", defaultValue: "                                 Show, switch mode, and focus"),
+                String(localized: "cli.rightSidebar.usage.command.mode", defaultValue: #"  mode                           Print {"visible":bool,"mode":string}"#),
+                String(localized: "cli.rightSidebar.usage.command.alias", defaultValue: "  files|find|vault|sessions|review|diff|feed|dock"),
+                String(localized: "cli.rightSidebar.usage.command.alias.description", defaultValue: "                                 Alias for show + set + focus"),
+                "",
+                String(localized: "cli.rightSidebar.usage.flagsHeader", defaultValue: "Flags:"),
+                String(localized: "cli.rightSidebar.usage.flag.workspace", defaultValue: "  --workspace <id|ref|index>     Target the window containing a workspace"),
+                String(localized: "cli.rightSidebar.usage.flag.window", defaultValue: "  --window <id|ref|index>        Target a window"),
+                String(localized: "cli.rightSidebar.usage.flag.noFocus", defaultValue: "  --no-focus                     With set, switch mode without moving focus"),
+                "",
+                String(localized: "cli.rightSidebar.usage.examplesHeader", defaultValue: "Examples:"),
+                String(localized: "cli.rightSidebar.usage.example.toggle", defaultValue: "  cmux right-sidebar toggle"),
+                String(localized: "cli.rightSidebar.usage.example.setReview", defaultValue: "  cmux right-sidebar set review"),
+                String(localized: "cli.rightSidebar.usage.example.setVaultNoFocus", defaultValue: "  cmux right-sidebar set vault --no-focus"),
+                String(localized: "cli.rightSidebar.usage.example.mode", defaultValue: "  cmux right-sidebar mode"),
+            ].joined(separator: "\n")
         case "set-app-focus":
             return """
             Usage: cmux set-app-focus <active|inactive|clear>
