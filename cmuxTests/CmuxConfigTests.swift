@@ -2271,4 +2271,28 @@ final class NoteSupportTests: XCTestCase {
             )
         )
     }
+
+    func testIndexedNoteDeleteDoesNotFailAfterIndexRemovalWhenBodyCleanupCannotUnlink() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let created = try CmuxNoteStore.createOrOpen(
+            slug: "blocked-delete",
+            projectRoot: root.path,
+            createIfMissing: true
+        )
+        try FileManager.default.removeItem(atPath: created.path)
+        try FileManager.default.createDirectory(atPath: created.path, withIntermediateDirectories: false)
+
+        XCTAssertTrue(try CmuxNoteStore.delete(slug: "blocked-delete", projectRoot: root.path))
+        XCTAssertThrowsError(try CmuxNoteStore.path(slug: "blocked-delete", projectRoot: root.path)) { error in
+            guard case CmuxNoteStoreError.noteNotFound(let slug) = error else {
+                return XCTFail("Expected noteNotFound, got \(error)")
+            }
+            XCTAssertEqual(slug, "blocked-delete")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: created.path))
+    }
 }
