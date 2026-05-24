@@ -11594,14 +11594,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
 
         let response = alert.runModal()
-        if alert.suppressionButton?.state == .on {
+        let shouldQuit = response == .alertFirstButtonReturn
+        if shouldQuit && alert.suppressionButton?.state == .on {
             QuitWarningSettings.setEnabled(false)
         }
         let choices = QuitDialogChoices(
             restoreLayoutOnNextLaunch: restoreLayoutButton.state == .on,
             autoResumeAgentSessions: autoResumeButton.state == .on
         )
-        return QuitDialogResult(shouldQuit: response == .alertFirstButtonReturn, choices: choices)
+        return QuitDialogResult(shouldQuit: shouldQuit, choices: choices)
     }
 
     private func applyConfirmedQuitDialogChoices(_ choices: QuitDialogChoices) {
