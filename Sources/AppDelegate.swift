@@ -11618,13 +11618,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let homeDirectory = NSHomeDirectory()
         let environment = ProcessInfo.processInfo.environment
         let claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()
-        Task.detached(priority: .utility) { [weak self] in
+        Task.detached(priority: .utility) { [homeDirectory, environment, claudeCodeHooksEnabled] in
             let hasConfiguredAgentHooks = AgentHookSetupStatus.hasConfiguredAgentHooks(
                 homeDirectory: homeDirectory,
                 environment: environment,
                 claudeCodeHooksEnabled: claudeCodeHooksEnabled
             )
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 self?.hasConfiguredAgentHooksForQuitDialog = hasConfiguredAgentHooks
             }
         }
