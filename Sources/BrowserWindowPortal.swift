@@ -1207,7 +1207,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     private static func isInspectorView(_ view: NSView) -> Bool {
-        String(describing: type(of: view)).contains("WKInspector")
+        cmuxIsWebInspectorObject(view)
     }
 
     private static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
@@ -2440,8 +2440,7 @@ final class WindowBrowserPortal: NSObject {
         var stack: [NSView] = [root]
         while let current = stack.popLast() {
             if current !== root {
-                let className = String(describing: type(of: current))
-                if className.contains("WKInspector"),
+                if cmuxIsWebInspectorObject(current),
                    !current.isHidden,
                    current.alphaValue > 0,
                    current.frame.width > 1,
@@ -2507,7 +2506,7 @@ final class WindowBrowserPortal: NSObject {
         var count = 0
         while let current = stack.popLast() {
             for subview in current.subviews {
-                if String(describing: type(of: subview)).contains("WKInspector") {
+                if cmuxIsWebInspectorObject(subview) {
                     count += 1
                 }
                 stack.append(subview)
@@ -2556,24 +2555,38 @@ final class WindowBrowserPortal: NSObject {
             relatedSubviews.append(candidate)
         }
 
-        append(directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView)
-
-        if let inspectorFrontend = primaryWebView.cmuxInspectorFrontendWebView() {
-            append(directTransferChild(of: sourceSuperview, containing: inspectorFrontend) ?? inspectorFrontend)
+        // The Web Inspector frontend is owned by WebKit's inspector window/controller.
+        // Moving it into the portal can leave WebKit window observers pointing at a
+        // stale host during user-initiated inspector-window close.
+        let primaryTransferView = directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView
+        if Self.containsInspectorView(in: primaryTransferView) {
+            append(primaryWebView)
+        } else {
+            append(primaryTransferView)
         }
 
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
             let className = String(describing: type(of: view))
-            guard className.contains("WK") else { continue }
-            if className.contains("WKInspector") &&
-                (view.isHidden || view.alphaValue <= 0 || view.frame.width <= 1 || view.frame.height <= 1) {
+            if cmuxIsWebInspectorClassName(className) || Self.containsInspectorView(in: view) {
                 continue
             }
+            guard className.contains("WK") else { continue }
             append(view)
         }
 
         return relatedSubviews
+    }
+
+    private static func containsInspectorView(in root: NSView) -> Bool {
+        var stack: [NSView] = [root]
+        while let current = stack.popLast() {
+            if cmuxIsWebInspectorObject(current) {
+                return true
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
     }
 
     private func appendHostedWebKitSubviews(
@@ -2582,6 +2595,7 @@ final class WindowBrowserPortal: NSObject {
         seen: inout Set<ObjectIdentifier>
     ) {
         if let webView = root as? WKWebView {
+            guard !Self.isInspectorFrontendWebView(webView) else { return }
             let id = ObjectIdentifier(webView)
             if seen.insert(id).inserted {
                 result.append(webView)
@@ -2601,6 +2615,7 @@ final class WindowBrowserPortal: NSObject {
 
         func append(_ webView: WKWebView?) {
             guard let webView else { return }
+            guard !Self.isInspectorFrontendWebView(webView) else { return }
             let id = ObjectIdentifier(webView)
             guard seen.insert(id).inserted else { return }
             result.append(webView)
@@ -2613,6 +2628,10 @@ final class WindowBrowserPortal: NSObject {
         }
         appendHostedWebKitSubviews(in: containerView, to: &result, seen: &seen)
         return result
+    }
+
+    private static func isInspectorFrontendWebView(_ webView: WKWebView) -> Bool {
+        cmuxIsWebInspectorObject(webView)
     }
 
     private func notifyHostedWebKitHidden(

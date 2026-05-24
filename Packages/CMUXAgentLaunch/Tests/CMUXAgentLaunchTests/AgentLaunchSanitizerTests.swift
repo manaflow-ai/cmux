@@ -65,8 +65,8 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
-    @Test("Detects Codex fork after variadic options")
-    func detectsCodexForkAfterVariadicOptions() {
+    @Test("Detects Codex fork after startup image options")
+    func detectsCodexForkAfterStartupImageOptions() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -86,16 +86,14 @@ struct AgentLaunchSanitizerTests {
                 fallbackKind: "codex"
             ) == [
                 "codex",
-                "--image",
-                "/tmp/screenshot.png",
                 "--sandbox",
                 "danger-full-access",
             ]
         )
     }
 
-    @Test("Keeps Codex variadic first value named fork")
-    func keepsCodexVariadicFirstValueNamedFork() {
+    @Test("Drops Codex startup images and keeps following flags")
+    func dropsCodexStartupImagesAndKeepsFollowingFlags() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -110,11 +108,124 @@ struct AgentLaunchSanitizerTests {
                 fallbackKind: "codex"
             ) == [
                 "codex",
-                "--image",
-                "fork",
-                "019dad34-d218-7943-b81a-eddac5c87951",
                 "--model",
                 "gpt-5.4",
+            ]
+        )
+    }
+
+    @Test("Drops Codex restored image placeholder and prompt")
+    func dropsCodexRestoredImagePlaceholderAndPrompt() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--yolo",
+                    "--image",
+                    "[Image #1]",
+                    "[Image #1] cmd clicking this should open the crash file in finder",
+                    "--model",
+                    "gpt-5.4",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--yolo",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+    }
+
+    @Test("Drops Claude startup files")
+    func dropsClaudeStartupFiles() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "claude",
+                    "--file",
+                    "file_123:screenshot.png",
+                    "initial prompt should not replay",
+                    "--model",
+                    "sonnet",
+                ],
+                launcher: "claude",
+                fallbackKind: "claude"
+            ) == [
+                "claude",
+                "--model",
+                "sonnet",
+            ]
+        )
+    }
+
+    @Test("Drops OpenCode startup files before preserving cwd")
+    func dropsOpenCodeStartupFilesBeforePreservingCwd() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "opencode",
+                    "--file",
+                    "/tmp/screenshot.png",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/worktree",
+                    "initial prompt should not replay",
+                ],
+                launcher: "opencode",
+                fallbackKind: "opencode"
+            ) == [
+                "opencode",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "/tmp/worktree",
+            ]
+        )
+    }
+
+    @Test("Drops OpenCode startup file when it appears before cwd")
+    func dropsOpenCodeStartupFileBeforeCwd() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "opencode",
+                    "--file",
+                    "/tmp/screenshot.png",
+                    "/tmp/worktree",
+                    "initial prompt should not replay",
+                ],
+                launcher: "opencode",
+                fallbackKind: "opencode"
+            ) == [
+                "opencode",
+                "/tmp/worktree",
+            ]
+        )
+    }
+
+    @Test("Drops repeated OpenCode startup files before preserving cwd")
+    func dropsRepeatedOpenCodeStartupFilesBeforeCwd() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "opencode",
+                    "--file",
+                    "/tmp/screenshot.png",
+                    "-f",
+                    "/tmp/transcript.txt",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/worktree",
+                    "initial prompt should not replay",
+                ],
+                launcher: "opencode",
+                fallbackKind: "opencode"
+            ) == [
+                "opencode",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "/tmp/worktree",
             ]
         )
     }
@@ -245,6 +356,110 @@ struct AgentLaunchSanitizerTests {
                 launcher: "gemini",
                 fallbackKind: "gemini"
             ) == ["gemini", "--model", "gemini-2.5-pro"]
+        )
+    }
+
+    @Test("Drops Antigravity conversation selectors without replaying prompts")
+    func dropsAntigravityConversationSelectorsWithoutReplayingPrompts() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "agy",
+                    "--conversation",
+                    "old-conversation",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--add-dir",
+                    "/tmp/extra repo",
+                    "initial prompt should not replay",
+                ],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == [
+                "agy",
+                "--sandbox",
+                "danger-full-access",
+                "--add-dir",
+                "/tmp/extra repo",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--conversation=old-conversation", "--log-file", "/tmp/agy.log"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--log-file", "/tmp/agy.log"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--conversation", "--sandbox", "danger-full-access"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--continue", "old-conversation", "--sandbox", "danger-full-access"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--sandbox", "danger-full-access"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "-c", "--sandbox", "danger-full-access"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--sandbox", "danger-full-access"]
+        )
+    }
+
+    @Test("Rejects noninteractive Antigravity launches")
+    func rejectsNoninteractiveAntigravityLaunches() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--print", "--prompt", "summarize"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--prompt", "summarize"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "-i", "--prompt", "summarize"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "-p", "summarize"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == nil
+        )
+    }
+
+    @Test("Drops Grok optional selectors without swallowing later options")
+    func dropsGrokOptionalSelectorsWithoutSwallowingLaterOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["grok", "--resume", "--model", "grok-4", "--worktree", "--permission-mode", "auto"],
+                launcher: "grok",
+                fallbackKind: "grok"
+            ) == ["grok", "--model", "grok-4", "--permission-mode", "auto"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["grok", "-r", "old-session", "-w", "scratch", "--sandbox", "danger-full-access"],
+                launcher: "grok",
+                fallbackKind: "grok"
+            ) == ["grok", "--sandbox", "danger-full-access"]
         )
     }
 

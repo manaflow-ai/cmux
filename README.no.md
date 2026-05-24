@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | Norsk | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | Norsk | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
@@ -236,15 +236,33 @@ Nettleserens utviklerverktøysnarveier følger Safari-standarder og kan tilpasse
 
 cmux NIGHTLY er en separat app med sin egen bundle-ID, så den kjører ved siden av den stabile versjonen. Bygges automatisk fra den siste `main`-commiten og oppdateres automatisk via sin egen Sparkle-feed.
 
-## Sesjonssgjenoppretting (nåværende oppførsel)
+## Sesjonsgjenoppretting
 
-Ved omstart gjenoppretter cmux for øyeblikket kun applayouten og metadata:
+Når du avslutter cmux, lagres den nåværende sesjonen. Ved omstart gjenoppretter cmux tilstand som eies av appen:
 - Vindu-/arbeidsområde-/panellayout
 - Arbeidsmapper
 - Terminal-rullingshistorikk (best effort)
 - Nettleser-URL og navigasjonshistorikk
 
-cmux gjenoppretter **ikke** aktive prosesstilstander inne i terminalapper. For eksempel blir aktive Claude Code/tmux/vim-sesjoner ikke gjenopptatt etter omstart ennå.
+cmux tar ikke checkpoint av vilkårlig aktiv prosesstilstand. tmux, vim, shell og terminalapper uten støtte åpnes igjen som vanlige terminaler.
+
+Støttede agentøkter kan gjenopptas når hooks har lagret en native sesjons-ID:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Avanserte brukere og integrasjoner kan knytte en egendefinert gjenopptakskommando til gjeldende terminal-surface. Dette er nyttig for verktøy med egen varig tilstand, som tmux-sesjoner eller egendefinerte agent-CLI-er:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Bindingen forblir knyttet til cmux-surfacen. Bindinger opprettet via offentlig CLI eller socket lagres for inspeksjon og manuell gjenopptakelse. cmux auto-kjører bare resume-bindinger den markerer som klarerte, for eksempel tmux-bindinger oppdaget fra levende prosesser. Sensitive miljønøkler som tokens, passord, hemmeligheter og API-nøkler fjernes før en resume-binding lagres.
 
 ## Stjernehistorikk
 
