@@ -124,6 +124,47 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(store.hasDismissibleActivity(forTabId: workspaceId))
     }
 
+    func testEmptyTerminalInteractionSkipsDetailedNotificationDismissLookups() throws {
+        #if DEBUG
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        var detailedLookups: [String] = []
+        store.configureDetailedDismissLookupObserverForTesting { lookup in
+            detailedLookups.append(lookup)
+        }
+
+        XCTAssertFalse(store.hasDismissibleActivity(forTabId: workspace.id))
+        XCTAssertFalse(manager.dismissNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: panelId))
+        XCTAssertTrue(
+            detailedLookups.isEmpty,
+            "Plain local terminal typing with no notification state must return before detailed dismissal lookups"
+        )
+        #else
+        throw XCTSkip("detailedDismissLookupObserver is only available in DEBUG builds")
+        #endif
+    }
+
     func testManualWorkspaceUnreadClearsOnDirectTerminalInteraction() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()

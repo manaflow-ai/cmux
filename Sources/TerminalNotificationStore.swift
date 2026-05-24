@@ -818,6 +818,9 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.scheduleUserNotification(notification, effects: effects)
     }
+#if DEBUG
+    private var detailedDismissLookupObserverForTesting: ((String) -> Void)?
+#endif
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
@@ -1088,6 +1091,9 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func hasManualUnread(forTabId tabId: UUID) -> Bool {
+#if DEBUG
+        detailedDismissLookupObserverForTesting?("hasManualUnread")
+#endif
         manualUnreadWorkspaceIds.contains(tabId)
     }
 
@@ -1096,6 +1102,9 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func hasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool {
+#if DEBUG
+        detailedDismissLookupObserverForTesting?("hasRestoredUnreadIndicator")
+#endif
         restoredUnreadWorkspaceIds.contains(tabId)
     }
 
@@ -1146,6 +1155,9 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func hasUnreadNotification(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
+#if DEBUG
+        detailedDismissLookupObserverForTesting?("hasUnreadNotification")
+#endif
         indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
     }
 
@@ -1158,6 +1170,9 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func hasVisibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
+#if DEBUG
+        detailedDismissLookupObserverForTesting?("hasVisibleNotificationIndicator")
+#endif
         hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
             focusedReadIndicatorByTabId[tabId] == surfaceId
     }
@@ -2268,6 +2283,14 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    func configureDetailedDismissLookupObserverForTesting(_ observer: @escaping (String) -> Void) {
+        detailedDismissLookupObserverForTesting = observer
+    }
+
+    func resetDetailedDismissLookupObserverForTesting() {
+        detailedDismissLookupObserverForTesting = nil
+    }
+
     func promptToEnableNotificationsForTesting() {
         promptToEnableNotifications()
     }
@@ -2280,6 +2303,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearPanelDismissibleActivity()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
+        resetDetailedDismissLookupObserverForTesting()
     }
 #endif
 
