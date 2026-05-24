@@ -407,7 +407,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             processRunLock.lock()
             processRunCount += 1
             processRunLock.unlock()
-            (status: 0, stdout: "", stderr: "")
+            return (status: 0, stdout: "", stderr: "")
         }
         let currentProcessRunCount = {
             processRunLock.lock()
@@ -454,6 +454,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(state.workspaceSchedulersSuspended)
         XCTAssertTrue(state.remotePortPollTimerExists)
         XCTAssertFalse(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+        XCTAssertEqual(currentProcessRunCount(), 2)
 
         controller.setWorkspaceSchedulersEnabled(false)
         state = try controller.debugWorkspaceSchedulerStateForTesting()

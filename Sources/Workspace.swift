@@ -5766,7 +5766,6 @@ final class WorkspaceRemoteSessionController {
         if enabled {
             guard workspaceSchedulersSuspended else { return }
             workspaceSchedulersSuspended = false
-            resumeRemotePortPollingForWorkspaceRemountLocked()
             updateRemotePortPollingStateLocked()
             if remotePortScanPendingReason != nil && remotePortScanCoalesceWorkItem == nil {
                 scheduleRemotePortScanCoalesceLocked()
@@ -8131,7 +8130,9 @@ final class WorkspaceRemoteSessionController {
     private func startRemotePortPollingLocked(mode: RemotePortPollingMode) {
         guard !workspaceSchedulersSuspended else { return }
         if remotePortPollTimer != nil, remotePortPollMode == mode {
-            resumeRemotePortPollingForWorkspaceRemountLocked()
+            if resumeRemotePortPollingForWorkspaceRemountLocked() {
+                pollRemotePortsLocked()
+            }
             return
         }
         stopRemotePortPollingLocked()
@@ -8188,11 +8189,12 @@ final class WorkspaceRemoteSessionController {
         remotePortPollTimerState = .suspendedForWorkspaceUnmount
     }
 
-    private func resumeRemotePortPollingForWorkspaceRemountLocked() {
-        guard let timer = remotePortPollTimer else { return }
-        guard remotePortPollTimerState == .suspendedForWorkspaceUnmount else { return }
+    private func resumeRemotePortPollingForWorkspaceRemountLocked() -> Bool {
+        guard let timer = remotePortPollTimer else { return false }
+        guard remotePortPollTimerState == .suspendedForWorkspaceUnmount else { return false }
         remotePortPollTimerState = .running
         timer.resume()
+        return true
     }
 
     private func suspendRemotePortScanBurstForWorkspaceUnmountLocked() {
@@ -9929,7 +9931,12 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpAttemptVersion: Int = 0
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
-    private var portalRenderingEnabled = true
+    private var portalRenderingEnabled = true {
+        didSet {
+            guard oldValue != portalRenderingEnabled else { return }
+            remoteSessionController?.setWorkspaceSchedulersEnabled(portalRenderingEnabled)
+        }
+    }
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -14289,7 +14296,6 @@ final class Workspace: Identifiable, ObservableObject {
     func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
         let changed = portalRenderingEnabled != enabled
         portalRenderingEnabled = enabled
-        remoteSessionController?.setWorkspaceSchedulersEnabled(enabled)
         if enabled {
             if changed {
                 beginEventDrivenLayoutFollowUp(
