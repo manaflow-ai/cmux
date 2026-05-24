@@ -96,14 +96,15 @@ func TestWebSocketRPCHelloAndProxyRoundTrip(t *testing.T) {
 	}
 
 	request := "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-	write := rpcCall(t, ctx, conn, rpcRequest{
+	var pendingEvents []map[string]any
+	write := rpcCallCollectingEvents(t, ctx, conn, rpcRequest{
 		ID:     4,
 		Method: "proxy.write",
 		Params: map[string]any{
 			"stream_id":   streamID,
 			"data_base64": base64.StdEncoding.EncodeToString([]byte(request)),
 		},
-	})
+	}, &pendingEvents)
 	if write["ok"] != true {
 		t.Fatalf("proxy.write failed: %v", write)
 	}
@@ -111,7 +112,13 @@ func TestWebSocketRPCHelloAndProxyRoundTrip(t *testing.T) {
 	var output strings.Builder
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		frame := readWSRPCFrame(t, ctx, conn)
+		var frame map[string]any
+		if len(pendingEvents) > 0 {
+			frame = pendingEvents[0]
+			pendingEvents = pendingEvents[1:]
+		} else {
+			frame = readWSRPCFrame(t, ctx, conn)
+		}
 		eventName, _ := frame["event"].(string)
 		switch eventName {
 		case "proxy.stream.data", "proxy.stream.eof":
@@ -161,6 +168,17 @@ func sendRPCAuth(t *testing.T, ctx context.Context, conn *websocket.Conn, token,
 
 func rpcCall(t *testing.T, ctx context.Context, conn *websocket.Conn, req rpcRequest) map[string]any {
 	t.Helper()
+	return rpcCallCollectingEvents(t, ctx, conn, req, nil)
+}
+
+func rpcCallCollectingEvents(
+	t *testing.T,
+	ctx context.Context,
+	conn *websocket.Conn,
+	req rpcRequest,
+	events *[]map[string]any,
+) map[string]any {
+	t.Helper()
 	payload, err := json.Marshal(req)
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
@@ -168,13 +186,22 @@ func rpcCall(t *testing.T, ctx context.Context, conn *websocket.Conn, req rpcReq
 	if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
 		t.Fatalf("write request: %v", err)
 	}
-	frame := readWSRPCFrame(t, ctx, conn)
-	id, _ := frame["id"].(float64)
 	expectedID, _ := req.ID.(int)
-	if int(id) != expectedID {
-		t.Fatalf("response id = %v, want %v frame=%v", frame["id"], expectedID, frame)
+	for {
+		frame := readWSRPCFrame(t, ctx, conn)
+		if eventName, _ := frame["event"].(string); eventName != "" {
+			if events != nil {
+				*events = append(*events, frame)
+				continue
+			}
+			t.Fatalf("unexpected event while waiting for response id %v: %v", expectedID, frame)
+		}
+		id, _ := frame["id"].(float64)
+		if int(id) != expectedID {
+			t.Fatalf("response id = %v, want %v frame=%v", frame["id"], expectedID, frame)
+		}
+		return frame
 	}
-	return frame
 }
 
 func readWSRPCFrame(t *testing.T, ctx context.Context, conn *websocket.Conn) map[string]any {

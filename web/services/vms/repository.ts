@@ -10,6 +10,7 @@ import { VmDatabaseError, VmLimitExceededError, isVmLimitExceededError } from ".
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmLeaseRow = typeof cloudVmLeases.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
+export type CloudVmStatus = CloudVmRow["status"];
 
 export type BeginCreateResult =
   | { readonly inserted: true; readonly vm: CloudVmRow }
@@ -41,6 +42,15 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number;
     readonly idempotencyKey?: string;
   }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmLimitExceededError>;
+  readonly activeLimitCandidates: (input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly markProviderObservedStatus: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly status: CloudVmStatus;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly markCreateRunning: (input: {
     readonly id: string;
     readonly providerVmId: string;
@@ -80,6 +90,16 @@ export type VmRepositoryShape = {
     readonly imageId?: string;
     readonly metadata?: Record<string, unknown>;
   }) => Effect.Effect<void, VmDatabaseError>;
+  readonly recordUsageEvents: (inputs: readonly {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly billingPlanId?: string | null;
+    readonly vmId?: string | null;
+    readonly eventType: string;
+    readonly provider?: ProviderId;
+    readonly imageId?: string;
+    readonly metadata?: Record<string, unknown>;
+  }[]) => Effect.Effect<void, VmDatabaseError>;
 };
 
 export class VmRepository extends Context.Tag("cmux/VmRepository")<
@@ -222,7 +242,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
               .from(cloudVms)
               .where(
                 and(
-                  inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+                  inArray(cloudVms.status, ["provisioning", "running"]),
                   or(
                     eq(cloudVms.billingTeamId, input.billingTeamId),
                     and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
@@ -265,6 +285,45 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       catch: (cause) => isVmLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginCreate", cause }),
+    }),
+
+  activeLimitCandidates: (input) =>
+    dbEffect("activeLimitCandidates", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVms)
+        .where(
+          and(
+            eq(cloudVms.status, "running"),
+            isNotNull(cloudVms.providerVmId),
+            or(
+              eq(cloudVms.billingTeamId, input.billingTeamId),
+              and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
+            ),
+          ),
+        );
+    }),
+
+  markProviderObservedStatus: (input) =>
+    dbEffect("markProviderObservedStatus", async () => {
+      const db = cloudDb();
+      const updated = await db
+        .update(cloudVms)
+        .set({
+          status: input.status,
+          destroyedAt: input.status === "destroyed" ? new Date() : null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.providerVmId, input.providerVmId),
+            ne(cloudVms.status, "destroyed"),
+          ),
+        )
+        .returning({ id: cloudVms.id });
+      return updated.length > 0;
     }),
 
   markCreateRunning: (input) =>
@@ -418,5 +477,20 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         imageId: input.imageId,
         metadata: input.metadata ?? {},
       });
+    }),
+  recordUsageEvents: (inputs) =>
+    dbEffect("recordUsageEvents", async () => {
+      if (inputs.length === 0) return;
+      const db = cloudDb();
+      await db.insert(cloudVmUsageEvents).values(inputs.map((input) => ({
+        userId: input.userId,
+        billingTeamId: input.billingTeamId ?? null,
+        billingPlanId: input.billingPlanId ?? null,
+        vmId: input.vmId ?? null,
+        eventType: input.eventType,
+        provider: input.provider,
+        imageId: input.imageId,
+        metadata: input.metadata ?? {},
+      })));
     }),
 });

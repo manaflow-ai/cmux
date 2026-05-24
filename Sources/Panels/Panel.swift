@@ -8,6 +8,7 @@ public enum PanelType: String, Codable, Sendable {
     case browser
     case markdown
     case filePreview = "filepreview"
+    case rightSidebarTool
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -18,6 +19,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.filePreview.rawValue {
             self = .filePreview
+            return
+        }
+        if rawValue.lowercased() == Self.rightSidebarTool.rawValue.lowercased() {
+            self = .rightSidebarTool
             return
         }
         throw DecodingError.dataCorruptedError(
@@ -35,6 +40,7 @@ public enum PanelType: String, Codable, Sendable {
 public enum TerminalPanelFocusIntent: Equatable {
     case surface
     case findField
+    case textBoxInput
 }
 
 public enum BrowserPanelFocusIntent: Equatable {
@@ -64,7 +70,7 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case navigation
     case notificationArrival
     case notificationDismiss
-    case manualUnreadDismiss
+    case unreadIndicatorDismiss
     case debug
 }
 
@@ -121,7 +127,7 @@ enum WorkspaceAttentionCoordinator {
                 glowOpacity: 0.14,
                 glowRadius: 3
             )
-        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             return WorkspaceAttentionFlashPresentation(
                 accent: .notificationBlue,
                 glowOpacity: 0.6,
@@ -139,7 +145,7 @@ enum WorkspaceAttentionCoordinator {
         switch reason {
         case .navigation:
             isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
-        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             isAllowed = true
         }
 
