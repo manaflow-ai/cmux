@@ -121,7 +121,7 @@ final class DiffReviewPatchParserTests: XCTestCase {
         let trackedReviewFile = try XCTUnwrap(snapshot.files.first { $0.path == "Sources/App.swift" })
         XCTAssertTrue(
             trackedReviewFile.hunks.contains(where: { hunk in
-                hunk.lines.contains(where: { $0.content.contains("worktree") })
+                hunk.lines.contains(where: { $0.text.contains("worktree") })
             }),
             "Branch comparisons should include uncommitted tracked working-tree edits."
         )
