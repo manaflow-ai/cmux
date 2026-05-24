@@ -3268,7 +3268,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
         let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
-        let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
+        let shouldRenderRestoredWebView = snapshot.shouldRenderWebView
+            && (panelType == .codeEditor || BrowserAvailabilitySettings.isEnabled())
         restoredSessionShouldRenderWebView = snapshot.shouldRenderWebView
 
         restoreSessionNavigationHistory(
@@ -3279,6 +3280,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
         currentURL = restoredURL
         shouldRenderWebView = shouldRenderRestoredWebView
+
+        guard panelType == .browser else {
+            refreshNavigationAvailability()
+            return
+        }
 
         guard shouldRenderRestoredWebView, let restoredURL else {
             refreshNavigationAvailability()
