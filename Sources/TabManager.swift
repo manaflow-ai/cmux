@@ -5861,7 +5861,22 @@ class TabManager: ObservableObject {
         let delta = CGFloat(amount) / candidate.axisPixels
         let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
         let clamped = min(max(requested, 0.1), 0.9)
-        return tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
+        guard tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true) else {
+            return false
+        }
+        tab.didProgrammaticallyChangeSplitGeometry()
+        return true
+    }
+
+    /// Resize the currently focused split edge in the selected workspace.
+    @discardableResult
+    func resizeFocusedSplit(
+        direction: ResizeDirection,
+        amount: UInt16 = SplitResizeShortcutDefaults.stepPixels
+    ) -> Bool {
+        guard let tab = selectedWorkspace,
+              let focusedPanelId = tab.focusedPanelId else { return false }
+        return resizeSplit(tabId: tab.id, surfaceId: focusedPanelId, direction: direction, amount: amount)
     }
 
     /// Toggle zoom on a panel.

@@ -3,9 +3,12 @@ export type LocalizedText = {
   ja: string;
 };
 
+export type ShortcutSequence = string[][];
+
 export type Shortcut = {
   id: string;
   combos: string[][];
+  chordCombos?: ShortcutSequence[];
   description: LocalizedText;
   note?: LocalizedText;
 };
@@ -16,6 +19,10 @@ export type ShortcutCategory = {
   blurbKey?: string;
   shortcuts: Shortcut[];
 };
+
+export function shortcutSequences(shortcut: Shortcut): ShortcutSequence[] {
+  return shortcut.chordCombos ?? shortcut.combos.map((combo) => [combo]);
+}
 
 export const shortcutCategories: ShortcutCategory[] = [
   {
@@ -130,6 +137,10 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "focusRight", combos: [["⌥", "⌘", "→"]], description: { en: "Focus pane right", ja: "右のペインにフォーカス" } },
       { id: "focusUp", combos: [["⌥", "⌘", "↑"]], description: { en: "Focus pane up", ja: "上のペインにフォーカス" } },
       { id: "focusDown", combos: [["⌥", "⌘", "↓"]], description: { en: "Focus pane down", ja: "下のペインにフォーカス" } },
+      { id: "resizeSplitLeft", combos: [], chordCombos: [[["⌃", "B"], ["⌥", "←"]]], description: { en: "Resize split left", ja: "分割を左にリサイズ" } },
+      { id: "resizeSplitRight", combos: [], chordCombos: [[["⌃", "B"], ["⌥", "→"]]], description: { en: "Resize split right", ja: "分割を右にリサイズ" } },
+      { id: "resizeSplitUp", combos: [], chordCombos: [[["⌃", "B"], ["⌥", "↑"]]], description: { en: "Resize split up", ja: "分割を上にリサイズ" } },
+      { id: "resizeSplitDown", combos: [], chordCombos: [[["⌃", "B"], ["⌥", "↓"]]], description: { en: "Resize split down", ja: "分割を下にリサイズ" } },
       { id: "splitRight", combos: [["⌘", "D"]], description: { en: "Split right", ja: "右に分割" } },
       { id: "splitDown", combos: [["⌘", "⇧", "D"]], description: { en: "Split down", ja: "下に分割" } },
       { id: "splitBrowserRight", combos: [["⌥", "⌘", "D"]], description: { en: "Split browser right", ja: "右にブラウザ分割" } },

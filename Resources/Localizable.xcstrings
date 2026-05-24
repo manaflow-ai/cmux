@@ -86709,6 +86709,74 @@
         }
       }
     },
+    "shortcut.resizeSplitDown.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize Split Down"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割を下にリサイズ"
+          }
+        }
+      }
+    },
+    "shortcut.resizeSplitLeft.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize Split Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割を左にリサイズ"
+          }
+        }
+      }
+    },
+    "shortcut.resizeSplitRight.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize Split Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割を右にリサイズ"
+          }
+        }
+      }
+    },
+    "shortcut.resizeSplitUp.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize Split Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割を上にリサイズ"
+          }
+        }
+      }
+    },
     "shortcut.splitRight.label": {
       "extractionState": "manual",
       "localizations": {

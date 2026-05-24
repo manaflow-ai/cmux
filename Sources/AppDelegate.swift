@@ -12091,6 +12091,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredDirectionalShortcut(
+            event: event,
+            action: .resizeSplitLeft,
+            arrowGlyph: "←",
+            arrowKeyCode: 123
+        ) {
+            _ = performResizeSplitShortcut(
+                direction: .left,
+                preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
+        }
+
+        if matchConfiguredDirectionalShortcut(
+            event: event,
+            action: .resizeSplitRight,
+            arrowGlyph: "→",
+            arrowKeyCode: 124
+        ) {
+            _ = performResizeSplitShortcut(
+                direction: .right,
+                preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
+        }
+
+        if matchConfiguredDirectionalShortcut(
+            event: event,
+            action: .resizeSplitUp,
+            arrowGlyph: "↑",
+            arrowKeyCode: 126
+        ) {
+            _ = performResizeSplitShortcut(
+                direction: .up,
+                preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
+        }
+
+        if matchConfiguredDirectionalShortcut(
+            event: event,
+            action: .resizeSplitDown,
+            arrowGlyph: "↓",
+            arrowKeyCode: 125
+        ) {
+            _ = performResizeSplitShortcut(
+                direction: .down,
+                preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleSplitZoom) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             _ = routedManager?.toggleFocusedSplitZoom()
@@ -12981,6 +13033,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "moveWeb=\(movedToWebView ? 1 : 0) moveNil=\(movedToNil ? 1 : 0) \(browser.debugDeveloperToolsStateSummary())"
         )
         #endif
+    }
+
+    @discardableResult
+    func performResizeSplitShortcut(
+        direction: ResizeDirection,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
+        let routedManager = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
+
+        if let terminalContext {
+            if shouldSuppressSplitShortcutForTransientTerminalFocusState(tabManager: terminalContext.tabManager) {
+                return true
+            }
+            return terminalContext.tabManager.resizeSplit(
+                tabId: terminalContext.workspaceId,
+                surfaceId: terminalContext.panelId,
+                direction: direction,
+                amount: SplitResizeShortcutDefaults.stepPixels
+            )
+        }
+
+        if shouldSuppressSplitShortcutForTransientTerminalFocusState(tabManager: routedManager) {
+            return true
+        }
+        return routedManager?.resizeFocusedSplit(
+            direction: direction,
+            amount: SplitResizeShortcutDefaults.stepPixels
+        ) ?? false
     }
 
     @discardableResult
