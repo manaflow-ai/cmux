@@ -132,6 +132,8 @@ class CmuxPerfRunner:
                 "CMUX_SOCKET_PATH": str(self.socket_path),
                 "CMUXD_UNIX_PATH": str(self.cmuxd_socket_path),
                 "CMUX_DEBUG_LOG": str(self.debug_log_path),
+                "CMUX_TAG": self.tag,
+                "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{self.tag_id}",
             }
         )
         return env
@@ -140,6 +142,8 @@ class CmuxPerfRunner:
         env = os.environ.copy()
         env["CMUX_SOCKET"] = str(self.socket_path)
         env["CMUX_SOCKET_PATH"] = str(self.socket_path)
+        env["CMUX_TAG"] = self.tag
+        env["CMUX_BUNDLE_ID"] = f"com.cmuxterm.app.debug.{self.tag_id}"
         env["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = str(max(15, int(self.args.snapshot_timeout)))
         return env
 
@@ -185,7 +189,10 @@ class CmuxPerfRunner:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                proc.wait(timeout=5)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
         subprocess.run(
             ["pkill", "-f", re.escape(f"cmux DEV {self.tag_slug}.app/Contents/MacOS/cmux DEV")],
             stdout=subprocess.DEVNULL,
