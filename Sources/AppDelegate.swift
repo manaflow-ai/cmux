@@ -5484,28 +5484,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
-        let window = context.flatMap { $0.window ?? windowForMainWindowId($0.windowId) }
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarFocus)
+        if let context {
+            let window = context.window ?? windowForMainWindowId(context.windowId)
+            if let window {
+                mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarFocus)
+            }
+            return context.keyboardFocusCoordinator.focusRightSidebar(
+                mode: mode,
+                focusFirstItem: focusFirstItem
+            )
         }
 
-        guard let state = context?.fileExplorerState ?? fileExplorerState else {
+        guard let state = fileExplorerState else {
             return false
         }
-
         if state.mode != mode {
             state.mode = mode
         }
         state.setVisible(true)
-
-        guard let context else {
-            return true
-        }
-
-        _ = context.keyboardFocusCoordinator.focusRightSidebar(
-            mode: mode,
-            focusFirstItem: focusFirstItem
-        )
         return true
     }
 
