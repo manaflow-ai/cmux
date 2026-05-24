@@ -349,25 +349,34 @@ class UpdateViewModel: ObservableObject {
 
     nonisolated static func errorDetails(for error: Swift.Error, technicalDetails: String?, feedURLString: String?) -> String {
         let nsError = error as NSError
+        let messageLabel = String(localized: "update.error.details.message", defaultValue: "Message")
+        let domainLabel = String(localized: "update.error.details.domain", defaultValue: "Domain")
+        let codeLabel = String(localized: "update.error.details.code", defaultValue: "Code")
+        let underlyingDomainLabel = String(localized: "update.error.details.underlyingDomain", defaultValue: "Underlying Domain")
+        let underlyingCodeLabel = String(localized: "update.error.details.underlyingCode", defaultValue: "Underlying Code")
+        let feedLabel = String(localized: "update.error.details.feed", defaultValue: "Feed")
+        let feedConfiguredLabel = String(localized: "update.error.details.feedConfigured", defaultValue: "configured")
+        let debugLabel = String(localized: "update.error.details.debug", defaultValue: "Debug")
+        let logLabel = String(localized: "update.error.details.log", defaultValue: "Log")
         var lines: [String] = []
-        lines.append("Message: \(userFacingErrorMessage(for: error))")
-        lines.append("Domain: \(displayDomain(for: nsError))")
-        lines.append("Code: \(nsError.code)")
+        lines.append("\(messageLabel): \(userFacingErrorMessage(for: error))")
+        lines.append("\(domainLabel): \(displayDomain(for: nsError))")
+        lines.append("\(codeLabel): \(nsError.code)")
 
         if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
-            lines.append("Underlying Domain: \(displayDomain(for: underlying))")
-            lines.append("Underlying Code: \(underlying.code)")
+            lines.append("\(underlyingDomainLabel): \(displayDomain(for: underlying))")
+            lines.append("\(underlyingCodeLabel): \(underlying.code)")
         }
 
         if let feedURLString, !feedURLString.isEmpty {
-            lines.append("Feed: configured")
+            lines.append("\(feedLabel): \(feedConfiguredLabel)")
         }
 
         if let technicalDetails, !technicalDetails.isEmpty {
-            lines.append("Debug: \(technicalDetails)")
+            lines.append("\(debugLabel): \(technicalDetails)")
         }
 
-        lines.append("Log: \(UpdateLogStore.shared.logPath())")
+        lines.append("\(logLabel): \(UpdateLogStore.shared.logPath())")
         return lines.joined(separator: "\n")
     }
 

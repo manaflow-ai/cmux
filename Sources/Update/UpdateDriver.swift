@@ -7,11 +7,10 @@ class UpdateDriver: NSObject, SPUUserDriver {
     private let operationCoordinator: UpdateOperationCoordinator
     private var lastFeedURLString: String?
 
+    @MainActor
     init(viewModel: UpdateViewModel, hostBundle _: Bundle) {
         self.viewModel = viewModel
-        self.operationCoordinator = MainActor.assumeIsolated {
-            UpdateOperationCoordinator(viewModel: viewModel)
-        }
+        self.operationCoordinator = UpdateOperationCoordinator(viewModel: viewModel)
         super.init()
     }
 
