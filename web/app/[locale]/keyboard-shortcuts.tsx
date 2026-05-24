@@ -22,8 +22,8 @@ function comboToText(combo: string[]) {
   return combo.join(" ");
 }
 
-function sequenceToText(sequence: ShortcutSequence) {
-  return sequence.map(comboToText).join(" then ");
+function sequenceToText(sequence: ShortcutSequence, separator: string) {
+  return sequence.map(comboToText).join(` ${separator} `);
 }
 
 function KeyCombo({ combo }: { combo: string[] }) {
@@ -43,9 +43,7 @@ function KeyCombo({ combo }: { combo: string[] }) {
   );
 }
 
-function KeySequence({ sequence, locale }: { sequence: ShortcutSequence; locale: string }) {
-  const separator = locale.startsWith("ja") ? "次に" : "then";
-
+function KeySequence({ sequence, separator }: { sequence: ShortcutSequence; separator: string }) {
   return (
     <span className="inline-flex items-center">
       {sequence.map((combo, idx) => (
@@ -62,7 +60,15 @@ function KeySequence({ sequence, locale }: { sequence: ShortcutSequence; locale:
   );
 }
 
-function ShortcutRow({ shortcut, locale }: { shortcut: Shortcut; locale: string }) {
+function ShortcutRow({
+  shortcut,
+  locale,
+  sequenceSeparator,
+}: {
+  shortcut: Shortcut;
+  locale: string;
+  sequenceSeparator: string;
+}) {
   const description = localizedText(shortcut.description, locale);
   const note = shortcut.note ? localizedText(shortcut.note, locale) : undefined;
   const sequences = shortcutSequences(shortcut);
@@ -81,7 +87,7 @@ function ShortcutRow({ shortcut, locale }: { shortcut: Shortcut; locale: string 
                 /
               </span>
             )}
-            <KeySequence sequence={sequence} locale={locale} />
+            <KeySequence sequence={sequence} separator={sequenceSeparator} />
           </span>
         ))}
       </div>
@@ -93,6 +99,7 @@ export function KeyboardShortcuts() {
   const [query, setQuery] = useState("");
   const locale = useLocale();
   const t = useTranslations("docs.keyboardShortcuts");
+  const sequenceSeparator = t("sequenceSeparator");
 
   const trimmedQuery = query.trim();
 
@@ -105,11 +112,13 @@ export function KeyboardShortcuts() {
         const catTitle = t(`cat.${cat.titleKey}`);
         const description = localizedText(shortcut.description, locale);
         const note = shortcut.note ? localizedText(shortcut.note, locale) : "";
-        const combos = shortcutSequences(shortcut).map(sequenceToText).join(" ");
+        const combos = shortcutSequences(shortcut)
+          .map((sequence) => sequenceToText(sequence, sequenceSeparator))
+          .join(" ");
         return normalize(`${catTitle} ${combos} ${description} ${note}`).includes(q);
       }),
     })).filter((cat) => cat.shortcuts.length > 0);
-  }, [locale, query, t]);
+  }, [locale, query, sequenceSeparator, t]);
 
   return (
     <div className="mb-12 mt-2">
@@ -178,7 +187,12 @@ export function KeyboardShortcuts() {
               <div className="overflow-hidden rounded-xl border border-border">
                 <div className="divide-y divide-border/60">
                   {cat.shortcuts.map((shortcut) => (
-                    <ShortcutRow key={shortcut.id} shortcut={shortcut} locale={locale} />
+                    <ShortcutRow
+                      key={shortcut.id}
+                      shortcut={shortcut}
+                      locale={locale}
+                      sequenceSeparator={sequenceSeparator}
+                    />
                   ))}
                 </div>
               </div>

@@ -184,6 +184,16 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 return
             }
 
+#if DEBUG
+            appDelegate.debugSetGhosttyGotoSplitShortcut(
+                StoredShortcut(key: "→", command: false, shift: false, option: true, control: false),
+                direction: .right
+            )
+            defer {
+                appDelegate.debugSetGhosttyGotoSplitShortcut(nil, direction: .right)
+            }
+#endif
+
             guard let prefixEvent = makeKeyDownEvent(
                 key: "b",
                 modifiers: [.control],

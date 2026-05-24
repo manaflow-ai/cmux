@@ -11117,6 +11117,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+#if DEBUG
+    func debugSetGhosttyGotoSplitShortcut(
+        _ shortcut: StoredShortcut?,
+        direction: NavigationDirection
+    ) {
+        switch direction {
+        case .left:
+            ghosttyGotoSplitLeftShortcut = shortcut
+        case .right:
+            ghosttyGotoSplitRightShortcut = shortcut
+        case .up:
+            ghosttyGotoSplitUpShortcut = shortcut
+        case .down:
+            ghosttyGotoSplitDownShortcut = shortcut
+        }
+    }
+#endif
+
     private func storedShortcutFromGhosttyTrigger(_ trigger: ghostty_input_trigger_s) -> StoredShortcut? {
         let key: String
         switch trigger.tag {
@@ -12042,12 +12060,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
+        let shouldMatchGhosttyGotoSplitFallback = activeConfiguredShortcutChordPrefixForCurrentEvent == nil
         if matchConfiguredDirectionalShortcut(
             event: event,
             action: .focusLeft,
             arrowGlyph: "←",
             arrowKeyCode: 123
-        ) || (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
+        ) || (
+            shouldMatchGhosttyGotoSplitFallback &&
+                (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false)
+        ) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .left)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .left)
@@ -12059,7 +12081,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusRight,
             arrowGlyph: "→",
             arrowKeyCode: 124
-        ) || (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
+        ) || (
+            shouldMatchGhosttyGotoSplitFallback &&
+                (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false)
+        ) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .right)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .right)
@@ -12071,7 +12096,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusUp,
             arrowGlyph: "↑",
             arrowKeyCode: 126
-        ) || (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
+        ) || (
+            shouldMatchGhosttyGotoSplitFallback &&
+                (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false)
+        ) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .up)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .up)
@@ -12083,7 +12111,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusDown,
             arrowGlyph: "↓",
             arrowKeyCode: 125
-        ) || (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
+        ) || (
+            shouldMatchGhosttyGotoSplitFallback &&
+                (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false)
+        ) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .down)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .down)
