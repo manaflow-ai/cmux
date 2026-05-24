@@ -10980,6 +10980,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Record a new shell-integration-reported activity state for `panelId`.
+    /// Dedups against the previous state (a redundant `promptIdle` report,
+    /// for example, is a no-op) and posts `.panelShellActivityStateDidChange`
+    /// only on real transitions so observers like
+    /// `sendTextOnNextPromptIdle` see exactly one event per state change.
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
@@ -11208,6 +11213,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Shared "if the focused panel is at promptIdle, fire beforeSend and type
+    /// the text now" routine used by both the synchronous fast path and the
+    /// notification-driven slow path of `sendTextOnNextPromptIdle`. Returns
+    /// `true` when the send happened so the caller can tear down its
+    /// observer; `false` means the panel still isn't at a prompt and the
+    /// caller should keep waiting.
     @MainActor
     private func performPromptIdleSend(text: String, beforeSend: (() -> Void)?) -> Bool {
         guard let panel = focusedTerminalPanel,

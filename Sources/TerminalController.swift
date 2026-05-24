@@ -17,9 +17,14 @@ extension Notification.Name {
     static let panelShellActivityStateDidChange = Notification.Name("cmux.panelShellActivityStateDidChange")
 }
 
+/// `userInfo` keys carried on `.panelShellActivityStateDidChange`. Defined as
+/// constants so observers and posters can't drift on raw-string typos.
 enum PanelShellActivityNotificationKey {
+    /// `UUID` of the `Workspace` whose panel changed state.
     static let workspaceId = "workspaceId"
+    /// `UUID` of the panel whose shell-integration state transitioned.
     static let panelId = "panelId"
+    /// The new `Workspace.PanelShellActivityState` value.
     static let state = "state"
 }
 

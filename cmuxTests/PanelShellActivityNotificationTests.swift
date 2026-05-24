@@ -17,6 +17,10 @@ import XCTest
 /// posts `.panelShellActivityStateDidChange` whenever the state actually
 /// changes. This test pins that contract.
 final class PanelShellActivityNotificationTests: XCTestCase {
+    /// Asserts the new `panelShellActivityStateDidChange` notification fires on
+    /// a real state transition and carries the expected `workspaceId`,
+    /// `panelId`, and `state` in `userInfo`. This is the wire-up that
+    /// `Workspace.sendTextOnNextPromptIdle` listens on.
     @MainActor
     func testStateChangePostsNotificationWithWorkspaceAndPanelIds() throws {
         let workspace = Workspace()
@@ -47,6 +51,10 @@ final class PanelShellActivityNotificationTests: XCTestCase {
         XCTAssertEqual(observedState, .promptIdle)
     }
 
+    /// Idempotency: setting the same state twice in a row must not re-post the
+    /// notification. Otherwise the `sendTextOnNextPromptIdle` observer would
+    /// re-fire on every redundant promptIdle report and double-type the
+    /// welcome.
     @MainActor
     func testDuplicateStateDoesNotPostNotification() throws {
         let workspace = Workspace()
