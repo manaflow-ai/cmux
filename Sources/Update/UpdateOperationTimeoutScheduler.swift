@@ -19,11 +19,12 @@ final class UpdateOperationRunLoopTimeoutScheduler: UpdateOperationTimeoutSchedu
         after interval: TimeInterval,
         action: @escaping @MainActor () -> Void
     ) -> any UpdateOperationTimeoutCancellable {
-        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { _ in
+        let timer = Timer(timeInterval: interval, repeats: false) { _ in
             Task { @MainActor in
                 action()
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
         return UpdateOperationTimerToken(timer: timer)
     }
 }
