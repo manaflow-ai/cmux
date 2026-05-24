@@ -371,6 +371,15 @@ extension Workspace {
         return decoded.id
     }
 
+    private func codeEditorSnapshotDirectoryURL(for browserPanel: BrowserPanel) -> URL? {
+        guard browserPanel.panelType == .codeEditor else { return nil }
+        let liveURL = browserPanel
+            .preferredURLStringForOmnibar()
+            .flatMap { URL(string: $0) }
+        return VSCodeServeWebURLBuilder.folderURL(from: liveURL)
+            ?? browserPanel.codeEditorDirectoryURL
+    }
+
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
@@ -406,8 +415,7 @@ extension Workspace {
                 return requestedDirectory
             }
             if let browserPanel = panel as? BrowserPanel,
-               browserPanel.panelType == .codeEditor,
-               let directoryPath = browserPanel.codeEditorDirectoryURL?
+               let directoryPath = codeEditorSnapshotDirectoryURL(for: browserPanel)?
                 .path
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                !directoryPath.isEmpty {
@@ -8073,12 +8081,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
-        let subscription = Publishers.CombineLatest4(
+        let metadataPublisher = Publishers.CombineLatest4(
             browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
         )
+        let subscription = metadataPublisher
+        .combineLatest(browserPanel.$codeEditorDirectoryURL.removeDuplicates())
         .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak browserPanel] _, _, isLoading, favicon in
+        .sink { [weak self, weak browserPanel] metadata, _ in
+            let (_, _, isLoading, favicon) = metadata
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
@@ -11083,9 +11094,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let resolvedURL = browserPanel.currentURL
             ?? browserPanel.preferredURLStringForOmnibar().flatMap(URL.init(string:))
-        let codeEditorDirectoryURL = browserPanel.panelType == .codeEditor
-            ? browserPanel.codeEditorDirectoryURL
-            : nil
+        let codeEditorDirectoryURL = codeEditorSnapshotDirectoryURL(for: browserPanel)
 
         pendingClosedBrowserRestoreSnapshots[tab.id] = ClosedBrowserPanelRestoreSnapshot(
             workspaceId: id,

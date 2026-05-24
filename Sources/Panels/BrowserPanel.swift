@@ -2009,7 +2009,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     let id: UUID
     let panelType: PanelType
-    private(set) var codeEditorDirectoryURL: URL?
+    @Published private(set) var codeEditorDirectoryURL: URL?
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -2436,13 +2436,8 @@ final class BrowserPanel: Panel, ObservableObject {
             return pageTitle
         }
         if panelType == .codeEditor {
-            if let url = currentURL,
-               let folderPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?
-                .first(where: { $0.name == "folder" })?
-                .value,
-               !folderPath.isEmpty {
-                let folderName = URL(fileURLWithPath: folderPath, isDirectory: true).lastPathComponent
+            if let liveDirectoryURL = VSCodeServeWebURLBuilder.folderURL(from: currentURL) {
+                let folderName = liveDirectoryURL.lastPathComponent
                 if !folderName.isEmpty {
                     return folderName
                 }

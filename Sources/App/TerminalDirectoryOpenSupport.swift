@@ -313,6 +313,23 @@ enum VSCodeServeWebURLBuilder {
         components?.queryItems = queryItems
         return components?.url
     }
+
+    static func folderPath(from url: URL?) -> String? {
+        guard let url,
+              let folderPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .last(where: { $0.name == "folder" })?
+                .value,
+              !folderPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return folderPath
+    }
+
+    static func folderURL(from url: URL?) -> URL? {
+        guard let folderPath = folderPath(from: url) else { return nil }
+        return URL(fileURLWithPath: folderPath, isDirectory: true).standardizedFileURL
+    }
 }
 
 struct VSCodeCLILaunchConfiguration {

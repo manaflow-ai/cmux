@@ -47,6 +47,44 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testCodeEditorSessionSnapshotUsesLiveFolderQuery() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let originalDirectoryURL = URL(fileURLWithPath: "/tmp/cmux-original-editor", isDirectory: true)
+        let liveURL = try XCTUnwrap(
+            VSCodeServeWebURLBuilder.openFolderURL(
+                baseWebUIURL: try XCTUnwrap(URL(string: "http://127.0.0.1:54321?tkn=test-token")),
+                directoryPath: "/tmp/cmux-live-editor"
+            )
+        )
+        let editor = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                url: nil,
+                focus: false,
+                panelType: .codeEditor
+            )
+        )
+        editor.setCodeEditorDirectoryURL(originalDirectoryURL)
+        editor.restoreSessionSnapshot(
+            SessionBrowserPanelSnapshot(
+                urlString: liveURL.absoluteString,
+                profileID: nil,
+                shouldRenderWebView: true,
+                pageZoom: 1.0,
+                developerToolsVisible: false,
+                backHistoryURLStrings: [],
+                forwardHistoryURLStrings: []
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let editorSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == editor.id })
+
+        XCTAssertEqual(editorSnapshot.directory, "/tmp/cmux-live-editor")
+    }
+
+    @MainActor
     func testSessionSnapshotSkipsTransientRemoteListeningPorts() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)

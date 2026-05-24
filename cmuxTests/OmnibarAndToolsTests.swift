@@ -215,6 +215,14 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
             "/Users/tester/New Folder"
         )
     }
+
+    func testFolderURLReadsCurrentFolderQuery() throws {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:5555?tkn=test-token&folder=/Users/tester/New%20Folder"))
+
+        let folderURL = VSCodeServeWebURLBuilder.folderURL(from: url)
+
+        XCTAssertEqual(folderURL?.path, "/Users/tester/New Folder")
+    }
 }
 
 
