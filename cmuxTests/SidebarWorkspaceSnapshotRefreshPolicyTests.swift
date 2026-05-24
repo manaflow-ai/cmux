@@ -235,6 +235,32 @@ final class SidebarWorkspaceShortcutHintFreezePolicyTests: XCTestCase {
         XCTAssertTrue(showsShortcutHints)
     }
 
+    func testFrozenPresentationHidesShortcutHintWhenLiveWouldShow() {
+        let tabId = UUID()
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            showsModifierShortcutHints: false
+        )
+
+        let showsShortcutHints = SidebarWorkspaceShortcutHintFreezePolicy.showsModifierShortcutHints(
+            tabId: tabId,
+            liveModifierPressed: true,
+            frozenPresentation: frozen
+        )
+
+        XCTAssertFalse(showsShortcutHints)
+    }
+
+    func testNoFrozenPresentationHidesShortcutHintWhenLiveDoesNotShow() {
+        let showsShortcutHints = SidebarWorkspaceShortcutHintFreezePolicy.showsModifierShortcutHints(
+            tabId: UUID(),
+            liveModifierPressed: false,
+            frozenPresentation: nil
+        )
+
+        XCTAssertFalse(showsShortcutHints)
+    }
+
     func testNonMatchingTabIdUsesLiveShortcutHints() {
         let frozen = SidebarTabItemPresentationSnapshot(
             tabId: UUID(),
