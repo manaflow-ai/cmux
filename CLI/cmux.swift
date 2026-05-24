@@ -8204,18 +8204,28 @@ struct CMUXCLI {
             client = SocketClient(path: socketPath)
         }
 
-        do {
-            _ = try client.sendV2(
-                method: "workspace.remote.terminal_ready",
-                params: [
-                    "workspace_id": workspaceId,
-                    "surface_id": surfaceId,
-                ],
-                responseTimeout: 2
-            )
-            cliDebugLog("cli.vm.pty.ready.reported workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8)))")
-        } catch {
-            cliDebugLog("cli.vm.pty.ready.report_failed workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) error=\(String(describing: error))")
+        let maxAttempts = 3
+        let retryDelays: [TimeInterval] = [0.15, 0.35]
+        for attempt in 1...maxAttempts {
+            do {
+                _ = try client.sendV2(
+                    method: "workspace.remote.terminal_ready",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                    ],
+                    responseTimeout: 2
+                )
+                cliDebugLog("cli.vm.pty.ready.reported workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) attempt=\(attempt)")
+                return
+            } catch {
+                guard attempt < maxAttempts else {
+                    cliDebugLog("cli.vm.pty.ready.report_failed workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) attempts=\(attempt) error=\(String(describing: error))")
+                    return
+                }
+                cliDebugLog("cli.vm.pty.ready.retry workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) next_attempt=\(attempt + 1) error=\(String(describing: error))")
+                Thread.sleep(forTimeInterval: retryDelays[min(attempt - 1, retryDelays.count - 1)])
+            }
         }
     }
 
@@ -8311,14 +8321,18 @@ struct CMUXCLI {
             try sendAuthFrame()
             debugEvent?("websocket.auth")
             try waitForReady(delegate: delegate)
-            debugEvent?("websocket.ready")
-            readyEvent?()
 
             let rawMode = TerminalRawMode()
             defer { rawMode?.restore() }
             let resizeSource = startResizeSource()
             defer { resizeSource.cancel() }
             startInputPump()
+            debugEvent?("websocket.ready")
+            if let readyEvent {
+                DispatchQueue.global(qos: .utility).async {
+                    readyEvent()
+                }
+            }
             try receiveOutputLoop(delegate: delegate)
         }
 
