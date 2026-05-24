@@ -3144,6 +3144,32 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
+    func replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
+        reason: String,
+        now: Date = Date()
+    ) -> Bool {
+        guard shouldRenderWebView,
+              !isClosingWebViewLifecycle,
+              !hiddenWebViewDiscardManager.isDiscardedForMemory,
+              !isWebViewVisibleInUI,
+              let hiddenAt = webViewLastHiddenAt else {
+            return false
+        }
+        guard BrowserHiddenWebViewDiscardPolicy.isEnabled else { return false }
+        guard now.timeIntervalSince(hiddenAt) >= BrowserHiddenWebViewDiscardPolicy.hiddenDelay else {
+            return false
+        }
+        guard hiddenWebViewDiscardBlockers().isEmpty else { return false }
+
+        replaceWebViewPreservingState(
+            from: webView,
+            websiteDataStore: websiteDataStore,
+            reason: reason
+        )
+        return true
+    }
+
+    @discardableResult
     func restoreDiscardedWebViewIfNeeded(reason: String) -> Bool {
         return hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason) {
             shouldRenderWebView = true

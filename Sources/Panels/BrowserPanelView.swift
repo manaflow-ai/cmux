@@ -7129,9 +7129,15 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
+        if shouldAttachWebView && isCurrentPaneOwner {
+            panel.replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
+                reason: "portal.visiblePreAttach"
+            )
+        }
+
         let webView = panel.webView
         let coordinator = context.coordinator
-        let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
         if let previousWebView = coordinator.webView, previousWebView !== webView {
             BrowserWindowPortalRegistry.detach(webView: previousWebView)
             coordinator.lastPortalHostId = nil
