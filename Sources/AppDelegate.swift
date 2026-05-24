@@ -557,7 +557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var cmuxThemePreviewReloadGeneration = 0
     private var cmuxThemePreviewReloadWorkItem: DispatchWorkItem?
-    private var hasConfiguredAgentHooksForQuitDialog = false
+    private var hasConfiguredAgentHooksForQuitDialog: Bool?
 
     private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
@@ -1550,6 +1550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        refreshAgentHookSetupStatusForQuitDialog()
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
@@ -11523,8 +11524,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func runQuitConfirmationDialog() -> QuitDialogResult {
-        let hasConfiguredAgentHooks = currentAgentHookSetupStatusForQuitDialog()
-        hasConfiguredAgentHooksForQuitDialog = hasConfiguredAgentHooks
+        let hasConfiguredAgentHooks = hasConfiguredAgentHooksForQuitDialog
 
         let restoreLayoutButton = NSButton(
             checkboxWithTitle: String(
@@ -11565,7 +11565,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         docsButton.setAccessibilityIdentifier("QuitDialogSessionRestoreDocsButton")
         optionsStack.addArrangedSubview(docsButton)
 
-        if !hasConfiguredAgentHooks {
+        if hasConfiguredAgentHooks == false {
             let warning = NSTextField(labelWithString: String(
                 localized: "dialog.quitCmux.hooksNotConfiguredWarning",
                 defaultValue: "Agent session restore needs hooks. Run `cmux hooks setup` for supported agents."
@@ -11631,14 +11631,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.hasConfiguredAgentHooksForQuitDialog = hasConfiguredAgentHooks
             }
         }
-    }
-
-    private func currentAgentHookSetupStatusForQuitDialog() -> Bool {
-        AgentHookSetupStatus.hasConfiguredAgentHooks(
-            homeDirectory: NSHomeDirectory(),
-            environment: ProcessInfo.processInfo.environment,
-            claudeCodeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled()
-        )
     }
 
     func promptRenameSelectedWorkspace() -> Bool {
