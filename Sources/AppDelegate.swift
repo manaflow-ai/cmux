@@ -7695,18 +7695,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
-        // The welcome command is typed into the user's shell, so it can collide with
-        // anything that consumes stdin during shell init (oh-my-zsh's auto-update prompt
-        // is the most common culprit). Wait for the shell to report it is sitting at
-        // an actual prompt (cmux shell integration emits OSC sequences that drive
-        // `panelShellActivityStates[panelId] == .promptIdle`) before sending. If shell
-        // integration isn't installed we still send eventually via a fallback timeout
-        // so the welcome banner doesn't silently disappear.
-        sendTextWhenReady(
-            "cmux welcome\n",
-            to: workspace,
-            waitForShellPromptIdle: true
-        ) {
+        // Welcome typing has to wait for an actual interactive shell prompt or
+        // it races shell init (oh-my-zsh's auto-update prompt eats the first
+        // character — see #1900). Workspace owns the state machine that knows
+        // when its focused panel is at promptIdle, so delegate to it.
+        workspace.sendTextOnNextPromptIdle("cmux welcome\n") {
             if markShownOnSend {
                 UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
             }
@@ -8301,21 +8294,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ text: String,
         to tab: Tab,
         preferredPanelId: UUID? = nil,
-        waitForShellPromptIdle: Bool = false,
         beforeSend: (() -> Void)? = nil
     ) {
         let isReactGrabPasteback = preferredPanelId != nil
-
-        // When the caller asked us to wait for an actual interactive shell prompt
-        // (welcome injection is the canonical case), require both the surface to be
-        // ready and the shell-integration state for the target panel to be
-        // `.promptIdle`. Without this, typed bytes race with anything that
-        // consumes stdin during shell init (oh-my-zsh's auto-update prompt
-        // famously eats the first character: https://github.com/manaflow-ai/cmux/issues/1900).
-        func shellPromptReady(panel: TerminalPanel) -> Bool {
-            guard waitForShellPromptIdle else { return true }
-            return tab.panelShellActivityStates[panel.id] == .promptIdle
-        }
 #if DEBUG
         let initialTargetPanel = Self.resolveTerminalPanelForTextSend(
             in: tab,
@@ -8347,8 +8328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             in: tab,
             preferredPanelId: preferredPanelId
         ),
-           terminalPanel.surface.surface != nil,
-           shellPromptReady(panel: terminalPanel) {
+           terminalPanel.surface.surface != nil {
 #if DEBUG
             if isReactGrabPasteback {
                 cmuxDebugLog(
@@ -8376,7 +8356,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var readyObserver: NSObjectProtocol?
         var focusObserver: NSObjectProtocol?
         var firstResponderObserver: NSObjectProtocol?
-        var shellActivityObserver: NSObjectProtocol?
         var panelsCancellable: AnyCancellable?
 
         func cleanupObservers() {
@@ -8389,26 +8368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let firstResponderObserver {
                 NotificationCenter.default.removeObserver(firstResponderObserver)
             }
-            if let shellActivityObserver {
-                NotificationCenter.default.removeObserver(shellActivityObserver)
-            }
             panelsCancellable?.cancel()
-        }
-
-        func send(panel terminalPanel: TerminalPanel, mode: String) {
-            resolved = true
-            cleanupObservers()
-            beforeSend?()
-            terminalPanel.sendText(text)
-#if DEBUG
-            if isReactGrabPasteback {
-                cmuxDebugLog(
-                    "reactGrab.pasteback h2.send.sent " +
-                    "workspace=\(Self.debugShortId(tab.id)) " +
-                    "target=\(Self.debugShortId(terminalPanel.id)) mode=\(mode) len=\(text.count)"
-                )
-            }
-#endif
         }
 
         func finishIfReady() {
@@ -8430,9 +8390,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             guard !resolved,
                   let terminalPanel,
-                  terminalPanel.surface.surface != nil,
-                  shellPromptReady(panel: terminalPanel) else { return }
-            send(panel: terminalPanel, mode: "delayed")
+                  terminalPanel.surface.surface != nil else { return }
+            resolved = true
+            cleanupObservers()
+            beforeSend?()
+            terminalPanel.sendText(text)
+#if DEBUG
+            if isReactGrabPasteback {
+                cmuxDebugLog(
+                    "reactGrab.pasteback h2.send.sent " +
+                    "workspace=\(Self.debugShortId(tab.id)) " +
+                    "target=\(Self.debugShortId(terminalPanel.id)) mode=delayed len=\(text.count)"
+                )
+            }
+#endif
         }
 
         panelsCancellable = tab.$panels
@@ -8517,28 +8488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             finishIfReady()
         }
-        if waitForShellPromptIdle {
-            shellActivityObserver = NotificationCenter.default.addObserver(
-                forName: .panelShellActivityStateDidChange,
-                object: nil,
-                queue: .main
-            ) { note in
-                guard let workspaceId = note.userInfo?[PanelShellActivityNotificationKey.workspaceId] as? UUID,
-                      workspaceId == tab.id else { return }
-                if let preferredPanelId,
-                   let surfaceId = note.userInfo?[PanelShellActivityNotificationKey.panelId] as? UUID,
-                   surfaceId != preferredPanelId {
-                    return
-                }
-                finishIfReady()
-            }
-        }
-        // When we're waiting on shell integration to report a real prompt, give
-        // shells with heavy init (oh-my-zsh, starship, plugin managers) more time
-        // before falling back, and SEND on timeout so the welcome banner isn't
-        // silently dropped for users without cmux shell integration installed.
-        let fallbackDeadline: TimeInterval = waitForShellPromptIdle ? 8.0 : 3.0
-        DispatchQueue.main.asyncAfter(deadline: .now() + fallbackDeadline) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             if !resolved {
 #if DEBUG
                 if isReactGrabPasteback {
@@ -8551,18 +8501,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                 }
 #endif
-                if waitForShellPromptIdle,
-                   let terminalPanel = Self.resolveTerminalPanelForTextSend(
-                       in: tab,
-                       preferredPanelId: preferredPanelId
-                   ),
-                   terminalPanel.surface.surface != nil {
-                    send(panel: terminalPanel, mode: "timeoutFallback")
-                    NSLog("Command send: shell prompt not reported within \(fallbackDeadline)s, sending anyway")
-                } else {
-                    cleanupObservers()
-                    NSLog("Command send: surface not ready after \(fallbackDeadline)s")
-                }
+                cleanupObservers()
+                NSLog("Command send: surface not ready after 3.0s")
             }
         }
     }

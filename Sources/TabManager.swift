@@ -2679,102 +2679,11 @@ class TabManager: ObservableObject {
             ])
 #endif
             if autoWelcomeIfNeeded && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
-                } else {
-                    sendWelcomeWhenReady(to: newWorkspace)
+                newWorkspace.sendTextOnNextPromptIdle("cmux welcome\n") {
+                    UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
                 }
             }
             return newWorkspace
-        }
-    }
-
-    @MainActor
-    private func sendWelcomeWhenReady(to workspace: Workspace) {
-        // Mirrors AppDelegate.sendTextWhenReady(waitForShellPromptIdle: true) for the
-        // rare case where AppDelegate.shared is nil at workspace creation. See
-        // https://github.com/manaflow-ai/cmux/issues/1900 for why we must wait for
-        // an actual prompt before typing instead of a blind delay.
-        var resolved = false
-        var readyObserver: NSObjectProtocol?
-        var shellActivityObserver: NSObjectProtocol?
-        var panelsCancellable: AnyCancellable?
-
-        func shellPromptReady() -> Bool {
-            guard let terminalPanel = workspace.focusedTerminalPanel else { return false }
-            return workspace.panelShellActivityStates[terminalPanel.id] == .promptIdle
-        }
-
-        func cleanup() {
-            if let readyObserver {
-                NotificationCenter.default.removeObserver(readyObserver)
-            }
-            if let shellActivityObserver {
-                NotificationCenter.default.removeObserver(shellActivityObserver)
-            }
-            panelsCancellable?.cancel()
-        }
-
-        func performSend(_ panel: TerminalPanel) {
-            UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-            panel.sendText("cmux welcome\n")
-        }
-
-        func finishIfReady() {
-            guard !resolved,
-                  let terminalPanel = workspace.focusedTerminalPanel,
-                  terminalPanel.surface.surface != nil,
-                  shellPromptReady() else { return }
-            resolved = true
-            cleanup()
-            performSend(terminalPanel)
-        }
-
-        panelsCancellable = workspace.$panels
-            .map { _ in () }
-            .sink { _ in
-                Task { @MainActor in
-                    finishIfReady()
-                }
-            }
-        readyObserver = NotificationCenter.default.addObserver(
-            forName: .terminalSurfaceDidBecomeReady,
-            object: nil,
-            queue: .main
-        ) { note in
-            guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
-                  workspaceId == workspace.id else { return }
-            Task { @MainActor in
-                finishIfReady()
-            }
-        }
-        shellActivityObserver = NotificationCenter.default.addObserver(
-            forName: .panelShellActivityStateDidChange,
-            object: nil,
-            queue: .main
-        ) { note in
-            guard let workspaceId = note.userInfo?[PanelShellActivityNotificationKey.workspaceId] as? UUID,
-                  workspaceId == workspace.id else { return }
-            Task { @MainActor in
-                finishIfReady()
-            }
-        }
-        // Try once synchronously in case the surface is already up and the shell already at prompt.
-        finishIfReady()
-        // Fall back to sending after a longer window so the welcome banner still appears
-        // for users who don't have cmux shell integration installed (no promptIdle events).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-            Task { @MainActor in
-                guard !resolved else { return }
-                if let terminalPanel = workspace.focusedTerminalPanel,
-                   terminalPanel.surface.surface != nil {
-                    resolved = true
-                    cleanup()
-                    performSend(terminalPanel)
-                } else {
-                    cleanup()
-                }
-            }
         }
     }
 

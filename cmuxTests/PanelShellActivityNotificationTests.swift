@@ -73,4 +73,38 @@ final class PanelShellActivityNotificationTests: XCTestCase {
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         XCTAssertEqual(notificationCount, 1)
     }
+
+    /// `sendTextOnNextPromptIdle` is the single owner of the "wait for a real
+    /// shell prompt before typing" state machine. Before the shell reports
+    /// `.promptIdle` nothing should fire — that's what kept the `c` of
+    /// `cmux welcome` alive in the oh-my-zsh bug. The `beforeSend` hook (used
+    /// in production to mark the welcome banner as shown) must fire exactly
+    /// when the panel first transitions to `.promptIdle`, and exactly once
+    /// even if the panel later bounces in and out of that state.
+    @MainActor
+    func testSendTextOnNextPromptIdleFiresExactlyOnceAtFirstPromptIdle() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        var sendCount = 0
+        workspace.sendTextOnNextPromptIdle("cmux welcome\n") {
+            sendCount += 1
+        }
+        XCTAssertEqual(sendCount, 0, "must not fire before any state report")
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        // Spin the runloop so the notification observer dispatched Task<MainActor> can run.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(sendCount, 0, "commandRunning is not a prompt — must not fire")
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(sendCount, 1, "first promptIdle must fire the send")
+
+        // Subsequent prompt bounces must not re-fire — the helper is one-shot.
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(sendCount, 1, "send must be one-shot")
+    }
 }

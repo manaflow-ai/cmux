@@ -11140,6 +11140,65 @@ final class Workspace: Identifiable, ObservableObject {
         return didResume
     }
 
+    /// Type `text` into the focused terminal panel once the shell-integration state
+    /// machine reports the panel is sitting at an interactive prompt
+    /// (`PanelShellActivityState.promptIdle`). Used by the welcome banner path
+    /// (#1900) to avoid racing shell init: oh-my-zsh's auto-update prompt would
+    /// otherwise consume the first character of a blindly-timed send.
+    ///
+    /// There is intentionally no time-based fallback. If shell integration is not
+    /// installed the panel never transitions to `.promptIdle` and this call
+    /// becomes a no-op — the welcome banner is skipped rather than risk landing
+    /// the typed bytes in whatever prompt happens to be reading stdin during
+    /// shell sourcing. Users without integration get a clean prompt instead of
+    /// `mux welcome` / `command not found: mux`. Encourage `cmux hooks setup` to
+    /// re-enable the banner.
+    @MainActor
+    func sendTextOnNextPromptIdle(_ text: String, beforeSend: (() -> Void)? = nil) {
+        var resolved = false
+        var shellActivityObserver: NSObjectProtocol?
+
+        func cleanup() {
+            if let shellActivityObserver {
+                NotificationCenter.default.removeObserver(shellActivityObserver)
+            }
+            shellActivityObserver = nil
+        }
+
+        func attempt() {
+            guard !resolved,
+                  let panel = focusedTerminalPanel,
+                  panelShellActivityStates[panel.id] == .promptIdle
+            else { return }
+            // Once the shell has reported it is at an interactive prompt, the PTY
+            // is by construction alive and reading stdin — no separate
+            // surface-readiness wait is needed.
+            resolved = true
+            cleanup()
+            beforeSend?()
+            panel.sendText(text)
+        }
+
+        // Try once synchronously in case the shell already reported a prompt
+        // before this call (e.g. snapshot restore that already saw `.promptIdle`).
+        attempt()
+        guard !resolved else { return }
+
+        let workspaceId = id
+        shellActivityObserver = NotificationCenter.default.addObserver(
+            forName: .panelShellActivityStateDidChange,
+            object: nil,
+            queue: .main
+        ) { note in
+            guard let noteWorkspaceId = note.userInfo?[PanelShellActivityNotificationKey.workspaceId] as? UUID,
+                  noteWorkspaceId == workspaceId,
+                  let state = note.userInfo?[PanelShellActivityNotificationKey.state] as? PanelShellActivityState,
+                  state == .promptIdle
+            else { return }
+            Task { @MainActor in attempt() }
+        }
+    }
+
     private func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
         panelShellActivityStates[panelId] == .commandRunning
             ? .observedAgentCommandRunning
