@@ -9805,6 +9805,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
+    private var deferredPortalHideGeneration: UInt64 = 0
+    private var deferredPortalHideTask: Task<Void, Never>?
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -13018,8 +13020,7 @@ final class Workspace: Identifiable, ObservableObject {
     func teardownAllPanels() {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
-        hideAllTerminalPortalViews()
-        hideAllBrowserPortalViews()
+        hideAllPortalViewsImmediately()
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
             discardClosedPanelLifecycleState(
@@ -14163,10 +14164,51 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private func hideAllPortalViews() {
+        hideAllTerminalPortalViews()
+        hideAllBrowserPortalViews()
+    }
+
+    private func cancelDeferredPortalHide() {
+        deferredPortalHideGeneration &+= 1
+        deferredPortalHideTask?.cancel()
+        deferredPortalHideTask = nil
+    }
+
+    private func hideAllPortalViewsImmediately() {
+        cancelDeferredPortalHide()
+        hideAllPortalViews()
+    }
+
+    private func scheduleDeferredPortalHide(reason _: String) {
+        guard deferredPortalHideTask == nil else { return }
+
+        deferredPortalHideGeneration &+= 1
+        let generation = deferredPortalHideGeneration
+        deferredPortalHideTask = Task { @MainActor [weak self] in
+            // Give the incoming workspace reveal a main-actor turn before expensive
+            // AppKit/WebKit detaches from the retiring workspace run.
+            await Task.yield()
+            guard let self else { return }
+            guard !Task.isCancelled,
+                  self.deferredPortalHideGeneration == generation,
+                  !self.portalRenderingEnabled else {
+                if self.deferredPortalHideGeneration == generation {
+                    self.deferredPortalHideTask = nil
+                }
+                return
+            }
+
+            self.deferredPortalHideTask = nil
+            self.hideAllPortalViews()
+        }
+    }
+
     func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
         let changed = portalRenderingEnabled != enabled
         portalRenderingEnabled = enabled
         if enabled {
+            cancelDeferredPortalHide()
             if changed {
                 beginEventDrivenLayoutFollowUp(
                     reason: reason,
@@ -14175,8 +14217,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         } else {
             clearLayoutFollowUp()
-            hideAllTerminalPortalViews()
-            hideAllBrowserPortalViews()
+            scheduleDeferredPortalHide(reason: reason)
         }
     }
 
@@ -14648,8 +14689,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard layoutFollowUpTimeoutWorkItem != nil, !isAttemptingLayoutFollowUp else { return }
         guard portalRenderingEnabled else {
             clearLayoutFollowUp()
-            hideAllTerminalPortalViews()
-            hideAllBrowserPortalViews()
+            scheduleDeferredPortalHide(reason: "layoutFollowUpDisabled")
             return
         }
         isAttemptingLayoutFollowUp = true

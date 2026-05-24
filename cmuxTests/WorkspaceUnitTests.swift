@@ -3799,7 +3799,7 @@ final class WorkspaceTeardownTests: XCTestCase {
         XCTAssertTrue(workspace.manualUnreadPanelIds.isEmpty)
     }
 
-    func testDisabledPortalRenderingDoesNotRestoreTerminalVisibility() throws {
+    func testDisabledPortalRenderingDoesNotRestoreTerminalVisibility() async throws {
 #if DEBUG
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -3807,6 +3807,8 @@ final class WorkspaceTeardownTests: XCTestCase {
 
         terminalPanel.hostedView.setVisibleInUI(true)
         workspace.setPortalRenderingEnabled(false, reason: "test")
+        await Task.yield()
+        await Task.yield()
         XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
 
         workspace.debugReconcileTerminalPortalVisibilityForTesting()
