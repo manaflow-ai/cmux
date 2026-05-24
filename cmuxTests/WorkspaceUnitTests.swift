@@ -6265,6 +6265,48 @@ final class WorkspaceMountPolicyTests: XCTestCase {
 }
 
 
+final class WorkspaceSelectionChangeSchedulerTests: XCTestCase {
+    func testReconcileRunsSynchronouslyBeforeDeferredWorkspaceSwitchSideEffects() {
+        var events: [String] = []
+        var deferredActions: [() -> Void] = []
+
+        WorkspaceSelectionChangeScheduler.handleSelectionChange(
+            scheduleDeferred: { action in
+                events.append("scheduleDeferred")
+                deferredActions.append(action)
+            },
+            actions: WorkspaceSelectionChangeActions(
+                applyWindowBackground: { events.append("applyWindowBackground") },
+                startWorkspaceHandoff: { events.append("startWorkspaceHandoff") },
+                reconcileMountedWorkspaces: { events.append("reconcileMountedWorkspaces") },
+                syncShortcutHintEligibility: { events.append("syncShortcutHintEligibility") },
+                syncSidebarSelection: { events.append("syncSidebarSelection") },
+                updateTitlebarText: { events.append("updateTitlebarText") }
+            )
+        )
+
+        XCTAssertEqual(events, [
+            "reconcileMountedWorkspaces",
+            "syncSidebarSelection",
+            "scheduleDeferred"
+        ])
+
+        XCTAssertEqual(deferredActions.count, 1)
+        deferredActions[0]()
+
+        XCTAssertEqual(events, [
+            "reconcileMountedWorkspaces",
+            "syncSidebarSelection",
+            "scheduleDeferred",
+            "applyWindowBackground",
+            "startWorkspaceHandoff",
+            "syncShortcutHintEligibility",
+            "updateTitlebarText"
+        ])
+    }
+}
+
+
 @MainActor
 final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
     override func setUp() {

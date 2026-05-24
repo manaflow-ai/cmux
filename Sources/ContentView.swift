@@ -840,6 +840,31 @@ enum WorkspaceMountPolicy {
     }
 }
 
+struct WorkspaceSelectionChangeActions {
+    let applyWindowBackground: () -> Void
+    let startWorkspaceHandoff: () -> Void
+    let reconcileMountedWorkspaces: () -> Void
+    let syncShortcutHintEligibility: () -> Void
+    let syncSidebarSelection: () -> Void
+    let updateTitlebarText: () -> Void
+}
+
+enum WorkspaceSelectionChangeScheduler {
+    typealias DeferredScheduler = (@escaping () -> Void) -> Void
+
+    static func handleSelectionChange(
+        scheduleDeferred: DeferredScheduler,
+        actions: WorkspaceSelectionChangeActions
+    ) {
+        actions.applyWindowBackground()
+        actions.startWorkspaceHandoff()
+        actions.reconcileMountedWorkspaces()
+        actions.syncShortcutHintEligibility()
+        actions.syncSidebarSelection()
+        actions.updateTitlebarText()
+    }
+}
+
 struct MountedWorkspacePresentation: Equatable {
     let isRenderedVisible: Bool
     let isPanelVisible: Bool
