@@ -162,29 +162,49 @@ def tracked_file_lengths(file_lengths: FileLengthBudget, threshold: int) -> File
 
 
 def load_budget(path: pathlib.Path) -> FileLengthBudget:
-    budget: FileLengthBudget = {}
     with path.open("r", encoding="utf-8") as handle:
-        for line_number, raw_line in enumerate(handle, start=1):
-            line = raw_line.rstrip("\n")
-            if not line or line.startswith("#"):
-                continue
+        return parse_budget_lines(str(path), handle)
 
-            parts = line.split("\t", 1)
-            if len(parts) != 2:
-                raise ValueError(f"{path}:{line_number}: expected max_lines<TAB>relative path")
 
-            count_text, rel_path = parts
-            try:
-                count = int(count_text)
-            except ValueError as exc:
-                raise ValueError(f"{path}:{line_number}: invalid line count {count_text!r}") from exc
+def parse_budget_lines(source: str, lines) -> FileLengthBudget:
+    budget: FileLengthBudget = {}
+    for line_number, raw_line in enumerate(lines, start=1):
+        line = raw_line.rstrip("\n")
+        if not line or line.startswith("#"):
+            continue
 
-            if count < 0:
-                raise ValueError(f"{path}:{line_number}: line count must be non-negative")
-            if rel_path in budget:
-                raise ValueError(f"{path}:{line_number}: duplicate entry for {rel_path!r}")
-            budget[rel_path] = count
+        parts = line.split("\t", 1)
+        if len(parts) != 2:
+            raise ValueError(f"{source}:{line_number}: expected max_lines<TAB>relative path")
+
+        count_text, rel_path = parts
+        try:
+            count = int(count_text)
+        except ValueError as exc:
+            raise ValueError(f"{source}:{line_number}: invalid line count {count_text!r}") from exc
+
+        if count < 0:
+            raise ValueError(f"{source}:{line_number}: line count must be non-negative")
+        if rel_path in budget:
+            raise ValueError(f"{source}:{line_number}: duplicate entry for {rel_path!r}")
+        budget[rel_path] = count
     return budget
+
+
+def load_staged_budget(repo_root: pathlib.Path, budget_path: pathlib.Path) -> FileLengthBudget:
+    try:
+        rel_path = budget_path.resolve(strict=False).relative_to(repo_root)
+    except ValueError:
+        return load_budget(budget_path)
+
+    source = f":{rel_path.as_posix()}"
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "show", source],
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    text = result.stdout.decode("utf-8", errors="replace")
+    return parse_budget_lines(source, text.splitlines())
 
 
 def write_budget(path: pathlib.Path, budget: FileLengthBudget) -> None:
@@ -296,7 +316,7 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--paths",
-        nargs="*",
+        nargs="+",
         help="optional repo-relative or absolute paths to check instead of scanning every root",
     )
     parser.add_argument(
@@ -338,6 +358,9 @@ def main(argv: list[str]) -> int:
     actual = tracked_file_lengths(file_lengths, args.threshold)
     print_file_summary("All scanned cmux-owned Swift files", file_lengths)
     print_file_summary(f"Tracked Swift files >= {args.threshold} lines", actual)
+    if checked_paths is not None and not checked_paths:
+        print("Swift file length budget respected.")
+        return 0
 
     if args.write_budget:
         write_budget(budget_path, actual)
@@ -349,9 +372,15 @@ def main(argv: list[str]) -> int:
         return 2
 
     try:
-        allowed = load_budget(budget_path)
+        if args.staged:
+            allowed = load_staged_budget(repo_root, budget_path)
+        else:
+            allowed = load_budget(budget_path)
     except ValueError as exc:
         print(f"Error reading Swift file length budget: {exc}", file=sys.stderr)
+        return 2
+    except subprocess.CalledProcessError as exc:
+        print(f"Error reading staged Swift file length budget: {exc}", file=sys.stderr)
         return 2
     print_file_summary("Allowed Swift file length budget", allowed)
     return compare_budget(actual, allowed, args.threshold, file_lengths, checked_paths)

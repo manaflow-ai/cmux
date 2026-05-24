@@ -22,7 +22,7 @@ git -C "$REPO" config user.name "CI"
 
 mkdir -p "$REPO/Sources" "$REPO/docs"
 printf 'not swift\n' >"$REPO/docs/note.txt"
-git -C "$REPO" add docs/note.txt
+git -C "$REPO" add .github/swift-file-length-budget.tsv docs/note.txt
 
 if ! (cd "$REPO" && .githooks/pre-commit >"$TMP_DIR/no-swift.out" 2>&1); then
   echo "pre-commit hook should ignore commits without staged Swift files" >&2
@@ -41,6 +41,7 @@ PY
 git -C "$REPO" add Sources/NewLarge.swift
 
 printf 'working tree is smaller than the staged blob\n' >"$REPO/Sources/NewLarge.swift"
+printf '500\tSources/NewLarge.swift\n' >"$REPO/.github/swift-file-length-budget.tsv"
 
 if (cd "$REPO" && .githooks/pre-commit >"$TMP_DIR/large-swift.out" 2>&1); then
   echo "pre-commit hook should reject over-budget staged Swift files" >&2

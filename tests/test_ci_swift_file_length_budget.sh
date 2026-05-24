@@ -92,6 +92,21 @@ if ! grep -Fq 'new Sources/UntrackedLarge.swift' "$TMP_DIR/paths-fail.out"; then
   exit 1
 fi
 
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$BUDGET" \
+  --threshold 5 \
+  --paths >"$TMP_DIR/empty-paths.out" 2>&1; then
+  echo "expected empty --paths invocation to fail" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'expected at least one argument' "$TMP_DIR/empty-paths.out"; then
+  echo "expected argparse to reject empty --paths" >&2
+  cat "$TMP_DIR/empty-paths.out" >&2
+  exit 1
+fi
+
 rm "$FIXTURE/Sources/UntrackedLarge.swift"
 
 mkdir -p "$FIXTURE/.github"
