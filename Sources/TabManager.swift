@@ -5590,9 +5590,32 @@ class TabManager: ObservableObject {
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)
 
+    func updateSurfaceRemoteSession(
+        tabId: UUID,
+        surfaceId: UUID,
+        session: DetectedRemoteTerminalSession?
+    ) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.updatePanelRemoteSession(panelId: surfaceId, session: session)
+        if session != nil {
+            clearWorkspaceGitMetadata(for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId))
+        }
+        if tab.focusedPanelId == surfaceId,
+           let title = tab.panelTitle(panelId: surfaceId) {
+            tab.applyProcessTitle(title)
+            if selectedTabId == tabId {
+                updateWindowTitle(for: tab)
+            }
+        }
+    }
+
     func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let previousDirectory = gitProbeDirectory(for: tab, panelId: surfaceId)
+        if let remoteSession = DetectedRemoteTerminalSession.fromReportedDirectory(directory) {
+            updateSurfaceRemoteSession(tabId: tabId, surfaceId: surfaceId, session: remoteSession)
+            return
+        }
         let normalized = normalizeDirectory(directory)
         tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
         let nextDirectory = normalizedWorkingDirectory(normalized)
@@ -5676,6 +5699,14 @@ class TabManager: ObservableObject {
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
+        if state == .promptIdle,
+           tab.focusedPanelId == surfaceId,
+           let title = tab.panelTitle(panelId: surfaceId) {
+            tab.applyProcessTitle(title)
+            if selectedTabId == tabId {
+                updateWindowTitle(for: tab)
+            }
+        }
         if state == .promptIdle {
             scheduleWorkspacePullRequestRefresh(
                 workspaceId: tabId,
@@ -6904,7 +6935,7 @@ class TabManager: ObservableObject {
         _ = tab.updatePanelTitle(panelId: panelId, title: title)
 
         if tab.focusedPanelId == panelId {
-            tab.applyProcessTitle(title)
+            tab.applyProcessTitle(tab.panelTitle(panelId: panelId) ?? title)
             if selectedTabId == tabId {
                 updateWindowTitle(for: tab)
             }
@@ -6914,7 +6945,7 @@ class TabManager: ObservableObject {
     func focusedSurfaceTitleDidChange(tabId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }),
               let focusedPanelId = tab.focusedPanelId,
-              let title = tab.panelTitles[focusedPanelId] else { return }
+              let title = tab.panelTitle(panelId: focusedPanelId) else { return }
         tab.applyProcessTitle(title)
         if selectedTabId == tabId {
             updateWindowTitle(for: tab)

@@ -6068,6 +6068,36 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testDetectedRemoteSessionSuppressesStaleLocalDirectoryDisplayUntilPromptReturns() throws {
+        let workspace = Workspace(workingDirectory: "/Users/cmux/local-project")
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.updatePanelDirectory(panelId: panelId, directory: "/Users/cmux/local-project")
+
+        workspace.updatePanelRemoteSession(
+            panelId: panelId,
+            session: DetectedRemoteTerminalSession(
+                transport: .ssh,
+                destination: "devbox.example",
+                directory: nil
+            )
+        )
+
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [panelId]),
+            ["ssh devbox.example"]
+        )
+        XCTAssertEqual(workspace.panelTitle(panelId: panelId), "ssh devbox.example")
+        XCTAssertNil(workspace.sidebarFinderDirectory())
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [panelId]),
+            ["/Users/cmux/local-project"]
+        )
+    }
+
     func testSidebarDerivedCollectionsMatchWhenUsingPrecomputedPanelOrder() {
         let workspace = Workspace()
         guard let leftFirstPanelId = workspace.focusedPanelId,

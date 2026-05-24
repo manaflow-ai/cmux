@@ -17,6 +17,8 @@ final class PortScanner: @unchecked Sendable {
 
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
     var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
+    /// Callback delivers foreground SSH/mosh session detection on the main actor.
+    var onRemoteSessionUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ session: DetectedRemoteTerminalSession?) -> Void)?
     /// Callback delivers workspace-scoped ports owned by tracked agents.
     var onAgentPortsUpdated: (@MainActor (_ workspaceId: UUID, _ ports: [Int]) -> Void)?
     /// Provider returns tracked agent root PIDs for the given workspaces.
@@ -192,6 +194,10 @@ final class PortScanner: @unchecked Sendable {
         // Build TTY set (deduplicated).
         let uniqueTTYs = Set(panelSnapshot.values)
         let ttyList = uniqueTTYs.joined(separator: ",")
+        let remoteSessionResults = buildRemoteSessionResults(
+            panelSnapshot: panelSnapshot,
+            uniqueTTYs: uniqueTTYs
+        )
 
         // 1. ps -t tty1,tty2,... -o pid=,tty=
         let pidToTTY = ttyList.isEmpty ? [:] : runPS(ttyList: ttyList)
@@ -204,7 +210,8 @@ final class PortScanner: @unchecked Sendable {
                 panelResults,
                 workspaceIds: workspaceIds,
                 agentPortsByWorkspace: [:],
-                agentRevisions: agentRevisions
+                agentRevisions: agentRevisions,
+                remoteSessionResults: remoteSessionResults
             )
             return
         }
@@ -239,8 +246,27 @@ final class PortScanner: @unchecked Sendable {
             results,
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
-            agentRevisions: agentRevisions
+            agentRevisions: agentRevisions,
+            remoteSessionResults: remoteSessionResults
         )
+    }
+
+    private func buildRemoteSessionResults(
+        panelSnapshot: [PanelKey: String],
+        uniqueTTYs: Set<String>
+    ) -> [(PanelKey, DetectedRemoteTerminalSession?)] {
+        guard onRemoteSessionUpdated != nil else { return [] }
+
+        var sessionsByTTY: [String: DetectedRemoteTerminalSession] = [:]
+        for tty in uniqueTTYs {
+            if let session = TerminalSSHSessionDetector.detectRemoteSession(forTTY: tty) {
+                sessionsByTTY[tty] = session
+            }
+        }
+
+        return panelSnapshot.map { entry in
+            (entry.key, sessionsByTTY[entry.value])
+        }
     }
 
     private func refreshAgentPortsLocked(workspaceId: UUID, agentPIDs: Set<Int>) {
@@ -375,13 +401,22 @@ final class PortScanner: @unchecked Sendable {
         _ panelResults: [(PanelKey, [Int])],
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
-        agentRevisions: [UUID: UInt64]
+        agentRevisions: [UUID: UInt64],
+        remoteSessionResults: [(PanelKey, DetectedRemoteTerminalSession?)]
     ) {
         let panelCallback = onPortsUpdated
         if let panelCallback {
             Task { @MainActor in
                 for (key, ports) in panelResults {
                     panelCallback(key.workspaceId, key.panelId, ports)
+                }
+            }
+        }
+        let remoteSessionCallback = onRemoteSessionUpdated
+        if let remoteSessionCallback, !remoteSessionResults.isEmpty {
+            Task { @MainActor in
+                for (key, session) in remoteSessionResults {
+                    remoteSessionCallback(key.workspaceId, key.panelId, session)
                 }
             }
         }

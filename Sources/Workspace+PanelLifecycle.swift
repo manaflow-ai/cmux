@@ -331,6 +331,7 @@ extension Workspace {
         }
 
         panelDirectories.removeValue(forKey: panelId)
+        panelRemoteSessions.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)

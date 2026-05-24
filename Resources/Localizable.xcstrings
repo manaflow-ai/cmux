@@ -93100,6 +93100,57 @@
         }
       }
     },
+    "remoteSession.title.sshFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH セッション"
+          }
+        }
+      }
+    },
+    "remoteSession.title.moshFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mosh session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mosh セッション"
+          }
+        }
+      }
+    },
+    "remoteSession.title.remoteFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートセッション"
+          }
+        }
+      }
+    },
     "sidebar.remote.help.connected": {
       "extractionState": "manual",
       "localizations": {

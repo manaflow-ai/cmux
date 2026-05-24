@@ -9120,6 +9120,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
+    @Published var panelRemoteSessions: [UUID: DetectedRemoteTerminalSession] = [:]
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
@@ -9257,6 +9258,7 @@ final class Workspace: Identifiable, ObservableObject {
                 .map { _ in () }
                 .eraseToAnyPublisher(),
             sidebarObservationSignal($panelDirectories),
+            sidebarObservationSignal($panelRemoteSessions),
             sidebarObservationSignal($statusEntries),
             sidebarObservationSignal($metadataBlocks),
             sidebarObservationSignal($logEntries),
@@ -10242,7 +10244,33 @@ final class Workspace: Identifiable, ObservableObject {
            !custom.isEmpty {
             return custom
         }
+        if let remoteSession = panelRemoteSessions[panelId] {
+            return remoteSession.displayTitle
+        }
         return fallbackTitle
+    }
+
+    private func syncPanelPresentationTitle(panelId: UUID) {
+        guard let panel = panels[panelId],
+              let tabId = surfaceIdFromPanelId(panelId) else {
+            return
+        }
+
+        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+        let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
+        bonsplitController.updateTab(
+            tabId,
+            title: resolvedTitle,
+            hasCustomTitle: panelCustomTitles[panelId] != nil
+        )
+
+        guard panels.count == 1, customTitle == nil else { return }
+        if title != resolvedTitle {
+            title = resolvedTitle
+        }
+        if processTitle != resolvedTitle {
+            processTitle = resolvedTitle
+        }
     }
 
     private func syncPinnedStateForTab(_ tabId: TabID, panelId: UUID) {
@@ -10685,6 +10713,24 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Directory Updates
 
+    func updatePanelRemoteSession(panelId: UUID, session: DetectedRemoteTerminalSession?) {
+        guard panels[panelId] != nil else { return }
+
+        if let session {
+            if session.directory != nil {
+                panelDirectories.removeValue(forKey: panelId)
+            }
+            clearPanelGitBranch(panelId: panelId)
+            clearPanelPullRequest(panelId: panelId)
+            guard panelRemoteSessions[panelId] != session else { return }
+            panelRemoteSessions[panelId] = session
+        } else {
+            guard panelRemoteSessions.removeValue(forKey: panelId) != nil else { return }
+        }
+
+        syncPanelPresentationTitle(panelId: panelId)
+    }
+
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
         if let panelId {
             for candidate in [
@@ -10705,6 +10751,9 @@ final class Workspace: Identifiable, ObservableObject {
     func updatePanelDirectory(panelId: UUID, directory: String) {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        if !isRemoteWorkspace, panelRemoteSessions.removeValue(forKey: panelId) != nil {
+            syncPanelPresentationTitle(panelId: panelId)
+        }
         if panelDirectories[panelId] != trimmed {
             panelDirectories[panelId] = trimmed
         }
@@ -10724,6 +10773,9 @@ final class Workspace: Identifiable, ObservableObject {
         let previousState = panelShellActivityStates[panelId] ?? .unknown
         guard previousState != state else { return }
         panelShellActivityStates[panelId] = state
+        if state == .promptIdle, !isRemoteWorkspace {
+            updatePanelRemoteSession(panelId: panelId, session: nil)
+        }
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
                 panelId: panelId,
@@ -11024,11 +11076,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         // Update bonsplit tab title only when this panel's title changed.
+        let presentationTitle: String? = panels[panelId].map { panel in
+            let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+            return resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
+        }
+
         if didMutate,
            let tabId = surfaceIdFromPanelId(panelId),
-           let panel = panels[panelId] {
-            let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-            let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
+           let resolvedTitle = presentationTitle {
             bonsplitController.updateTab(
                 tabId,
                 title: resolvedTitle,
@@ -11037,14 +11092,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         // If this is the only panel and no custom title, update workspace title
-        if panels.count == 1, customTitle == nil {
-            if self.title != trimmed {
-                self.title = trimmed
+        if panels.count == 1, customTitle == nil, let presentationTitle {
+            if self.title != presentationTitle {
+                self.title = presentationTitle
                 didMutate = true
                 didMutateWorkspaceTitle = true
             }
-            if processTitle != trimmed {
-                processTitle = trimmed
+            if processTitle != presentationTitle {
+                processTitle = presentationTitle
             }
         }
 
@@ -11066,6 +11121,7 @@ final class Workspace: Identifiable, ObservableObject {
             removePendingTerminalInputObservers(forPanelId: panelId)
         }
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
+        panelRemoteSessions = panelRemoteSessions.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
@@ -11157,6 +11213,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
+        if let remoteSession = panelRemoteSessions[panelId] {
+            return remoteSession.displayDirectory
+        }
         if let directory = normalizedSidebarDirectory(panelDirectories[panelId]) {
             return directory
         }
@@ -11215,6 +11274,7 @@ final class Workspace: Identifiable, ObservableObject {
             !remoteDetectedSurfaceIds.contains($0)
                 && !isRemoteTerminalSurface($0)
                 && !pendingRemoteTerminalChildExitSurfaceIds.contains($0)
+                && panelRemoteSessions[$0] == nil
         }
         return sidebarDirectoriesInDisplayOrder(orderedPanelIds: localPanelIds, includeFallback: panelIds.isEmpty || localPanelIds.count == panelIds.count).first
     }

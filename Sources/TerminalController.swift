@@ -1789,6 +1789,13 @@ class TerminalController {
             workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
             workspace.recomputeListeningPorts()
         }
+        PortScanner.shared.onRemoteSessionUpdated = { [weak self] workspaceId, panelId, session in
+            guard let self, let tabManager = self.tabManager else { return }
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            let validSurfaceIds = Set(workspace.panels.keys)
+            guard validSurfaceIds.contains(panelId), !workspace.isRemoteWorkspace else { return }
+            tabManager.updateSurfaceRemoteSession(tabId: workspaceId, surfaceId: panelId, session: session)
+        }
         PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
             guard let self, let tabManager = self.tabManager else { return }
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
