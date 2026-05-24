@@ -34,7 +34,7 @@ enum SidebarWorkspaceListMetrics {
     static let topScrimHeight: CGFloat = firstRowTopOffset + 20
     static let sidebarMinimumNoteHeight: CGFloat = 80
     static let sidebarMaximumNoteHeight: CGFloat = 300
-    static let bottomScrimHeight: CGFloat = topScrimHeight + sidebarMaximumNoteHeight
+    static let bottomScrimHeight: CGFloat = topScrimHeight + sidebarMinimumNoteHeight
 
     static var scrollTopInset: CGFloat {
         max(0, firstRowTopOffset - rowVerticalPadding)

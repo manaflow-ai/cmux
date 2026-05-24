@@ -9616,7 +9616,7 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
-    @State private var sidebarHeight: CGFloat = 600
+    @State private var sidebarHeight: CGFloat = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
@@ -9636,7 +9636,21 @@ struct VerticalTabsSidebar: View {
     }
 
     private var sidebarBottomScrimHeight: CGFloat {
-        SidebarWorkspaceListMetrics.bottomScrimHeight
+        SidebarWorkspaceListMetrics.topScrimHeight + sidebarNoteHeight
+    }
+
+    private var sidebarNoteHeight: CGFloat {
+        let minimumHeight = SidebarWorkspaceListMetrics.sidebarMinimumNoteHeight
+        let maximumHeight = SidebarWorkspaceListMetrics.sidebarMaximumNoteHeight
+        guard sidebarHeight > 0 else { return minimumHeight }
+        return max(minimumHeight, min(maximumHeight, sidebarHeight * 0.4))
+    }
+
+    private var sidebarScrollInsets: SidebarWorkspaceScrollInsets {
+        SidebarWorkspaceScrollInsets(
+            top: SidebarWorkspaceScrollInsets.workspaceList.top,
+            bottom: sidebarBottomScrimHeight
+        )
     }
 
     private var isMinimalMode: Bool {
@@ -9766,20 +9780,18 @@ struct VerticalTabsSidebar: View {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
             VStack(spacing: 0) {
-                SidebarNoteView(noteHeight: max(80, min(300, sidebarHeight * 0.4)))
+                SidebarNoteView(noteHeight: sidebarNoteHeight)
                 SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
-        .background(
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { sidebarHeight = geo.size.height }
-                    .onChange(of: geo.size.height) { _, new in sidebarHeight = new }
-            }
-        )
+        .onGeometryChange(for: CGFloat.self, of: { proxy in
+            proxy.size.height
+        }, action: { newHeight in
+            sidebarHeight = newHeight
+        })
         .overlay(alignment: .trailing) {
             SidebarTrailingBorder()
         }
@@ -9857,7 +9869,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
+        let scrollInsets = sidebarScrollInsets
         return GeometryReader { geometryProxy in
             ScrollViewReader { scrollProxy in
                 ScrollView {
@@ -9977,7 +9989,8 @@ struct VerticalTabsSidebar: View {
         model: CmuxExtensionSidebarRenderModel,
         now: Date
     ) -> some View {
-        GeometryReader { geometryProxy in
+        let scrollInsets = sidebarScrollInsets
+        return GeometryReader { geometryProxy in
             ScrollView {
                 if model.presentation == .browserStack {
                     extensionBrowserStackSidebar(model: model, now: now)
@@ -9985,7 +9998,7 @@ struct VerticalTabsSidebar: View {
                             maxWidth: .infinity,
                             minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
                                 viewportHeight: geometryProxy.size.height,
-                                insets: SidebarWorkspaceScrollInsets.workspaceList
+                                insets: scrollInsets
                             ),
                             alignment: .topLeading
                         )
@@ -10012,7 +10025,7 @@ struct VerticalTabsSidebar: View {
                         maxWidth: .infinity,
                         minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
                             viewportHeight: geometryProxy.size.height,
-                            insets: SidebarWorkspaceScrollInsets.workspaceList
+                            insets: scrollInsets
                         ),
                         alignment: .topLeading
                     )
@@ -10025,11 +10038,11 @@ struct VerticalTabsSidebar: View {
                 .frame(width: 0, height: 0)
             )
             .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: SidebarWorkspaceScrollInsets.workspaceList.top)
+                Color.clear.frame(height: scrollInsets.top)
                     .allowsHitTesting(false)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear.frame(height: SidebarWorkspaceScrollInsets.workspaceList.bottom)
+                Color.clear.frame(height: scrollInsets.bottom)
                     .allowsHitTesting(false)
             }
             .mask(
@@ -11906,9 +11919,9 @@ private struct SidebarFooterButtons: View {
     }
 }
 
+/// Sidebar note view for persistent quick notes at the bottom of the sidebar.
 private struct SidebarNoteView: View {
-    @AppStorage("sidebarNoteText") private var persistedText: String = ""
-    @State private var liveText: String = ""
+    @AppStorage("sidebarNoteText") private var noteText: String = ""
     let noteHeight: CGFloat
 
     var body: some View {
@@ -11919,19 +11932,14 @@ private struct SidebarNoteView: View {
                 .padding(.leading, 8)
                 .padding(.top, 4)
 
-            SidebarNoteTextEditor(text: $liveText)
-                .frame(height: noteHeight - 20)
+            SidebarNoteTextEditor(text: $noteText)
+                .frame(height: max(0, noteHeight - 20))
                 .padding(.horizontal, 6)
                 .padding(.bottom, 6)
         }
         .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .padding(.horizontal, 4)
-        .onAppear { liveText = persistedText }
-        .task(id: liveText) {
-            try? await Task.sleep(for: .milliseconds(500))
-            persistedText = liveText
-        }
     }
 }
 
@@ -12032,7 +12040,7 @@ private struct SidebarNoteTextEditor: NSViewRepresentable {
         view.textView.string = text
         view.textView.delegate = context.coordinator
         view.placeholder = placeholder
-        view.textView.setAccessibilityLabel("Sidebar Note")
+        view.textView.setAccessibilityLabel(String(localized: "sidebar.note.accessibilityLabel", defaultValue: "Sidebar Note"))
         view.textView.setAccessibilityIdentifier("sidebar-note-editor")
         return view
     }

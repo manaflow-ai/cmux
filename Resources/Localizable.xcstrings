@@ -4094,76 +4094,9 @@
         }
       }
     },
-    "sidebar.note.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Note"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ノート"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "笔记"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "메모"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нотатка"
-          }
-        }
-      }
-    },
-    "sidebar.note.placeholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Write a note..."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ノートを書く..."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "写笔记..."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "메모를 작성..."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Написати нотатку..."
-          }
-        }
-      }
-    },
+    "sidebar.note.label": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"Note"}},"bs":{"stringUnit":{"state":"translated","value":"Note"}},"da":{"stringUnit":{"state":"translated","value":"Note"}},"de":{"stringUnit":{"state":"translated","value":"Note"}},"en":{"stringUnit":{"state":"translated","value":"Note"}},"es":{"stringUnit":{"state":"translated","value":"Note"}},"fr":{"stringUnit":{"state":"translated","value":"Note"}},"it":{"stringUnit":{"state":"translated","value":"Note"}},"ja":{"stringUnit":{"state":"translated","value":"ノート"}},"km":{"stringUnit":{"state":"translated","value":"Note"}},"ko":{"stringUnit":{"state":"translated","value":"메모"}},"nb":{"stringUnit":{"state":"translated","value":"Note"}},"pl":{"stringUnit":{"state":"translated","value":"Note"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Note"}},"ru":{"stringUnit":{"state":"translated","value":"Note"}},"th":{"stringUnit":{"state":"translated","value":"Note"}},"tr":{"stringUnit":{"state":"translated","value":"Note"}},"uk":{"stringUnit":{"state":"translated","value":"Нотатка"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"笔记"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Note"}}} },
+    "sidebar.note.placeholder": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"Write a note..."}},"bs":{"stringUnit":{"state":"translated","value":"Write a note..."}},"da":{"stringUnit":{"state":"translated","value":"Write a note..."}},"de":{"stringUnit":{"state":"translated","value":"Write a note..."}},"en":{"stringUnit":{"state":"translated","value":"Write a note..."}},"es":{"stringUnit":{"state":"translated","value":"Write a note..."}},"fr":{"stringUnit":{"state":"translated","value":"Write a note..."}},"it":{"stringUnit":{"state":"translated","value":"Write a note..."}},"ja":{"stringUnit":{"state":"translated","value":"ノートを書く..."}},"km":{"stringUnit":{"state":"translated","value":"Write a note..."}},"ko":{"stringUnit":{"state":"translated","value":"메모를 작성..."}},"nb":{"stringUnit":{"state":"translated","value":"Write a note..."}},"pl":{"stringUnit":{"state":"translated","value":"Write a note..."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Write a note..."}},"ru":{"stringUnit":{"state":"translated","value":"Write a note..."}},"th":{"stringUnit":{"state":"translated","value":"Write a note..."}},"tr":{"stringUnit":{"state":"translated","value":"Write a note..."}},"uk":{"stringUnit":{"state":"translated","value":"Написати нотатку..."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"写笔记..."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Write a note..."}}} },
+    "sidebar.note.accessibilityLabel": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"bs":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"da":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"de":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"en":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"es":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"fr":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"it":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"ja":{"stringUnit":{"state":"translated","value":"サイドバーノート"}},"km":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"ko":{"stringUnit":{"state":"translated","value":"사이드바 메모"}},"nb":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"pl":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"ru":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"th":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"tr":{"stringUnit":{"state":"translated","value":"Sidebar Note"}},"uk":{"stringUnit":{"state":"translated","value":"Нотатка бічної панелі"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"侧边栏笔记"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Sidebar Note"}}} },
     "about.github": {
       "extractionState": "manual",
       "localizations": {
