@@ -9,6 +9,7 @@ enum NoteSupport {
     /// Max slug length. Filenames stay well under any FS limit and remain
     /// comfortably typable.
     static let maxSlugLength = 64
+    private static let fileSystemQueue = DispatchQueue(label: "com.cmux.notes.filesystem", qos: .utility)
 
     /// Validate a user-supplied slug. Allowed: lowercase ASCII letters,
     /// digits, hyphens. Must start with a letter or digit. Length 1..=64.
@@ -77,6 +78,14 @@ enum NoteSupport {
             current = parent
         }
         return resolved
+    }
+
+    static func projectRootAsync(forCwd cwd: String) async -> String {
+        await withCheckedContinuation { continuation in
+            fileSystemQueue.async {
+                continuation.resume(returning: projectRoot(forCwd: cwd))
+            }
+        }
     }
 
     /// Absolute path to the `.cmux/notes/` directory for a project root.
@@ -471,6 +480,26 @@ enum CmuxNoteStore {
         }
     }
 
+    static func createOrOpenAsync(
+        slug rawSlug: String?,
+        title rawTitle: String? = nil,
+        projectRoot: String,
+        createIfMissing: Bool,
+        attachment target: CmuxNoteAttachmentTarget? = nil,
+        preferAttachedExisting: Bool = false
+    ) async throws -> CmuxNoteStoreResult {
+        try await withStoreLockAsync {
+            try createOrOpenUnlocked(
+                slug: rawSlug,
+                title: rawTitle,
+                projectRoot: projectRoot,
+                createIfMissing: createIfMissing,
+                attachment: target,
+                preferAttachedExisting: preferAttachedExisting
+            )
+        }
+    }
+
     static func list(projectRoot: String) -> [CmuxNoteRecord] {
         storageQueue.sync {
             (try? loadIndex(projectRoot: projectRoot).notes.sorted(by: { lhs, rhs in
@@ -549,13 +578,34 @@ enum CmuxNoteStore {
             let note = index.notes.remove(at: noteIndex)
             let path = noteBodyPath(for: note, projectRoot: projectRoot)
             try writeIndex(index, projectRoot: projectRoot)
-            let deletedFile = try deleteBodyIfPresent(atPath: path)
-            return deletedFile || !NoteSupport.noteFileExists(atPath: path)
+            do {
+                _ = try deleteBodyIfPresent(atPath: path)
+            } catch {
+                // The index is the durable source of truth. Once it no longer
+                // references the note, body-file cleanup is best effort so a
+                // cleanup failure cannot make the original delete fail after
+                // retries would already report "not found".
+            }
+            return true
         }
     }
 
     private static func withStoreLock<T>(_ work: () throws -> T) rethrows -> T {
         try storageQueue.sync(execute: work)
+    }
+
+    private static func withStoreLockAsync<T: Sendable>(
+        _ work: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            storageQueue.async {
+                do {
+                    continuation.resume(returning: try work())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     private static func createOrOpenUnlocked(

@@ -13320,16 +13320,14 @@ final class Workspace: Identifiable, ObservableObject {
         attachment: CmuxNoteAttachmentTarget?,
         preferAttachedExisting: Bool
     ) async throws -> CmuxNoteStoreResult {
-        try await Task.detached(priority: .utility) {
-            try CmuxNoteStore.createOrOpen(
-                slug: slug,
-                title: title,
-                projectRoot: projectRoot,
-                createIfMissing: createIfMissing,
-                attachment: attachment,
-                preferAttachedExisting: preferAttachedExisting
-            )
-        }.value
+        try await CmuxNoteStore.createOrOpenAsync(
+            slug: slug,
+            title: title,
+            projectRoot: projectRoot,
+            createIfMissing: createIfMissing,
+            attachment: attachment,
+            preferAttachedExisting: preferAttachedExisting
+        )
     }
 
     private nonisolated static func noteProjectRootOffMain(
@@ -13337,9 +13335,7 @@ final class Workspace: Identifiable, ObservableObject {
         isRemoteWorkspace: Bool
     ) async -> String? {
         guard !isRemoteWorkspace else { return nil }
-        return await Task.detached(priority: .utility) {
-            NoteSupport.projectRoot(forCwd: currentDirectory)
-        }.value
+        return await NoteSupport.projectRootAsync(forCwd: currentDirectory)
     }
 
     @discardableResult

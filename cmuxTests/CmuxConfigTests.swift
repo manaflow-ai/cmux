@@ -2216,6 +2216,29 @@ final class NoteSupportTests: XCTestCase {
         XCTAssertEqual(reopened.path, created.path)
     }
 
+    func testIndexedNoteAsyncCreateUsesSerializedStore() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let created = try await CmuxNoteStore.createOrOpenAsync(
+            slug: "async-note",
+            title: "Async Note",
+            projectRoot: root.path,
+            createIfMissing: true
+        )
+        let reopened = try CmuxNoteStore.createOrOpen(
+            slug: "async-note",
+            projectRoot: root.path,
+            createIfMissing: false
+        )
+
+        XCTAssertTrue(created.created)
+        XCTAssertEqual(created.note.id, reopened.note.id)
+        XCTAssertEqual(created.path, reopened.path)
+    }
+
     func testIndexedNoteStoreKeepsLegacySlugFilesAddressable() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
