@@ -493,7 +493,9 @@
         },
         "app": {
           "confirmQuit": "Określa, kiedy cmux prosi o potwierdzenie przed zamknięciem. Buildy DEV zawsze zamykają się natychmiast niezależnie od tego ustawienia. Starsze app.warnBeforeQuit jest nadal akceptowane jako zapasowa wartość logiczna.",
-          "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit."
+          "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
+          "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
+          "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu."
         },
         "terminal": {
           "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem."
@@ -1003,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Kolejny dzień, kolejny projekt oparty na libghostty, tym razem terminal macOS z pionowymi kartami, lepszą organizacją/powiadomieniami, wbudowaną/skryptowalną przeglądarką, specjalnie skierowany do ludzi używających mnóstwa terminalowych workflow'ów agentowych.",
+    "steipete": "Spóźniłem się na imprezę, ale cmux jest świetny. Obecny podział: aplikacja Codex na Maca do pracy z wiedzą, nauki i czytania; cmux + Codex CLI do kodowania.",
     "schrockn": "To jest dokładnie produkt, którego szukałem. Po dwóch godzinach rano jestem zakochany.",
     "egrefen": "Używałem tego cały weekend i jest niesamowite.",
     "max4c": "to było moje ulubione narzędzie przez ostatnie dwa tygodnie",
