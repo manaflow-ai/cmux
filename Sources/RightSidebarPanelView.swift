@@ -42,11 +42,18 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Sendable {
 
     var commandTitle: String {
         switch self {
+        case .files:
+            return KeyboardShortcutSettings.Action.switchRightSidebarToFiles.label
+        case .find:
+            return KeyboardShortcutSettings.Action.switchRightSidebarToFind.label
+        case .sessions:
+            return KeyboardShortcutSettings.Action.switchRightSidebarToSessions.label
         case .review:
             return String(localized: "command.rightSidebarMode.review.title", defaultValue: "Show Sidebar Review")
-        case .files, .find, .sessions, .feed, .dock:
-            guard let shortcutAction else { return label }
-            return shortcutAction.label
+        case .feed:
+            return KeyboardShortcutSettings.Action.switchRightSidebarToFeed.label
+        case .dock:
+            return KeyboardShortcutSettings.Action.switchRightSidebarToDock.label
         }
     }
 
@@ -171,7 +178,7 @@ struct RightSidebarPanelView: View {
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dockStore = DockControlsStore()
-    @StateObject private var diffReviewStore = DiffReviewStore()
+    @State private var diffReviewStore = DiffReviewStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX

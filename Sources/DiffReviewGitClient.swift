@@ -157,6 +157,31 @@ enum DiffReviewGitClient {
         let stderr: String
     }
 
+    private final class GitPipeDrain: @unchecked Sendable {
+        private let handle: FileHandle
+        private let queue: DispatchQueue
+        private let group = DispatchGroup()
+        private var data = Data()
+
+        init(handle: FileHandle, label: String) {
+            self.handle = handle
+            self.queue = DispatchQueue(label: label, qos: .utility)
+        }
+
+        func start() {
+            group.enter()
+            queue.async {
+                self.data = self.handle.readDataToEndOfFile()
+                self.group.leave()
+            }
+        }
+
+        func readData() -> Data {
+            group.wait()
+            return queue.sync { data }
+        }
+    }
+
     private static func runGit(
         in directory: String,
         arguments: [String],
@@ -184,13 +209,23 @@ enum DiffReviewGitClient {
 
         do {
             try process.run()
+            let outputDrain = GitPipeDrain(
+                handle: outputPipe.fileHandleForReading,
+                label: "com.cmux.diffReview.git.stdout"
+            )
+            let errorDrain = GitPipeDrain(
+                handle: errorPipe.fileHandleForReading,
+                label: "com.cmux.diffReview.git.stderr"
+            )
+            outputDrain.start()
+            errorDrain.start()
             if let standardInput, let inputPipe {
                 inputPipe.fileHandleForWriting.write(Data(standardInput.utf8))
             }
             inputPipe?.fileHandleForWriting.closeFile()
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
+            let outputData = outputDrain.readData()
+            let errorData = errorDrain.readData()
 
             let result = GitCommandResult(
                 status: process.terminationStatus,

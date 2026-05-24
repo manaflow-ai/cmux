@@ -122,6 +122,11 @@ enum DiffReviewLoadPhase: Equatable {
         if case .loading = self { return true }
         return false
     }
+
+    var allowsLiveRefresh: Bool {
+        if case .loaded = self { return true }
+        return false
+    }
 }
 
 enum DiffReviewPanelContentState: Equatable {

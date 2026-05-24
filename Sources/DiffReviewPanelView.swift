@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct DiffReviewPanelView: View {
-    @ObservedObject var store: DiffReviewStore
+    let store: DiffReviewStore
     let directory: String?
 
     var body: some View {

@@ -27,6 +27,13 @@ final class DiffReviewPanelContentStateTests: XCTestCase {
         XCTAssertEqual(state, .error("Could not apply reverse patch"))
     }
 
+    func testOnlyLoadedPhaseAllowsLiveRefresh() {
+        XCTAssertFalse(DiffReviewLoadPhase.idle.allowsLiveRefresh)
+        XCTAssertFalse(DiffReviewLoadPhase.loading.allowsLiveRefresh)
+        XCTAssertTrue(DiffReviewLoadPhase.loaded.allowsLiveRefresh)
+        XCTAssertFalse(DiffReviewLoadPhase.failed("Could not apply reverse patch").allowsLiveRefresh)
+    }
+
     @MainActor
     func testStopObservingClearsCancelledInitialLoadingState() {
         let store = DiffReviewStore()

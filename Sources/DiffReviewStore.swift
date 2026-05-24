@@ -1,17 +1,22 @@
-import Combine
 import Foundation
+import Observation
 
 @MainActor
-final class DiffReviewStore: ObservableObject {
-    // @Observable is macOS 14+; cmux still targets macOS 13.
-    @Published private(set) var phase: DiffReviewLoadPhase = .idle
-    @Published private(set) var snapshot: DiffReviewSnapshot?
-    @Published private(set) var selectedTargetID = DiffReviewTarget.workingTreeID
-    @Published private(set) var revertingHunkIDs: Set<String> = []
+@Observable
+final class DiffReviewStore {
+    private(set) var phase: DiffReviewLoadPhase = .idle
+    private(set) var snapshot: DiffReviewSnapshot?
+    private(set) var selectedTargetID = DiffReviewTarget.workingTreeID
+    private(set) var revertingHunkIDs: Set<String> = []
 
+    @ObservationIgnored
     private var directory: String?
+    @ObservationIgnored
     private var loadTask: Task<Void, Never>?
+    @ObservationIgnored
     private var liveRefreshTimer: Timer?
+    @ObservationIgnored
+    private var loadRequestID: UInt64 = 0
 
     var isLoading: Bool { phase.isLoading }
 
@@ -19,7 +24,7 @@ final class DiffReviewStore: ObservableObject {
         let trimmedDirectory = nextDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedDirectory = trimmedDirectory?.isEmpty == false ? trimmedDirectory : nil
         guard directory != normalizedDirectory else {
-            startLiveRefreshIfNeeded()
+            resumeObservingCurrentDirectory()
             return
         }
 
@@ -29,6 +34,9 @@ final class DiffReviewStore: ObservableObject {
         selectedTargetID = DiffReviewTarget.workingTreeID
 
         if normalizedDirectory == nil {
+            loadTask?.cancel()
+            loadTask = nil
+            loadRequestID &+= 1
             phase = .idle
             stopLiveRefresh()
         } else {
@@ -51,6 +59,8 @@ final class DiffReviewStore: ObservableObject {
         }
 
         loadTask?.cancel()
+        loadRequestID &+= 1
+        let requestID = loadRequestID
         phase = .loading
         let targetID = selectedTargetID
         loadTask = Task { @MainActor [weak self] in
@@ -59,13 +69,15 @@ final class DiffReviewStore: ObservableObject {
                     directory: directory,
                     selectedTargetID: targetID
                 )
-                guard !Task.isCancelled else { return }
-                self?.snapshot = snapshot
-                self?.selectedTargetID = snapshot.selectedTarget.id
-                self?.phase = .loaded
+                guard let self, !Task.isCancelled, self.loadRequestID == requestID else { return }
+                self.snapshot = snapshot
+                self.selectedTargetID = snapshot.selectedTarget.id
+                self.phase = .loaded
+                self.loadTask = nil
             } catch {
-                guard !Task.isCancelled else { return }
-                self?.phase = .failed(error.localizedDescription)
+                guard let self, !Task.isCancelled, self.loadRequestID == requestID else { return }
+                self.phase = .failed(error.localizedDescription)
+                self.loadTask = nil
             }
         }
     }
@@ -102,7 +114,22 @@ final class DiffReviewStore: ObservableObject {
     func stopObserving() {
         loadTask?.cancel()
         loadTask = nil
+        loadRequestID &+= 1
+        if phase.isLoading {
+            phase = snapshot == nil ? .idle : .loaded
+        }
         stopLiveRefresh()
+    }
+
+    private func resumeObservingCurrentDirectory() {
+        guard directory != nil else {
+            stopLiveRefresh()
+            return
+        }
+        if snapshot == nil || phase == .idle {
+            refresh()
+        }
+        startLiveRefreshIfNeeded()
     }
 
     private func startLiveRefreshIfNeeded() {
@@ -110,7 +137,7 @@ final class DiffReviewStore: ObservableObject {
         let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.directory != nil else { return }
-                guard !self.phase.isLoading, self.revertingHunkIDs.isEmpty else { return }
+                guard self.phase.allowsLiveRefresh, self.revertingHunkIDs.isEmpty else { return }
                 self.refresh()
             }
         }
