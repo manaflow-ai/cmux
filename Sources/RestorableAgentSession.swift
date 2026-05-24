@@ -1,7 +1,7 @@
 import Foundation
 import CMUXAgentLaunch
 
-enum TerminalStartupShellQuoting {
+nonisolated enum TerminalStartupShellQuoting {
     static func singleQuoted(_ value: String) -> String {
         if value.utf8.contains(where: { $0 >= 0x80 }) {
             return asciiPrintfCommandSubstitution(for: value)
