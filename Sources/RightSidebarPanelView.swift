@@ -234,8 +234,14 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: fileExplorerState.mode) { _, mode in
             if mode != .dock { dockStore.deactivate() }
+            if mode != .review { diffReviewStore.stopObserving() }
         }
-        .onChange(of: fileExplorerState.isVisible) { _, visible in if !visible { dockStore.deactivate() } }
+        .onChange(of: fileExplorerState.isVisible) { _, visible in
+            if !visible {
+                dockStore.deactivate()
+                diffReviewStore.stopObserving()
+            }
+        }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
@@ -375,7 +381,11 @@ struct RightSidebarPanelView: View {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
         case .review:
-            DiffReviewPanelView(store: diffReviewStore, directory: sessionIndexDirectory)
+            DiffReviewPanelView(
+                store: diffReviewStore,
+                directory: sessionIndexDirectory,
+                isVisible: fileExplorerState.isVisible
+            )
         case .feed:
             FeedPanelView()
         case .dock:

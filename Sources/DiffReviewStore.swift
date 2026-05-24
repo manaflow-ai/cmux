@@ -83,6 +83,7 @@ final class DiffReviewStore {
     }
 
     func revertHunk(_ hunk: DiffReviewHunk) {
+        guard phase.allowsLiveRefresh else { return }
         guard let snapshot, snapshot.selectedTarget.allowsHunkRevert else { return }
         guard !revertingHunkIDs.contains(hunk.id) else { return }
 
@@ -126,7 +127,7 @@ final class DiffReviewStore {
             stopLiveRefresh()
             return
         }
-        if snapshot == nil || phase == .idle {
+        if snapshot == nil || phase == .idle || phase.allowsLiveRefresh {
             refresh()
         }
         startLiveRefreshIfNeeded()

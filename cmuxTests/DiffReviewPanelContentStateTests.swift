@@ -34,6 +34,33 @@ final class DiffReviewPanelContentStateTests: XCTestCase {
         XCTAssertFalse(DiffReviewLoadPhase.failed("Could not apply reverse patch").allowsLiveRefresh)
     }
 
+    func testSummaryFormatterSubstitutesLocalizedPlaceholders() {
+        let snapshot = DiffReviewSnapshot(
+            repositoryRoot: "/repo",
+            currentBranch: "main",
+            branches: ["main"],
+            selectedTarget: .workingTree,
+            files: [
+                DiffReviewFile(
+                    id: "Sources/App.swift",
+                    path: "Sources/App.swift",
+                    oldPath: nil,
+                    status: .modified,
+                    hunks: [],
+                    addedLineCount: 0,
+                    deletedLineCount: 0
+                )
+            ],
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let summary = DiffReviewSummaryFormatter.summaryText(snapshot: snapshot)
+
+        XCTAssertFalse(summary.contains("%"))
+        XCTAssertTrue(summary.contains("1"))
+        XCTAssertTrue(summary.contains("main"))
+    }
+
     @MainActor
     func testStopObservingClearsCancelledInitialLoadingState() {
         let store = DiffReviewStore()

@@ -3,6 +3,7 @@ import SwiftUI
 struct DiffReviewPanelView: View {
     let store: DiffReviewStore
     let directory: String?
+    let isVisible: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -10,10 +11,13 @@ struct DiffReviewPanelView: View {
             content
         }
         .onAppear {
-            store.setDirectory(directory)
+            updateObservation(isVisible: isVisible, directory: directory)
         }
         .onChange(of: directory) { _, nextDirectory in
-            store.setDirectory(nextDirectory)
+            updateObservation(isVisible: isVisible, directory: nextDirectory)
+        }
+        .onChange(of: isVisible) { _, nextIsVisible in
+            updateObservation(isVisible: nextIsVisible, directory: directory)
         }
         .onDisappear {
             store.stopObserving()
@@ -89,6 +93,7 @@ struct DiffReviewPanelView: View {
             DiffReviewFileListView(
                 snapshot: snapshot,
                 revertingHunkIDs: store.revertingHunkIDs,
+                canRevertHunks: snapshot.selectedTarget.allowsHunkRevert && !store.isLoading,
                 actions: DiffReviewPanelActions(
                     revertHunk: { store.revertHunk($0) }
                 )
@@ -112,6 +117,14 @@ struct DiffReviewPanelView: View {
             return branchName
         }
     }
+
+    private func updateObservation(isVisible: Bool, directory: String?) {
+        if isVisible {
+            store.setDirectory(directory)
+        } else {
+            store.stopObserving()
+        }
+    }
 }
 
 struct DiffReviewPanelActions {
@@ -121,6 +134,7 @@ struct DiffReviewPanelActions {
 private struct DiffReviewFileListView: View {
     let snapshot: DiffReviewSnapshot
     let revertingHunkIDs: Set<String>
+    let canRevertHunks: Bool
     let actions: DiffReviewPanelActions
 
     var body: some View {
@@ -137,7 +151,7 @@ private struct DiffReviewFileListView: View {
                     ForEach(snapshot.files) { file in
                         DiffReviewFileSectionView(
                             file: file,
-                            canRevertHunks: snapshot.selectedTarget.allowsHunkRevert,
+                            canRevertHunks: canRevertHunks,
                             revertingHunkIDs: revertingHunkIDs,
                             actions: actions
                         )
@@ -172,14 +186,22 @@ private struct DiffReviewSummaryRow: View {
     }
 
     private var summaryText: String {
-        let fileCount = snapshot.files.count
+        DiffReviewSummaryFormatter.summaryText(snapshot: snapshot)
+    }
+}
+
+enum DiffReviewSummaryFormatter {
+    static func summaryText(snapshot: DiffReviewSnapshot) -> String {
+        let fileCount = Int64(snapshot.files.count)
         if let currentBranch = snapshot.currentBranch, !currentBranch.isEmpty {
-            return String(
+            let format = String(
                 localized: "diffReview.summary.withBranch",
-                defaultValue: "\(fileCount) files on \(currentBranch)"
+                defaultValue: "%1$lld files on %2$@"
             )
+            return String.localizedStringWithFormat(format, fileCount, currentBranch)
         }
-        return String(localized: "diffReview.summary.files", defaultValue: "\(fileCount) files")
+        let format = String(localized: "diffReview.summary.files", defaultValue: "%lld files")
+        return String.localizedStringWithFormat(format, fileCount)
     }
 }
 
