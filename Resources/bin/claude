@@ -416,6 +416,24 @@ if ! should_inject_claude_hooks "$@"; then
     exec_real_claude_passthrough "$@"
 fi
 
+# Pass through non-interactive invocations (e.g., programmatic token refresh).
+# Hooks create phantom sessions that burn API credits when no human is present.
+# See #2206.
+NON_INTERACTIVE=false
+for arg in "$@"; do
+    [[ "$arg" == "--" ]] && break
+    case "$arg" in
+        -p|--print|--output-format|--output-format=*|--print-auth-token)
+            NON_INTERACTIVE=true
+            break
+            ;;
+    esac
+done
+if [[ "$NON_INTERACTIVE" == true ]]; then
+    unset CLAUDECODE
+    exec "$REAL_CLAUDE" "$@"
+fi
+
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
 # independent sessions even when the parent shell was launched from Claude Code.
 unset CLAUDECODE
