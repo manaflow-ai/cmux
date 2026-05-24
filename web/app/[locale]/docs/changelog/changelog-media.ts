@@ -26,6 +26,42 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.10": {
+    title:
+      "Copy on Select, Extension Sidebar Prototypes, Browser & Terminal Polish",
+    features: [
+      {
+        title: "Copy on Select",
+        description:
+          "Highlighting text in the terminal now copies it to the clipboard the instant the mouse is released. The setting is off by default and toggles from Settings so existing selection behavior stays untouched for anyone who relies on it.",
+      },
+      {
+        title: "CmuxExtensionKit Sidebar Prototypes",
+        description:
+          "An in-tree preview of the upcoming extension API for custom workspace sidebars. Sample sidebars cover an attention queue, browser stack, dev server status, last prompt, and project worktree views, each rendered through the same provider/reducer surface a third-party extension will use.",
+      },
+      {
+        title: "TaskManager 0.64.8 Memory Leak Fix",
+        description:
+          "The TaskManager panel had a snapshot-boundary violation that retained pane store references inside a lazy list subtree, keeping every entry's `@Published` updates wired to every row. 0.64.10 lifts that state above the list and passes immutable snapshots, so reopening the manager no longer accumulates retained state across sessions.",
+      },
+      {
+        title: "Browser Polish",
+        description:
+          "The browser loading spinner now runs on Core Animation so it stays smooth during heavy rendering, Cmd+Up and Cmd+Down forward into the browser pane (Google Docs jump-to-top/bottom works), the URL bar no longer steals focus on tab switch, and the markdown viewer renders remote SVG images correctly.",
+      },
+      {
+        title: "Workspace Reorder CLI",
+        description:
+          "`cmux reorder-workspaces` accepts batch input, supports `--dry-run`, and emits reorder events so scripted layouts can plan a full sidebar reshuffle in one call and react to the changes via the socket.",
+      },
+      {
+        title: "Tab Close Guards",
+        description:
+          "Tab close buttons can now warn before closing or be hidden entirely from Settings, so a stray click on the X stops dropping the surface without confirmation.",
+      },
+    ],
+  },
   "0.64.9": {
     title: "0.64.8 Memory Leak Hotfix",
     features: [

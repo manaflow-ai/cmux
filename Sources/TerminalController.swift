@@ -3730,6 +3730,10 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugShortcutSimulate(params: params))
         case "debug.type":
             return v2Result(id: id, self.v2DebugType(params: params))
+        case "debug.textbox.inline_fixture":
+            return v2Result(id: id, self.v2DebugTextBoxInlineFixture(params: params))
+        case "debug.textbox.interact":
+            return v2Result(id: id, self.v2DebugTextBoxInteract(params: params))
         case "debug.app.activate":
             return v2Result(id: id, self.v2DebugActivateApp())
         case "debug.command_palette.toggle":
@@ -4009,6 +4013,8 @@ class TerminalController {
             "debug.shortcut.set",
             "debug.shortcut.simulate",
             "debug.type",
+            "debug.textbox.inline_fixture",
+            "debug.textbox.interact",
             "debug.app.activate",
             "debug.command_palette.toggle",
             "debug.command_palette.rename_tab.open",
@@ -6136,68 +6142,18 @@ class TerminalController {
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
             let tree = ws.bonsplitController.treeSnapshot()
-            let equalizeResult = Self.equalizeSplitsProportionally(
+            let equalizeResult = SplitEqualizer.equalize(
                 in: tree,
                 controller: ws.bonsplitController,
-                fromExternal: true,
                 orientationFilter: orientationFilter
             )
             result = .ok([
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "equalized": equalizeResult.foundSplit
+                "equalized": equalizeResult.didFullyEqualize
             ])
         }
         return result
-    }
-
-    struct EqualizeSplitsResult {
-        let foundSplit: Bool
-        let allSucceeded: Bool
-
-        var didFullyEqualize: Bool { foundSplit && allSucceeded }
-    }
-
-    /// Proportionally equalize splits so each leaf pane gets equal space.
-    /// When an orientation filter is set, only matching splits are adjusted, while leaf counts still come from the full subtree.
-    @discardableResult
-    static func equalizeSplitsProportionally(
-        in node: ExternalTreeNode,
-        controller: BonsplitController,
-        fromExternal: Bool,
-        orientationFilter: String? = nil
-    ) -> EqualizeSplitsResult {
-        var foundSplit = false
-        var allSucceeded = true
-
-        @discardableResult
-        func equalize(_ node: ExternalTreeNode) -> Int {
-            switch node {
-            case .pane:
-                return 1
-            case .split(let split):
-                let firstLeafCount = equalize(split.first)
-                let secondLeafCount = equalize(split.second)
-                let totalLeafCount = firstLeafCount + secondLeafCount
-
-                if orientationFilter == nil || split.orientation == orientationFilter {
-                    foundSplit = true
-                    if let splitId = UUID(uuidString: split.id) {
-                        let position = CGFloat(firstLeafCount) / CGFloat(totalLeafCount)
-                        if !controller.setDividerPosition(position, forSplit: splitId, fromExternal: fromExternal) {
-                            allSucceeded = false
-                        }
-                    } else {
-                        allSucceeded = false
-                    }
-                }
-
-                return totalLeafCount
-            }
-        }
-
-        equalize(node)
-        return EqualizeSplitsResult(foundSplit: foundSplit, allSucceeded: allSucceeded)
     }
 
     private func v2WorkspaceRemoteConfigure(params: [String: Any]) -> V2CallResult {
@@ -15039,6 +14995,109 @@ class TerminalController {
         return result
     }
 
+#if DEBUG
+    private func v2DebugTextBoxInlineFixture(params: [String: Any]) -> V2CallResult {
+        guard let tabManager else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let rawPathValue = params["path"] as? String
+        let rawPath = rawPathValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let rawPathValue, rawPathValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .err(code: "invalid_params", message: "path cannot be empty", data: nil)
+        }
+        let hasAttachment = rawPath?.isEmpty == false
+        let beforeText = (params["before_text"] as? String) ?? (hasAttachment ? "hello " : "")
+        let afterText = (params["after_text"] as? String) ?? (hasAttachment ? "world" : "")
+        let rawSurfaceID = params["surface_id"] as? String
+        let target = rawSurfaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let rawSurfaceID,
+           rawSurfaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .err(code: "invalid_params", message: "surface_id cannot be empty", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Terminal panel not found", data: nil)
+        v2MainSync {
+            let panel: TerminalPanel?
+            if let target, !target.isEmpty {
+                panel = resolveTerminalPanel(from: target, tabManager: tabManager)
+            } else {
+                panel = tabManager.selectedTerminalPanel
+            }
+
+            guard let panel else {
+                return
+            }
+
+            let url = rawPath.map { URL(fileURLWithPath: $0).standardizedFileURL }
+            _ = panel.installDebugTextBoxInlineFixture(
+                localURL: url,
+                beforeText: beforeText,
+                afterText: afterText
+            )
+            let textView = panel.textBoxInputView
+            result = .ok([
+                "surface_id": panel.id.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+                "path": url?.path ?? "",
+                "text_box_active": panel.isTextBoxActive,
+                "has_text_view": textView != nil,
+                "text_view_has_window": textView?.window != nil,
+                "text_view_matches_panel_window": textView?.window === panel.hostedView.window,
+                "panel_text": panel.textBoxContent,
+                "panel_attachment_count": panel.textBoxAttachments.count,
+                "text_view_text": textView?.plainText() ?? "",
+                "text_view_attachment_count": textView?.inlineAttachments().count ?? 0
+            ])
+        }
+        return result
+    }
+
+    private func v2DebugTextBoxInteract(params: [String: Any]) -> V2CallResult {
+        guard let tabManager else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let action = v2String(params, "action")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !action.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing action", data: nil)
+        }
+        let rawSurfaceID = params["surface_id"] as? String
+        let target = rawSurfaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let rawSurfaceID,
+           rawSurfaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .err(code: "invalid_params", message: "surface_id cannot be empty", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Terminal text box not found", data: nil)
+        v2MainSync {
+            let panel: TerminalPanel?
+            if let target, !target.isEmpty {
+                panel = resolveTerminalPanel(from: target, tabManager: tabManager)
+            } else {
+                panel = tabManager.selectedTerminalPanel
+            }
+
+            guard let panel,
+                  let textView = panel.textBoxInputView,
+                  let window = textView.window else {
+                return
+            }
+
+            if socketCommandAllowsInAppFocusMutations() {
+                NSApp.activate(ignoringOtherApps: true)
+                window.makeKeyAndOrderFront(nil)
+            }
+            let state = textView.debugInteract(action: action)
+            result = .ok([
+                "surface_id": panel.id.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+                "action": action,
+                "state": state
+            ])
+        }
+        return result
+    }
+#endif
+
     private func v2DebugActivateApp() -> V2CallResult {
         let resp = activateApp()
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
@@ -17795,27 +17854,29 @@ class TerminalController {
         // Capture the main window on main thread
         var captureError: String?
         v2MainSync {
-            guard let window = NSApp.mainWindow ?? NSApp.windows.first else {
+            let visibleWindows = NSApp.windows.filter {
+                $0.isVisible && $0.frame.width > 100 && $0.frame.height > 100
+            }
+            let window = [NSApp.mainWindow, NSApp.keyWindow]
+                .compactMap { $0 }
+                .first { visibleWindows.contains($0) }
+                ?? visibleWindows.first
+                ?? NSApp.windows.first
+            guard let window else {
                 captureError = "No window available"
                 return
             }
-
-            // Get window's CGWindowID
-            let windowNumber = CGWindowID(window.windowNumber)
-
-            // Capture the window using CGWindowListCreateImage
             guard let cgImage = CGWindowListCreateImage(
-                .null,  // Capture just the window bounds
+                .null,
                 .optionIncludingWindow,
-                windowNumber,
-                [.boundsIgnoreFraming, .nominalResolution]
+                CGWindowID(window.windowNumber),
+                [.boundsIgnoreFraming, .bestResolution]
             ) else {
                 captureError = "Failed to capture window image"
                 return
             }
-
-            // Convert to NSBitmapImageRep and save as PNG
             let bitmap = NSBitmapImageRep(cgImage: cgImage)
+
             guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
                 captureError = "Failed to create PNG data"
                 return
