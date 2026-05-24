@@ -19,13 +19,13 @@ enum DiffReviewGitError: LocalizedError, Equatable, Sendable {
 enum DiffReviewGitClient {
     static func loadSnapshot(directory: String, selectedTargetID: String) async throws -> DiffReviewSnapshot {
         try await Task.detached(priority: .utility) {
-            try loadSnapshotSync(directory: directory, selectedTargetID: selectedTargetID)
+            try await loadSnapshotData(directory: directory, selectedTargetID: selectedTargetID)
         }.value
     }
 
     static func revertHunk(repositoryRoot: String, patch: String) async throws {
         try await Task.detached(priority: .utility) {
-            _ = try runGit(
+            _ = try await runGit(
                 in: repositoryRoot,
                 arguments: ["apply", "-R", "--whitespace=nowarn", "-"],
                 standardInput: patch,
@@ -34,8 +34,8 @@ enum DiffReviewGitClient {
         }.value
     }
 
-    private static func loadSnapshotSync(directory: String, selectedTargetID: String) throws -> DiffReviewSnapshot {
-        let repositoryRootResult = try runGit(
+    private static func loadSnapshotData(directory: String, selectedTargetID: String) async throws -> DiffReviewSnapshot {
+        let repositoryRootResult = try await runGit(
             in: directory,
             arguments: ["rev-parse", "--show-toplevel"],
             acceptedStatuses: [0, 128]
@@ -46,11 +46,11 @@ enum DiffReviewGitClient {
         let repositoryRoot = repositoryRootResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !repositoryRoot.isEmpty else { throw DiffReviewGitError.notGitRepository }
 
-        let currentBranch = try? runGit(
+        let currentBranch = try? await runGit(
             in: repositoryRoot,
             arguments: ["branch", "--show-current"]
         ).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        let branchesOutput = (try? runGit(
+        let branchesOutput = (try? await runGit(
             in: repositoryRoot,
             arguments: ["for-each-ref", "--format=%(refname:short)", "refs/heads"]
         ).stdout) ?? ""
@@ -60,14 +60,14 @@ enum DiffReviewGitClient {
             .filter { !$0.isEmpty }
 
         let selectedTarget = DiffReviewTarget.from(id: selectedTargetID, branches: branches)
-        let hasHead = ((try? runGit(
+        let hasHead = ((try? await runGit(
             in: repositoryRoot,
             arguments: ["rev-parse", "--verify", "HEAD"]
         )) != nil)
         let untrackedPaths = selectedTarget == .workingTree
-            ? fetchUntrackedPaths(repositoryRoot: repositoryRoot)
+            ? await fetchUntrackedPaths(repositoryRoot: repositoryRoot)
             : []
-        let diffOutput = try diffOutput(
+        let diffOutput = try await diffOutput(
             repositoryRoot: repositoryRoot,
             selectedTarget: selectedTarget,
             hasHead: hasHead,
@@ -93,7 +93,7 @@ enum DiffReviewGitClient {
         selectedTarget: DiffReviewTarget,
         hasHead: Bool,
         untrackedPaths: [String]
-    ) throws -> String {
+    ) async throws -> String {
         let trackedDiffArguments: [String]
         switch selectedTarget {
         case .workingTree:
@@ -112,7 +112,7 @@ enum DiffReviewGitClient {
             ]
         }
 
-        let trackedOutput = try runGit(
+        let trackedOutput = try await runGit(
             in: repositoryRoot,
             arguments: trackedDiffArguments,
             acceptedStatuses: [0, 1]
@@ -121,13 +121,17 @@ enum DiffReviewGitClient {
             return trackedOutput
         }
 
-        let untrackedOutput = untrackedPaths.prefix(100).compactMap { path in
-            try? runGit(
+        var untrackedOutputs: [String] = []
+        for path in untrackedPaths.prefix(100) {
+            if let output = try? await runGit(
                 in: repositoryRoot,
                 arguments: ["diff", "--no-ext-diff", "--no-color", "--unified=3", "--no-index", "--", "/dev/null", path],
                 acceptedStatuses: [0, 1]
-            ).stdout
-        }.joined(separator: "\n")
+            ).stdout {
+                untrackedOutputs.append(output)
+            }
+        }
+        let untrackedOutput = untrackedOutputs.joined(separator: "\n")
 
         if trackedOutput.isEmpty {
             return untrackedOutput
@@ -138,8 +142,8 @@ enum DiffReviewGitClient {
         return trackedOutput + "\n" + untrackedOutput
     }
 
-    private static func fetchUntrackedPaths(repositoryRoot: String) -> [String] {
-        guard let result = try? runGit(
+    private static func fetchUntrackedPaths(repositoryRoot: String) async -> [String] {
+        guard let result = try? await runGit(
             in: repositoryRoot,
             arguments: ["ls-files", "--others", "--exclude-standard", "-z"]
         ) else {
@@ -157,37 +161,12 @@ enum DiffReviewGitClient {
         let stderr: String
     }
 
-    private final class GitPipeDrain: @unchecked Sendable {
-        private let handle: FileHandle
-        private let queue: DispatchQueue
-        private let group = DispatchGroup()
-        private var data = Data()
-
-        init(handle: FileHandle, label: String) {
-            self.handle = handle
-            self.queue = DispatchQueue(label: label, qos: .utility)
-        }
-
-        func start() {
-            group.enter()
-            queue.async {
-                self.data = self.handle.readDataToEndOfFile()
-                self.group.leave()
-            }
-        }
-
-        func readData() -> Data {
-            group.wait()
-            return queue.sync { data }
-        }
-    }
-
     private static func runGit(
         in directory: String,
         arguments: [String],
         standardInput: String? = nil,
         acceptedStatuses: Set<Int32> = [0]
-    ) throws -> GitCommandResult {
+    ) async throws -> GitCommandResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = arguments
@@ -208,32 +187,33 @@ enum DiffReviewGitClient {
         }
 
         do {
-            try process.run()
-            let outputDrain = GitPipeDrain(
-                handle: outputPipe.fileHandleForReading,
-                label: "com.cmux.diffReview.git.stdout"
-            )
-            let errorDrain = GitPipeDrain(
-                handle: errorPipe.fileHandleForReading,
-                label: "com.cmux.diffReview.git.stderr"
-            )
-            outputDrain.start()
-            errorDrain.start()
-            if let standardInput, let inputPipe {
-                inputPipe.fileHandleForWriting.write(Data(standardInput.utf8))
+            async let outputData = readData(from: outputPipe.fileHandleForReading)
+            async let errorData = readData(from: errorPipe.fileHandleForReading)
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                process.terminationHandler = { _ in
+                    continuation.resume(returning: ())
+                }
+                do {
+                    try process.run()
+                    if let standardInput, let inputPipe {
+                        inputPipe.fileHandleForWriting.write(Data(standardInput.utf8))
+                    }
+                    inputPipe?.fileHandleForWriting.closeFile()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
-            inputPipe?.fileHandleForWriting.closeFile()
-            process.waitUntilExit()
-            let outputData = outputDrain.readData()
-            let errorData = errorDrain.readData()
+            let (output, error) = try await (outputData, errorData)
 
             let result = GitCommandResult(
                 status: process.terminationStatus,
-                stdout: String(data: outputData, encoding: .utf8) ?? "",
-                stderr: String(data: errorData, encoding: .utf8) ?? ""
+                stdout: String(data: output, encoding: .utf8) ?? "",
+                stderr: String(data: error, encoding: .utf8) ?? ""
             )
             guard acceptedStatuses.contains(result.status) else {
-                throw DiffReviewGitError.commandFailed(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+                throw DiffReviewGitError.commandFailed(
+                    String(localized: "diffReview.error.gitFailed", defaultValue: "Git command failed.")
+                )
             }
             return result
         } catch let error as DiffReviewGitError {
@@ -241,5 +221,13 @@ enum DiffReviewGitClient {
         } catch {
             throw DiffReviewGitError.commandFailed(error.localizedDescription)
         }
+    }
+
+    private static func readData(from handle: FileHandle) async throws -> Data {
+        var data = Data()
+        for try await byte in handle.bytes {
+            data.append(byte)
+        }
+        return data
     }
 }

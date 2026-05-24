@@ -61,6 +61,32 @@ final class DiffReviewPanelContentStateTests: XCTestCase {
         XCTAssertTrue(summary.contains("main"))
     }
 
+    func testSummaryFormatterUsesSelectedBranchForBranchComparison() {
+        let snapshot = DiffReviewSnapshot(
+            repositoryRoot: "/repo",
+            currentBranch: "feature",
+            branches: ["main", "feature"],
+            selectedTarget: .branch("main"),
+            files: [
+                DiffReviewFile(
+                    id: "Sources/App.swift",
+                    path: "Sources/App.swift",
+                    oldPath: nil,
+                    status: .modified,
+                    hunks: [],
+                    addedLineCount: 0,
+                    deletedLineCount: 0
+                )
+            ],
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let summary = DiffReviewSummaryFormatter.summaryText(snapshot: snapshot)
+
+        XCTAssertTrue(summary.contains("main"))
+        XCTAssertFalse(summary.contains("feature"))
+    }
+
     @MainActor
     func testStopObservingClearsCancelledInitialLoadingState() {
         let store = DiffReviewStore()

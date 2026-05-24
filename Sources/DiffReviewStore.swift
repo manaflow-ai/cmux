@@ -17,6 +17,8 @@ final class DiffReviewStore {
     private var liveRefreshTimer: Timer?
     @ObservationIgnored
     private var loadRequestID: UInt64 = 0
+    @ObservationIgnored
+    private var contextGeneration: UInt64 = 0
 
     var isLoading: Bool { phase.isLoading }
 
@@ -32,6 +34,7 @@ final class DiffReviewStore {
         snapshot = nil
         revertingHunkIDs = []
         selectedTargetID = DiffReviewTarget.workingTreeID
+        contextGeneration &+= 1
 
         if normalizedDirectory == nil {
             loadTask?.cancel()
@@ -48,6 +51,8 @@ final class DiffReviewStore {
     func selectTarget(id: String) {
         guard selectedTargetID != id else { return }
         selectedTargetID = id
+        revertingHunkIDs = []
+        contextGeneration &+= 1
         refresh()
     }
 
@@ -90,17 +95,22 @@ final class DiffReviewStore {
         revertingHunkIDs.insert(hunk.id)
         let repositoryRoot = snapshot.repositoryRoot
         let patch = hunk.patch
+        let generation = contextGeneration
         Task { @MainActor [weak self] in
             do {
                 try await DiffReviewGitClient.revertHunk(
                     repositoryRoot: repositoryRoot,
                     patch: patch
                 )
-                guard let self else { return }
+                guard let self,
+                      self.contextGeneration == generation,
+                      self.snapshot?.repositoryRoot == repositoryRoot else { return }
                 self.revertingHunkIDs.remove(hunk.id)
                 self.refresh()
             } catch {
-                guard let self else { return }
+                guard let self,
+                      self.contextGeneration == generation,
+                      self.snapshot?.repositoryRoot == repositoryRoot else { return }
                 self.revertingHunkIDs.remove(hunk.id)
                 self.phase = .failed(error.localizedDescription)
             }
@@ -116,6 +126,8 @@ final class DiffReviewStore {
         loadTask?.cancel()
         loadTask = nil
         loadRequestID &+= 1
+        contextGeneration &+= 1
+        revertingHunkIDs = []
         if phase.isLoading {
             phase = snapshot == nil ? .idle : .loaded
         }

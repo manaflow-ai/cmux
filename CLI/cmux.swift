@@ -13672,35 +13672,37 @@ struct CMUXCLI {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, review, diff, feed, or dock"))
             }
             let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard isRightSidebarCLIMode(mode) else {
+            guard let canonicalMode = canonicalRightSidebarCLIMode(mode) else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownMode", defaultValue: "Unknown right-sidebar mode '\(parsed.positional[1])'"))
             }
-            var args = ["set", mode]
+            var args = ["set", canonicalMode]
             if parsed.noFocus {
                 args.append("--no-focus")
             }
             return args
 
-        case "files", "find", "vault", "sessions", "review", "diff", "feed", "dock":
+        case "files", "find", "vault", "sessions", "review", "diff", "code-review", "code_review", "feed", "dock":
             guard parsed.positional.count == 1 else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
             }
             guard !parsed.noFocus else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
             }
-            return ["set", action]
+            return ["set", canonicalRightSidebarCLIMode(action) ?? action]
 
         default:
             throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'"))
         }
     }
 
-    private func isRightSidebarCLIMode(_ value: String) -> Bool {
+    private func canonicalRightSidebarCLIMode(_ value: String) -> String? {
         switch value {
         case "files", "find", "vault", "sessions", "review", "diff", "feed", "dock":
-            return true
+            return value
+        case "code-review", "code_review":
+            return "review"
         default:
-            return false
+            return nil
         }
     }
 
