@@ -10984,6 +10984,15 @@ final class Workspace: Identifiable, ObservableObject {
                 shellState: state
             )
         }
+        NotificationCenter.default.post(
+            name: .panelShellActivityStateDidChange,
+            object: nil,
+            userInfo: [
+                PanelShellActivityNotificationKey.workspaceId: id,
+                PanelShellActivityNotificationKey.panelId: panelId,
+                PanelShellActivityNotificationKey.state: state
+            ]
+        )
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
