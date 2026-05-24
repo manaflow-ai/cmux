@@ -12,6 +12,15 @@ extension Notification.Name {
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
+    // Posted by Workspace.updatePanelShellActivityState when the shell-integration-reported
+    // activity state for a panel changes. userInfo carries workspaceId, panelId, and the new state.
+    static let panelShellActivityStateDidChange = Notification.Name("cmux.panelShellActivityStateDidChange")
+}
+
+enum PanelShellActivityNotificationKey {
+    static let workspaceId = "workspaceId"
+    static let panelId = "panelId"
+    static let state = "state"
 }
 
 nonisolated private struct SocketLineProcessingResult: Sendable {
