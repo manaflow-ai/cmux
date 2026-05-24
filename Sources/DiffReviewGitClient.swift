@@ -39,9 +39,31 @@ enum DiffReviewGitClient {
 
     static func revertHunk(repositoryRoot: String, patch: String) async throws {
         try await Task.detached(priority: .utility) {
+            do {
+                _ = try await runGit(
+                    in: repositoryRoot,
+                    arguments: ["apply", "-R", "--index", "--whitespace=nowarn", "-"],
+                    standardInput: patch,
+                    acceptedStatuses: [0],
+                    failureReason: .hunkRevertFailed
+                )
+                return
+            } catch {
+                // --index only works when the index and worktree both match the hunk.
+                // Plain unstaged hunks fall back to a worktree apply, with a best-effort
+                // cached apply for staged hunks that can still be represented safely.
+            }
+
             _ = try await runGit(
                 in: repositoryRoot,
                 arguments: ["apply", "-R", "--whitespace=nowarn", "-"],
+                standardInput: patch,
+                acceptedStatuses: [0],
+                failureReason: .hunkRevertFailed
+            )
+            _ = try? await runGit(
+                in: repositoryRoot,
+                arguments: ["apply", "-R", "--cached", "--whitespace=nowarn", "-"],
                 standardInput: patch,
                 acceptedStatuses: [0],
                 failureReason: .hunkRevertFailed
