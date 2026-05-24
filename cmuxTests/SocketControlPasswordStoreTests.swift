@@ -26,18 +26,20 @@ final class SocketControlPasswordStoreTests: XCTestCase {
 
         let fileURL = tempDir.appendingPathComponent("socket-password.txt", isDirectory: false)
 
-        XCTAssertFalse(SocketControlPasswordStore.hasConfiguredPassword(environment: [:], fileURL: fileURL))
+        XCTAssertFalse(SocketControlPasswordStore.hasConfiguredPassword(fileURL: fileURL))
 
         try SocketControlPasswordStore.savePassword("hunter2", fileURL: fileURL)
         XCTAssertEqual(try SocketControlPasswordStore.loadPassword(fileURL: fileURL), "hunter2")
-        XCTAssertTrue(SocketControlPasswordStore.hasConfiguredPassword(environment: [:], fileURL: fileURL))
+        XCTAssertTrue(SocketControlPasswordStore.hasConfiguredPassword(fileURL: fileURL))
 
         try SocketControlPasswordStore.clearPassword(fileURL: fileURL)
         XCTAssertNil(try SocketControlPasswordStore.loadPassword(fileURL: fileURL))
-        XCTAssertFalse(SocketControlPasswordStore.hasConfiguredPassword(environment: [:], fileURL: fileURL))
+        XCTAssertFalse(SocketControlPasswordStore.hasConfiguredPassword(fileURL: fileURL))
     }
 
-    func testConfiguredPasswordPrefersEnvironmentOverStoredFile() throws {
+    func testConfiguredPasswordIgnoresEnvironmentVariable() throws {
+        // When a file password is stored, it is returned regardless of whether
+        // CMUX_SOCKET_PASSWORD is set in the process environment.
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-socket-password-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -46,19 +48,32 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         let fileURL = tempDir.appendingPathComponent("socket-password.txt", isDirectory: false)
         try SocketControlPasswordStore.savePassword("stored-secret", fileURL: fileURL)
 
-        let environment = [SocketControlSettings.socketPasswordEnvKey: "env-secret"]
+        // environment parameter removed — the env var is no longer consulted.
+        let configured = SocketControlPasswordStore.configuredPassword(fileURL: fileURL)
+        XCTAssertEqual(configured, "stored-secret")
+    }
+
+    func testConfiguredPasswordReturnsNilWhenOnlyEnvVarIsSet() {
+        // When no file password exists, configuredPassword() must return nil even
+        // if CMUX_SOCKET_PASSWORD is set in the environment.  This is the core
+        // security guarantee: the env var cannot be used as a back-door credential.
+        let nonExistentFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-socket-password-tests-\(UUID().uuidString)")
+            .appendingPathComponent("no-such-file.txt")
+
+        // CMUX_SOCKET_PASSWORD is in the real environment during CI runs; its
+        // presence must not change the outcome.
         let configured = SocketControlPasswordStore.configuredPassword(
-            environment: environment,
-            fileURL: fileURL
+            fileURL: nonExistentFileURL,
+            allowLazyKeychainFallback: false
         )
-        XCTAssertEqual(configured, "env-secret")
+        XCTAssertNil(configured)
     }
 
     func testConfiguredPasswordLazyKeychainFallbackReadsOnlyOnceAndCaches() {
         var readCount = 0
 
         let withoutFallback = SocketControlPasswordStore.configuredPassword(
-            environment: [:],
             fileURL: nil,
             allowLazyKeychainFallback: false,
             loadKeychainPassword: {
@@ -70,7 +85,6 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         XCTAssertEqual(readCount, 0)
 
         let firstWithFallback = SocketControlPasswordStore.configuredPassword(
-            environment: [:],
             fileURL: nil,
             allowLazyKeychainFallback: true,
             loadKeychainPassword: {
@@ -82,7 +96,6 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         XCTAssertEqual(readCount, 1)
 
         let secondWithFallback = SocketControlPasswordStore.configuredPassword(
-            environment: [:],
             fileURL: nil,
             allowLazyKeychainFallback: true,
             loadKeychainPassword: {
@@ -98,7 +111,6 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         var readCount = 0
 
         let first = SocketControlPasswordStore.configuredPassword(
-            environment: [:],
             fileURL: nil,
             allowLazyKeychainFallback: true,
             loadKeychainPassword: {
@@ -110,7 +122,6 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         XCTAssertEqual(readCount, 1)
 
         let second = SocketControlPasswordStore.configuredPassword(
-            environment: [:],
             fileURL: nil,
             allowLazyKeychainFallback: true,
             loadKeychainPassword: {
@@ -133,7 +144,6 @@ final class SocketControlPasswordStoreTests: XCTestCase {
 
         var readCount = 0
         let configured = SocketControlPasswordStore.configuredPassword(
-            environment: [:],
             fileURL: fileURL,
             allowLazyKeychainFallback: true,
             loadKeychainPassword: {
@@ -155,7 +165,6 @@ final class SocketControlPasswordStoreTests: XCTestCase {
 
         XCTAssertTrue(
             SocketControlPasswordStore.hasConfiguredPassword(
-                environment: [:],
                 fileURL: nil,
                 allowLazyKeychainFallback: true,
                 loadKeychainPassword: loader
@@ -166,7 +175,6 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         XCTAssertTrue(
             SocketControlPasswordStore.verify(
                 password: "legacy-secret",
-                environment: [:],
                 fileURL: nil,
                 allowLazyKeychainFallback: true,
                 loadKeychainPassword: loader
