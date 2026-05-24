@@ -11523,6 +11523,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func runQuitConfirmationDialog() -> QuitDialogResult {
+        let hasConfiguredAgentHooks = currentAgentHookSetupStatusForQuitDialog()
+        hasConfiguredAgentHooksForQuitDialog = hasConfiguredAgentHooks
+
         let restoreLayoutButton = NSButton(
             checkboxWithTitle: String(
                 localized: "dialog.quitCmux.restoreLayoutOnNextLaunch",
@@ -11562,7 +11565,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         docsButton.setAccessibilityIdentifier("QuitDialogSessionRestoreDocsButton")
         optionsStack.addArrangedSubview(docsButton)
 
-        if !hasConfiguredAgentHooksForQuitDialog {
+        if !hasConfiguredAgentHooks {
             let warning = NSTextField(labelWithString: String(
                 localized: "dialog.quitCmux.hooksNotConfiguredWarning",
                 defaultValue: "Agent session restore needs hooks. Run `cmux hooks setup` for supported agents."
@@ -11628,6 +11631,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.hasConfiguredAgentHooksForQuitDialog = hasConfiguredAgentHooks
             }
         }
+    }
+
+    private func currentAgentHookSetupStatusForQuitDialog() -> Bool {
+        AgentHookSetupStatus.hasConfiguredAgentHooks(
+            homeDirectory: NSHomeDirectory(),
+            environment: ProcessInfo.processInfo.environment,
+            claudeCodeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled()
+        )
     }
 
     func promptRenameSelectedWorkspace() -> Bool {
