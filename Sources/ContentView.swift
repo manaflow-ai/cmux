@@ -13271,6 +13271,132 @@ enum SidebarTrailingAccessoryWidthPolicy {
     static let closeButtonWidth: CGFloat = 16
 }
 
+struct SidebarWorkspaceSelectionUpdate: Equatable {
+    let selectedWorkspaceIds: Set<UUID>
+    let nextActiveWorkspaceId: UUID
+    let nextAnchorIndex: Int
+}
+
+enum SidebarWorkspaceSelectionPolicy {
+    static func update(
+        workspaceIds: [UUID],
+        selectedWorkspaceIds: Set<UUID>,
+        currentActiveWorkspaceId: UUID?,
+        lastSelectionAnchorIndex: Int?,
+        clickedIndex: Int,
+        modifiers: NSEvent.ModifierFlags
+    ) -> SidebarWorkspaceSelectionUpdate? {
+        guard workspaceIds.indices.contains(clickedIndex) else { return nil }
+
+        let clickedWorkspaceId = workspaceIds[clickedIndex]
+        let isCommand = modifiers.contains(.command)
+        let isShift = modifiers.contains(.shift)
+        var nextSelectedWorkspaceIds = selectedWorkspaceIds
+        var nextActiveWorkspaceId = clickedWorkspaceId
+        let validAnchorIndex = lastSelectionAnchorIndex.flatMap { index in
+            workspaceIds.indices.contains(index) ? index : nil
+        }
+        let anchorWorkspaceId = validAnchorIndex.map { workspaceIds[$0] }
+        var nextAnchorIndex = validAnchorIndex ?? clickedIndex
+
+        if isShift, let validAnchorIndex {
+            let lower = min(validAnchorIndex, clickedIndex)
+            let upper = max(validAnchorIndex, clickedIndex)
+            let rangeIds = workspaceIds[lower...upper]
+            if isCommand {
+                nextSelectedWorkspaceIds.formUnion(rangeIds)
+            } else {
+                nextSelectedWorkspaceIds = Set(rangeIds)
+            }
+            // Once a range starts from a singleton selection, keep the first
+            // shift-clicked edge as the pivot while later shift clicks resize.
+            nextAnchorIndex = selectedWorkspaceIds.count <= 1 ? clickedIndex : validAnchorIndex
+        } else if isCommand {
+            if nextSelectedWorkspaceIds.contains(clickedWorkspaceId) {
+                if nextSelectedWorkspaceIds.count == 1 {
+                    nextSelectedWorkspaceIds = [clickedWorkspaceId]
+                    nextActiveWorkspaceId = clickedWorkspaceId
+                } else {
+                    nextSelectedWorkspaceIds.remove(clickedWorkspaceId)
+                    nextActiveWorkspaceId = preferredActiveWorkspaceId(
+                        workspaceIds: workspaceIds,
+                        selectedWorkspaceIds: nextSelectedWorkspaceIds,
+                        currentActiveWorkspaceId: currentActiveWorkspaceId,
+                        clickedIndex: clickedIndex
+                    ) ?? clickedWorkspaceId
+                }
+            } else {
+                nextSelectedWorkspaceIds.insert(clickedWorkspaceId)
+            }
+
+            if let anchorWorkspaceId,
+               !nextSelectedWorkspaceIds.contains(anchorWorkspaceId),
+               let replacementAnchorIndex = preferredSelectionAnchorIndex(
+                   workspaceIds: workspaceIds,
+                   selectedWorkspaceIds: nextSelectedWorkspaceIds,
+                   referenceIndex: validAnchorIndex ?? clickedIndex
+               ) {
+                nextAnchorIndex = replacementAnchorIndex
+            }
+        } else {
+            nextSelectedWorkspaceIds = [clickedWorkspaceId]
+            nextAnchorIndex = clickedIndex
+        }
+
+        return SidebarWorkspaceSelectionUpdate(
+            selectedWorkspaceIds: nextSelectedWorkspaceIds,
+            nextActiveWorkspaceId: nextActiveWorkspaceId,
+            nextAnchorIndex: nextAnchorIndex
+        )
+    }
+
+    private static func preferredActiveWorkspaceId(
+        workspaceIds: [UUID],
+        selectedWorkspaceIds: Set<UUID>,
+        currentActiveWorkspaceId: UUID?,
+        clickedIndex: Int
+    ) -> UUID? {
+        if let currentActiveWorkspaceId,
+           selectedWorkspaceIds.contains(currentActiveWorkspaceId) {
+            return currentActiveWorkspaceId
+        }
+
+        let trailingIds = workspaceIds.suffix(from: min(clickedIndex + 1, workspaceIds.count))
+        if let nextId = trailingIds.first(where: selectedWorkspaceIds.contains) {
+            return nextId
+        }
+
+        let leadingIds = workspaceIds.prefix(clickedIndex).reversed()
+        return leadingIds.first(where: selectedWorkspaceIds.contains)
+    }
+
+    private static func preferredSelectionAnchorIndex(
+        workspaceIds: [UUID],
+        selectedWorkspaceIds: Set<UUID>,
+        referenceIndex: Int
+    ) -> Int? {
+        let safeReferenceIndex = min(max(referenceIndex, 0), workspaceIds.count - 1)
+
+        for index in workspaceIds.indices.dropFirst(safeReferenceIndex + 1) {
+            if selectedWorkspaceIds.contains(workspaceIds[index]) {
+                return index
+            }
+        }
+
+        for index in workspaceIds.indices.prefix(safeReferenceIndex).reversed() {
+            if selectedWorkspaceIds.contains(workspaceIds[index]) {
+                return index
+            }
+        }
+
+        if selectedWorkspaceIds.contains(workspaceIds[safeReferenceIndex]) {
+            return safeReferenceIndex
+        }
+
+        return nil
+    }
+}
+
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
 // the parent rebuilds with unchanged values. Without this, every TabManager
 // or NotificationStore publish causes ALL tab items to re-evaluate (~18% of
@@ -14528,31 +14654,25 @@ private struct TabItemView: View, Equatable {
         cmuxDebugLog("sidebar.select workspace=\(tab.id.uuidString.prefix(5)) modifiers=\(modStr.isEmpty ? "none" : modStr.trimmingCharacters(in: .whitespaces))")
         #endif
         let modifiers = NSEvent.modifierFlags
+        let wasSelected = tabManager.selectedTabId == tab.id
         let isCommand = modifiers.contains(.command)
         let isShift = modifiers.contains(.shift)
-        let wasSelected = tabManager.selectedTabId == tab.id
-
-        if isShift, let lastIndex = lastSidebarSelectionIndex {
-            let lower = min(lastIndex, index)
-            let upper = max(lastIndex, index)
-            let rangeIds = tabManager.tabs[lower...upper].map { $0.id }
-            if isCommand {
-                selectedTabIds.formUnion(rangeIds)
-            } else {
-                selectedTabIds = Set(rangeIds)
-            }
-        } else if isCommand {
-            if selectedTabIds.contains(tab.id) {
-                selectedTabIds.remove(tab.id)
-            } else {
-                selectedTabIds.insert(tab.id)
-            }
-        } else {
-            selectedTabIds = [tab.id]
+        guard let update = SidebarWorkspaceSelectionPolicy.update(
+            workspaceIds: tabManager.tabs.map(\.id),
+            selectedWorkspaceIds: selectedTabIds,
+            currentActiveWorkspaceId: tabManager.selectedTabId,
+            lastSelectionAnchorIndex: lastSidebarSelectionIndex,
+            clickedIndex: index,
+            modifiers: modifiers
+        ) else {
+            return
         }
 
-        lastSidebarSelectionIndex = index
-        tabManager.selectTab(tab)
+        selectedTabIds = update.selectedWorkspaceIds
+        lastSidebarSelectionIndex = update.nextAnchorIndex
+        if let nextActiveWorkspace = tabManager.tabs.first(where: { $0.id == update.nextActiveWorkspaceId }) {
+            tabManager.selectTab(nextActiveWorkspace)
+        }
         if wasSelected, !isCommand, !isShift {
             tabManager.dismissNotificationOnDirectInteraction(
                 tabId: tab.id,
