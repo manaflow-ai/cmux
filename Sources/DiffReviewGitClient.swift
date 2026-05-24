@@ -137,17 +137,10 @@ enum DiffReviewGitClient {
             return trackedOutput
         }
 
-        var untrackedOutputs: [String] = []
-        for path in untrackedPaths.prefix(100) {
-            if let output = try? await runGit(
-                in: repositoryRoot,
-                arguments: ["diff", "--no-ext-diff", "--no-color", "--unified=3", "--no-index", "--", "/dev/null", path],
-                acceptedStatuses: [0, 1]
-            ).stdout {
-                untrackedOutputs.append(output)
-            }
-        }
-        let untrackedOutput = untrackedOutputs.joined(separator: "\n")
+        let untrackedOutput = await untrackedDiffOutput(
+            repositoryRoot: repositoryRoot,
+            untrackedPaths: untrackedPaths
+        )
 
         if trackedOutput.isEmpty {
             return untrackedOutput
@@ -156,6 +149,45 @@ enum DiffReviewGitClient {
             return trackedOutput
         }
         return trackedOutput + "\n" + untrackedOutput
+    }
+
+    private static func untrackedDiffOutput(repositoryRoot: String, untrackedPaths: [String]) async -> String {
+        let paths = Array(untrackedPaths.prefix(100))
+        guard !paths.isEmpty else { return "" }
+
+        let maxConcurrentDiffs = 8
+        var outputs = Array<String?>(repeating: nil, count: paths.count)
+        await withTaskGroup(of: (Int, String?).self) { group in
+            var nextPathIndex = 0
+            var inFlightCount = 0
+
+            func enqueueNextDiff() {
+                guard nextPathIndex < paths.count else { return }
+                let index = nextPathIndex
+                let path = paths[index]
+                nextPathIndex += 1
+                inFlightCount += 1
+                group.addTask {
+                    let output = try? await runGit(
+                        in: repositoryRoot,
+                        arguments: ["diff", "--no-ext-diff", "--no-color", "--unified=3", "--no-index", "--", "/dev/null", path],
+                        acceptedStatuses: [0, 1]
+                    ).stdout
+                    return (index, output)
+                }
+            }
+
+            while inFlightCount < maxConcurrentDiffs, nextPathIndex < paths.count {
+                enqueueNextDiff()
+            }
+
+            while let (index, output) = await group.next() {
+                inFlightCount -= 1
+                outputs[index] = output
+                enqueueNextDiff()
+            }
+        }
+        return outputs.compactMap { $0 }.joined(separator: "\n")
     }
 
     private static func fetchUntrackedPaths(repositoryRoot: String) async -> [String] {
@@ -175,6 +207,67 @@ enum DiffReviewGitClient {
         let status: Int32
         let stdout: String
         let stderr: String
+    }
+
+    private final class GitProcessCancellation {
+        private let lock = NSLock()
+        private var process: Process?
+        private var cancelled = false
+
+        func register(_ process: Process) {
+            lock.lock()
+            self.process = process
+            let shouldCancel = cancelled
+            lock.unlock()
+
+            if shouldCancel, process.isRunning {
+                process.terminate()
+            }
+        }
+
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            let process = self.process
+            lock.unlock()
+
+            if process?.isRunning == true {
+                process?.terminate()
+            }
+        }
+
+        func finish() {
+            lock.lock()
+            process = nil
+            lock.unlock()
+        }
+
+        var isCancelled: Bool {
+            lock.lock()
+            let value = cancelled
+            lock.unlock()
+            return value
+        }
+    }
+
+    private final class GitProcessCompletion {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Void, Error>?
+
+        init(_ continuation: CheckedContinuation<Void, Error>) {
+            self.continuation = continuation
+        }
+
+        func resume(_ result: Result<Void, Error>) {
+            lock.lock()
+            guard let continuation else {
+                lock.unlock()
+                return
+            }
+            self.continuation = nil
+            lock.unlock()
+            continuation.resume(with: result)
+        }
     }
 
     private static func runGit(
@@ -203,36 +296,60 @@ enum DiffReviewGitClient {
             inputPipe = nil
         }
 
+        let cancellation = GitProcessCancellation()
         do {
-            async let outputData = readData(from: outputPipe.fileHandleForReading)
-            async let errorData = readData(from: errorPipe.fileHandleForReading)
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                process.terminationHandler = { _ in
-                    continuation.resume(returning: ())
-                }
-                do {
-                    try process.run()
-                    // Close parent write ends so async readers observe EOF after the child exits.
-                    outputPipe.fileHandleForWriting.closeFile()
-                    errorPipe.fileHandleForWriting.closeFile()
-                    if let standardInput, let inputPipe {
-                        inputPipe.fileHandleForWriting.write(Data(standardInput.utf8))
+            let result = try await withTaskCancellationHandler {
+                try Task.checkCancellation()
+                async let outputData = readData(from: outputPipe.fileHandleForReading)
+                async let errorData = readData(from: errorPipe.fileHandleForReading)
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    let completion = GitProcessCompletion(continuation)
+                    var didCloseOutputWriters = false
+                    func closeOutputWriters() {
+                        guard !didCloseOutputWriters else { return }
+                        didCloseOutputWriters = true
+                        outputPipe.fileHandleForWriting.closeFile()
+                        errorPipe.fileHandleForWriting.closeFile()
                     }
-                    inputPipe?.fileHandleForWriting.closeFile()
-                } catch {
-                    outputPipe.fileHandleForWriting.closeFile()
-                    errorPipe.fileHandleForWriting.closeFile()
-                    inputPipe?.fileHandleForWriting.closeFile()
-                    continuation.resume(throwing: error)
-                }
-            }
-            let (output, error) = try await (outputData, errorData)
 
-            let result = GitCommandResult(
-                status: process.terminationStatus,
-                stdout: String(data: output, encoding: .utf8) ?? "",
-                stderr: String(data: error, encoding: .utf8) ?? ""
-            )
+                    cancellation.register(process)
+                    process.terminationHandler = { _ in
+                        cancellation.finish()
+                        completion.resume(.success(()))
+                    }
+                    do {
+                        try process.run()
+                        // Close parent write ends so async readers observe EOF after the child exits.
+                        closeOutputWriters()
+                        if cancellation.isCancelled, process.isRunning {
+                            process.terminate()
+                        }
+                        if let standardInput, let inputPipe {
+                            try inputPipe.fileHandleForWriting.write(contentsOf: Data(standardInput.utf8))
+                        }
+                        inputPipe?.fileHandleForWriting.closeFile()
+                    } catch {
+                        cancellation.finish()
+                        closeOutputWriters()
+                        inputPipe?.fileHandleForWriting.closeFile()
+                        completion.resume(.failure(error))
+                    }
+                }
+                let (output, error) = try await (outputData, errorData)
+
+                if cancellation.isCancelled {
+                    throw CancellationError()
+                }
+
+                return GitCommandResult(
+                    status: process.terminationStatus,
+                    stdout: String(data: output, encoding: .utf8) ?? "",
+                    stderr: String(data: error, encoding: .utf8) ?? ""
+                )
+            } onCancel: {
+                cancellation.cancel()
+            }
+
             guard acceptedStatuses.contains(result.status) else {
                 throw DiffReviewGitError.commandFailed(failureReason)
             }

@@ -19,6 +19,12 @@ final class DiffReviewStore {
     private var loadRequestID: UInt64 = 0
     @ObservationIgnored
     private var contextGeneration: UInt64 = 0
+    @ObservationIgnored
+    private var revertTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored
+    private var revertRequestIDs: [String: UInt64] = [:]
+    @ObservationIgnored
+    private var revertRequestID: UInt64 = 0
 
     var isLoading: Bool { phase.isLoading }
 
@@ -32,7 +38,7 @@ final class DiffReviewStore {
 
         directory = normalizedDirectory
         snapshot = nil
-        revertingHunkIDs = []
+        cancelRevertTasks()
         selectedTargetID = DiffReviewTarget.workingTreeID
         contextGeneration &+= 1
 
@@ -51,7 +57,7 @@ final class DiffReviewStore {
     func selectTarget(id: String) {
         guard selectedTargetID != id else { return }
         selectedTargetID = id
-        revertingHunkIDs = []
+        cancelRevertTasks()
         contextGeneration &+= 1
         refresh()
     }
@@ -93,28 +99,38 @@ final class DiffReviewStore {
         guard !revertingHunkIDs.contains(hunk.id) else { return }
 
         revertingHunkIDs.insert(hunk.id)
+        revertRequestID &+= 1
+        let requestID = revertRequestID
+        revertRequestIDs[hunk.id] = requestID
         let repositoryRoot = snapshot.repositoryRoot
         let patch = hunk.patch
         let generation = contextGeneration
-        Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             do {
                 try await DiffReviewGitClient.revertHunk(
                     repositoryRoot: repositoryRoot,
                     patch: patch
                 )
                 guard let self,
+                      self.isCurrentRevert(hunkID: hunk.id, requestID: requestID),
                       self.contextGeneration == generation,
                       self.snapshot?.repositoryRoot == repositoryRoot else { return }
-                self.revertingHunkIDs.remove(hunk.id)
+                self.finishRevert(hunkID: hunk.id, requestID: requestID)
                 self.refresh()
+            } catch is CancellationError {
+                guard let self,
+                      self.isCurrentRevert(hunkID: hunk.id, requestID: requestID) else { return }
+                self.finishRevert(hunkID: hunk.id, requestID: requestID)
             } catch {
                 guard let self,
+                      self.isCurrentRevert(hunkID: hunk.id, requestID: requestID),
                       self.contextGeneration == generation,
                       self.snapshot?.repositoryRoot == repositoryRoot else { return }
-                self.revertingHunkIDs.remove(hunk.id)
+                self.finishRevert(hunkID: hunk.id, requestID: requestID)
                 self.phase = .failed(error.localizedDescription)
             }
         }
+        revertTasks[hunk.id] = task
     }
 
     func stopLiveRefresh() {
@@ -127,11 +143,31 @@ final class DiffReviewStore {
         loadTask = nil
         loadRequestID &+= 1
         contextGeneration &+= 1
-        revertingHunkIDs = []
+        cancelRevertTasks()
         if phase.isLoading {
             phase = snapshot == nil ? .idle : .loaded
         }
         stopLiveRefresh()
+    }
+
+    private func cancelRevertTasks() {
+        for task in revertTasks.values {
+            task.cancel()
+        }
+        revertTasks.removeAll()
+        revertRequestIDs.removeAll()
+        revertingHunkIDs = []
+    }
+
+    private func isCurrentRevert(hunkID: String, requestID: UInt64) -> Bool {
+        revertRequestIDs[hunkID] == requestID
+    }
+
+    private func finishRevert(hunkID: String, requestID: UInt64) {
+        guard isCurrentRevert(hunkID: hunkID, requestID: requestID) else { return }
+        revertRequestIDs[hunkID] = nil
+        revertTasks[hunkID] = nil
+        revertingHunkIDs.remove(hunkID)
     }
 
     private func resumeObservingCurrentDirectory() {

@@ -113,6 +113,55 @@ final class DiffReviewPanelContentStateTests: XCTestCase {
         XCTAssertFalse(summary.contains("1 files"))
     }
 
+    func testSummaryFormatterUsesPluralFileLabelForZeroFiles() {
+        let snapshot = DiffReviewSnapshot(
+            repositoryRoot: "/repo",
+            currentBranch: nil,
+            branches: [],
+            selectedTarget: .workingTree,
+            files: [],
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let summary = DiffReviewSummaryFormatter.summaryText(snapshot: snapshot)
+
+        XCTAssertTrue(summary.contains("0 files"))
+    }
+
+    func testSummaryFormatterUsesPluralFileLabelForMultipleFiles() {
+        let snapshot = DiffReviewSnapshot(
+            repositoryRoot: "/repo",
+            currentBranch: nil,
+            branches: [],
+            selectedTarget: .workingTree,
+            files: [
+                DiffReviewFile(
+                    id: "Sources/App.swift",
+                    path: "Sources/App.swift",
+                    oldPath: nil,
+                    status: .modified,
+                    hunks: [],
+                    addedLineCount: 0,
+                    deletedLineCount: 0
+                ),
+                DiffReviewFile(
+                    id: "Sources/Model.swift",
+                    path: "Sources/Model.swift",
+                    oldPath: nil,
+                    status: .added,
+                    hunks: [],
+                    addedLineCount: 0,
+                    deletedLineCount: 0
+                )
+            ],
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let summary = DiffReviewSummaryFormatter.summaryText(snapshot: snapshot)
+
+        XCTAssertTrue(summary.contains("2 files"))
+    }
+
     func testGitFailureMessagesAreActionSpecificAndSanitized() {
         let revertMessage = DiffReviewGitError.commandFailed(.hunkRevertFailed).localizedDescription
         let diffMessage = DiffReviewGitError.commandFailed(.diffUnavailable).localizedDescription
