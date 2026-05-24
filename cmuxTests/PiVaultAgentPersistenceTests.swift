@@ -232,6 +232,40 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(turns.map(\.text), ["Tail prompt is visible"])
     }
 
+    func testBuiltInAntigravityHistoryOnlyFallbackUsesLastConversationCWDFilter() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-history-cwd-\(UUID().uuidString)", isDirectory: true)
+        let cwd = tempDir.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let historyURL = tempDir.appendingPathComponent("history.jsonl", isDirectory: false)
+        try """
+        {"conversationId":"history-cwd-session","display":"History CWD fallback","timestamp":1779262990000}
+        """.write(to: historyURL, atomically: true, encoding: .utf8)
+
+        let cacheURL = tempDir.appendingPathComponent("cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+        let mappingData = try JSONSerialization.data(
+            withJSONObject: [cwd.path: "history-cwd-session"],
+            options: [.sortedKeys]
+        )
+        try mappingData.write(to: cacheURL.appendingPathComponent("last_conversations.json", isDirectory: false))
+
+        var registration = CmuxVaultAgentRegistration.builtInAntigravity
+        registration.sessionDirectory = tempDir.path
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: cwd.path,
+            offset: 0,
+            limit: 10
+        )
+
+        XCTAssertEqual(entries.map(\.sessionId), ["history-cwd-session"])
+        XCTAssertEqual(entries.first?.cwd, cwd.path)
+    }
+
     func testRegisteredAgentJSONLWorkspaceKeyIsSharedCWDMetadata() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-workspace-cwd-\(UUID().uuidString)", isDirectory: true)
