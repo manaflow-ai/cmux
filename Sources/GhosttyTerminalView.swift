@@ -9046,6 +9046,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 #endif
                 handled = text.withCString { ptr in
                     keyEvent.text = ptr
+                    #if DEBUG
                     return sendTimedGhosttyKey(
                         surface,
                         keyEvent,
@@ -9053,6 +9054,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                         event: event,
                         extra: "textBytes=\(text.utf8.count)"
                     )
+                    #else
+                    return sendGhosttyKey(surface, keyEvent)
+                    #endif
                 }
                 #if DEBUG
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
