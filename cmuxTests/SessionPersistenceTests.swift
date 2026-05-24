@@ -4062,6 +4062,49 @@ extension SessionPersistenceTests {
         )
     }
 
+    @MainActor
+    func testAutosaveFingerprintIncludesTextBoxDraftContent() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+
+        let baselineFingerprint = manager.sessionAutosaveFingerprint()
+        terminalPanel.restoreSessionTextBoxDraft(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [.text("draft one")]
+        ))
+        let firstTextFingerprint = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(baselineFingerprint, firstTextFingerprint)
+
+        terminalPanel.restoreSessionTextBoxDraft(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [.text("draft two")]
+        ))
+        let secondTextFingerprint = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(firstTextFingerprint, secondTextFingerprint)
+
+        let attachment = SessionTextBoxInputAttachmentSnapshot(
+            displayName: "moon.png",
+            submissionText: "/tmp/moon.png",
+            submissionPath: "/tmp/moon.png",
+            localPath: "/tmp/moon.png",
+            cleanupLocalPathWhenDisposed: false
+        )
+        terminalPanel.restoreSessionTextBoxDraft(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [.text("look "), .attachment(attachment)]
+        ))
+        let imageDraftFingerprint = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(secondTextFingerprint, imageDraftFingerprint)
+
+        terminalPanel.restoreSessionTextBoxDraft(SessionTextBoxInputDraftSnapshot(
+            isActive: false,
+            parts: [.text("look "), .attachment(attachment)]
+        ))
+        XCTAssertNotEqual(imageDraftFingerprint, manager.sessionAutosaveFingerprint())
+    }
+
     func testSurfaceResumeBindingPreservesExactNonSensitiveEnvironmentValues() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "codex resume session",

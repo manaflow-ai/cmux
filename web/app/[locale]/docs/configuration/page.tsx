@@ -58,6 +58,7 @@ const settingsFileExample = `{
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
   //   "iMessageMode": true
@@ -65,7 +66,9 @@ const settingsFileExample = `{
 
   // "terminal": {
   //   "showScrollBar": false,
-  //   "autoResumeAgentSessions": true
+  //   "copyOnSelect": true,
+  //   "autoResumeAgentSessions": true,
+  //   "textBoxMaxLines": 10
   // },
 
   // "browser": {
