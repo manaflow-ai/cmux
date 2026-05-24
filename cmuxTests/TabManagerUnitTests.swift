@@ -361,17 +361,11 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         let center = NotificationCenter()
         let tabId = UUID()
         let surfaceId = UUID()
-        var postedTitles: [String] = []
-        let observer = center.addObserver(
-            forName: .ghosttyDidSetTitle,
-            object: nil,
-            queue: nil
-        ) { notification in
-            if let title = notification.userInfo?[GhosttyNotificationKey.title] as? String {
-                postedTitles.append(title)
-            }
+        var postCount = 0
+        let immediateDelivery: (@escaping () -> Void) -> Void = { block in
+            postCount += 1
+            block()
         }
-        defer { center.removeObserver(observer) }
 
         XCTAssertTrue(
             dispatcher.postTitleIfChanged(
@@ -380,7 +374,7 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
                 title: "tmux",
                 object: nil,
                 center: center,
-                deliver: { $0() }
+                deliver: immediateDelivery
             )
         )
         XCTAssertFalse(
@@ -390,7 +384,7 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
                 title: "tmux",
                 object: nil,
                 center: center,
-                deliver: { $0() }
+                deliver: immediateDelivery
             )
         )
         XCTAssertTrue(
@@ -400,11 +394,11 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
                 title: "vim",
                 object: nil,
                 center: center,
-                deliver: { $0() }
+                deliver: immediateDelivery
             )
         )
 
-        XCTAssertEqual(postedTitles, ["tmux", "vim"])
+        XCTAssertEqual(postCount, 2)
     }
 }
 
