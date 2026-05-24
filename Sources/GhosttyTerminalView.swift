@@ -1670,6 +1670,56 @@ private final class GhosttySurfaceCallbackContext {
     }
 }
 
+final class GhosttyTitleNotificationDispatcher {
+    private struct SurfaceKey: Hashable {
+        let tabId: UUID
+        let surfaceId: UUID
+    }
+
+    private let lock = NSLock()
+    private var lastPostedTitleBySurface: [SurfaceKey: String] = [:]
+
+    @discardableResult
+    func postTitleIfChanged(
+        tabId: UUID,
+        surfaceId: UUID,
+        title: String,
+        object: Any?,
+        center: NotificationCenter = .default,
+        deliver: (@escaping () -> Void) -> Void = { block in
+            DispatchQueue.main.async {
+                block()
+            }
+        }
+    ) -> Bool {
+        guard reserveTitleIfChanged(tabId: tabId, surfaceId: surfaceId, title: title) else {
+            return false
+        }
+
+        deliver {
+            center.post(
+                name: .ghosttyDidSetTitle,
+                object: object,
+                userInfo: [
+                    GhosttyNotificationKey.tabId: tabId,
+                    GhosttyNotificationKey.surfaceId: surfaceId,
+                    GhosttyNotificationKey.title: title,
+                ]
+            )
+        }
+        return true
+    }
+
+    private func reserveTitleIfChanged(tabId: UUID, surfaceId: UUID, title: String) -> Bool {
+        let key = SurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        lock.lock()
+        defer { lock.unlock() }
+        guard lastPostedTitleBySurface[key] != title else { return false }
+        lastPostedTitleBySurface[key] = title
+        return true
+    }
+}
+
 // Minimal Ghostty wrapper for terminal rendering
 // This uses libghostty (GhosttyKit.xcframework) for actual terminal emulation
 
@@ -1899,6 +1949,7 @@ class GhosttyApp {
     private var backgroundLogSequence: UInt64 = 0
     private var appObservers: [NSObjectProtocol] = []
     private var bellAudioSound: NSSound?
+    private let titleNotificationDispatcher = GhosttyTitleNotificationDispatcher()
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
@@ -4267,16 +4318,16 @@ class GhosttyApp {
                     .flatMap { String(cString: $0) } ?? ""
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
-                return performOnMain {
+                Task { @MainActor [actionTitle, actionBody] in
                     guard let tabManager = AppDelegate.shared?.tabManager,
                           let tabId = tabManager.selectedTabId else {
-                        return false
+                        return
                     }
                     let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
                     if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
                        workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-                        return true
+                        return
                     }
                     let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
                     let command = actionTitle.isEmpty ? tabTitle : actionTitle
@@ -4288,8 +4339,8 @@ class GhosttyApp {
                         subtitle: "",
                         body: body
                     )
-                    return true
                 }
+                return true
             }
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {
@@ -4512,17 +4563,12 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
                let surfaceId = surfaceView.terminalSurface?.id {
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyDidSetTitle,
-                        object: surfaceView,
-                        userInfo: [
-                            GhosttyNotificationKey.tabId: tabId,
-                            GhosttyNotificationKey.surfaceId: surfaceId,
-                            GhosttyNotificationKey.title: title,
-                        ]
-                    )
-                }
+                titleNotificationDispatcher.postTitleIfChanged(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    title: title,
+                    object: surfaceView
+                )
             }
             return true
         case GHOSTTY_ACTION_PWD:
@@ -4544,7 +4590,7 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
                 .flatMap { String(cString: $0) } ?? ""
-            performOnMain {
+            Task { @MainActor [tabId, surfaceId, actionTitle, actionBody] in
                 let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
                 if let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
                    workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
@@ -4928,6 +4974,11 @@ private enum GhosttyRenderedFrameNotificationDemand {
     }
 
     static var isActive: Bool {
+        #if DEBUG
+        if CmuxTypingTiming.isEnabled {
+            return true
+        }
+        #endif
         lock.lock()
         defer { lock.unlock() }
         return count > 0
@@ -7261,6 +7312,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
+    #if DEBUG
+    private struct PendingInputRenderTiming {
+        let sequence: UInt64
+        let sentAt: TimeInterval
+        let eventTimestamp: TimeInterval?
+        let keyCode: UInt16?
+        let modifierFlagsRawValue: UInt
+        let isRepeat: Bool
+        let sourcePath: String
+    }
+
+    private let _inputRenderTimingLock = NSLock()
+    private var _inputRenderTimingSequence: UInt64 = 0
+    private var _pendingInputRenderTiming: PendingInputRenderTiming?
+    #endif
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
 
@@ -7326,11 +7392,58 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _renderedFrameLock.unlock()
 
         guard GhosttyRenderedFrameNotificationDemand.isActive else { return }
+        #if DEBUG
+        logPendingInputRenderTimingIfNeeded()
+        #endif
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
             object: self
         )
     }
+
+    #if DEBUG
+    private func recordInputDispatchForRenderTiming(path: String, event: NSEvent?) {
+        guard CmuxTypingTiming.isEnabled else { return }
+        _inputRenderTimingLock.lock()
+        _inputRenderTimingSequence &+= 1
+        _pendingInputRenderTiming = PendingInputRenderTiming(
+            sequence: _inputRenderTimingSequence,
+            sentAt: ProcessInfo.processInfo.systemUptime,
+            eventTimestamp: event?.timestamp,
+            keyCode: event?.keyCode,
+            modifierFlagsRawValue: event?.modifierFlags.rawValue ?? 0,
+            isRepeat: event?.isARepeat ?? false,
+            sourcePath: path
+        )
+        _inputRenderTimingLock.unlock()
+    }
+
+    private func logPendingInputRenderTimingIfNeeded() {
+        guard CmuxTypingTiming.isEnabled else { return }
+        _inputRenderTimingLock.lock()
+        let pending = _pendingInputRenderTiming
+        _pendingInputRenderTiming = nil
+        _inputRenderTimingLock.unlock()
+        guard let pending else { return }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        let renderAfterSendMs = max(0, (now - pending.sentAt) * 1000.0)
+        var line = "typing.render path=terminal.render.afterInput"
+        line += " renderAfterSendMs=\(String(format: "%.2f", renderAfterSendMs))"
+        if let eventTimestamp = pending.eventTimestamp, eventTimestamp > 0 {
+            let eventToRenderMs = max(0, (now - eventTimestamp) * 1000.0)
+            line += " eventToRenderMs=\(String(format: "%.2f", eventToRenderMs))"
+        }
+        line += " sourcePath=\(pending.sourcePath)"
+        line += " sequence=\(pending.sequence)"
+        if let keyCode = pending.keyCode {
+            line += " keyCode=\(keyCode)"
+        }
+        line += " mods=\(pending.modifierFlagsRawValue)"
+        line += " repeat=\(pending.isRepeat ? 1 : 0)"
+        cmuxDebugLog(line)
+    }
+    #endif
 
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
@@ -8829,7 +8942,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 #endif
                 handled = text.withCString { ptr in
                     keyEvent.text = ptr
-                    return ghostty_surface_key(surface, keyEvent)
+                    return sendTimedGhosttyKey(
+                        surface,
+                        keyEvent,
+                        path: "terminal.keyDown.ctrlGhosttySend",
+                        event: event,
+                        extra: "textBytes=\(text.utf8.count)"
+                    )
                 }
                 #if DEBUG
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
@@ -9164,6 +9283,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) -> Bool {
         let timingStart = CmuxTypingTiming.start()
         let handled = sendGhosttyKey(surface, keyEvent)
+        if handled {
+            recordInputDispatchForRenderTiming(path: path, event: event)
+        }
         let baseExtra = "handled=\(handled ? 1 : 0)"
         let mergedExtra: String
         if let extra, !extra.isEmpty {

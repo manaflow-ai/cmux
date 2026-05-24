@@ -355,6 +355,57 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertNil(workspace.customTitle)
         XCTAssertNotEqual(workspace.panelTitles[splitPanel.id], Optional(workspace.title))
     }
+
+    func testTitleNotificationDispatcherDoesNotPostUnchangedTitle() {
+        let dispatcher = GhosttyTitleNotificationDispatcher()
+        let center = NotificationCenter()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        var postedTitles: [String] = []
+        let observer = center.addObserver(
+            forName: .ghosttyDidSetTitle,
+            object: nil,
+            queue: nil
+        ) { notification in
+            if let title = notification.userInfo?[GhosttyNotificationKey.title] as? String {
+                postedTitles.append(title)
+            }
+        }
+        defer { center.removeObserver(observer) }
+
+        XCTAssertTrue(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "tmux",
+                object: nil,
+                center: center,
+                deliver: { $0() }
+            )
+        )
+        XCTAssertFalse(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "tmux",
+                object: nil,
+                center: center,
+                deliver: { $0() }
+            )
+        )
+        XCTAssertTrue(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "vim",
+                object: nil,
+                center: center,
+                deliver: { $0() }
+            )
+        )
+
+        XCTAssertEqual(postedTitles, ["tmux", "vim"])
+    }
 }
 
 @MainActor

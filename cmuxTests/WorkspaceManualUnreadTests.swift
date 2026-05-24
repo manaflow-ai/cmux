@@ -69,6 +69,55 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
     }
 
+    func testDismissibleActivityFastGuardTracksReadableState() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+
+        store.replaceNotificationsForTesting([])
+        XCTAssertFalse(store.hasDismissibleActivity(forTabId: workspaceId))
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspaceId,
+                surfaceId: surfaceId,
+                panelId: nil,
+                title: "Unread",
+                subtitle: "",
+                body: "",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isRead: false
+            ),
+        ])
+        XCTAssertTrue(store.hasDismissibleActivity(forTabId: workspaceId))
+
+        store.replaceNotificationsForTesting([])
+        store.setFocusedReadIndicator(forTabId: workspaceId, surfaceId: surfaceId)
+        XCTAssertTrue(store.hasDismissibleActivity(forTabId: workspaceId))
+
+        store.clearFocusedReadIndicator(forTabId: workspaceId, surfaceId: surfaceId)
+        XCTAssertFalse(store.hasDismissibleActivity(forTabId: workspaceId))
+
+        store.markUnread(forTabId: workspaceId)
+        XCTAssertTrue(store.hasDismissibleActivity(forTabId: workspaceId))
+
+        store.markRead(forTabId: workspaceId)
+        XCTAssertFalse(store.hasDismissibleActivity(forTabId: workspaceId))
+
+        store.setPanelDerivedUnread(true, forTabId: workspaceId)
+        XCTAssertTrue(store.hasDismissibleActivity(forTabId: workspaceId))
+
+        store.setPanelDerivedUnread(false, forTabId: workspaceId)
+        XCTAssertFalse(store.hasDismissibleActivity(forTabId: workspaceId))
+
+        store.restoreUnreadIndicator(forTabId: workspaceId)
+        XCTAssertTrue(store.hasDismissibleActivity(forTabId: workspaceId))
+
+        store.clearRestoredUnreadIndicator(forTabId: workspaceId)
+        XCTAssertFalse(store.hasDismissibleActivity(forTabId: workspaceId))
+    }
+
     func testManualWorkspaceUnreadClearsOnDirectTerminalInteraction() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()

@@ -6793,6 +6793,7 @@ class TabManager: ObservableObject {
             guard AppFocusState.isAppActive() else { return false }
         }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
+        guard notificationStore.hasDismissibleActivity(forTabId: tabId) else { return false }
         let workspace = tabs.first(where: { $0.id == tabId })
         let targetPanelId = surfaceId.flatMap { surfaceOrPanelId in
             workspace.flatMap { panelId(forSurfaceOrPanelId: surfaceOrPanelId, in: $0) }

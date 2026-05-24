@@ -56,8 +56,20 @@ extension RightSidebarMode {
 }
 
 extension RightSidebarMode {
+    private static let shortcutRelevantModifiers: NSEvent.ModifierFlags = [
+        .command,
+        .control,
+        .option,
+    ]
+
+    static func shouldCheckModeShortcut(for event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        return !flags.intersection(shortcutRelevantModifiers).isEmpty
+    }
+
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
-        guard event.type == .keyDown else { return nil }
+        guard shouldCheckModeShortcut(for: event) else { return nil }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFiles).matches(event: event) {
             return .files
         }

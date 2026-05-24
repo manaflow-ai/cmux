@@ -1168,6 +1168,9 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertNil(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "a", modifiers: [], keyCode: 0))
         )
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "A", modifiers: [.shift], keyCode: 0))
+        )
         XCTAssertTrue(
             observedActions.isEmpty,
             "Plain terminal typing must return before resolving right-sidebar shortcut bindings"
