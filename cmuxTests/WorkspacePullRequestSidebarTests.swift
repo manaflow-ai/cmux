@@ -1035,15 +1035,24 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
 
         NotificationCenter.default.post(
-            name: Notification.Name("cmuxTypingActivityDidOccur"),
+            name: .cmuxTypingActivityDidOccur,
             object: nil
         )
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
-        XCTAssertFalse(
-            waitForCondition(timeout: 0.2, pollInterval: 0.02) {
-                workspace.panelGitBranches[panelId]?.branch == "feature/typing-quiet"
-            },
+        let earlyRefresh = expectation(description: "sidebar git metadata refreshed during typing quiet period")
+        earlyRefresh.isInverted = true
+        let earlyRefreshTimer = Timer.scheduledTimer(withTimeInterval: 0.02, repeats: true) { timer in
+            if workspace.panelGitBranches[panelId]?.branch == "feature/typing-quiet" {
+                earlyRefresh.fulfill()
+                timer.invalidate()
+            }
+        }
+        let earlyRefreshResult = XCTWaiter().wait(for: [earlyRefresh], timeout: 0.2)
+        earlyRefreshTimer.invalidate()
+        XCTAssertEqual(
+            earlyRefreshResult,
+            .completed,
             "Sidebar git metadata refresh should stay deferred while typing is still inside the quiet period."
         )
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "main")

@@ -965,6 +965,12 @@ class TabManager: ObservableObject {
         let directory: String
     }
 
+    private struct PendingWorkspaceGitMetadataRefreshRequest {
+        let directory: String
+        let delays: [TimeInterval]
+        let reason: String
+    }
+
     struct CommandResult: Sendable {
         let stdout: String?
         let stderr: String?
@@ -1136,8 +1142,10 @@ class TabManager: ObservableObject {
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     static var nextPortOrdinal: Int = 0
+    private nonisolated static let lowercaseHexDigits = Array("0123456789abcdef".utf8)
     private nonisolated static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
     private nonisolated static let workspaceGitMetadataFallbackRefreshInterval: TimeInterval = 5 * 60
+    private nonisolated static let workspaceGitMetadataTypingQuietPeriod: TimeInterval = 0.65
     private nonisolated static let backgroundPollInterval: TimeInterval = 60
     private nonisolated static let selectedPollInterval: TimeInterval = 10
     private nonisolated static let workspacePullRequestRepoCacheLifetime: TimeInterval = 15
@@ -1252,6 +1260,9 @@ class TabManager: ObservableObject {
     private var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
     private var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     private var workspaceGitMetadataFallbackTimer: DispatchSourceTimer?
+    private var workspaceGitMetadataTypingQuietTimer: DispatchSourceTimer?
+    private var lastWorkspaceGitMetadataTypingActivityAt: TimeInterval = 0
+    private var pendingWorkspaceGitMetadataRefreshesAfterTypingByKey: [WorkspaceGitProbeKey: PendingWorkspaceGitMetadataRefreshRequest] = [:]
     private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     private var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
     private var workspacePullRequestNextPollAtByKey: [WorkspaceGitProbeKey: Date] = [:]
@@ -1346,6 +1357,22 @@ class TabManager: ObservableObject {
                 self?.refreshTabCloseButtonVisibility()
             }
         })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .cmuxTypingActivityDidOccur,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            let now = notification.userInfo?[CmuxTypingActivityNotificationUserInfoKey.uptime] as? TimeInterval
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { [weak self] in
+                    self?.noteWorkspaceGitMetadataTypingActivity(now: now ?? ProcessInfo.processInfo.systemUptime)
+                }
+            } else {
+                Task { @MainActor [weak self] in
+                    self?.noteWorkspaceGitMetadataTypingActivity(now: now ?? ProcessInfo.processInfo.systemUptime)
+                }
+            }
+        })
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
@@ -1359,6 +1386,7 @@ class TabManager: ObservableObject {
         agentPIDSweepTimer?.cancel()
         workspacePullRequestPollTimer?.cancel()
         workspaceGitMetadataFallbackTimer?.cancel()
+        workspaceGitMetadataTypingQuietTimer?.cancel()
         workspacePullRequestRefreshTask?.cancel()
     }
 
@@ -1447,6 +1475,112 @@ class TabManager: ObservableObject {
         workspaceGitMetadataFallbackTimer = timer
     }
 
+    private func workspaceGitMetadataTypingQuietDelay(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> TimeInterval? {
+        guard lastWorkspaceGitMetadataTypingActivityAt > 0 else {
+            return nil
+        }
+        let elapsed = now - lastWorkspaceGitMetadataTypingActivityAt
+        guard elapsed < Self.workspaceGitMetadataTypingQuietPeriod else {
+            return nil
+        }
+        return Self.workspaceGitMetadataTypingQuietPeriod - elapsed
+    }
+
+    private func noteWorkspaceGitMetadataTypingActivity(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        lastWorkspaceGitMetadataTypingActivityAt = now
+        guard !pendingWorkspaceGitMetadataRefreshesAfterTypingByKey.isEmpty else {
+            return
+        }
+        scheduleWorkspaceGitMetadataTypingQuietTimer(delay: Self.workspaceGitMetadataTypingQuietPeriod)
+    }
+
+    private func deferWorkspaceGitMetadataRefreshUntilTypingQuiet(
+        key: WorkspaceGitProbeKey,
+        directory: String,
+        delays: [TimeInterval],
+        reason: String,
+        quietDelay: TimeInterval
+    ) {
+        cancelWorkspaceGitProbeTimers(for: key)
+
+        let existing = pendingWorkspaceGitMetadataRefreshesAfterTypingByKey[key]
+        let selectedDelays: [TimeInterval]
+        if let existing, existing.delays.count > delays.count {
+            selectedDelays = existing.delays
+        } else {
+            selectedDelays = delays
+        }
+
+        pendingWorkspaceGitMetadataRefreshesAfterTypingByKey[key] = PendingWorkspaceGitMetadataRefreshRequest(
+            directory: directory,
+            delays: selectedDelays,
+            reason: reason
+        )
+        scheduleWorkspaceGitMetadataTypingQuietTimer(delay: quietDelay)
+
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.gitProbe.deferTyping workspace=\(key.workspaceId.uuidString.prefix(5)) " +
+            "panel=\(key.panelId.uuidString.prefix(5)) dir=\(directory) reason=\(reason)"
+        )
+#endif
+    }
+
+    private func scheduleWorkspaceGitMetadataTypingQuietTimer(delay: TimeInterval) {
+        let deadline = DispatchTime.now() + max(0, delay)
+        if let timer = workspaceGitMetadataTypingQuietTimer {
+            timer.schedule(
+                deadline: deadline,
+                repeating: .never,
+                leeway: .milliseconds(50)
+            )
+            return
+        }
+
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.setEventHandler { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                self?.flushWorkspaceGitMetadataRefreshesAfterTypingQuiet()
+            }
+        }
+        timer.schedule(
+            deadline: deadline,
+            repeating: .never,
+            leeway: .milliseconds(50)
+        )
+        timer.resume()
+        workspaceGitMetadataTypingQuietTimer = timer
+    }
+
+    private func flushWorkspaceGitMetadataRefreshesAfterTypingQuiet() {
+        workspaceGitMetadataTypingQuietTimer?.cancel()
+        workspaceGitMetadataTypingQuietTimer = nil
+
+        if let quietDelay = workspaceGitMetadataTypingQuietDelay() {
+            scheduleWorkspaceGitMetadataTypingQuietTimer(delay: quietDelay)
+            return
+        }
+
+        let pending = pendingWorkspaceGitMetadataRefreshesAfterTypingByKey
+        pendingWorkspaceGitMetadataRefreshesAfterTypingByKey.removeAll()
+
+        for (key, request) in pending {
+            guard sidebarGitMetadataWatchEnabled,
+                  let workspace = tabs.first(where: { $0.id == key.workspaceId }),
+                  workspace.panels[key.panelId] != nil,
+                  gitProbeDirectory(for: workspace, panelId: key.panelId) == request.directory else {
+                continue
+            }
+            scheduleWorkspaceGitMetadataRefresh(
+                workspaceId: key.workspaceId,
+                panelId: key.panelId,
+                directory: request.directory,
+                delays: request.delays,
+                reason: "typingQuiet.\(request.reason)"
+            )
+        }
+    }
+
     private func refreshTrackedWorkspaceGitMetadata(reason: String) {
         let activeProbeKeys = activeWorkspaceGitProbeKeys
 
@@ -1479,6 +1613,9 @@ class TabManager: ObservableObject {
             stopAllWorkspaceGitMetadataWatchers()
             workspaceGitMetadataFallbackTimer?.cancel()
             workspaceGitMetadataFallbackTimer = nil
+            workspaceGitMetadataTypingQuietTimer?.cancel()
+            workspaceGitMetadataTypingQuietTimer = nil
+            pendingWorkspaceGitMetadataRefreshesAfterTypingByKey.removeAll()
             workspaceGitProbeStateByKey.removeAll()
             for timers in workspaceGitProbeTimersByKey.values {
                 for timer in timers {
@@ -2725,6 +2862,16 @@ class TabManager: ObservableObject {
     ) {
         let normalizedDirectory = normalizeDirectory(directory)
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        if let quietDelay = workspaceGitMetadataTypingQuietDelay() {
+            deferWorkspaceGitMetadataRefreshUntilTypingQuiet(
+                key: key,
+                directory: normalizedDirectory,
+                delays: delays,
+                reason: reason,
+                quietDelay: quietDelay
+            )
+            return
+        }
         cancelWorkspaceGitProbeTimers(for: key)
         if workspaceGitProbeStateByKey[key] == nil {
             workspaceGitProbeStateByKey[key] = .idle
@@ -2740,6 +2887,7 @@ class TabManager: ObservableObject {
         var timers: [DispatchSourceTimer] = []
         for (index, delay) in delays.enumerated() {
             let isLastAttempt = index == delays.count - 1
+            let deferredDelays = delays[index...].map { max(0, $0 - delay) }
             let timer = DispatchSource.makeTimerSource(queue: initialWorkspaceGitProbeQueue)
             timer.schedule(deadline: .now() + delay, repeating: .never)
             timer.setEventHandler { [weak self] in
@@ -2747,7 +2895,9 @@ class TabManager: ObservableObject {
                     self?.beginWorkspaceGitMetadataProbeAttempt(
                         probeKey: key,
                         expectedDirectory: normalizedDirectory,
-                        isLastAttempt: isLastAttempt
+                        isLastAttempt: isLastAttempt,
+                        deferredDelays: deferredDelays,
+                        reason: reason
                     )
                 }
             }
@@ -2760,8 +2910,21 @@ class TabManager: ObservableObject {
     private func beginWorkspaceGitMetadataProbeAttempt(
         probeKey: WorkspaceGitProbeKey,
         expectedDirectory: String,
-        isLastAttempt: Bool
+        isLastAttempt: Bool,
+        deferredDelays: [TimeInterval],
+        reason: String
     ) {
+        if let quietDelay = workspaceGitMetadataTypingQuietDelay() {
+            deferWorkspaceGitMetadataRefreshUntilTypingQuiet(
+                key: probeKey,
+                directory: expectedDirectory,
+                delays: deferredDelays,
+                reason: reason,
+                quietDelay: quietDelay
+            )
+            return
+        }
+
         switch workspaceGitProbeStateByKey[probeKey] ?? .idle {
         case .idle:
             workspaceGitProbeStateByKey[probeKey] = .inFlight(rerunPending: false)
@@ -2799,6 +2962,7 @@ class TabManager: ObservableObject {
         workspaceGitCleanIndexSignatureByKey.removeValue(forKey: key)
         workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: key)
         workspaceGitHeadSignatureByKey.removeValue(forKey: key)
+        pendingWorkspaceGitMetadataRefreshesAfterTypingByKey.removeValue(forKey: key)
         cancelWorkspaceGitProbeTimers(for: key)
         stopWorkspaceGitMetadataWatcher(for: key)
         updateWorkspaceGitMetadataFallbackTimer()
@@ -2843,6 +3007,9 @@ class TabManager: ObservableObject {
             key.workspaceId != workspaceId
         }
         workspaceGitHeadSignatureByKey = workspaceGitHeadSignatureByKey.filter { key, _ in
+            key.workspaceId != workspaceId
+        }
+        pendingWorkspaceGitMetadataRefreshesAfterTypingByKey = pendingWorkspaceGitMetadataRefreshesAfterTypingByKey.filter { key, _ in
             key.workspaceId != workspaceId
         }
         stopWorkspaceGitMetadataWatchers(workspaceId: workspaceId)
@@ -3860,9 +4027,7 @@ class TabManager: ObservableObject {
             let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
             let mode = readBigEndianUInt32(bytes, at: offset + 24)
             let size = readBigEndianUInt32(bytes, at: offset + 36)
-            let objectID = bytes[(offset + 40)..<(offset + 60)].map {
-                String(format: "%02x", $0)
-            }.joined()
+            let objectID = lowercaseHexString(bytes: bytes[(offset + 40)..<(offset + 60)])
             let flags = readBigEndianUInt16(bytes, at: offset + 60)
             let pathLength = Int(flags & 0x0fff)
             let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
@@ -3930,12 +4095,37 @@ class TabManager: ObservableObject {
             }
         }
 
-        let checksum = bytes[(bytes.count - 20)..<bytes.count].map { String(format: "%02x", $0) }.joined()
+        let checksum = lowercaseHexString(bytes: bytes[(bytes.count - 20)..<bytes.count])
         return GitIndexSnapshot(
             entries: entries,
             signature: checksum,
             contentSignature: gitIndexContentSignature(entries: contentEntries)
         )
+    }
+
+    private nonisolated static func lowercaseHexString<C: Collection>(bytes: C) -> String where C.Element == UInt8 {
+        var encoded: [UInt8] = []
+        encoded.reserveCapacity(bytes.count * 2)
+        for byte in bytes {
+            encoded.append(lowercaseHexDigits[Int(byte >> 4)])
+            encoded.append(lowercaseHexDigits[Int(byte & 0x0f)])
+        }
+        return String(decoding: encoded, as: UTF8.self)
+    }
+
+    private nonisolated static func lowercaseFixedWidthHex(_ value: UInt64, width: Int) -> String {
+        var encoded = Array(repeating: UInt8(0x30), count: width)
+        var remaining = value
+        var index = width - 1
+        while index >= 0 {
+            encoded[index] = lowercaseHexDigits[Int(remaining & 0x0f)]
+            remaining >>= 4
+            if index == 0 {
+                break
+            }
+            index -= 1
+        }
+        return String(decoding: encoded, as: UTF8.self)
     }
 
     private nonisolated static func gitIndexContentSignature(entries: [GitIndexEntryStat]) -> String {
@@ -3968,7 +4158,7 @@ class TabManager: ObservableObject {
             appendString(entry.objectID)
             appendByte(0)
         }
-        return String(format: "%016llx", CUnsignedLongLong(hash))
+        return lowercaseFixedWidthHex(hash, width: 16)
     }
 
     private nonisolated static func gitlinkWorktreeCommit(
@@ -4031,7 +4221,7 @@ class TabManager: ObservableObject {
         guard let data = try? Data(contentsOf: indexURL), data.count >= 20 else {
             return nil
         }
-        return data.suffix(20).map { String(format: "%02x", $0) }.joined()
+        return lowercaseHexString(bytes: data.suffix(20))
     }
 
     private nonisolated static func readGitIndexV4PathStripLength(
@@ -9487,6 +9677,7 @@ extension Notification.Name {
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
     static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
+    static let cmuxTypingActivityDidOccur = Notification.Name("cmuxTypingActivityDidOccur")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
@@ -9505,4 +9696,8 @@ extension Notification.Name {
 
 enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = "pointerInitiated"
+}
+
+enum CmuxTypingActivityNotificationUserInfoKey {
+    static let uptime = "uptime"
 }
