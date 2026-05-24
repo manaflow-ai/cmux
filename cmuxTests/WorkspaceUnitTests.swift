@@ -6276,16 +6276,18 @@ final class WorkspaceSelectionChangeSchedulerTests: XCTestCase {
                 deferredActions.append(action)
             },
             actions: WorkspaceSelectionChangeActions(
+                prepareWorkspaceHandoff: { events.append("prepareWorkspaceHandoff") },
                 reconcileMountedWorkspaces: { events.append("reconcileMountedWorkspaces") },
                 syncSidebarSelection: { events.append("syncSidebarSelection") },
                 applyWindowBackground: { events.append("applyWindowBackground") },
-                startWorkspaceHandoff: { events.append("startWorkspaceHandoff") },
+                finishWorkspaceHandoff: { _ in events.append("finishWorkspaceHandoff") },
                 syncShortcutHintEligibility: { events.append("syncShortcutHintEligibility") },
                 updateTitlebarText: { events.append("updateTitlebarText") }
             )
         )
 
         XCTAssertEqual(events, [
+            "prepareWorkspaceHandoff",
             "reconcileMountedWorkspaces",
             "syncSidebarSelection",
             "scheduleDeferred"
@@ -6299,7 +6301,7 @@ final class WorkspaceSelectionChangeSchedulerTests: XCTestCase {
             "syncSidebarSelection",
             "scheduleDeferred",
             "applyWindowBackground",
-            "startWorkspaceHandoff",
+            "finishWorkspaceHandoff",
             "syncShortcutHintEligibility",
             "updateTitlebarText"
         ])
@@ -6317,10 +6319,11 @@ final class WorkspaceSelectionChangeSchedulerTests: XCTestCase {
                 deferredAction = action
             },
             actions: WorkspaceSelectionChangeActions(
+                prepareWorkspaceHandoff: { events.append("prepareWorkspaceHandoff") },
                 reconcileMountedWorkspaces: { events.append("reconcileMountedWorkspaces") },
                 syncSidebarSelection: { events.append("syncSidebarSelection") },
                 applyWindowBackground: { events.append("applyWindowBackground") },
-                startWorkspaceHandoff: { events.append("startWorkspaceHandoff") },
+                finishWorkspaceHandoff: { _ in events.append("finishWorkspaceHandoff") },
                 syncShortcutHintEligibility: { events.append("syncShortcutHintEligibility") },
                 updateTitlebarText: { events.append("updateTitlebarText") }
             )
@@ -6330,6 +6333,7 @@ final class WorkspaceSelectionChangeSchedulerTests: XCTestCase {
         deferredAction?()
 
         XCTAssertEqual(events, [
+            "prepareWorkspaceHandoff",
             "reconcileMountedWorkspaces",
             "syncSidebarSelection",
             "scheduleDeferred"

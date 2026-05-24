@@ -840,11 +840,12 @@ enum WorkspaceMountPolicy {
     }
 }
 
-struct WorkspaceSelectionChangeActions {
+struct WorkspaceSelectionChangeActions<WorkspaceHandoffState> {
+    let prepareWorkspaceHandoff: () -> WorkspaceHandoffState
     let reconcileMountedWorkspaces: () -> Void
     let syncSidebarSelection: () -> Void
     let applyWindowBackground: () -> Void
-    let startWorkspaceHandoff: () -> Void
+    let finishWorkspaceHandoff: (WorkspaceHandoffState) -> Void
     let syncShortcutHintEligibility: () -> Void
     let updateTitlebarText: () -> Void
 }
@@ -852,17 +853,18 @@ struct WorkspaceSelectionChangeActions {
 enum WorkspaceSelectionChangeScheduler {
     typealias DeferredScheduler = (@escaping () -> Void) -> Void
 
-    static func handleSelectionChange(
+    static func handleSelectionChange<WorkspaceHandoffState>(
         isCurrentSelection: @escaping () -> Bool = { true },
         scheduleDeferred: DeferredScheduler,
-        actions: WorkspaceSelectionChangeActions
+        actions: WorkspaceSelectionChangeActions<WorkspaceHandoffState>
     ) {
+        let handoffState = actions.prepareWorkspaceHandoff()
         actions.reconcileMountedWorkspaces()
         actions.syncSidebarSelection()
         scheduleDeferred {
             guard isCurrentSelection() else { return }
             actions.applyWindowBackground()
-            actions.startWorkspaceHandoff()
+            actions.finishWorkspaceHandoff(handoffState)
             actions.syncShortcutHintEligibility()
             actions.updateTitlebarText()
         }
@@ -2746,6 +2748,9 @@ struct ContentView: View {
                     }
                 },
                 actions: WorkspaceSelectionChangeActions(
+                    prepareWorkspaceHandoff: {
+                        prepareWorkspaceHandoffForSelectionChange(newSelectedId: newValue)
+                    },
                     reconcileMountedWorkspaces: {
                         reconcileMountedWorkspaceIds(selectedId: newValue)
                     },
@@ -2759,8 +2764,8 @@ struct ContentView: View {
                     applyWindowBackground: {
                         tabManager.applyWindowBackgroundForSelectedTab()
                     },
-                    startWorkspaceHandoff: {
-                        startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
+                    finishWorkspaceHandoff: { handoffPlan in
+                        finishWorkspaceHandoffStart(handoffPlan)
                     },
                     syncShortcutHintEligibility: {
                         AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
@@ -3609,23 +3614,51 @@ struct ContentView: View {
         }
     }
 
-    private func startWorkspaceHandoffIfNeeded(newSelectedId: UUID?) {
+    private struct WorkspaceHandoffStartPlan {
+        let oldSelectedId: UUID?
+        let newSelectedId: UUID?
+        let generation: UInt64
+
+        var requiresHandoff: Bool {
+            guard let oldSelectedId, let newSelectedId else { return false }
+            return oldSelectedId != newSelectedId
+        }
+    }
+
+    private func prepareWorkspaceHandoffForSelectionChange(newSelectedId: UUID?) -> WorkspaceHandoffStartPlan {
         let oldSelectedId = previousSelectedWorkspaceId
         previousSelectedWorkspaceId = newSelectedId
+        workspaceHandoffFallbackTask?.cancel()
+        workspaceHandoffFallbackTask = nil
 
         guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
-            tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
             retiringWorkspaceId = nil
-            workspaceHandoffFallbackTask?.cancel()
-            workspaceHandoffFallbackTask = nil
-            return
+            return WorkspaceHandoffStartPlan(
+                oldSelectedId: oldSelectedId,
+                newSelectedId: newSelectedId,
+                generation: workspaceHandoffGeneration
+            )
         }
 
         workspaceHandoffGeneration &+= 1
         let generation = workspaceHandoffGeneration
         retiringWorkspaceId = oldSelectedId
-        workspaceHandoffFallbackTask?.cancel()
 
+        return WorkspaceHandoffStartPlan(
+            oldSelectedId: oldSelectedId,
+            newSelectedId: newSelectedId,
+            generation: generation
+        )
+    }
+
+    private func finishWorkspaceHandoffStart(_ plan: WorkspaceHandoffStartPlan) {
+        guard plan.requiresHandoff, let oldSelectedId = plan.oldSelectedId, let newSelectedId = plan.newSelectedId else {
+            tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
+            return
+        }
+
+        guard workspaceHandoffGeneration == plan.generation,
+              retiringWorkspaceId == oldSelectedId else { return }
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -3655,7 +3688,7 @@ struct ContentView: View {
             return
         }
 
-        workspaceHandoffFallbackTask = Task { [generation] in
+        workspaceHandoffFallbackTask = Task { [generation = plan.generation] in
             do {
                 try await Task.sleep(nanoseconds: 150_000_000)
             } catch {
