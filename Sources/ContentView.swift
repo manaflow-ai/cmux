@@ -13145,7 +13145,7 @@ private final class SidebarScrollViewResolverView: NSView {
 
 private struct SidebarEmptyArea: View {
     @EnvironmentObject var tabManager: TabManager
-    let lastWorkspaceId: UUID? = nil
+    let lastWorkspaceId: UUID?
     let rowSpacing: CGFloat
     let renderedWorkspaceIdsForSelection: @MainActor () -> [UUID]
     @Binding var selection: SidebarSelection
@@ -13154,6 +13154,28 @@ private struct SidebarEmptyArea: View {
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var draggedTabId: UUID?
     @Binding var dropIndicator: SidebarDropIndicator?
+
+    init(
+        lastWorkspaceId: UUID? = nil,
+        rowSpacing: CGFloat,
+        renderedWorkspaceIdsForSelection: @escaping @MainActor () -> [UUID],
+        selection: Binding<SidebarSelection>,
+        selectedTabIds: Binding<Set<UUID>>,
+        lastSidebarSelectionIndex: Binding<Int?>,
+        dragAutoScrollController: SidebarDragAutoScrollController,
+        draggedTabId: Binding<UUID?>,
+        dropIndicator: Binding<SidebarDropIndicator?>
+    ) {
+        self.lastWorkspaceId = lastWorkspaceId
+        self.rowSpacing = rowSpacing
+        self.renderedWorkspaceIdsForSelection = renderedWorkspaceIdsForSelection
+        _selection = selection
+        _selectedTabIds = selectedTabIds
+        _lastSidebarSelectionIndex = lastSidebarSelectionIndex
+        self.dragAutoScrollController = dragAutoScrollController
+        _draggedTabId = draggedTabId
+        _dropIndicator = dropIndicator
+    }
 
     var body: some View {
         Color.clear
