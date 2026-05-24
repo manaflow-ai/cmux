@@ -3743,6 +3743,27 @@ final class WorkspaceReorderTests: XCTestCase {
     }
 
     @MainActor
+    func testMovePinnedWorkspaceToSameDirectoryGroupEndUnpinsAfterPinnedSegment() {
+        let manager = TabManager()
+        let moved = manager.tabs[0]
+        XCTAssertTrue(manager.setWorkspaceInitialDirectory(tabId: moved.id, directory: "/alpha"))
+        manager.setPinned(moved, pinned: true)
+        let otherPinned = manager.addWorkspace(workingDirectory: "/other", placementOverride: .end)
+        manager.setPinned(otherPinned, pinned: true)
+        let unpinned = manager.addWorkspace(workingDirectory: "/beta", placementOverride: .end)
+
+        XCTAssertTrue(
+            manager.moveWorkspaceToInitialDirectoryGroupEnd(
+                tabId: moved.id,
+                directory: "/alpha"
+            )
+        )
+
+        XCTAssertFalse(moved.isPinned)
+        XCTAssertEqual(manager.tabs.map(\.id), [otherPinned.id, moved.id, unpinned.id])
+    }
+
+    @MainActor
     private func sidebarVisibleWorkspaceIds(in manager: TabManager) -> [UUID] {
         SidebarWorkspaceGroupingPlanner.plan(
             for: manager.tabs.map {
