@@ -4667,6 +4667,14 @@ class GhosttyApp {
                 #endif
                 return false
             }
+            #if DEBUG
+            if CmuxUITestCapture.appendLineIfConfigured(
+                envKey: "CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH",
+                line: target.url.absoluteString
+            ) {
+                return true
+            }
+            #endif
             // Route local file URLs into cmux when the file-routing toggle is on.
             // URL fragments/queries are stripped (the panel only needs the file
             // path), so links emitted by tools like Claude Code (`foo.md#L42`)
@@ -10159,6 +10167,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         return payload
     }
+
+    func debugSimulateStationaryCommandClick(at point: NSPoint) -> [String: Any] {
+        guard let surface else {
+            return ["error": "Missing surface"]
+        }
+
+        let clampedPoint = clampedDebugPoint(point)
+        let noMods = GHOSTTY_MODS_NONE
+        let flags: NSEvent.ModifierFlags = [.command]
+        let commandMods = modsFromFlags(flags)
+
+        window?.makeFirstResponder(self)
+        ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, noMods)
+        ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, commandMods)
+        let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, commandMods)
+        let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, commandMods)
+
+        return [
+            "pressHandled": pressHandled ? "1" : "0",
+            "releaseConsumed": releaseConsumed ? "1" : "0",
+        ]
+    }
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
@@ -11132,6 +11162,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugSimulateCommandClick(at point: NSPoint) -> [String: Any] {
         surfaceView.debugSimulateCommandClick(at: debugPointInSurface(point))
+    }
+
+    func debugSimulateStationaryCommandClick(at point: NSPoint) -> [String: Any] {
+        surfaceView.debugSimulateStationaryCommandClick(at: debugPointInSurface(point))
     }
 #endif
 

@@ -12,16 +12,21 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `ff6e1260d`, based on `aef980e27`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
-the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
-regex bound for spaced file paths followed by prose. This head keeps the cmux
-theme picker hooks, exposes the manual surface IO needed by libghostty iOS
-clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
-prevents Cmd-hover from highlighting normal sentence text after a file path.
+The fork was refreshed from upstream `main` again on May 19, 2026.
+Current cmux pinned fork head: `5b0b60b95`, with the manual embedded IO patch in
+https://github.com/manaflow-ai/ghostty/pull/53, the stationary link-click fix in
+https://github.com/manaflow-ai/ghostty/pull/54, the Metal renderer row rebuild
+guard for https://github.com/manaflow-ai/cmux/issues/3369, the URL/path regex
+bound for spaced file paths followed by prose, the cursor line selection API,
+and the crash report subdirectory override. This head keeps the cmux theme
+picker hooks, exposes the manual surface IO needed by libghostty iOS clients,
+refreshes embedded mouse modifiers for stationary OSC 8 hyperlink clicks, bounds
+shaped glyph iteration during IME/preedit row rebuilds, prevents Cmd-hover from
+highlighting normal sentence text after a file path, exposes cursor line
+selection to embedded clients, and places embedded cmux Ghostty crash reports
+under `cmux/crash`.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5b0b60b95113cc848cf0c08dbc2cc85e65a4cfc3-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -175,7 +180,23 @@ tend to conflict together during rebases.
     render-now C API, or output C API. Upstream already has internal
     `Termio.processOutput`, so prefer an upstream C bridge if one lands.
 
-### 11) Metal renderer preedit row rebuild guard
+### 11) Embedded mouse modifier refresh for stationary link clicks
+
+- Commits:
+  - `5d1ba056b` (Refresh embedded mouse state when modifiers change)
+  - `ee397e28d` (Carry embedded mouse-state fix onto current fork main)
+- PR: https://github.com/manaflow-ai/ghostty/pull/54
+- Files:
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Tracks the modifier state associated with the embedded surface's last cursor position.
+  - Preserves same-position phantom mouse-move suppression only when both coordinates and
+    modifiers are unchanged.
+  - Allows stationary Cmd-hover/Cmd-click over OSC 8 hyperlinks to refresh Ghostty's
+    link state before mouse release, so `.open_url` fires for `https://`, `file://`, and
+    other supported link schemes.
+
+### 12) Metal renderer preedit row rebuild guard
 
 - Commits:
   - `70b95dada` (Expose unsafe preedit catch-up in renderer rows)
@@ -191,7 +212,7 @@ tend to conflict together during rebases.
   - The first commit intentionally preserves the panic so cmux can keep the
     required failing-test-then-fix history for https://github.com/manaflow-ai/cmux/issues/3369.
 
-### 12) URL/path regex bounds for spaced file paths
+### 13) URL/path regex bounds for spaced file paths
 
 - Commits:
   - `6e10706a7` (test: cover spaced file path link bounds)
@@ -209,14 +230,40 @@ tend to conflict together during rebases.
   - Preserves versioned or dotted path components before the first space, such as
     `/tmp/v1.2 captures/video.mp4`.
 
-The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through the
-`xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1`
-release tag and branch `issue-cmd-hover-path-range`.
-Published `xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1` and pinned its
-archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
-pin must be regenerated whenever this commit changes, even for comment-only
-amends, because the release tag is keyed by the Ghostty commit SHA.
+### 14) Crash report subdirectory override
+
+- Commit: `aef980e27` (Allow crash report subdirectory override)
+- Files:
+  - `src/build/Config.zig`
+  - `src/build_config.zig`
+  - `src/crash/dir.zig`
+- Summary:
+  - Adds a build-time `crash-report-subdir` option so embedded cmux builds can
+    place Ghostty crash reports under `cmux/crash`.
+  - The current cmux GhosttyKit prebuilds use the `crashsubdir-cmux-crash-v1`
+    flavor in their release tag and checksum pin.
+
+### 15) Cursor line selection API
+
+- Commit: `7e4cf8a2f` (Expose cursor line selection API)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Exposes the current cursor line selection through the embedded C API.
+  - Lets cmux query the cursor-line selection without duplicating terminal
+    selection state outside Ghostty.
+
+The current cmux pin is `5b0b60b95`. It is reachable from fork `main` and the
+fork branch in https://github.com/manaflow-ai/ghostty/pull/54, and merges the
+branches `issue-3369-metal-renderer-crash`,
+`issue-cmd-hover-path-range`, and `cmux-crash-report-subdir`.
+Published `xcframework-5b0b60b95113cc848cf0c08dbc2cc85e65a4cfc3-crashsubdir-cmux-crash-v1`
+and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
+release and checksum pin must be regenerated whenever this commit changes, even
+for comment-only amends, because the release tag is keyed by the Ghostty commit
+SHA.
 
 ## Upstreamed fork changes
 
@@ -281,6 +328,14 @@ These files change frequently upstream; be careful when rebasing the fork:
     its archive checksum in `scripts/ghosttykit-checksums.txt`.
   - Merged https://github.com/manaflow-ai/ghostty/pull/53 so the submodule SHA is
     reachable from fork `main`.
+
+- May 12, 2026, stationary link click plus Metal row guard merge:
+  - Merged the issue #3557 embedded mouse modifier refresh head with the issue #3369
+    Metal renderer preedit row rebuild guard head.
+  - Verified the universal macOS plus iOS xcframework path with
+    `CMUX_GHOSTTYKIT_NO_PREBUILT=1 ./scripts/ensure-ghosttykit.sh`.
+  - Published `xcframework-ec097438eff7f11d5b6b6942a0e24bbef106d278` and pinned
+    its archive checksum in `scripts/ghosttykit-checksums.txt`.
 
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser and keep
