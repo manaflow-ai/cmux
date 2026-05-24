@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | Português (Brasil) | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | Português (Brasil) | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
@@ -236,15 +236,33 @@ Os atalhos de ferramentas do desenvolvedor do navegador seguem os padrões do Sa
 
 O cmux NIGHTLY é um app separado com seu próprio bundle ID, então roda ao lado da versão estável. Construído automaticamente a partir do último commit em `main` e se atualiza automaticamente via seu próprio feed Sparkle.
 
-## Restauração de sessão (comportamento atual)
+## Restauração de sessão
 
-Ao reiniciar, o cmux atualmente restaura apenas o layout do app e metadados:
+Ao sair, o cmux salva a sessão atual. Ao abrir novamente, o cmux restaura o estado pertencente ao app:
 - Layout de janelas/workspaces/painéis
 - Diretórios de trabalho
 - Histórico de rolagem do terminal (melhor esforço)
 - URL do navegador e histórico de navegação
 
-O cmux **não** restaura o estado de processos ativos dentro de apps de terminal. Por exemplo, sessões ativas de Claude Code/tmux/vim não são retomadas após reiniciar ainda.
+O cmux não cria checkpoints de processos ativos arbitrários. tmux, vim, shells e apps de terminal sem suporte reabrem como terminais normais.
+
+Sessões de agentes compatíveis podem ser retomadas quando os hooks salvam um ID de sessão nativo:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Usuários avançados e integrações podem associar um comando personalizado de retomada à surface de terminal atual. Isso é útil para ferramentas com estado durável próprio, como sessões tmux ou CLIs de agentes customizados:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+A associação fica ligada à surface do cmux. Associações criadas pela CLI pública ou pelo socket são salvas para inspeção e retomada manual. O cmux só executa automaticamente associações de retomada que marca como confiáveis, como associações tmux detectadas a partir de processos ativos. Chaves de ambiente sensíveis, como tokens, senhas, segredos e chaves de API, são descartadas antes de salvar uma associação de retomada.
 
 ## Histórico de Estrelas
 

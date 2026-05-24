@@ -1,6 +1,12 @@
 import type { Span } from "@opentelemetry/api";
 import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../telemetry";
 import { unauthorized, verifyRequest, type AuthedUser } from "./auth";
+import {
+  isVmBillingError,
+  isVmDatabaseError,
+  isVmProviderOperationError,
+} from "./errors";
+import { recordSpanTiming } from "./timings";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -18,6 +24,9 @@ export function parseBearer(request: Request): StackBearer | null {
 export type AuthedVmRouteContext = {
   user: AuthedUser;
   span: Span;
+  authDurationMs: number;
+  routeStartedAtMs: number;
+  setResponseFinalizer: (finalizer: ((response: Response) => void) | null) => void;
 };
 
 export async function withAuthedVmApiRoute(
@@ -32,18 +41,45 @@ export async function withAuthedVmApiRoute(
     route,
     { "cmux.subsystem": "vm-cloud", ...attributes },
     async (span) => {
+      let responseFinalizer: ((response: Response) => void) | null = null;
+      const setResponseFinalizer = (finalizer: ((response: Response) => void) | null) => {
+        responseFinalizer = finalizer;
+      };
+      const finalize = (response: Response): Response => {
+        if (!responseFinalizer) return response;
+        try {
+          responseFinalizer(response);
+        } catch (err) {
+          recordSpanError(span, err);
+          console.error(`${failureLog}: response finalizer failed`, err);
+        }
+        return response;
+      };
+
       try {
+        const routeStartedAtMs = performance.now();
         const bearer = parseBearer(request);
-        const user = await verifyRequest(request);
+        const authStart = performance.now();
+        const user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+        const authDurationMs = performance.now() - authStart;
+        recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return unauthorized();
         if (requiresBrowserMutationProtection(request.method, bearer) && !browserMutationOriginAllowed(request)) {
           return jsonResponse({ error: "forbidden" }, 403);
         }
-        return await handler({ user, span });
+        return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
       } catch (err) {
         recordSpanError(span, err);
         console.error(failureLog, err);
-        return jsonResponse({ error: err instanceof Error ? err.message : "internal error" }, 500);
+        const workflowError = vmWorkflowErrorResponse(err);
+        if (workflowError) return finalize(workflowError);
+        return finalize(vmErrorResponse({
+          error: "vm_internal_error",
+          status: 500,
+          message: "Cloud VM request failed unexpectedly.",
+          action: "Try again. If it keeps failing, copy this error and contact support so we can inspect the server logs.",
+          details: { route },
+        }));
       }
     },
   );
@@ -61,8 +97,85 @@ export function jsonResponse(data: unknown, status = 200): Response {
   });
 }
 
+export type VmErrorResponseInput = {
+  readonly error: string;
+  readonly message: string;
+  readonly action: string;
+  readonly status: number;
+  readonly reason?: string;
+  readonly extra?: Record<string, unknown>;
+  readonly details?: Record<string, unknown>;
+};
+
+export function vmErrorResponse(input: VmErrorResponseInput): Response {
+  return jsonResponse({
+    ...(input.extra ?? {}),
+    ...(input.details ? { details: input.details } : {}),
+    error: input.error,
+    message: input.message,
+    reason: input.reason ?? input.message,
+    action: input.action,
+  }, input.status);
+}
+
 export function notFoundVm(vmId: string): Response {
-  return jsonResponse({ error: `vm not found: ${vmId}` }, 404);
+  return vmErrorResponse({
+    error: "vm_not_found",
+    status: 404,
+    message: `Cloud VM ${vmId} was not found.`,
+    action: "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`.",
+    details: { vmId },
+  });
+}
+
+export function vmWorkflowErrorResponse(err: unknown): Response | null {
+  if (isVmProviderOperationError(err)) {
+    return vmErrorResponse({
+      error: "vm_cloud_service_unavailable",
+      status: 502,
+      message: "The Cloud VM service could not complete this request.",
+      action: cloudServiceAction(err.operation),
+      details: { operation: err.operation },
+    });
+  }
+
+  if (isVmDatabaseError(err)) {
+    return vmErrorResponse({
+      error: "vm_cloud_state_unavailable",
+      status: 503,
+      message: "Cloud VM state is temporarily unavailable.",
+      action: "Retry in a minute. If this keeps happening, contact support so we can check Cloud VM state for your account.",
+      details: { operation: err.operation },
+    });
+  }
+
+  if (isVmBillingError(err)) {
+    return vmErrorResponse({
+      error: "vm_billing_unavailable",
+      status: 503,
+      message: "Cloud VM billing could not be checked right now.",
+      action: "Retry in a minute. If the problem persists, ask an admin to check this team's Cloud VM billing setup.",
+      details: { operation: err.operation },
+    });
+  }
+
+  return null;
+}
+
+function cloudServiceAction(operation: string): string {
+  switch (operation) {
+    case "create":
+      return "Retry once. If it fails again, run `cmux vm ls` to check whether a VM was created, then try `cmux vm new` again or contact support.";
+    case "openAttach":
+    case "openSSH":
+      return "Run `cmux vm ls` to confirm the VM still exists. If it was paused or destroyed, start a fresh VM with `cmux vm new`.";
+    case "exec":
+      return "Check that the VM is still running with `cmux vm ls`, then retry the command. For long commands, increase the exec timeout.";
+    case "destroy":
+      return "Run `cmux vm ls` to see whether the VM is already gone. If it still appears, retry `cmux vm rm <id>`.";
+    default:
+      return "Retry the command. If it keeps failing, copy this error and contact support.";
+  }
 }
 
 export function requestedVmTeamIdFromRequest(request: Request): string | null {

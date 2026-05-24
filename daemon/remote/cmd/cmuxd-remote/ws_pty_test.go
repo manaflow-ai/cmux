@@ -10,12 +10,38 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/creack/pty"
 	"nhooyr.io/websocket"
 )
+
+func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server, *wsPTYHub) {
+	t.Helper()
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 64 * 1024,
+	}, stderr)
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		Shell:            "/bin/sh",
+		PTYHub:           hub,
+		ScrollbackLimit:  64 * 1024,
+	}, stderr))
+	t.Cleanup(func() {
+		server.Close()
+		hub.closeAll()
+		if t.Failed() && stderr.Len() > 0 {
+			t.Logf("ws pty stderr:\n%s", stderr.String())
+		}
+	})
+	return server, hub
+}
 
 func TestServeWSRequiresExplicitLeaseFile(t *testing.T) {
 	var stderr bytes.Buffer
@@ -30,11 +56,7 @@ func TestServeWSRequiresExplicitLeaseFile(t *testing.T) {
 
 func TestWebSocketPTYHealthIsAvailableWhenLocked(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
-	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
-		PTYAuthLeaseFile: leasePath,
-		Shell:            "/bin/sh",
-	}, &bytes.Buffer{}))
-	defer server.Close()
+	server, _ := newTestWebSocketPTYServer(t, leasePath)
 
 	resp, err := http.Get(server.URL + "/healthz")
 	if err != nil {
@@ -55,11 +77,7 @@ func TestWebSocketPTYHealthIsAvailableWhenLocked(t *testing.T) {
 
 func TestWebSocketPTYRejectsMissingAndWrongLease(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
-	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
-		PTYAuthLeaseFile: leasePath,
-		Shell:            "/bin/sh",
-	}, &bytes.Buffer{}))
-	defer server.Close()
+	server, _ := newTestWebSocketPTYServer(t, leasePath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -93,11 +111,7 @@ func TestWebSocketPTYRejectsMissingAndWrongLease(t *testing.T) {
 
 func TestWebSocketPTYRequiresSessionMatchAndConsumesLeaseOnce(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
-	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
-		PTYAuthLeaseFile: leasePath,
-		Shell:            "/bin/sh",
-	}, &bytes.Buffer{}))
-	defer server.Close()
+	server, _ := newTestWebSocketPTYServer(t, leasePath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -137,11 +151,7 @@ func TestWebSocketPTYRequiresSessionMatchAndConsumesLeaseOnce(t *testing.T) {
 
 func TestWebSocketPTYRunsShellOverBinaryFrames(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
-	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
-		PTYAuthLeaseFile: leasePath,
-		Shell:            "/bin/sh",
-	}, &bytes.Buffer{}))
-	defer server.Close()
+	server, _ := newTestWebSocketPTYServer(t, leasePath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -162,51 +172,613 @@ func TestWebSocketPTYRunsShellOverBinaryFrames(t *testing.T) {
 		t.Fatalf("write terminal command: %v", err)
 	}
 
-	var output strings.Builder
-	deadline := time.Now().Add(5 * time.Second)
-	sawExpectedOutput := false
-	for time.Now().Before(deadline) {
-		readCtx, cancelRead := context.WithTimeout(ctx, time.Until(deadline))
-		msgType, payload, err = conn.Read(readCtx)
-		cancelRead()
-		if err != nil {
-			t.Fatalf("read terminal output: %v output=%q", err, output.String())
-		}
-		if msgType == websocket.MessageBinary {
-			output.Write(payload)
-			if strings.Contains(output.String(), "CMUX_WS_OK") {
-				sawExpectedOutput = true
-				break
-			}
-		}
+	output := waitForBinaryContains(t, ctx, conn, "CMUX_WS_OK", 15*time.Second)
+	waitForNormalCloseWithOutput(t, ctx, conn, 10*time.Second, output)
+}
+
+func TestWebSocketPTYReconnectKeepsSessionProcess(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "first-token", "sess-reconnect", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuthWithAttachment(t, ctx, conn, "first-token", "sess-reconnect", "same", 80, 24)
+	readReady(t, ctx, conn)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("CMUX_RECONNECT_MARKER=alive; export CMUX_RECONNECT_MARKER; printf 'first-ready\\n'\r")); err != nil {
+		t.Fatalf("write first command: %v", err)
 	}
-	if !sawExpectedOutput {
-		t.Fatalf("timed out waiting for terminal output, got %q", output.String())
+	waitForBinaryContains(t, ctx, conn, "first-ready", 5*time.Second)
+	_ = conn.Close(websocket.StatusNormalClosure, "detach")
+
+	writeTestLease(t, leasePath, "second-token", "sess-reconnect", true, time.Now().Add(time.Minute))
+	conn = dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, conn, "second-token", "sess-reconnect", "same", 80, 24)
+	readReady(t, ctx, conn)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("printf '%s\\n' \"$CMUX_RECONNECT_MARKER\"; exit\r")); err != nil {
+		t.Fatalf("write reconnect command: %v", err)
+	}
+	waitForBinaryContains(t, ctx, conn, "alive", 5*time.Second)
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYReplacedAttachmentCannotWriteInput(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "old-token", "sess-replace", true, time.Now().Add(time.Minute))
+	oldConn := dialPTY(t, ctx, server.URL)
+	sendAuthWithAttachment(t, ctx, oldConn, "old-token", "sess-replace", "same", 120, 40)
+	readReady(t, ctx, oldConn)
+
+	writeTestLease(t, leasePath, "new-token", "sess-replace", true, time.Now().Add(time.Minute))
+	newConn := dialPTY(t, ctx, server.URL)
+	defer newConn.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, newConn, "new-token", "sess-replace", "same", 90, 30)
+	readReady(t, ctx, newConn)
+	waitForHubSessionSize(t, hub, "sess-replace", 1, 90, 30, 5*time.Second)
+
+	_ = oldConn.Write(ctx, websocket.MessageBinary, []byte("printf 'STALE_INPUT\\n'\r"))
+	resizePayload, err := json.Marshal(wsPTYControlFrame{Type: "resize", Cols: 100, Rows: 35})
+	if err != nil {
+		t.Fatalf("marshal stale resize: %v", err)
+	}
+	_ = oldConn.Write(ctx, websocket.MessageText, resizePayload)
+	_ = oldConn.Close(websocket.StatusNormalClosure, "stale detach")
+	waitForHubSessionSize(t, hub, "sess-replace", 1, 90, 30, 5*time.Second)
+	waitForHubPTYSize(t, hub, "sess-replace", 90, 30, 5*time.Second)
+
+	if err := newConn.Write(ctx, websocket.MessageBinary, []byte("printf 'SIZE:'; stty size; printf '%b\\n' '\\106\\122\\105\\123\\110\\137\\111\\116\\120\\125\\124'; exit\r")); err != nil {
+		t.Fatalf("write fresh command: %v", err)
+	}
+	output := waitForBinaryContains(t, ctx, newConn, "FRESH_INPUT", 5*time.Second)
+	if !strings.Contains(output, "SIZE:30 90") {
+		t.Fatalf("replaced attachment changed terminal size, output=%q", output)
+	}
+	if strings.Contains(output, "STALE_INPUT") {
+		t.Fatalf("replaced attachment wrote input, output=%q", output)
+	}
+	waitForNormalCloseWithOutput(t, ctx, newConn, 5*time.Second, output)
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYMultiAttachUsesSmallestResize(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "a-token", "sess-resize", true, time.Now().Add(time.Minute))
+	a := dialPTY(t, ctx, server.URL)
+	defer a.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, a, "a-token", "sess-resize", "a", 120, 40)
+	readReady(t, ctx, a)
+
+	writeTestLease(t, leasePath, "b-token", "sess-resize", true, time.Now().Add(time.Minute))
+	b := dialPTY(t, ctx, server.URL)
+	defer b.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, b, "b-token", "sess-resize", "b", 90, 30)
+	readReady(t, ctx, b)
+	waitForHubPTYSize(t, hub, "sess-resize", 90, 30, 5*time.Second)
+
+	invalidResizePayload, err := json.Marshal(wsPTYControlFrame{Type: "resize", Cols: 0, Rows: 0})
+	if err != nil {
+		t.Fatalf("marshal invalid resize: %v", err)
+	}
+	if err := b.Write(ctx, websocket.MessageText, invalidResizePayload); err != nil {
+		t.Fatalf("write invalid resize: %v", err)
+	}
+	if err := b.Write(ctx, websocket.MessageBinary, []byte("printf 'BADSIZE:'; stty size\r")); err != nil {
+		t.Fatalf("write bad resize stty size: %v", err)
+	}
+	waitForBinaryContains(t, ctx, a, "BADSIZE:30 90", 5*time.Second)
+	waitForHubSessionSize(t, hub, "sess-resize", 2, 90, 30, 5*time.Second)
+	waitForHubPTYSize(t, hub, "sess-resize", 90, 30, 5*time.Second)
+
+	if err := a.Write(ctx, websocket.MessageBinary, []byte("stty size\r")); err != nil {
+		t.Fatalf("write stty size: %v", err)
+	}
+	waitForBinaryContains(t, ctx, a, "30 90", 5*time.Second)
+
+	resizePayload, err := json.Marshal(wsPTYControlFrame{Type: "resize", Cols: 100, Rows: 35})
+	if err != nil {
+		t.Fatalf("marshal resize: %v", err)
+	}
+	if err := b.Write(ctx, websocket.MessageText, resizePayload); err != nil {
+		t.Fatalf("write resize: %v", err)
+	}
+	waitForHubSessionSize(t, hub, "sess-resize", 2, 100, 35, 5*time.Second)
+	waitForHubPTYSize(t, hub, "sess-resize", 100, 35, 5*time.Second)
+	if err := a.Write(ctx, websocket.MessageBinary, []byte("printf 'SIZE2:'; stty size\r")); err != nil {
+		t.Fatalf("write second stty size: %v", err)
+	}
+	waitForBinaryContains(t, ctx, a, "SIZE2:35 100", 5*time.Second)
+
+	_ = b.Close(websocket.StatusNormalClosure, "detach b")
+	waitForHubSessionSize(t, hub, "sess-resize", 1, 120, 40, 5*time.Second)
+	waitForHubPTYSize(t, hub, "sess-resize", 120, 40, 5*time.Second)
+	if err := a.Write(ctx, websocket.MessageBinary, []byte("printf 'SIZE3:'; stty size\r")); err != nil {
+		t.Fatalf("write third stty size: %v", err)
+	}
+	waitForBinaryContains(t, ctx, a, "SIZE3:40 120", 5*time.Second)
+	if err := a.Write(ctx, websocket.MessageBinary, []byte("exit\r")); err != nil {
+		t.Fatalf("write final exit: %v", err)
+	}
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYStressSessionCleanupAndBoundedScrollback(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+	}, &bytes.Buffer{})
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		Shell:            "/bin/sh",
+		PTYHub:           hub,
+		ScrollbackLimit:  4096,
+	}, &bytes.Buffer{}))
+	defer server.Close()
+	defer hub.closeAll()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	baseGoroutines := runtime.NumGoroutine()
+
+	for i := 0; i < 25; i++ {
+		sessionID := "stress-" + strconv.Itoa(i)
+		token := "token-" + strconv.Itoa(i)
+		writeTestLease(t, leasePath, token, sessionID, true, time.Now().Add(time.Minute))
+		conn := dialPTY(t, ctx, server.URL)
+		sendAuth(t, ctx, conn, token, sessionID, 80+i, 24)
+		readReady(t, ctx, conn)
+		if err := conn.Write(ctx, websocket.MessageBinary, []byte("printf '%8192s\\n' x; printf '%b\\n' '\\103\\115\\125\\130\\137\\110\\117\\114\\104'; read line; exit\r")); err != nil {
+			t.Fatalf("write stress command %d: %v", i, err)
+		}
+		waitForBinaryContainsLabel(t, ctx, conn, "stress session "+sessionID+" hold marker", "CMUX_HOLD", 10*time.Second)
+		if got := hub.maxScrollbackBytes(); got != 4096 {
+			t.Fatalf("scrollback bytes = %d, want cap 4096", got)
+		}
+		if err := conn.Write(ctx, websocket.MessageBinary, []byte("\r")); err != nil {
+			t.Fatalf("release stress command %d: %v", i, err)
+		}
+		waitForNormalClose(t, ctx, conn, 5*time.Second)
+		waitForHubSessionCount(t, hub, 0, 5*time.Second)
+	}
+	waitForGoroutineCeiling(t, baseGoroutines+8, 5*time.Second)
+}
+
+func TestWebSocketPTYAnonymousDetachTerminatesSession(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "anon-token", "sess-anon", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuth(t, ctx, conn, "anon-token", "sess-anon", 80, 24)
+	readReady(t, ctx, conn)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("printf 'ANON_READY\\n'\r")); err != nil {
+		t.Fatalf("write anonymous marker: %v", err)
+	}
+	waitForBinaryContains(t, ctx, conn, "ANON_READY", 5*time.Second)
+	_ = conn.Close(websocket.StatusNormalClosure, "detach")
+
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYAnonymousAttachesAreIsolated(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "anon-a-token", "sess-anon-shared", true, time.Now().Add(time.Minute))
+	a := dialPTY(t, ctx, server.URL)
+	defer a.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, a, "anon-a-token", "sess-anon-shared", 80, 24)
+	readReady(t, ctx, a)
+	if err := a.Write(ctx, websocket.MessageBinary, []byte("CMUX_ANON_MARK=one; export CMUX_ANON_MARK; printf 'A_READY\\n'\r")); err != nil {
+		t.Fatalf("write anonymous A marker: %v", err)
+	}
+	waitForBinaryContains(t, ctx, a, "A_READY", 5*time.Second)
+
+	writeTestLease(t, leasePath, "anon-b-token", "sess-anon-shared", true, time.Now().Add(time.Minute))
+	b := dialPTY(t, ctx, server.URL)
+	defer b.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, b, "anon-b-token", "sess-anon-shared", 80, 24)
+	readReady(t, ctx, b)
+	if err := b.Write(ctx, websocket.MessageBinary, []byte("printf 'B_MARK:%s\\n' \"${CMUX_ANON_MARK-unset}\"; exit\r")); err != nil {
+		t.Fatalf("write anonymous B marker: %v", err)
+	}
+	output := waitForBinaryContains(t, ctx, b, "B_MARK:unset", 5*time.Second)
+	if strings.Contains(output, "B_MARK:one") {
+		t.Fatalf("anonymous attach reused another shell, output=%q", output)
+	}
+	waitForHubSessionCount(t, hub, 1, 5*time.Second)
+	_ = a.Close(websocket.StatusNormalClosure, "done")
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYAnonymousSessionKeyCannotBeForged(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "anon-forge-token", "sess-forge", true, time.Now().Add(time.Minute))
+	anon := dialPTY(t, ctx, server.URL)
+	defer anon.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, anon, "anon-forge-token", "sess-forge", 80, 24)
+	readReady(t, ctx, anon)
+	if err := anon.Write(ctx, websocket.MessageBinary, []byte("CMUX_FORGE_MARK=anon; export CMUX_FORGE_MARK; printf 'ANON_FORGE_READY\\n'\r")); err != nil {
+		t.Fatalf("write anonymous forge marker: %v", err)
+	}
+	waitForBinaryContains(t, ctx, anon, "ANON_FORGE_READY", 5*time.Second)
+
+	writeTestLease(t, leasePath, "persistent-forge-token", "sess-forge:anon-0", true, time.Now().Add(time.Minute))
+	persistent := dialPTY(t, ctx, server.URL)
+	defer persistent.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, persistent, "persistent-forge-token", "sess-forge:anon-0", "persist", 80, 24)
+	readReady(t, ctx, persistent)
+	if err := persistent.Write(ctx, websocket.MessageBinary, []byte("printf 'PERSISTENT_FORGE:%s\\n' \"${CMUX_FORGE_MARK-unset}\"; exit\r")); err != nil {
+		t.Fatalf("write persistent forge probe: %v", err)
+	}
+	output := waitForBinaryContains(t, ctx, persistent, "PERSISTENT_FORGE:unset", 5*time.Second)
+	if strings.Contains(output, "PERSISTENT_FORGE:anon") {
+		t.Fatalf("persistent attach reused anonymous shell, output=%q", output)
+	}
+	waitForHubSessionCount(t, hub, 1, 5*time.Second)
+	_ = anon.Close(websocket.StatusNormalClosure, "done")
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYAttachmentWithoutSessionIDIsAnonymous(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "no-session-a-token", "", true, time.Now().Add(time.Minute))
+	a := dialPTY(t, ctx, server.URL)
+	defer a.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, a, "no-session-a-token", "", "same", 80, 24)
+	readReady(t, ctx, a)
+	if err := a.Write(ctx, websocket.MessageBinary, []byte("CMUX_NO_SESSION_MARK=one; export CMUX_NO_SESSION_MARK; printf 'NO_SESSION_A_READY\\n'\r")); err != nil {
+		t.Fatalf("write no-session A marker: %v", err)
+	}
+	waitForBinaryContains(t, ctx, a, "NO_SESSION_A_READY", 5*time.Second)
+
+	writeTestLease(t, leasePath, "no-session-b-token", "", true, time.Now().Add(time.Minute))
+	b := dialPTY(t, ctx, server.URL)
+	defer b.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, b, "no-session-b-token", "", "same", 80, 24)
+	readReady(t, ctx, b)
+	if err := b.Write(ctx, websocket.MessageBinary, []byte("printf 'NO_SESSION_B:%s\\n' \"${CMUX_NO_SESSION_MARK-unset}\"; exit\r")); err != nil {
+		t.Fatalf("write no-session B probe: %v", err)
+	}
+	output := waitForBinaryContains(t, ctx, b, "NO_SESSION_B:unset", 5*time.Second)
+	if strings.Contains(output, "NO_SESSION_B:one") {
+		t.Fatalf("attachment without session_id reused another shell, output=%q", output)
+	}
+	waitForHubSessionCount(t, hub, 1, 5*time.Second)
+	_ = a.Close(websocket.StatusNormalClosure, "done")
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+	}, &bytes.Buffer{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sessionKey := persistentPTYSessionKey("sess-backpressure")
+	attachment := &wsPTYAttachment{
+		sessionKey: sessionKey,
+		id:         "slow",
+		cols:       80,
+		rows:       24,
+		send:       make(chan wsPTYOutgoingFrame, 1),
+		cancel:     cancel,
+		persistent: true,
+	}
+	attachment.send <- wsPTYOutgoingFrame{
+		messageType: websocket.MessageBinary,
+		payload:     []byte("already queued"),
+	}
+	session := &wsPTYSession{
+		id:            "sess-backpressure",
+		key:           sessionKey,
+		attachments:   map[string]*wsPTYAttachment{"slow": attachment},
+		effectiveCols: 80,
+		effectiveRows: 24,
+		lastKnownCols: 80,
+		lastKnownRows: 24,
 	}
 
-	closeDeadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(closeDeadline) {
-		readCtx, cancelRead := context.WithTimeout(ctx, time.Until(closeDeadline))
-		_, _, err = conn.Read(readCtx)
-		cancelRead()
-		if err == nil {
-			continue
-		}
-		if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
-			t.Fatalf("shell exit should close websocket normally, got err=%v status=%v output=%q", err, websocket.CloseStatus(err), output.String())
-		}
-		return
+	hub.mu.Lock()
+	hub.sessions[session.key] = session
+	hub.mu.Unlock()
+
+	hub.recordAndBroadcast(session, []byte("overflow"))
+	if attachments, _, _, ok := hub.sessionDebugSnapshot(session.id); !ok || attachments != 0 {
+		t.Fatalf("backpressured session state = ok:%v attachments:%d, want ok:true attachments:0", ok, attachments)
 	}
-	t.Fatalf("websocket stayed open after shell exit, output=%q", output.String())
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("backpressured attachment context was not canceled")
+	}
+}
+
+func TestWebSocketPTYInputBackpressureDoesNotBlockHub(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer reader.Close()
+
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+	}, stderr)
+	sessionKey := persistentPTYSessionKey("sess-input-backpressure")
+	sessionDone := make(chan struct{})
+	attachment := &wsPTYAttachment{
+		sessionKey: sessionKey,
+		id:         "att-input",
+		cols:       80,
+		rows:       24,
+		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:     func() {},
+		persistent: true,
+	}
+	session := &wsPTYSession{
+		id:            "sess-input-backpressure",
+		key:           sessionKey,
+		ptyFile:       writer,
+		attachments:   map[string]*wsPTYAttachment{attachment.id: attachment},
+		effectiveCols: 80,
+		effectiveRows: 24,
+		lastKnownCols: 80,
+		lastKnownRows: 24,
+		input:         make(chan wsPTYInputChunk, defaultPTYInputQueueCap),
+		done:          sessionDone,
+	}
+	defer func() {
+		_ = writer.Close()
+		close(sessionDone)
+	}()
+
+	hub.mu.Lock()
+	hub.sessions[session.key] = session
+	hub.mu.Unlock()
+	go hub.writeInputLoop(session)
+
+	payload := bytes.Repeat([]byte("x"), 64*1024)
+	writesDone := make(chan struct{})
+	go func() {
+		defer close(writesDone)
+		for i := 0; i < defaultPTYInputQueueCap*4; i++ {
+			_ = hub.writeInputByID(session.id, attachment.id, "", payload)
+		}
+	}()
+
+	select {
+	case <-writesDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("writeInputByID blocked behind a full PTY writer")
+	}
+
+	closeDone := make(chan bool, 1)
+	go func() {
+		closeDone <- hub.closeSessionByID(session.id)
+	}()
+	select {
+	case ok := <-closeDone:
+		if !ok {
+			t.Fatal("closeSessionByID returned false")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("closeSessionByID blocked behind a full PTY writer")
+	}
+}
+
+func TestWebSocketPTYWriteFailureClosesConnectionAndReapsAttachment(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+		SessionIdleTTL:  20 * time.Millisecond,
+	}, stderr)
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		Shell:            "/bin/sh",
+		PTYHub:           hub,
+		ScrollbackLimit:  4096,
+		SessionIdleTTL:   20 * time.Millisecond,
+	}, stderr))
+	defer server.Close()
+	defer hub.closeAll()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "write-fail-token", "sess-write-fail", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuthWithAttachment(t, ctx, conn, "write-fail-token", "sess-write-fail", "persist", 80, 24)
+	readReady(t, ctx, conn)
+	waitForHubSessionSize(t, hub, "sess-write-fail", 1, 80, 24, 5*time.Second)
+
+	attachment := hub.debugAttachment("sess-write-fail", "persist")
+	if attachment == nil {
+		t.Fatal("attachment was not registered")
+	}
+	cancelWriteCtx, cancelWrite := context.WithCancel(ctx)
+	cancelWrite()
+	if attachment.writeFrame(cancelWriteCtx, attachment.conn, wsPTYOutgoingFrame{
+		messageType: websocket.MessageBinary,
+		payload:     []byte("will fail"),
+	}) {
+		t.Fatal("writeFrame unexpectedly succeeded with a canceled context")
+	}
+
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+	_, _, err := conn.Read(ctx)
+	if err == nil {
+		t.Fatal("client connection stayed open after server write failure")
+	}
+}
+
+func TestWebSocketPTYInputBackpressureRejectsWholePayload(t *testing.T) {
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+	}, stderr)
+	sessionKey := persistentPTYSessionKey("sess-input-atomic")
+	sessionDone := make(chan struct{})
+	attachment := &wsPTYAttachment{
+		sessionKey: sessionKey,
+		id:         "att-input",
+		cols:       80,
+		rows:       24,
+		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:     func() {},
+		persistent: true,
+	}
+	session := &wsPTYSession{
+		id:            "sess-input-atomic",
+		key:           sessionKey,
+		attachments:   map[string]*wsPTYAttachment{attachment.id: attachment},
+		effectiveCols: 80,
+		effectiveRows: 24,
+		lastKnownCols: 80,
+		lastKnownRows: 24,
+		input:         make(chan wsPTYInputChunk, defaultPTYInputQueueCap),
+		done:          sessionDone,
+	}
+	defer close(sessionDone)
+
+	hub.mu.Lock()
+	hub.sessions[session.key] = session
+	hub.mu.Unlock()
+
+	for i := 0; i < defaultPTYInputQueueCap-1; i++ {
+		session.input <- wsPTYInputChunk{
+			attachmentID: attachment.id,
+			attachment:   attachment,
+			payload:      []byte("queued"),
+		}
+	}
+
+	payload := append(
+		bytes.Repeat([]byte("x"), defaultPTYInputChunkBytes),
+		'y',
+	)
+	if status := hub.writeInputByID(session.id, attachment.id, "", payload); status != wsPTYInputWriteQueueFull {
+		t.Fatalf("writeInputByID status = %v, want queue full", status)
+	}
+	if len(session.input) == defaultPTYInputQueueCap {
+		t.Fatal("writeInputByID unexpectedly accepted a two-chunk payload with one queue slot free")
+	}
+	if got := len(session.input); got != defaultPTYInputQueueCap-1 {
+		t.Fatalf("input queue length = %d, want unchanged %d", got, defaultPTYInputQueueCap-1)
+	}
+	for len(session.input) > 0 {
+		chunk := <-session.input
+		if bytes.Contains(chunk.payload, []byte("x")) || bytes.Contains(chunk.payload, []byte("y")) {
+			t.Fatalf("rejected payload chunk was partially enqueued: %q", string(chunk.payload))
+		}
+	}
+	if !strings.Contains(stderr.String(), "ws pty input queue full") {
+		t.Fatalf("stderr should report input queue backpressure, got %q", stderr.String())
+	}
+}
+
+func TestWebSocketPTYReapsDetachedIdleSession(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+		SessionIdleTTL:  20 * time.Millisecond,
+	}, stderr)
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		Shell:            "/bin/sh",
+		PTYHub:           hub,
+		ScrollbackLimit:  4096,
+		SessionIdleTTL:   20 * time.Millisecond,
+	}, stderr))
+	defer server.Close()
+	defer hub.closeAll()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "idle-token", "sess-idle", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuthWithAttachment(t, ctx, conn, "idle-token", "sess-idle", "persist", 80, 24)
+	readReady(t, ctx, conn)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("printf 'IDLE_READY\\n'\r")); err != nil {
+		t.Fatalf("write idle marker: %v", err)
+	}
+	waitForBinaryContains(t, ctx, conn, "IDLE_READY", 5*time.Second)
+	_ = conn.Close(websocket.StatusNormalClosure, "detach")
+
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+	}, &bytes.Buffer{})
+	session := &wsPTYSession{id: "scrollback"}
+
+	hub.mu.Lock()
+	hub.appendScrollbackLocked(session, bytes.Repeat([]byte("x"), 1<<20))
+	hub.mu.Unlock()
+	if got := len(session.scrollback); got != 4096 {
+		t.Fatalf("scrollback len = %d, want 4096", got)
+	}
+	if got := cap(session.scrollback); got > 4096 {
+		t.Fatalf("scrollback cap = %d, want <= 4096", got)
+	}
+
+	hub.mu.Lock()
+	hub.appendScrollbackLocked(session, []byte("tail"))
+	hub.mu.Unlock()
+	if got := len(session.scrollback); got != 4096 {
+		t.Fatalf("scrollback len after append = %d, want 4096", got)
+	}
+	if got := cap(session.scrollback); got > 4096 {
+		t.Fatalf("scrollback cap after append = %d, want <= 4096", got)
+	}
+	if !strings.HasSuffix(string(session.scrollback), "tail") {
+		t.Fatalf("scrollback should retain newest output, got suffix %q", string(session.scrollback[len(session.scrollback)-16:]))
+	}
 }
 
 func TestWebSocketPTYSeedsUTF8LocaleAndTerminalEnv(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
-	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
-		PTYAuthLeaseFile: leasePath,
-		Shell:            "/bin/sh",
-	}, &bytes.Buffer{}))
-	defer server.Close()
+	server, _ := newTestWebSocketPTYServer(t, leasePath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -262,12 +834,18 @@ func dialPTY(t *testing.T, ctx context.Context, serverURL string) *websocket.Con
 
 func sendAuth(t *testing.T, ctx context.Context, conn *websocket.Conn, token, sessionID string, cols, rows int) {
 	t.Helper()
+	sendAuthWithAttachment(t, ctx, conn, token, sessionID, "", cols, rows)
+}
+
+func sendAuthWithAttachment(t *testing.T, ctx context.Context, conn *websocket.Conn, token, sessionID string, attachmentID string, cols, rows int) {
+	t.Helper()
 	payload, err := json.Marshal(wsPTYAuthFrame{
-		Type:      "auth",
-		Token:     token,
-		SessionID: sessionID,
-		Cols:      cols,
-		Rows:      rows,
+		Type:         "auth",
+		Token:        token,
+		SessionID:    sessionID,
+		AttachmentID: attachmentID,
+		Cols:         cols,
+		Rows:         rows,
 	})
 	if err != nil {
 		t.Fatalf("marshal auth: %v", err)
@@ -294,4 +872,176 @@ func writeTestLease(t *testing.T, path, token, sessionID string, singleUse bool,
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write lease: %v", err)
 	}
+}
+
+func readReady(t *testing.T, ctx context.Context, conn *websocket.Conn) {
+	t.Helper()
+	msgType, payload, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read ready: %v", err)
+	}
+	if msgType != websocket.MessageText || !strings.Contains(string(payload), `"ready"`) {
+		t.Fatalf("first frame should be ready text, type=%v payload=%q", msgType, string(payload))
+	}
+}
+
+func waitForBinaryContains(t *testing.T, ctx context.Context, conn *websocket.Conn, needle string, timeout time.Duration) string {
+	t.Helper()
+	return waitForBinaryContainsLabel(t, ctx, conn, needle, needle, timeout)
+}
+
+func waitForBinaryContainsLabel(t *testing.T, ctx context.Context, conn *websocket.Conn, label string, needle string, timeout time.Duration) string {
+	t.Helper()
+	var output strings.Builder
+	deadline := time.Now().Add(timeout)
+	closeOnTimeout := time.AfterFunc(timeout, func() {
+		_ = conn.Close(websocket.StatusNormalClosure, "test read timeout")
+	})
+	defer closeOnTimeout.Stop()
+	for time.Now().Before(deadline) {
+		readCtx, cancelRead := context.WithTimeout(ctx, time.Until(deadline))
+		msgType, payload, err := conn.Read(readCtx)
+		cancelRead()
+		if err != nil {
+			t.Fatalf("read terminal output while waiting for %s: %v output=%q", label, err, output.String())
+		}
+		if msgType != websocket.MessageBinary {
+			continue
+		}
+		output.Write(payload)
+		if strings.Contains(output.String(), needle) {
+			return output.String()
+		}
+	}
+	t.Fatalf("timed out waiting for %s (%q), got %q", label, needle, output.String())
+	return output.String()
+}
+
+func waitForNormalClose(t *testing.T, ctx context.Context, conn *websocket.Conn, timeout time.Duration) {
+	t.Helper()
+	waitForNormalCloseWithOutput(t, ctx, conn, timeout, "")
+}
+
+func waitForNormalCloseWithOutput(t *testing.T, ctx context.Context, conn *websocket.Conn, timeout time.Duration, output string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		readCtx, cancelRead := context.WithTimeout(ctx, time.Until(deadline))
+		_, _, err := conn.Read(readCtx)
+		cancelRead()
+		if err == nil {
+			continue
+		}
+		if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
+			t.Fatalf("expected normal close, got err=%v status=%v output=%q", err, websocket.CloseStatus(err), output)
+		}
+		return
+	}
+	t.Fatalf("timed out waiting for normal close output=%q", output)
+}
+
+func waitForHubSessionCount(t *testing.T, hub *wsPTYHub, want int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if got := hub.activeSessionCount(); got == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("hub session count = %d, want %d", hub.activeSessionCount(), want)
+}
+
+func waitForHubSessionSize(t *testing.T, hub *wsPTYHub, sessionID string, wantAttachments int, wantCols int, wantRows int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		attachments, cols, rows, ok := hub.sessionDebugSnapshot(sessionID)
+		if ok && attachments == wantAttachments && cols == wantCols && rows == wantRows {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	attachments, cols, rows, ok := hub.sessionDebugSnapshot(sessionID)
+	t.Fatalf(
+		"hub session %s state = ok:%v attachments:%d size:%dx%d, want attachments:%d size:%dx%d",
+		sessionID,
+		ok,
+		attachments,
+		cols,
+		rows,
+		wantAttachments,
+		wantCols,
+		wantRows,
+	)
+}
+
+func waitForHubPTYSize(t *testing.T, hub *wsPTYHub, sessionID string, wantCols int, wantRows int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cols, rows, ok, err := hub.sessionPTYSize(sessionID)
+		if err != nil {
+			t.Fatalf("read pty size for %s: %v", sessionID, err)
+		}
+		if ok && cols == wantCols && rows == wantRows {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cols, rows, ok, err := hub.sessionPTYSize(sessionID)
+	t.Fatalf("hub session %s pty size = ok:%v size:%dx%d err:%v, want %dx%d", sessionID, ok, cols, rows, err, wantCols, wantRows)
+}
+
+func waitForGoroutineCeiling(t *testing.T, ceiling int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		runtime.GC()
+		if got := runtime.NumGoroutine(); got <= ceiling {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("goroutine count = %d, want <= %d", runtime.NumGoroutine(), ceiling)
+}
+
+func (h *wsPTYHub) sessionDebugSnapshot(sessionID string) (attachments int, effectiveCols int, effectiveRows int, ok bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	session := h.sessions[persistentPTYSessionKey(sessionID)]
+	if session == nil {
+		return 0, 0, 0, false
+	}
+	return len(session.attachments), session.effectiveCols, session.effectiveRows, true
+}
+
+func (h *wsPTYHub) debugAttachment(sessionID string, attachmentID string) *wsPTYAttachment {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	session := h.sessions[persistentPTYSessionKey(sessionID)]
+	if session == nil {
+		return nil
+	}
+	return session.attachments[attachmentID]
+}
+
+func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool, err error) {
+	h.mu.Lock()
+	session := h.sessions[persistentPTYSessionKey(sessionID)]
+	if session == nil {
+		h.mu.Unlock()
+		return 0, 0, false, nil
+	}
+	h.mu.Unlock()
+
+	session.ptyWriteMu.Lock()
+	defer session.ptyWriteMu.Unlock()
+	sizeFile := session.ptyFile
+
+	size, err := pty.GetsizeFull(sizeFile)
+	if err != nil {
+		return 0, 0, true, err
+	}
+	return int(size.Cols), int(size.Rows), true, nil
 }
