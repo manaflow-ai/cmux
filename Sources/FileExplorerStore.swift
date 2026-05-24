@@ -545,10 +545,15 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return args
     }
 
-    // Mirrors the WorkspaceRemoteConfiguration/TerminalSSHSessionDetector helpers
-    // by treating any Unicode whitespace (not just space/tab) as a key/value
-    // separator. Worth keeping in sync if/when those copies get extracted into
-    // a shared SSH-option-parsing module (see PR discussion).
+    /// Returns true when `options` already contains an SSH `-o`-style key=value
+    /// (or `key value`) entry whose key matches `key` case-insensitively. Used
+    /// to suppress cmux's injected default when the caller has already supplied
+    /// the same option.
+    ///
+    /// Kept in sync with the canonical copies in
+    /// `WorkspaceRemoteConfiguration` and `TerminalSSHSessionDetector`
+    /// (`$0 == "="` or `$0.isWhitespace` separator). Worth extracting into a
+    /// shared `SSHOptionParsing` module — see PR #4713 discussion.
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
         let loweredKey = key.lowercased()
         return options.contains { option in
