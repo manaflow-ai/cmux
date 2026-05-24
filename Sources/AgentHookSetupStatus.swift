@@ -44,6 +44,7 @@ enum AgentHookSetupStatus {
 
         let markerSubstrings = [
             "cmux hooks ",
+            "\"$cmux_cli\" hooks ",
             "cmux-session",
             "cmux-feed-plugin-marker",
             "cmux-grok-hook-v2",

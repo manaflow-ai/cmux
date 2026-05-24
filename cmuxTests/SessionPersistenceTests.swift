@@ -1752,6 +1752,34 @@ final class AgentHookSetupStatusTests: XCTestCase {
         )
     }
 
+    func testDetectsBundledCLIHookCommand() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".codex/hooks.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"hooks":{"Stop":[{"command":"cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; \"$cmux_cli\" hooks codex stop"}]}}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testDetectsBundledCLIFeedHookCommand() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".gemini/settings.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"hooks":{"Stop":[{"command":"cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; \"$cmux_cli\" hooks feed --source gemini"}]}}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
     func testDetectsAntigravityHookConfig() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
