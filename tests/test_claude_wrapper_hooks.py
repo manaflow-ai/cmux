@@ -1103,6 +1103,28 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(hook_cmux_bin == "__UNSET__", f"stale socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
+def test_short_resume_flag_skips_session_id_injection(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _ = run_wrapper(
+        socket_state="live", argv=["-r", "some-session-id"]
+    )
+    expect(code == 0, f"-r flag: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "--session-id" not in real_argv,
+        f"-r flag: --session-id should not be injected, got {real_argv}",
+        failures,
+    )
+    expect(
+        "-r" in real_argv,
+        f"-r flag: original -r arg should pass through, got {real_argv}",
+        failures,
+    )
+    expect(
+        "some-session-id" in real_argv,
+        f"-r flag: resume value should pass through, got {real_argv}",
+        failures,
+    )
+
+
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
@@ -1126,6 +1148,7 @@ def main() -> int:
     test_missing_socket_skips_hook_injection(failures)
     test_disabled_integration_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
+    test_short_resume_flag_skips_session_id_injection(failures)
 
     if failures:
         print("FAIL: claude wrapper regression checks failed")
