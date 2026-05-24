@@ -2025,6 +2025,68 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .closing)
     }
 
+    func testVisiblePortalPreparationReplacesStaleHiddenWebViewBeforeAttach() throws {
+        guard ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] == nil,
+              ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"] == nil else {
+            throw XCTSkip("Hidden WebView discard policy is overridden by environment")
+        }
+
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            }
+        }
+        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(
+            BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay,
+            forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey
+        )
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        let hiddenAt = Date.now.addingTimeInterval(86_400)
+        panel.noteWebViewVisibility(true, reason: "test.visible", now: hiddenAt.addingTimeInterval(-1))
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: hiddenAt)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+
+        let originalWebView = panel.webView
+        let originalInstanceID = panel.webViewInstanceID
+        let staleAttachTime = hiddenAt.addingTimeInterval(BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay + 1)
+
+        XCTAssertTrue(
+            panel.replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
+                reason: "test.portalPreAttach",
+                now: staleAttachTime
+            )
+        )
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertNotEqual(panel.webViewInstanceID, originalInstanceID)
+        XCTAssertTrue(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        XCTAssertEqual(panel.currentURL?.absoluteString, "about:blank")
+    }
+
     func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() {
         let discardedAt = Date(timeIntervalSince1970: 200)
         let panel = BrowserPanel(
