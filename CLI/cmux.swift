@@ -16423,11 +16423,31 @@ struct CMUXCLI {
         private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
         private var reportedSpawnFailureFingerprints = Set<String>()
-        private var pendingSpawnFailureDiagnostics: [CodexTeamsSpawnFailureDiagnostic] = []
+        private var spawnFailureDeliveryStates: [String: SpawnFailureDeliveryState] = [:]
         private let appServerLogQueue = DispatchQueue(label: "com.cmux.codex-teams.app-server-log", qos: .utility)
         private var appServerLogSource: DispatchSourceFileSystemObject?
         private var appServerLogOffset: UInt64 = 0
         private var appServerLogBuffer = ""
+
+        private struct SpawnFailureDeliveryState {
+            var diagnostic: CodexTeamsSpawnFailureDiagnostic
+            var notificationDelivered = false
+            var statusDelivered = false
+            var notificationInFlight = false
+            var statusInFlight = false
+        }
+
+        private struct SpawnFailurePublishAttempt {
+            var diagnostic: CodexTeamsSpawnFailureDiagnostic
+            var deliverNotification: Bool
+            var deliverStatus: Bool
+        }
+
+        private struct SpawnFailurePublishResult {
+            var fingerprint: String
+            var notificationSucceeded: Bool?
+            var statusSucceeded: Bool?
+        }
 
         init(
             appServerURL: String,
@@ -16572,69 +16592,139 @@ struct CMUXCLI {
         }
 
         private func publishSpawnFailureDiagnosticSafely(_ diagnostic: CodexTeamsSpawnFailureDiagnostic) {
+            let attempt: SpawnFailurePublishAttempt?
             stateLock.lock()
-            defer { stateLock.unlock() }
-            retryPendingSpawnFailureDiagnosticsLocked()
-            guard !reportedSpawnFailureFingerprints.contains(diagnostic.fingerprint),
-                  !pendingSpawnFailureDiagnostics.contains(where: { $0.fingerprint == diagnostic.fingerprint }) else {
+            attempt = scheduleSpawnFailureDiagnosticLocked(diagnostic)
+            stateLock.unlock()
+
+            guard let attempt else {
                 return
             }
-            if publishSpawnFailureDiagnostic(diagnostic) {
-                reportedSpawnFailureFingerprints.insert(diagnostic.fingerprint)
-            } else {
-                pendingSpawnFailureDiagnostics.append(diagnostic)
-            }
+            publishSpawnFailureDiagnosticAttempts([attempt])
         }
 
         private func retryPendingSpawnFailureDiagnosticsSafely() {
+            let attempts: [SpawnFailurePublishAttempt]
             stateLock.lock()
-            defer { stateLock.unlock() }
-            retryPendingSpawnFailureDiagnosticsLocked()
+            attempts = schedulePendingSpawnFailureDiagnosticsLocked()
+            stateLock.unlock()
+            publishSpawnFailureDiagnosticAttempts(attempts)
         }
 
-        private func retryPendingSpawnFailureDiagnosticsLocked() {
-            guard !pendingSpawnFailureDiagnostics.isEmpty else { return }
-            var stillPending: [CodexTeamsSpawnFailureDiagnostic] = []
-            for diagnostic in pendingSpawnFailureDiagnostics {
-                guard !reportedSpawnFailureFingerprints.contains(diagnostic.fingerprint) else {
+        private func scheduleSpawnFailureDiagnosticLocked(
+            _ diagnostic: CodexTeamsSpawnFailureDiagnostic
+        ) -> SpawnFailurePublishAttempt? {
+            guard !reportedSpawnFailureFingerprints.contains(diagnostic.fingerprint) else {
+                return nil
+            }
+            var state = spawnFailureDeliveryStates[diagnostic.fingerprint] ?? SpawnFailureDeliveryState(diagnostic: diagnostic)
+            let deliverNotification = !state.notificationDelivered && !state.notificationInFlight
+            let deliverStatus = !state.statusDelivered && !state.statusInFlight
+            guard deliverNotification || deliverStatus else {
+                spawnFailureDeliveryStates[diagnostic.fingerprint] = state
+                return nil
+            }
+            state.notificationInFlight = state.notificationInFlight || deliverNotification
+            state.statusInFlight = state.statusInFlight || deliverStatus
+            spawnFailureDeliveryStates[diagnostic.fingerprint] = state
+            return SpawnFailurePublishAttempt(
+                diagnostic: state.diagnostic,
+                deliverNotification: deliverNotification,
+                deliverStatus: deliverStatus
+            )
+        }
+
+        private func schedulePendingSpawnFailureDiagnosticsLocked() -> [SpawnFailurePublishAttempt] {
+            guard !spawnFailureDeliveryStates.isEmpty else { return [] }
+            var attempts: [SpawnFailurePublishAttempt] = []
+            for fingerprint in spawnFailureDeliveryStates.keys.sorted() {
+                guard !reportedSpawnFailureFingerprints.contains(fingerprint),
+                      var state = spawnFailureDeliveryStates[fingerprint] else {
                     continue
                 }
-                if publishSpawnFailureDiagnostic(diagnostic) {
-                    reportedSpawnFailureFingerprints.insert(diagnostic.fingerprint)
-                } else {
-                    stillPending.append(diagnostic)
-                }
+                let deliverNotification = !state.notificationDelivered && !state.notificationInFlight
+                let deliverStatus = !state.statusDelivered && !state.statusInFlight
+                guard deliverNotification || deliverStatus else { continue }
+                state.notificationInFlight = state.notificationInFlight || deliverNotification
+                state.statusInFlight = state.statusInFlight || deliverStatus
+                spawnFailureDeliveryStates[fingerprint] = state
+                attempts.append(SpawnFailurePublishAttempt(
+                    diagnostic: state.diagnostic,
+                    deliverNotification: deliverNotification,
+                    deliverStatus: deliverStatus
+                ))
             }
-            pendingSpawnFailureDiagnostics = stillPending
+            return attempts
         }
 
-        private func publishSpawnFailureDiagnostic(_ diagnostic: CodexTeamsSpawnFailureDiagnostic) -> Bool {
-            var didPublish = false
-            do {
-                _ = try socketClient.sendV2(method: "notification.create_for_target", params: [
-                    "workspace_id": workspaceId,
-                    "surface_id": rootSurfaceId,
-                    "title": diagnostic.title,
-                    "subtitle": diagnostic.subtitle,
-                    "body": diagnostic.body
-                ])
-                didPublish = true
-            } catch {
-                fputs("cmux codex-teams watcher failed to notify spawn failure: \(error)\n", stderr)
+        private func publishSpawnFailureDiagnosticAttempts(_ attempts: [SpawnFailurePublishAttempt]) {
+            for attempt in attempts {
+                let result = publishSpawnFailureDiagnostic(attempt)
+                recordSpawnFailurePublishResult(result)
+            }
+        }
+
+        private func recordSpawnFailurePublishResult(_ result: SpawnFailurePublishResult) {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            guard var state = spawnFailureDeliveryStates[result.fingerprint] else {
+                return
+            }
+            if let notificationSucceeded = result.notificationSucceeded {
+                state.notificationInFlight = false
+                state.notificationDelivered = state.notificationDelivered || notificationSucceeded
+            }
+            if let statusSucceeded = result.statusSucceeded {
+                state.statusInFlight = false
+                state.statusDelivered = state.statusDelivered || statusSucceeded
+            }
+            if state.notificationDelivered && state.statusDelivered {
+                spawnFailureDeliveryStates.removeValue(forKey: result.fingerprint)
+                reportedSpawnFailureFingerprints.insert(result.fingerprint)
+            } else {
+                spawnFailureDeliveryStates[result.fingerprint] = state
+            }
+        }
+
+        private func publishSpawnFailureDiagnostic(_ attempt: SpawnFailurePublishAttempt) -> SpawnFailurePublishResult {
+            let diagnostic = attempt.diagnostic
+            var notificationSucceeded: Bool?
+            if attempt.deliverNotification {
+                notificationSucceeded = false
+                do {
+                    _ = try socketClient.sendV2(method: "notification.create_for_target", params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": rootSurfaceId,
+                        "title": diagnostic.title,
+                        "subtitle": diagnostic.subtitle,
+                        "body": diagnostic.body
+                    ])
+                    notificationSucceeded = true
+                } catch {
+                    fputs("cmux codex-teams watcher failed to notify spawn failure: \(error)\n", stderr)
+                }
             }
 
-            let statusCommand = "set_status codex \(diagnostic.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId) --panel=\(rootSurfaceId)"
-            do {
-                let response = try socketClient.send(command: statusCommand)
-                if response.hasPrefix("ERROR:") {
-                    fputs("cmux codex-teams watcher failed to set spawn failure status: \(response)\n", stderr)
-                } else {
-                    didPublish = true
+            var statusSucceeded: Bool?
+            if attempt.deliverStatus {
+                statusSucceeded = false
+                let statusCommand = "set_status codex \(diagnostic.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId) --panel=\(rootSurfaceId)"
+                do {
+                    let response = try socketClient.send(command: statusCommand)
+                    if response.hasPrefix("ERROR:") {
+                        fputs("cmux codex-teams watcher failed to set spawn failure status: \(response)\n", stderr)
+                    } else {
+                        statusSucceeded = true
+                    }
+                } catch {
+                    fputs("cmux codex-teams watcher failed to set spawn failure status: \(error)\n", stderr)
                 }
-            } catch {
-                fputs("cmux codex-teams watcher failed to set spawn failure status: \(error)\n", stderr)
             }
-            return didPublish
+            return SpawnFailurePublishResult(
+                fingerprint: diagnostic.fingerprint,
+                notificationSucceeded: notificationSucceeded,
+                statusSucceeded: statusSucceeded
+            )
         }
 
         private func backfillLoadedThreads(connection: CodexTeamsAppServerConnection) throws {
@@ -16689,9 +16779,9 @@ struct CMUXCLI {
         }
 
         private func observeThreadSafely(_ thread: CodexTeamsThread) throws {
+            retryPendingSpawnFailureDiagnosticsSafely()
             stateLock.lock()
             defer { stateLock.unlock() }
-            retryPendingSpawnFailureDiagnosticsLocked()
             try observeThread(thread)
         }
 
