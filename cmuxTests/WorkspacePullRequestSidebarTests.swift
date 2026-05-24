@@ -1034,10 +1034,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             encoding: .utf8
         )
 
-        NotificationCenter.default.post(
-            name: .cmuxTypingActivityDidOccur,
-            object: nil
-        )
+        CmuxTypingActivity.record()
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         let earlyRefresh = expectation(description: "sidebar git metadata refreshed during typing quiet period")

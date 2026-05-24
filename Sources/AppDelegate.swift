@@ -3874,11 +3874,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     fileprivate func recordTypingActivity() {
         let now = ProcessInfo.processInfo.systemUptime
         lastTypingActivityAt = now
-        NotificationCenter.default.post(
-            name: .cmuxTypingActivityDidOccur,
-            object: nil,
-            userInfo: [CmuxTypingActivityNotificationUserInfoKey.uptime: now]
-        )
+        CmuxTypingActivity.record(now: now)
     }
 
     nonisolated static func shouldWriteSessionSnapshotSynchronously(

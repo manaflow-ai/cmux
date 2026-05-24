@@ -1260,8 +1260,7 @@ class TabManager: ObservableObject {
     private var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
     private var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     private var workspaceGitMetadataFallbackTimer: DispatchSourceTimer?
-    private var workspaceGitMetadataTypingQuietTimer: DispatchSourceTimer?
-    private var lastWorkspaceGitMetadataTypingActivityAt: TimeInterval = 0
+    private var workspaceGitMetadataTypingQuietTask: Task<Void, Never>?
     private var pendingWorkspaceGitMetadataRefreshesAfterTypingByKey: [WorkspaceGitProbeKey: PendingWorkspaceGitMetadataRefreshRequest] = [:]
     private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     private var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
@@ -1357,22 +1356,6 @@ class TabManager: ObservableObject {
                 self?.refreshTabCloseButtonVisibility()
             }
         })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .cmuxTypingActivityDidOccur,
-            object: nil,
-            queue: nil
-        ) { [weak self] notification in
-            let now = notification.userInfo?[CmuxTypingActivityNotificationUserInfoKey.uptime] as? TimeInterval
-            if Thread.isMainThread {
-                MainActor.assumeIsolated { [weak self] in
-                    self?.noteWorkspaceGitMetadataTypingActivity(now: now ?? ProcessInfo.processInfo.systemUptime)
-                }
-            } else {
-                Task { @MainActor [weak self] in
-                    self?.noteWorkspaceGitMetadataTypingActivity(now: now ?? ProcessInfo.processInfo.systemUptime)
-                }
-            }
-        })
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
@@ -1386,7 +1369,7 @@ class TabManager: ObservableObject {
         agentPIDSweepTimer?.cancel()
         workspacePullRequestPollTimer?.cancel()
         workspaceGitMetadataFallbackTimer?.cancel()
-        workspaceGitMetadataTypingQuietTimer?.cancel()
+        workspaceGitMetadataTypingQuietTask?.cancel()
         workspacePullRequestRefreshTask?.cancel()
     }
 
@@ -1476,22 +1459,7 @@ class TabManager: ObservableObject {
     }
 
     private func workspaceGitMetadataTypingQuietDelay(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> TimeInterval? {
-        guard lastWorkspaceGitMetadataTypingActivityAt > 0 else {
-            return nil
-        }
-        let elapsed = now - lastWorkspaceGitMetadataTypingActivityAt
-        guard elapsed < Self.workspaceGitMetadataTypingQuietPeriod else {
-            return nil
-        }
-        return Self.workspaceGitMetadataTypingQuietPeriod - elapsed
-    }
-
-    private func noteWorkspaceGitMetadataTypingActivity(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        lastWorkspaceGitMetadataTypingActivityAt = now
-        guard !pendingWorkspaceGitMetadataRefreshesAfterTypingByKey.isEmpty else {
-            return
-        }
-        scheduleWorkspaceGitMetadataTypingQuietTimer(delay: Self.workspaceGitMetadataTypingQuietPeriod)
+        CmuxTypingActivity.quietDelay(now: now, quietPeriod: Self.workspaceGitMetadataTypingQuietPeriod)
     }
 
     private func deferWorkspaceGitMetadataRefreshUntilTypingQuiet(
@@ -1516,7 +1484,7 @@ class TabManager: ObservableObject {
             delays: selectedDelays,
             reason: reason
         )
-        scheduleWorkspaceGitMetadataTypingQuietTimer(delay: quietDelay)
+        scheduleWorkspaceGitMetadataTypingQuietTask(delay: quietDelay)
 
 #if DEBUG
         cmuxDebugLog(
@@ -1526,38 +1494,24 @@ class TabManager: ObservableObject {
 #endif
     }
 
-    private func scheduleWorkspaceGitMetadataTypingQuietTimer(delay: TimeInterval) {
-        let deadline = DispatchTime.now() + max(0, delay)
-        if let timer = workspaceGitMetadataTypingQuietTimer {
-            timer.schedule(
-                deadline: deadline,
-                repeating: .never,
-                leeway: .milliseconds(50)
-            )
-            return
-        }
-
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        timer.setEventHandler { [weak self] in
-            DispatchQueue.main.async { [weak self] in
-                self?.flushWorkspaceGitMetadataRefreshesAfterTypingQuiet()
+    private func scheduleWorkspaceGitMetadataTypingQuietTask(delay: TimeInterval) {
+        workspaceGitMetadataTypingQuietTask?.cancel()
+        let delayMilliseconds = Int((max(0, delay) * 1000).rounded(.up))
+        workspaceGitMetadataTypingQuietTask = Task { @MainActor [weak self] in
+            if delayMilliseconds > 0 {
+                try? await Task.sleep(for: .milliseconds(delayMilliseconds))
             }
+            guard !Task.isCancelled else { return }
+            self?.flushWorkspaceGitMetadataRefreshesAfterTypingQuiet()
         }
-        timer.schedule(
-            deadline: deadline,
-            repeating: .never,
-            leeway: .milliseconds(50)
-        )
-        timer.resume()
-        workspaceGitMetadataTypingQuietTimer = timer
     }
 
     private func flushWorkspaceGitMetadataRefreshesAfterTypingQuiet() {
-        workspaceGitMetadataTypingQuietTimer?.cancel()
-        workspaceGitMetadataTypingQuietTimer = nil
+        workspaceGitMetadataTypingQuietTask?.cancel()
+        workspaceGitMetadataTypingQuietTask = nil
 
         if let quietDelay = workspaceGitMetadataTypingQuietDelay() {
-            scheduleWorkspaceGitMetadataTypingQuietTimer(delay: quietDelay)
+            scheduleWorkspaceGitMetadataTypingQuietTask(delay: quietDelay)
             return
         }
 
@@ -1613,8 +1567,8 @@ class TabManager: ObservableObject {
             stopAllWorkspaceGitMetadataWatchers()
             workspaceGitMetadataFallbackTimer?.cancel()
             workspaceGitMetadataFallbackTimer = nil
-            workspaceGitMetadataTypingQuietTimer?.cancel()
-            workspaceGitMetadataTypingQuietTimer = nil
+            workspaceGitMetadataTypingQuietTask?.cancel()
+            workspaceGitMetadataTypingQuietTask = nil
             pendingWorkspaceGitMetadataRefreshesAfterTypingByKey.removeAll()
             workspaceGitProbeStateByKey.removeAll()
             for timers in workspaceGitProbeTimersByKey.values {
@@ -9677,7 +9631,6 @@ extension Notification.Name {
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
     static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
-    static let cmuxTypingActivityDidOccur = Notification.Name("cmuxTypingActivityDidOccur")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
@@ -9698,6 +9651,43 @@ enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = "pointerInitiated"
 }
 
-enum CmuxTypingActivityNotificationUserInfoKey {
-    static let uptime = "uptime"
+private final class CmuxTypingActivityStorage: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastActivityAt: TimeInterval = 0
+
+    func record(now: TimeInterval) {
+        lock.lock()
+        lastActivityAt = now
+        lock.unlock()
+    }
+
+    func quietDelay(now: TimeInterval, quietPeriod: TimeInterval) -> TimeInterval? {
+        lock.lock()
+        let activityAt = lastActivityAt
+        lock.unlock()
+
+        guard activityAt > 0 else {
+            return nil
+        }
+        let elapsed = now - activityAt
+        guard elapsed < quietPeriod else {
+            return nil
+        }
+        return quietPeriod - elapsed
+    }
+}
+
+enum CmuxTypingActivity {
+    private static let storage = CmuxTypingActivityStorage()
+
+    static func record(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        storage.record(now: now)
+    }
+
+    static func quietDelay(
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime,
+        quietPeriod: TimeInterval
+    ) -> TimeInterval? {
+        storage.quietDelay(now: now, quietPeriod: quietPeriod)
+    }
 }
