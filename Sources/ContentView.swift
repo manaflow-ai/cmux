@@ -9599,6 +9599,7 @@ struct VerticalTabsSidebar: View {
     let observedWindow: NSWindow?
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -10895,6 +10896,7 @@ struct VerticalTabsSidebar: View {
             unreadCount: resolvedPresentation.unreadCount,
             latestNotificationText: resolvedPresentation.latestNotificationText,
             rowSpacing: tabRowSpacing,
+            uiScaleFactor: uiScaleFactor,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
@@ -13365,6 +13367,7 @@ private struct TabItemView: View, Equatable {
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&
+        lhs.uiScaleFactor == rhs.uiScaleFactor &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
@@ -13391,6 +13394,7 @@ private struct TabItemView: View, Equatable {
     let unreadCount: Int
     let latestNotificationText: String?
     let rowSpacing: CGFloat
+    let uiScaleFactor: Double
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -13632,7 +13636,7 @@ private struct TabItemView: View, Equatable {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(remoteWorkspaceSidebarText)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: UIScaleSettings.scaled(10, by: uiScaleFactor), design: .monospaced))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -13640,7 +13644,7 @@ private struct TabItemView: View, Equatable {
                     Spacer(minLength: 0)
 
                     Text(workspaceSnapshot.remoteConnectionStatusText)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: UIScaleSettings.scaled(9, by: uiScaleFactor), weight: .medium))
                         .foregroundColor(activeSecondaryColor(0.58))
                         .lineLimit(1)
                 }
@@ -13698,21 +13702,24 @@ private struct TabItemView: View, Equatable {
                         Circle()
                             .fill(activeUnreadBadgeFillColor)
                         Text("\(unreadCount)")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: UIScaleSettings.scaled(9, by: uiScaleFactor), weight: .semibold))
                             .foregroundColor(activeUnreadBadgeTextColor)
                     }
-                    .frame(width: 16, height: 16)
+                    .frame(
+                        width: UIScaleSettings.scaled(16, by: uiScaleFactor),
+                        height: UIScaleSettings.scaled(16, by: uiScaleFactor)
+                    )
                 }
 
                 if workspaceSnapshot.isPinned {
                     Image(systemName: "pin.fill")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: UIScaleSettings.scaled(9, by: uiScaleFactor), weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
                 Text(workspaceSnapshot.title)
-                    .font(.system(size: 12.5, weight: titleFontWeight))
+                    .font(.system(size: UIScaleSettings.scaled(12.5, by: uiScaleFactor), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -13731,7 +13738,7 @@ private struct TabItemView: View, Equatable {
 
             if let subtitle = effectiveSubtitle {
                 Text(subtitle)
-                    .font(.system(size: 10))
+                    .font(.system(size: UIScaleSettings.scaled(10, by: uiScaleFactor)))
                     .foregroundColor(activeSecondaryColor(0.8))
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -13768,10 +13775,10 @@ private struct TabItemView: View, Equatable {
             if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
                 HStack(spacing: 4) {
                     Image(systemName: logLevelIcon(latestLog.level))
-                        .font(.system(size: 8))
+                        .font(.system(size: UIScaleSettings.scaled(8, by: uiScaleFactor)))
                         .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
-                        .font(.system(size: 10))
+                        .font(.system(size: UIScaleSettings.scaled(10, by: uiScaleFactor)))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -13794,7 +13801,7 @@ private struct TabItemView: View, Equatable {
 
                     if let label = progress.label {
                         Text(label)
-                            .font(.system(size: 9))
+                            .font(.system(size: UIScaleSettings.scaled(9, by: uiScaleFactor)))
                             .foregroundColor(activeSecondaryColor(0.6))
                             .lineLimit(1)
                     }
@@ -13809,7 +13816,7 @@ private struct TabItemView: View, Equatable {
                         HStack(alignment: .top, spacing: 3) {
                             if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
                                 Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: 9))
+                                    .font(.system(size: UIScaleSettings.scaled(9, by: uiScaleFactor)))
                                     .foregroundColor(activeSecondaryColor(0.6))
                             }
                             VStack(alignment: .leading, spacing: 1) {
@@ -13817,20 +13824,20 @@ private struct TabItemView: View, Equatable {
                                     HStack(spacing: 3) {
                                         if let branch = line.branch {
                                             Text(branch)
-                                                .font(.system(size: 10, design: .monospaced))
+                                                .font(.system(size: UIScaleSettings.scaled(10, by: uiScaleFactor), design: .monospaced))
                                                 .foregroundColor(activeSecondaryColor(0.75))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
                                         }
                                         if line.branch != nil, line.directory != nil {
                                             Image(systemName: "circle.fill")
-                                                .font(.system(size: 3))
+                                                .font(.system(size: UIScaleSettings.scaled(3, by: uiScaleFactor)))
                                                 .foregroundColor(activeSecondaryColor(0.6))
                                                 .padding(.horizontal, 1)
                                         }
                                         if let directory = line.directory {
                                             Text(directory)
-                                                .font(.system(size: 10, design: .monospaced))
+                                                .font(.system(size: UIScaleSettings.scaled(10, by: uiScaleFactor), design: .monospaced))
                                                 .foregroundColor(activeSecondaryColor(0.75))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
@@ -13844,11 +13851,11 @@ private struct TabItemView: View, Equatable {
                     HStack(spacing: 3) {
                         if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
                             Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 9))
+                                .font(.system(size: UIScaleSettings.scaled(9, by: uiScaleFactor)))
                                 .foregroundColor(activeSecondaryColor(0.6))
                         }
                         Text(dirRow)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(.system(size: UIScaleSettings.scaled(10, by: uiScaleFactor), design: .monospaced))
                             .foregroundColor(activeSecondaryColor(0.75))
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -13868,7 +13875,7 @@ private struct TabItemView: View, Equatable {
                             Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
                             Spacer(minLength: 0)
                         }
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: UIScaleSettings.scaled(10, by: uiScaleFactor), weight: .semibold))
                         .foregroundColor(pullRequestForegroundColor)
                         .opacity(pullRequest.isStale ? 0.5 : 1)
                         if settings.makesPullRequestsClickable {
@@ -13901,7 +13908,7 @@ private struct TabItemView: View, Equatable {
                     }
                     Spacer(minLength: 0)
                 }
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: UIScaleSettings.scaled(10, by: uiScaleFactor), design: .monospaced))
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
             }
@@ -13947,12 +13954,16 @@ private struct TabItemView: View, Equatable {
                     tabManager.closeWorkspaceWithConfirmation(tab)
                 }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: UIScaleSettings.scaled(9, by: uiScaleFactor), weight: .medium))
                         .foregroundColor(activeSecondaryColor(0.7))
                 }
                 .buttonStyle(.plain)
                 .safeHelp(closeButtonTooltip)
-                .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
+                .frame(
+                    width: UIScaleSettings.scaled(SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, by: uiScaleFactor),
+                    height: UIScaleSettings.scaled(16, by: uiScaleFactor),
+                    alignment: .center
+                )
                 .padding(.top, 8)
                 .padding(.trailing, 10)
             }
@@ -14930,6 +14941,8 @@ private struct TabItemView: View, Equatable {
     }
 
     private struct PullRequestStatusIcon: View {
+        @Environment(\.uiScaleFactor) private var uiScaleFactor
+
         let status: SidebarPullRequestStatus
         let color: Color
         private static let frameSize: CGFloat = 12
@@ -14937,90 +14950,119 @@ private struct TabItemView: View, Equatable {
         var body: some View {
             switch status {
             case .open:
-                PullRequestOpenIcon(color: color)
+                PullRequestOpenIcon(color: color, uiScaleFactor: uiScaleFactor)
             case .merged:
-                PullRequestMergedIcon(color: color)
+                PullRequestMergedIcon(color: color, uiScaleFactor: uiScaleFactor)
             case .closed:
                 Image(systemName: "xmark.circle")
-                    .font(.system(size: 7, weight: .regular))
+                    .font(.system(size: UIScaleSettings.scaled(7, by: uiScaleFactor), weight: .regular))
                     .foregroundColor(color)
-                    .frame(width: Self.frameSize, height: Self.frameSize)
+                    .frame(
+                        width: UIScaleSettings.scaled(Self.frameSize, by: uiScaleFactor),
+                        height: UIScaleSettings.scaled(Self.frameSize, by: uiScaleFactor)
+                    )
             }
         }
     }
 
     private struct PullRequestOpenIcon: View {
         let color: Color
-        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+        let uiScaleFactor: Double
+        private static let strokeLineWidth: CGFloat = 1.2
         private static let nodeDiameter: CGFloat = 3.0
         private static let frameSize: CGFloat = 13
+
+        private var stroke: StrokeStyle {
+            StrokeStyle(
+                lineWidth: UIScaleSettings.scaled(Self.strokeLineWidth, by: uiScaleFactor),
+                lineCap: .round,
+                lineJoin: .round
+            )
+        }
+
+        private func scaled(_ value: CGFloat) -> CGFloat {
+            UIScaleSettings.scaled(value, by: uiScaleFactor)
+        }
 
         var body: some View {
             ZStack {
                 Path { path in
-                    path.move(to: CGPoint(x: 3.0, y: 4.8))
-                    path.addLine(to: CGPoint(x: 3.0, y: 9.2))
+                    path.move(to: CGPoint(x: scaled(3.0), y: scaled(4.8)))
+                    path.addLine(to: CGPoint(x: scaled(3.0), y: scaled(9.2)))
 
-                    path.move(to: CGPoint(x: 4.8, y: 3.0))
-                    path.addLine(to: CGPoint(x: 9.4, y: 3.0))
-                    path.addLine(to: CGPoint(x: 11.0, y: 4.6))
-                    path.addLine(to: CGPoint(x: 11.0, y: 9.2))
+                    path.move(to: CGPoint(x: scaled(4.8), y: scaled(3.0)))
+                    path.addLine(to: CGPoint(x: scaled(9.4), y: scaled(3.0)))
+                    path.addLine(to: CGPoint(x: scaled(11.0), y: scaled(4.6)))
+                    path.addLine(to: CGPoint(x: scaled(11.0), y: scaled(9.2)))
                 }
-                .stroke(color, style: Self.stroke)
+                .stroke(color, style: stroke)
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 3.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(3.0), y: scaled(3.0))
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 11.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(3.0), y: scaled(11.0))
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 11.0, y: 11.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(11.0), y: scaled(11.0))
             }
-            .frame(width: Self.frameSize, height: Self.frameSize)
+            .frame(width: scaled(Self.frameSize), height: scaled(Self.frameSize))
         }
     }
 
     private struct PullRequestMergedIcon: View {
         let color: Color
-        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+        let uiScaleFactor: Double
+        private static let strokeLineWidth: CGFloat = 1.2
         private static let nodeDiameter: CGFloat = 3.0
         private static let frameSize: CGFloat = 13
+
+        private var stroke: StrokeStyle {
+            StrokeStyle(
+                lineWidth: UIScaleSettings.scaled(Self.strokeLineWidth, by: uiScaleFactor),
+                lineCap: .round,
+                lineJoin: .round
+            )
+        }
+
+        private func scaled(_ value: CGFloat) -> CGFloat {
+            UIScaleSettings.scaled(value, by: uiScaleFactor)
+        }
 
         var body: some View {
             ZStack {
                 Path { path in
-                    path.move(to: CGPoint(x: 4.6, y: 4.6))
-                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
-                    path.addLine(to: CGPoint(x: 9.2, y: 7.0))
+                    path.move(to: CGPoint(x: scaled(4.6), y: scaled(4.6)))
+                    path.addLine(to: CGPoint(x: scaled(7.1), y: scaled(7.0)))
+                    path.addLine(to: CGPoint(x: scaled(9.2), y: scaled(7.0)))
 
-                    path.move(to: CGPoint(x: 4.6, y: 9.4))
-                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
+                    path.move(to: CGPoint(x: scaled(4.6), y: scaled(9.4)))
+                    path.addLine(to: CGPoint(x: scaled(7.1), y: scaled(7.0)))
                 }
-                .stroke(color, style: Self.stroke)
+                .stroke(color, style: stroke)
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 3.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(3.0), y: scaled(3.0))
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 11.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(3.0), y: scaled(11.0))
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 11.0, y: 7.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(11.0), y: scaled(7.0))
             }
-            .frame(width: Self.frameSize, height: Self.frameSize)
+            .frame(width: scaled(Self.frameSize), height: scaled(Self.frameSize))
         }
     }
 
@@ -15125,7 +15167,7 @@ private struct SidebarWorkspaceDescriptionText: View {
                 Text(markdown)
             }
         }
-        .font(.system(size: 10.5))
+        .cmuxFont(size: 10.5)
         .foregroundColor(foregroundColor)
         .multilineTextAlignment(.leading)
         .fixedSize(horizontal: false, vertical: true)
@@ -15210,7 +15252,7 @@ private struct SidebarMetadataRows: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 10, weight: .semibold))
+                .cmuxFont(size: 10, weight: .semibold)
                 .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -15237,6 +15279,8 @@ private struct SidebarMetadataRows: View {
 }
 
 private struct SidebarMetadataEntryRow: View {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     let entry: SidebarStatusEntry
     let isActive: Bool
     let activeForegroundColor: Color
@@ -15273,7 +15317,7 @@ private struct SidebarMetadataEntryRow: View {
                 .truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .font(.system(size: 10))
+        .font(.system(size: UIScaleSettings.scaled(10, by: uiScaleFactor)))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -15297,12 +15341,12 @@ private struct SidebarMetadataEntryRow: View {
         if iconRaw.hasPrefix("emoji:") {
             let value = String(iconRaw.dropFirst("emoji:".count))
             guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).font(.system(size: 9)))
+            return AnyView(Text(value).font(.system(size: UIScaleSettings.scaled(9, by: uiScaleFactor))))
         }
         if iconRaw.hasPrefix("text:") {
             let value = String(iconRaw.dropFirst("text:".count))
             guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).font(.system(size: 8, weight: .semibold)))
+            return AnyView(Text(value).font(.system(size: UIScaleSettings.scaled(8, by: uiScaleFactor), weight: .semibold)))
         }
         let symbolName: String
         if iconRaw.hasPrefix("sf:") {
@@ -15311,7 +15355,7 @@ private struct SidebarMetadataEntryRow: View {
             symbolName = iconRaw
         }
         guard !symbolName.isEmpty else { return nil }
-        return AnyView(Image(systemName: symbolName).font(.system(size: 8, weight: .medium)))
+        return AnyView(Image(systemName: symbolName).font(.system(size: UIScaleSettings.scaled(8, by: uiScaleFactor), weight: .medium)))
     }
 
     @ViewBuilder
@@ -15363,7 +15407,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 10, weight: .semibold))
+                .cmuxFont(size: 10, weight: .semibold)
                 .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -15398,7 +15442,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
                     .foregroundColor(foregroundColor)
             }
         }
-        .font(.system(size: 10))
+        .cmuxFont(size: 10)
         .multilineTextAlignment(.leading)
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())

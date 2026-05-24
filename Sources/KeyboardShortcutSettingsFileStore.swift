@@ -29,6 +29,11 @@ final class CmuxSettingsFileStore {
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private static let importedManagedDefaultsDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
     fileprivate static let socketPasswordBackupIdentifier = "automation.socketPassword"
+    // Keep debounced app.uiScale writes ordered after they leave the main actor.
+    private static let appUIScaleWriteQueue = DispatchQueue(
+        label: "ai.manaflow.cmux.app-ui-scale-writes",
+        qos: .utility
+    )
 
     static var defaultPrimaryPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -179,6 +184,86 @@ final class CmuxSettingsFileStore {
 
     func settingsFileDisplayPath() -> String {
         (primaryPath as NSString).abbreviatingWithTildeInPath
+    }
+
+    func writeAppUIScaleOffMain(
+        _ uiScale: Double,
+        shouldWrite: @escaping @Sendable () -> Bool = { true }
+    ) async throws {
+        let primaryPath = primaryPath
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            Self.appUIScaleWriteQueue.async {
+                do {
+                    guard shouldWrite() else {
+                        throw CancellationError()
+                    }
+                    try Self.writeAppUIScale(
+                        uiScale,
+                        primaryPath: primaryPath,
+                        fileManager: .default,
+                        shouldWrite: shouldWrite
+                    )
+                    continuation.resume(returning: ())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    func writeAppUIScale(_ uiScale: Double) throws {
+        try Self.writeAppUIScale(
+            uiScale,
+            primaryPath: primaryPath,
+            fileManager: fileManager
+        )
+    }
+
+    private static func writeAppUIScale(
+        _ uiScale: Double,
+        primaryPath: String,
+        fileManager: FileManager,
+        shouldWrite: () -> Bool = { true }
+    ) throws {
+        let fileURL = URL(fileURLWithPath: primaryPath)
+        try fileManager.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o755]
+        )
+        let data = try settingsFileDataForEditing(at: fileURL)
+        let decodedSource = try JSONCParser.sourceString(from: data)
+        let source = decodedSource.hasPrefix("\u{feff}") ? String(decodedSource.dropFirst()) : decodedSource
+        let updated = try CmuxSettingsJSONCEditor.updatingMember(
+            in: source.isEmpty ? "{}" : source,
+            keyPath: ["app", "uiScale"],
+            valueText: String(UIScaleSettings.roundedForPersistence(uiScale))
+        )
+        guard shouldWrite() else {
+            throw CancellationError()
+        }
+        try Data(updated.utf8).write(to: fileURL, options: [.atomic])
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+    }
+
+    private static func settingsFileDataForEditing(at fileURL: URL) throws -> Data {
+        do {
+            return try Data(contentsOf: fileURL)
+        } catch {
+            guard Self.isMissingFileError(error) else {
+                throw error
+            }
+            return Data("{}".utf8)
+        }
+    }
+
+    private static func isMissingFileError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == NSCocoaErrorDomain else {
+            return false
+        }
+        return nsError.code == NSFileNoSuchFileError ||
+            nsError.code == NSFileReadNoSuchFileError
     }
 
     private func bootstrapPrimaryTemplateIfNeeded() {
@@ -382,6 +467,14 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["menuBarOnly"]) {
             snapshot.managedUserDefaults[MenuBarOnlySettings.menuBarOnlyKey] = .bool(value)
+        }
+        if let value = jsonDouble(section["uiScale"]) {
+            let clamped = UIScaleSettings.clamped(value)
+            snapshot.managedUserDefaults[UIScaleSettings.userDefaultsKey] = .double(
+                UIScaleSettings.settingsFileManagedValue(clamped)
+            )
+        } else if section.keys.contains("uiScale") {
+            logInvalid("app.uiScale", sourcePath: sourcePath)
         }
         if let raw = jsonString(section["newWorkspacePlacement"]) {
             guard let placement = NewWorkspacePlacement(rawValue: raw) else {
@@ -1099,17 +1192,17 @@ final class CmuxSettingsFileStore {
                 didMutateStoredValue = true
             }
         case .bool(let value):
-            if defaults.object(forKey: defaultsKey) as? Bool != value {
+            if currentBoolUserDefaultsValue(for: defaultsKey, defaults: defaults) != value {
                 defaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .int(let value):
-            if defaults.object(forKey: defaultsKey) as? Int != value {
+            if currentIntUserDefaultsValue(for: defaultsKey, defaults: defaults) != value {
                 defaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .double(let value):
-            if defaults.object(forKey: defaultsKey) as? Double != value {
+            if currentDoubleUserDefaultsValue(for: defaultsKey, defaults: defaults) != value {
                 defaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
@@ -1134,6 +1227,48 @@ final class CmuxSettingsFileStore {
             return managedDefaultSideEffects(for: defaultsKey)
         }
         return ManagedDefaultBatchSideEffects()
+    }
+
+    private func currentBoolUserDefaultsValue(
+        for defaultsKey: String,
+        defaults: UserDefaults
+    ) -> Bool? {
+        guard let object = defaults.object(forKey: defaultsKey) else { return nil }
+        if let value = object as? Bool {
+            return value
+        }
+        if let number = object as? NSNumber {
+            return number.boolValue
+        }
+        return nil
+    }
+
+    private func currentIntUserDefaultsValue(
+        for defaultsKey: String,
+        defaults: UserDefaults
+    ) -> Int? {
+        guard let object = defaults.object(forKey: defaultsKey) else { return nil }
+        if let value = object as? Int {
+            return value
+        }
+        if let number = object as? NSNumber {
+            return number.intValue
+        }
+        return nil
+    }
+
+    private func currentDoubleUserDefaultsValue(
+        for defaultsKey: String,
+        defaults: UserDefaults
+    ) -> Double? {
+        guard let object = defaults.object(forKey: defaultsKey) else { return nil }
+        if let value = object as? Double {
+            return value
+        }
+        if let number = object as? NSNumber {
+            return number.doubleValue
+        }
+        return nil
     }
 
     private func applyManagedUserDefaultsValue(
@@ -1169,19 +1304,19 @@ final class CmuxSettingsFileStore {
         var didMutateStoredValue = false
         switch value {
         case .bool(let next):
-            let current = defaults.object(forKey: defaultsKey) as? Bool
+            let current = currentBoolUserDefaultsValue(for: defaultsKey, defaults: defaults)
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .int(let next):
-            let current = defaults.object(forKey: defaultsKey) as? Int
+            let current = currentIntUserDefaultsValue(for: defaultsKey, defaults: defaults)
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .double(let next):
-            let current = defaults.object(forKey: defaultsKey) as? Double
+            let current = currentDoubleUserDefaultsValue(for: defaultsKey, defaults: defaults)
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
                 didMutateStoredValue = true
@@ -1283,13 +1418,19 @@ final class CmuxSettingsFileStore {
     ) -> ManagedSettingsValue? {
         switch value {
         case .bool:
-            guard let current = defaults.object(forKey: defaultsKey) as? Bool else { return nil }
+            guard let current = currentBoolUserDefaultsValue(for: defaultsKey, defaults: defaults) else {
+                return nil
+            }
             return .bool(current)
         case .int:
-            guard let current = defaults.object(forKey: defaultsKey) as? Int else { return nil }
+            guard let current = currentIntUserDefaultsValue(for: defaultsKey, defaults: defaults) else {
+                return nil
+            }
             return .int(current)
         case .double:
-            guard let current = defaults.object(forKey: defaultsKey) as? Double else { return nil }
+            guard let current = currentDoubleUserDefaultsValue(for: defaultsKey, defaults: defaults) else {
+                return nil
+            }
             return .double(current)
         case .string:
             guard let current = defaults.string(forKey: defaultsKey) else { return nil }

@@ -50,7 +50,7 @@ enum JSONCParser {
         throw JSONCError.invalidTextEncoding
     }
 
-    private static func sourceString(from data: Data) throws -> String {
+    static func sourceString(from data: Data) throws -> String {
         try source(data: data).text
     }
 

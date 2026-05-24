@@ -194,13 +194,15 @@ final class SessionIndexViewTests: XCTestCase {
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil
+            onResume: nil,
+            uiScaleFactor: UIScaleSettings.defaultValue
         )
         coordinator.update(
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil
+            onResume: nil,
+            uiScaleFactor: UIScaleSettings.defaultValue
         )
 
         XCTAssertEqual(coordinator.debugRefreshContentCallCount, 0)
@@ -234,7 +236,8 @@ final class SessionIndexViewTests: XCTestCase {
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil
+            onResume: nil,
+            uiScaleFactor: UIScaleSettings.defaultValue
         )
         XCTAssertEqual(coordinator.debugRefreshContentCallCount, 0)
 
@@ -248,7 +251,8 @@ final class SessionIndexViewTests: XCTestCase {
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil
+            onResume: nil,
+            uiScaleFactor: UIScaleSettings.defaultValue
         )
 
         XCTAssertEqual(coordinator.debugRefreshContentCallCount, 1)

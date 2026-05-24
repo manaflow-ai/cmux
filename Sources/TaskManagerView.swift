@@ -41,7 +41,7 @@ struct CmuxTaskManagerView: View {
     private var toolbar: some View {
         HStack(spacing: 12) {
             Text(String(localized: "taskManager.title", defaultValue: "Task Manager"))
-                .font(.title3.weight(.semibold))
+                .cmuxFont(size: 20, weight: .semibold, relativeTo: .title3)
 
             if model.isRefreshing || model.isInitialLoading {
                 ProgressView()
@@ -104,10 +104,10 @@ struct CmuxTaskManagerView: View {
     private func metric(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.caption)
+                .cmuxFont(size: 10, relativeTo: .caption)
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(.body, design: .monospaced).weight(.semibold))
+                .cmuxFont(size: 13, weight: .semibold, design: .monospaced, relativeTo: .body)
                 .monospacedDigit()
         }
     }
@@ -139,7 +139,7 @@ struct CmuxTaskManagerView: View {
                 alignment: .trailing
             )
         }
-        .font(.system(size: 11, weight: .semibold))
+        .cmuxFont(size: 11, weight: .semibold, relativeTo: .caption)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
         .padding(.vertical, 5)
@@ -312,7 +312,7 @@ private struct CmuxTaskManagerSectionHeaderView: View, Equatable {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 11, weight: .semibold))
+            .cmuxFont(size: 11, weight: .semibold, relativeTo: .caption)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
@@ -328,7 +328,7 @@ private struct CmuxTaskManagerLoadingView: View {
                 .controlSize(.regular)
                 .accessibilityLabel(String(localized: "taskManager.loading.title", defaultValue: "Loading resource usage"))
             Text(String(localized: "taskManager.loading.title", defaultValue: "Loading resource usage"))
-                .font(.headline)
+                .cmuxFont(size: 13, weight: .semibold, relativeTo: .headline)
                 .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -343,9 +343,9 @@ private struct CmuxTaskManagerMessageView: View {
     var body: some View {
         VStack(spacing: 8) {
             Text(title)
-                .font(.headline)
+                .cmuxFont(size: 13, weight: .semibold, relativeTo: .headline)
             Text(detail)
-                .font(.callout)
+                .cmuxFont(size: 12, relativeTo: .callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
@@ -435,11 +435,11 @@ struct CmuxTaskManagerRowView: View, Equatable {
                 rowIcon
                 VStack(alignment: .leading, spacing: 0) {
                     Text(row.title)
-                        .font(.system(size: 12.5))
+                        .cmuxFont(size: 12.5, relativeTo: .body)
                         .lineLimit(1)
                     if !row.detail.isEmpty {
                         Text(row.detail)
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11, relativeTo: .caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -454,7 +454,7 @@ struct CmuxTaskManagerRowView: View, Equatable {
             Text("\(row.resources.processCount)")
                 .frame(width: 70, alignment: .trailing)
         }
-        .font(.system(size: 12.5, design: .default))
+        .cmuxFont(size: 12.5, relativeTo: .body)
         .monospacedDigit()
         .padding(.horizontal, 16)
         .padding(.vertical, 3)
@@ -473,7 +473,7 @@ struct CmuxTaskManagerRowView: View, Equatable {
         } else {
             Image(systemName: row.kind.systemImage)
                 .foregroundStyle(row.kind.tint)
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .frame(width: 14)
         }
     }

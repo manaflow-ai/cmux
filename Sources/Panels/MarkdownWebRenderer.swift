@@ -255,7 +255,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 "--bgColor-neutral-muted": theme.neutralMutedBackground,
                 "--borderColor-default": theme.border,
                 "--borderColor-muted": theme.mutedBorder,
-                "--borderColor-neutral-muted": theme.mutedBorder
+                "--borderColor-neutral-muted": theme.mutedBorder,
+                "--cmux-base-font-size": theme.baseFontSize
             ]
             guard let data = try? JSONSerialization.data(withJSONObject: payload),
                   let json = String(data: data, encoding: .utf8) else { return }
@@ -266,6 +267,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
               Object.keys(vars).forEach(function(name) {
                 content.style.setProperty(name, vars[name]);
               });
+              content.style.fontSize = vars["--cmux-base-font-size"];
               content.style.background = 'transparent';
               if (window.__cmuxApplyTheme) { window.__cmuxApplyTheme(); }
             })(\(json));

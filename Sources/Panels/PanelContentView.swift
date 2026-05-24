@@ -115,6 +115,8 @@ struct PanelContentView: View {
 }
 
 struct PanelFilePathHeader<TrailingContent: View>: View {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     let iconSystemName: String
     let filePath: String
     let foregroundColor: NSColor
@@ -124,18 +126,19 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
         HStack(spacing: 8) {
             Image(systemName: iconSystemName)
                 .foregroundStyle(.secondary)
-                .frame(width: 16)
+                .font(.system(size: UIScaleSettings.scaled(12, by: uiScaleFactor)))
+                .frame(width: UIScaleSettings.scaled(16, by: uiScaleFactor))
             Text(filePath)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: UIScaleSettings.scaled(11, by: uiScaleFactor), design: .monospaced))
                 .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
-            Spacer(minLength: 8)
+            Spacer(minLength: UIScaleSettings.scaled(8, by: uiScaleFactor))
             trailingContent()
         }
-        .padding(.horizontal, 12)
-        .frame(height: 30)
+        .padding(.horizontal, UIScaleSettings.scaled(12, by: uiScaleFactor))
+        .frame(height: UIScaleSettings.scaled(30, by: uiScaleFactor))
         .background(Color.clear)
     }
 }
@@ -159,14 +162,23 @@ struct PanelHeaderIconButton: View {
 }
 
 struct PanelHeaderIconGlyph: View {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     let systemName: String
 
     var body: some View {
         Image(systemName: systemName)
             .resizable()
             .scaledToFit()
-            .frame(width: 13, height: 13)
-            .frame(width: 20, height: 20, alignment: .center)
+            .frame(
+                width: UIScaleSettings.scaled(13, by: uiScaleFactor),
+                height: UIScaleSettings.scaled(13, by: uiScaleFactor)
+            )
+            .frame(
+                width: UIScaleSettings.scaled(20, by: uiScaleFactor),
+                height: UIScaleSettings.scaled(20, by: uiScaleFactor),
+                alignment: .center
+            )
             .contentShape(Rectangle())
     }
 }

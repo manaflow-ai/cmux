@@ -38,8 +38,12 @@ struct MarkdownWebTheme: Equatable {
     let neutralMutedBackground: String
     let border: String
     let mutedBorder: String
+    let baseFontSize: String
 
-    static func resolve(backgroundColor: NSColor) -> MarkdownWebTheme {
+    static func resolve(
+        backgroundColor: NSColor,
+        uiScaleFactor: Double = UIScaleSettings.defaultValue
+    ) -> MarkdownWebTheme {
         let base = backgroundColor.markdownOpaqueSRGB
         let isDark = !base.isLightColor
         let overlayColor: NSColor = isDark ? .white : .black
@@ -61,7 +65,8 @@ struct MarkdownWebTheme: Equatable {
             mutedBackground: muted.markdownCSSColor,
             neutralMutedBackground: neutralMuted.markdownCSSColor,
             border: border.markdownCSSColor,
-            mutedBorder: border.withAlphaComponent(border.alphaComponent * 0.70).markdownCSSColor
+            mutedBorder: border.withAlphaComponent(border.alphaComponent * 0.70).markdownCSSColor,
+            baseFontSize: "\(UIScaleSettings.scaled(16, by: uiScaleFactor))px"
         )
     }
 }

@@ -31,6 +31,8 @@ struct ShortcutHintPillBackground: View {
 
 /// Reusable shortcut hint pill that shows a keyboard shortcut string.
 struct ShortcutHintPill: View {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     let text: String
     var fontSize: CGFloat = 9
     var emphasis: Double = 1.0
@@ -49,7 +51,7 @@ struct ShortcutHintPill: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: fontSize, weight: .semibold, design: .rounded))
+            .font(.system(size: UIScaleSettings.scaled(fontSize, by: uiScaleFactor), weight: .semibold, design: .rounded))
             .monospacedDigit()
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)

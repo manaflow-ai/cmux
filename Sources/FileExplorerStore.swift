@@ -33,6 +33,10 @@ enum FileExplorerStyle: Int, CaseIterable {
         }
     }
 
+    func rowHeight(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(rowHeight, by: uiScaleFactor)
+    }
+
     var indentation: CGFloat {
         switch self {
         case .liquidGlass: return 16
@@ -43,6 +47,10 @@ enum FileExplorerStyle: Int, CaseIterable {
         }
     }
 
+    func indentation(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(indentation, by: uiScaleFactor)
+    }
+
     var iconSize: CGFloat {
         switch self {
         case .liquidGlass: return 16
@@ -51,6 +59,10 @@ enum FileExplorerStyle: Int, CaseIterable {
         case .proStudio: return 18
         case .finder: return 18
         }
+    }
+
+    func iconSize(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(iconSize, by: uiScaleFactor)
     }
 
     var iconWeight: NSFont.Weight {
@@ -73,6 +85,16 @@ enum FileExplorerStyle: Int, CaseIterable {
         }
     }
 
+    func nameFont(uiScaleFactor: Double) -> NSFont {
+        switch self {
+        case .liquidGlass: return .cmuxSystemFont(ofSize: 13, weight: .medium, uiScaleFactor: uiScaleFactor)
+        case .highDensity: return .cmuxSystemFont(ofSize: 11, weight: .regular, uiScaleFactor: uiScaleFactor)
+        case .terminalStealth: return .cmuxMonospacedSystemFont(ofSize: 12, weight: .regular, uiScaleFactor: uiScaleFactor)
+        case .proStudio: return .cmuxSystemFont(ofSize: 14, weight: .semibold, uiScaleFactor: uiScaleFactor)
+        case .finder: return .cmuxSystemFont(ofSize: 13, weight: .regular, uiScaleFactor: uiScaleFactor)
+        }
+    }
+
     var iconToTextSpacing: CGFloat {
         switch self {
         case .liquidGlass: return 8
@@ -81,6 +103,10 @@ enum FileExplorerStyle: Int, CaseIterable {
         case .proStudio: return 12
         case .finder: return 6
         }
+    }
+
+    func iconToTextSpacing(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(iconToTextSpacing, by: uiScaleFactor)
     }
 
     var selectionInset: CGFloat {

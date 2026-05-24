@@ -20,7 +20,8 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.taskManager")
         window.title = String(localized: "taskManager.windowTitle", defaultValue: "Task Manager")
         window.center()
-        window.contentView = NSHostingView(rootView: CmuxTaskManagerView(model: model))
+        let hostingView = NSHostingView(rootView: TaskManagerRootView(model: model))
+        window.contentView = hostingView
         AppDelegate.shared?.applyWindowDecorations(to: window)
         super.init(window: window)
         window.delegate = self
@@ -44,6 +45,18 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         model.stop()
+    }
+
+}
+
+private struct TaskManagerRootView: View {
+    @AppStorage(UIScaleSettings.userDefaultsKey) private var uiScaleRaw = UIScaleSettings.defaultValue
+
+    let model: CmuxTaskManagerModel
+
+    var body: some View {
+        CmuxTaskManagerView(model: model)
+            .environment(\.uiScaleFactor, UIScaleSettings.clamped(uiScaleRaw))
     }
 }
 

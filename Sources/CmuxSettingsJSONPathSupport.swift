@@ -52,6 +52,7 @@ extension CmuxSettingsFileStore {
         "app.appearance",
         "app.appIcon",
         "app.menuBarOnly",
+        "app.uiScale",
         "app.newWorkspacePlacement",
         "app.workspaceInheritWorkingDirectory",
         "app.minimalMode",

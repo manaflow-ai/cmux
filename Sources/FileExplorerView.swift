@@ -118,6 +118,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> FileExplorerContainerView {
         let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
+        container.updateUIScale(context.environment.uiScaleFactor)
         context.coordinator.containerView = container
         context.coordinator.onContainerChange?(container)
         return container
@@ -131,6 +132,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.onFocus = onFocus
         context.coordinator.onContainerChange = onContainerChange
         context.coordinator.onContainerChange?(container)
+        container.updateUIScale(context.environment.uiScaleFactor)
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
@@ -153,6 +155,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         var onContainerChange: ((FileExplorerContainerView?) -> Void)?
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
+        var uiScaleFactor = UIScaleSettings.defaultValue
         private var lastRootNodeCount: Int = -1
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
@@ -180,7 +183,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 guard let self, let outlineView = self.outlineView else { return }
                 let style = FileExplorerStyle.current
                 self.withProgrammaticOutlineUpdate {
-                    outlineView.indentationPerLevel = style.indentation
+                    outlineView.indentationPerLevel = style.indentation(uiScaleFactor: self.uiScaleFactor)
                     outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
                     outlineView.reloadData()
                     self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
@@ -284,6 +287,16 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
+        func reloadOutlineAfterUIScaleChange() {
+            guard let outlineView else { return }
+            withProgrammaticOutlineUpdate {
+                outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
+                outlineView.reloadData()
+                restoreExpansionState(store.expandedPaths, in: outlineView)
+                applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
+            }
+        }
+
         // MARK: - NSOutlineViewDataSource
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -324,7 +337,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
 
             let gitStatus = store.gitStatusByPath[node.path]
-            cellView.configure(with: node, gitStatus: gitStatus)
+            cellView.configure(with: node, gitStatus: gitStatus, uiScaleFactor: uiScaleFactor)
             cellView.onHover = { [weak self] isHovering in
                 guard let self else { return }
                 if isHovering {
@@ -378,7 +391,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            FileExplorerStyle.current.rowHeight
+            FileExplorerStyle.current.rowHeight(uiScaleFactor: uiScaleFactor)
         }
 
         // MARK: - Path-Owned Navigation
@@ -716,6 +729,7 @@ final class FileExplorerContainerView: NSView {
     private let loadingIndicator: NSProgressIndicator
     private let searchController: any FileSearchControlling
     private var searchBarHeightConstraint: NSLayoutConstraint!
+    private var searchFieldHeightConstraint: NSLayoutConstraint!
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
@@ -736,6 +750,7 @@ final class FileExplorerContainerView: NSView {
     private let coordinator: FileExplorerPanelView.Coordinator
     private let searchDebounceDelayMilliseconds = 200
     private let searchBarVisibleHeight: CGFloat = 48
+    private var uiScaleFactor = UIScaleSettings.defaultValue
 
 #if DEBUG
     private var debugLastSearchTextChangeUptime: TimeInterval = 0
@@ -779,7 +794,7 @@ final class FileExplorerContainerView: NSView {
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.setAccessibilityIdentifier("FileExplorerSearchField")
         searchField.placeholderString = String(localized: "fileExplorer.search.placeholder", defaultValue: "Search files")
-        searchField.font = .systemFont(ofSize: 12, weight: .regular)
+        searchField.font = .cmuxSystemFont(ofSize: 12, weight: .regular, uiScaleFactor: uiScaleFactor)
         searchField.focusRingType = .none
         searchField.cell?.usesSingleLineMode = true
         searchField.cell?.isScrollable = true
@@ -805,7 +820,7 @@ final class FileExplorerContainerView: NSView {
         searchBarView.addSubview(searchField)
 
         searchStatusLabel.translatesAutoresizingMaskIntoConstraints = false
-        searchStatusLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        searchStatusLabel.font = .cmuxSystemFont(ofSize: 11, weight: .medium, uiScaleFactor: uiScaleFactor)
         searchStatusLabel.textColor = .secondaryLabelColor
         searchStatusLabel.lineBreakMode = .byTruncatingTail
         searchStatusLabel.maximumNumberOfLines = 1
@@ -816,7 +831,7 @@ final class FileExplorerContainerView: NSView {
 
         // Empty state label
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        emptyLabel.font = .systemFont(ofSize: 13)
+        emptyLabel.font = .cmuxSystemFont(ofSize: 13, uiScaleFactor: uiScaleFactor)
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
         emptyLabel.isHidden = true
@@ -835,7 +850,7 @@ final class FileExplorerContainerView: NSView {
         outlineView.style = .plain
         outlineView.selectionHighlightStyle = .regular
         outlineView.rowSizeStyle = .default
-        outlineView.indentationPerLevel = FileExplorerStyle.current.indentation
+        outlineView.indentationPerLevel = FileExplorerStyle.current.indentation(uiScaleFactor: uiScaleFactor)
         outlineView.allowsMultipleSelection = true
         outlineView.autoresizesOutlineColumn = true
         outlineView.floatsGroupRows = false
@@ -879,7 +894,7 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.style = .plain
         searchResultsView.selectionHighlightStyle = .regular
         searchResultsView.backgroundColor = .clear
-        searchResultsView.rowHeight = 46
+        searchResultsView.rowHeight = UIScaleSettings.scaled(46, by: uiScaleFactor)
         searchResultsView.allowsMultipleSelection = true
         searchResultsView.intercellSpacing = NSSize(width: 0, height: 0)
         searchResultsView.onCancel = { [weak self] in
@@ -927,6 +942,7 @@ final class FileExplorerContainerView: NSView {
         }
 
         searchBarHeightConstraint = searchBarView.heightAnchor.constraint(equalToConstant: 0)
+        searchFieldHeightConstraint = searchField.heightAnchor.constraint(equalToConstant: UIScaleSettings.scaled(24, by: uiScaleFactor))
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: topAnchor),
             headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -940,7 +956,7 @@ final class FileExplorerContainerView: NSView {
             searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: 8),
             searchField.trailingAnchor.constraint(equalTo: searchBarView.trailingAnchor, constant: -8),
             searchField.topAnchor.constraint(equalTo: searchBarView.topAnchor, constant: 4),
-            searchField.heightAnchor.constraint(equalToConstant: 24),
+            searchFieldHeightConstraint,
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
 
             searchStatusLabel.leadingAnchor.constraint(equalTo: searchField.leadingAnchor, constant: 4),
@@ -967,6 +983,24 @@ final class FileExplorerContainerView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateUIScale(_ scale: Double) {
+        let next = UIScaleSettings.clamped(scale)
+        guard abs(uiScaleFactor - next) > 0.0001 else { return }
+        uiScaleFactor = next
+        coordinator.uiScaleFactor = next
+        headerView.updateUIScale(next)
+        searchField.font = .cmuxSystemFont(ofSize: 12, weight: .regular, uiScaleFactor: next)
+        searchStatusLabel.font = .cmuxSystemFont(ofSize: 11, weight: .medium, uiScaleFactor: next)
+        emptyLabel.font = .cmuxSystemFont(ofSize: 13, uiScaleFactor: next)
+        outlineView.indentationPerLevel = FileExplorerStyle.current.indentation(uiScaleFactor: next)
+        searchResultsView.rowHeight = UIScaleSettings.scaled(46, by: next)
+        searchFieldHeightConstraint?.constant = UIScaleSettings.scaled(24, by: next)
+        updateSearchLayout()
+        coordinator.reloadOutlineAfterUIScaleChange()
+        searchResultsView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<searchResultsView.numberOfRows))
+        searchResultsView.reloadData()
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -1238,7 +1272,7 @@ final class FileExplorerContainerView: NSView {
         let effectiveIsLoading = isLoading ?? false
         let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
         searchBarView.isHidden = !showSearch
-        searchBarHeightConstraint.constant = showSearch ? searchBarVisibleHeight : 0
+        searchBarHeightConstraint.constant = showSearch ? UIScaleSettings.scaled(searchBarVisibleHeight, by: uiScaleFactor) : 0
         searchScrollView.isHidden = !showSearch
         scrollView.isHidden = showSearch || !effectiveHasContent || effectiveIsLoading
         needsLayout = true
@@ -1576,7 +1610,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        46
+        UIScaleSettings.scaled(46, by: uiScaleFactor)
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -1588,7 +1622,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         } else {
             cellView = FileExplorerSearchResultCellView(identifier: identifier)
         }
-        cellView.configure(with: searchSnapshot.results[row])
+        cellView.configure(with: searchSnapshot.results[row], uiScaleFactor: uiScaleFactor)
         return cellView
     }
 
@@ -1833,7 +1867,9 @@ private final class FileExplorerSearchResultCellView: NSTableCellView {
         ])
     }
 
-    func configure(with result: FileSearchResult) {
+    func configure(with result: FileSearchResult, uiScaleFactor: Double) {
+        pathLabel.font = .cmuxSystemFont(ofSize: 12, weight: .semibold, uiScaleFactor: uiScaleFactor)
+        previewLabel.font = .cmuxMonospacedSystemFont(ofSize: 11, weight: .regular, uiScaleFactor: uiScaleFactor)
         pathLabel.stringValue = "\(result.relativePath):\(result.lineNumber)"
         previewLabel.stringValue = result.preview.isEmpty ? " " : result.preview
         toolTip = "\(result.path):\(result.lineNumber):\(result.columnNumber)"
@@ -1846,8 +1882,12 @@ private final class FileExplorerSearchResultCellView: NSTableCellView {
 final class FileExplorerHeaderView: NSView {
     private let iconView = NSImageView()
     private let pathLabel = NSTextField(labelWithString: "")
+    private var iconWidthConstraint: NSLayoutConstraint!
+    private var iconHeightConstraint: NSLayoutConstraint!
     private var displayPath = ""
     private var quickSearchQuery: String?
+    private var uiScaleFactor = UIScaleSettings.defaultValue
+    private var headerHeightConstraint: NSLayoutConstraint!
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1863,7 +1903,7 @@ final class FileExplorerHeaderView: NSView {
         iconView.contentTintColor = .secondaryLabelColor
 
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        pathLabel.font = .cmuxSystemFont(ofSize: 11, weight: .medium, uiScaleFactor: uiScaleFactor)
         pathLabel.textColor = .secondaryLabelColor
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.maximumNumberOfLines = 1
@@ -1872,13 +1912,18 @@ final class FileExplorerHeaderView: NSView {
         addSubview(iconView)
         addSubview(pathLabel)
 
+        iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: UIScaleSettings.scaled(14, by: uiScaleFactor))
+        iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: UIScaleSettings.scaled(14, by: uiScaleFactor))
+        headerHeightConstraint = heightAnchor.constraint(
+            equalToConstant: UIScaleSettings.scaled(RightSidebarChromeMetrics.secondaryBarHeight, by: uiScaleFactor)
+        )
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
+            headerHeightConstraint,
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 14),
-            iconView.heightAnchor.constraint(equalToConstant: 14),
+            iconWidthConstraint,
+            iconHeightConstraint,
 
             pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
             pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -1897,9 +1942,21 @@ final class FileExplorerHeaderView: NSView {
         applyHeaderState()
     }
 
+    func updateUIScale(_ scale: Double) {
+        uiScaleFactor = UIScaleSettings.clamped(scale)
+        pathLabel.font = .cmuxSystemFont(ofSize: 11, weight: .medium, uiScaleFactor: uiScaleFactor)
+        iconWidthConstraint?.constant = UIScaleSettings.scaled(14, by: uiScaleFactor)
+        iconHeightConstraint?.constant = UIScaleSettings.scaled(14, by: uiScaleFactor)
+        headerHeightConstraint?.constant = UIScaleSettings.scaled(
+            RightSidebarChromeMetrics.secondaryBarHeight,
+            by: uiScaleFactor
+        )
+        applyHeaderState()
+    }
+
     private func applyHeaderState() {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+        let config = NSImage.SymbolConfiguration(pointSize: UIScaleSettings.scaled(11, by: uiScaleFactor), weight: .regular)
         if let quickSearchQuery {
             iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
                 .withSymbolConfiguration(config)
@@ -1994,29 +2051,30 @@ final class FileExplorerCellView: NSTableCellView {
         nameLabelTrailingToLoadingConstraint.isActive = false
     }
 
-    func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil) {
+    func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil, uiScaleFactor: Double) {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         let style = FileExplorerStyle.current
         nameLabel.stringValue = node.name
-        nameLabel.font = style.nameFont
-        iconWidthConstraint.constant = style.iconSize
-        iconHeightConstraint.constant = style.iconSize
-        iconToTextConstraint.constant = style.iconToTextSpacing
+        nameLabel.font = style.nameFont(uiScaleFactor: uiScaleFactor)
+        let iconSize = style.iconSize(uiScaleFactor: uiScaleFactor)
+        iconWidthConstraint.constant = iconSize
+        iconHeightConstraint.constant = iconSize
+        iconToTextConstraint.constant = style.iconToTextSpacing(uiScaleFactor: uiScaleFactor)
 
         if style == .finder {
             if node.isDirectory {
                 let folderIcon = NSWorkspace.shared.icon(for: .folder)
-                folderIcon.size = NSSize(width: style.iconSize, height: style.iconSize)
+                folderIcon.size = NSSize(width: iconSize, height: iconSize)
                 iconView.image = folderIcon
                 iconView.contentTintColor = nil
             } else {
                 let fileIcon = NSWorkspace.shared.icon(forFileType: (node.name as NSString).pathExtension)
-                fileIcon.size = NSSize(width: style.iconSize, height: style.iconSize)
+                fileIcon.size = NSSize(width: iconSize, height: iconSize)
                 iconView.image = fileIcon
                 iconView.contentTintColor = nil
             }
         } else {
-            let symbolConfig = NSImage.SymbolConfiguration(pointSize: style.iconSize, weight: style.iconWeight)
+            let symbolConfig = NSImage.SymbolConfiguration(pointSize: iconSize, weight: style.iconWeight)
             if node.isDirectory {
                 iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
                     .withSymbolConfiguration(symbolConfig)

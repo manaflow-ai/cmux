@@ -26,6 +26,30 @@ enum RightSidebarChromeMetrics {
     static let controlHeight: CGFloat = secondaryBarHeight - (barVerticalPadding * 2)
     static let controlHorizontalPadding: CGFloat = 8
     static let controlCornerRadius: CGFloat = 5
+
+    static func scaledBarHeight(_ height: CGFloat, uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(height, by: uiScaleFactor)
+    }
+
+    static func barHorizontalPadding(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(barHorizontalPadding, by: uiScaleFactor)
+    }
+
+    static func barVerticalPadding(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(barVerticalPadding, by: uiScaleFactor)
+    }
+
+    static func controlHeight(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(controlHeight, by: uiScaleFactor)
+    }
+
+    static func controlHorizontalPadding(_ padding: CGFloat, uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(padding, by: uiScaleFactor)
+    }
+
+    static func controlCornerRadius(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(controlCornerRadius, by: uiScaleFactor)
+    }
 }
 
 enum SidebarWorkspaceListMetrics {
