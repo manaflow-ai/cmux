@@ -1972,6 +1972,107 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(scpArgs.contains("-S"))
     }
 
+    func testDetectsForegroundEternalTerminalSessionForTTY() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "/opt/homebrew/bin/et",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedSSHSession(
+                destination: "lawrence@example.com",
+                port: nil,
+                identityFile: nil,
+                configFile: nil,
+                jumpHost: nil,
+                controlPath: nil,
+                useIPv4: false,
+                useIPv6: false,
+                forwardAgent: false,
+                compressionEnabled: false,
+                sshOptions: []
+            )
+        )
+    }
+
+    func testDetectsEternalTerminalSessionWithoutTreatingETPortAsSSHPort() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "-u", "lawrence",
+                    "-p", "2022",
+                    "--jport", "2023",
+                    "example.com:2024",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertNil(session?.port)
+
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertFalse(scpArgs.contains("-P"))
+        XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
+    }
+
+    func testDetectsEternalTerminalSessionSSHOptionsForSCP() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "--ssh-option", "Port=2200",
+                    "--ssh-option=IdentityFile=/Users/test/.ssh/id_ed25519",
+                    "--ssh-option", "ControlPath=/tmp/cmux-ssh-%C",
+                    "--ssh-option", "StrictHostKeyChecking=accept-new",
+                    "--jumphost", "bastion.example.com",
+                    "--command", "uptime",
+                    "-x",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedSSHSession(
+                destination: "lawrence@example.com",
+                port: 2200,
+                identityFile: "/Users/test/.ssh/id_ed25519",
+                configFile: nil,
+                jumpHost: "bastion.example.com",
+                controlPath: "/tmp/cmux-ssh-%C",
+                useIPv4: false,
+                useIPv6: false,
+                forwardAgent: false,
+                compressionEnabled: false,
+                sshOptions: [
+                    "StrictHostKeyChecking=accept-new",
+                ]
+            )
+        )
+    }
+
     func testDaemonTransportArgumentsReuseConfiguredControlPath() {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
