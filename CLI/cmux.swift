@@ -3535,6 +3535,7 @@ struct CMUXCLI {
                     for ws in workspaces {
                         let selected = (ws["selected"] as? Bool) == true
                         let handle = textHandle(ws, idFormat: idFormat)
+                        let indexTag = intFromAny(ws["index"]).map { "  [index=\($0)]" } ?? ""
                         let title = (ws["title"] as? String) ?? ""
                         let remoteTag: String = {
                             guard let remote = ws["remote"] as? [String: Any],
@@ -3548,7 +3549,7 @@ struct CMUXCLI {
                         let prefix = selected ? "* " : "  "
                         let selTag = selected ? "  [selected]" : ""
                         let titlePart = title.isEmpty ? "" : "  \(title)"
-                        print("\(prefix)\(handle)\(titlePart)\(remoteTag)\(selTag)")
+                        print("\(prefix)\(handle)\(indexTag)\(titlePart)\(remoteTag)\(selTag)")
                     }
                 }
             }
@@ -12188,8 +12189,12 @@ struct CMUXCLI {
             Flags:
               --window <id|ref|index>   Target window (default: caller/current window)
 
+            Text output shows the preferred `workspace:<n>` ref plus `index=<n>` for
+            the legacy zero-based bare numeric handle.
+
             Example:
               cmux list-workspaces
+              cmux select-workspace --workspace workspace:2
             """
         case "ssh":
             return """
@@ -12634,7 +12639,12 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Workspace to select (required)
               --window <id|ref|index>      Window context for workspace refs and indexes
 
+            Notes:
+              Bare numeric values are legacy zero-based indices.
+              Prefer the `workspace:<n>` refs shown by `cmux list-workspaces`.
+
             Example:
+              cmux list-workspaces
               cmux select-workspace --workspace workspace:2
               cmux select-workspace --workspace 0
             """
@@ -29460,6 +29470,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         Handle Inputs:
           Use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes where commands accept window, workspace, pane, or surface inputs.
           `tab-action` also accepts `tab:<n>` in addition to `surface:<n>`.
+          `cmux list-workspaces` text output shows the preferred `workspace:<n>` ref plus `index=<n>` for the legacy zero-based numeric handle.
           Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
 
         Socket Auth:
