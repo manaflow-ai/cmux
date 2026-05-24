@@ -499,6 +499,12 @@
 		B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000004 /* RightSidebarMode+Availability.swift */; };
 		B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */; };
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
+		A39310000000000000000001 /* GoalSupervisionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39310000000000000000002 /* GoalSupervisionPanelView.swift */; };
+		A39310000000000000000003 /* GoalSupervisionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39310000000000000000004 /* GoalSupervisionModels.swift */; };
+		A39310000000000000000005 /* GoalSupervisionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39310000000000000000006 /* GoalSupervisionStore.swift */; };
+		A39310000000000000000007 /* GoalSupervisionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39310000000000000000008 /* GoalSupervisionDetailView.swift */; };
+		A39310000000000000000009 /* GoalSupervisionNewGoalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3931000000000000000000A /* GoalSupervisionNewGoalView.swift */; };
+		A3931000000000000000000B /* GoalSupervisionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3931000000000000000000C /* GoalSupervisionStoreTests.swift */; };
 		FE0031A3 /* RightSidebarToolPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0030A3 /* RightSidebarToolPanel.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
 		FE003105 /* RovoDevIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003005 /* RovoDevIndex.swift */; };
@@ -1058,8 +1064,14 @@
 			B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRegisteredAgents.swift; sourceTree = "<group>"; };
 			B35750000000000000000005 /* VaultAgentProcessScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentProcessScanner.swift; sourceTree = "<group>"; };
 			FE003002 /* SessionIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexView.swift; sourceTree = "<group>"; };
-			FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
-			FE0030A3 /* RightSidebarToolPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToolPanel.swift; sourceTree = "<group>"; };
+		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
+		A39310000000000000000002 /* GoalSupervisionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSupervisionPanelView.swift; sourceTree = "<group>"; };
+		A39310000000000000000004 /* GoalSupervisionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSupervisionModels.swift; sourceTree = "<group>"; };
+		A39310000000000000000006 /* GoalSupervisionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSupervisionStore.swift; sourceTree = "<group>"; };
+		A39310000000000000000008 /* GoalSupervisionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSupervisionDetailView.swift; sourceTree = "<group>"; };
+		A3931000000000000000000A /* GoalSupervisionNewGoalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSupervisionNewGoalView.swift; sourceTree = "<group>"; };
+		A3931000000000000000000C /* GoalSupervisionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSupervisionStoreTests.swift; sourceTree = "<group>"; };
+		FE0030A3 /* RightSidebarToolPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToolPanel.swift; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
 		FE003005 /* RovoDevIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevIndex.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
@@ -1510,6 +1522,11 @@
 				B37A00000000000000000004 /* RightSidebarMode+Availability.swift */,
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
+				A39310000000000000000002 /* GoalSupervisionPanelView.swift */,
+				A39310000000000000000004 /* GoalSupervisionModels.swift */,
+				A39310000000000000000006 /* GoalSupervisionStore.swift */,
+				A39310000000000000000008 /* GoalSupervisionDetailView.swift */,
+				A3931000000000000000000A /* GoalSupervisionNewGoalView.swift */,
 				FE0030A3 /* RightSidebarToolPanel.swift */,
 				D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */,
 				D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */,
@@ -1648,6 +1665,7 @@
 				A11EAA000000000000000001 /* AppearanceSettingsTests.swift */,
 				6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */,
 				C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */,
+				A3931000000000000000000C /* GoalSupervisionStoreTests.swift */,
 				C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */,
 				B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */,
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
@@ -2266,6 +2284,11 @@
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
 				B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
+				A39310000000000000000001 /* GoalSupervisionPanelView.swift in Sources */,
+				A39310000000000000000003 /* GoalSupervisionModels.swift in Sources */,
+				A39310000000000000000005 /* GoalSupervisionStore.swift in Sources */,
+				A39310000000000000000007 /* GoalSupervisionDetailView.swift in Sources */,
+				A39310000000000000000009 /* GoalSupervisionNewGoalView.swift in Sources */,
 				FE0031A3 /* RightSidebarToolPanel.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */,
@@ -2445,6 +2468,7 @@
 				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
 				1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,
+				A3931000000000000000000B /* GoalSupervisionStoreTests.swift in Sources */,
 				C0DEF4120000000000000001 /* CommandPaletteSettingsToggleTests.swift in Sources */,
 				B37A0000000000000000000B /* FileExplorerStateModePersistenceTests.swift in Sources */,
 				CB23911D7E131E8FBC9B82B6 /* SidebarOrderingTests.swift in Sources */,

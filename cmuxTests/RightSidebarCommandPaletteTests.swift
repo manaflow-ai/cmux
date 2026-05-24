@@ -23,7 +23,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                     "Expected command palette contribution for \(mode.rawValue)"
                 )
 
-                XCTAssertEqual(contribution.title(context), mode.shortcutAction.label)
+                XCTAssertEqual(contribution.title(context), mode.commandPaletteTitle)
                 XCTAssertEqual(
                     contribution.subtitle(context),
                     String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")
@@ -35,7 +35,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            XCTAssertEqual(contributions.count, 4)
+            XCTAssertEqual(contributions.count, 5)
             XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
         }
@@ -55,6 +55,16 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 )
             }
         }
+    }
+
+    func testCommandPaletteRightSidebarToolPaneDescriptorsOnlyIncludePaneModes() {
+        let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+        let descriptorModes = descriptors.map(\.mode)
+
+        XCTAssertEqual(descriptorModes, RightSidebarMode.paneModes)
+        XCTAssertFalse(descriptorModes.contains(.goals))
+        XCTAssertFalse(descriptorModes.contains(.feed))
+        XCTAssertFalse(descriptorModes.contains(.dock))
     }
 
     func testCommandPaletteUnreadActionsUseConfigurableShortcutActions() {
