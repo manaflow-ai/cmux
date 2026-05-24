@@ -9595,9 +9595,12 @@ private func sidebarLatestNotificationText(
           let notification = notificationStore.latestNotification(forTabId: tabId) else {
         return nil
     }
-    let text = notification.body.isEmpty ? notification.title : notification.body
-    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
+    let trimmedBody = notification.body.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedBody.isEmpty {
+        return trimmedBody
+    }
+    let trimmedTitle = notification.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmedTitle.isEmpty ? nil : trimmedTitle
 }
 
 struct VerticalTabsSidebar: View {
@@ -14200,6 +14203,7 @@ private struct TabItemView: View, Equatable {
         contextMenuState.pendingWorkspaceSnapshot = nil
     }
 
+    @MainActor
     private func currentLivePresentation() -> SidebarTabItemPresentationSnapshot {
         SidebarTabItemPresentationSnapshot(
             tabId: tab.id,
