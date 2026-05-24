@@ -9,7 +9,6 @@ final class GlobalHotkeyPanelContentState {
     let sidebarSelectionState: SidebarSelectionState
     let fileExplorerState: FileExplorerState
     let cmuxConfigStore: CmuxConfigStore
-    private var didScheduleConfigLoad = false
 
     init(
         windowId: UUID = UUID(),
@@ -30,18 +29,7 @@ final class GlobalHotkeyPanelContentState {
         self.sidebarSelectionState = sidebarSelectionState ?? SidebarSelectionState()
         self.fileExplorerState = fileExplorerState ?? FileExplorerState()
         self.cmuxConfigStore = resolvedConfigStore
-    }
-
-    func scheduleConfigLoadAfterFirstDisplay() {
-        guard !didScheduleConfigLoad else { return }
-        didScheduleConfigLoad = true
-        cmuxConfigStore.wireDirectoryTracking(
-            tabManager: tabManager,
-            loadsInitialConfiguration: false
-        )
-        let cmuxConfigStore = cmuxConfigStore
-        DispatchQueue.main.async { [weak cmuxConfigStore] in
-            cmuxConfigStore?.loadAll()
-        }
+        resolvedConfigStore.wireDirectoryTracking(tabManager: resolvedTabManager)
+        resolvedConfigStore.loadAll()
     }
 }

@@ -57,4 +57,42 @@ final class GlobalHotkeyPanelControllerTests: XCTestCase {
         XCTAssertTrue(AppDelegate.MainWindowContextRole.standard.isSessionRestorable)
         XCTAssertFalse(AppDelegate.MainWindowContextRole.globalHotkeyPanel.isSessionRestorable)
     }
+
+    func testContentStateLoadsConfigurationDuringInitialization() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hotkey-config-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+
+        let configURL = tempDirectory.appendingPathComponent("cmux.json")
+        let configJSON = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "command": "echo hotkey" }
+              ]
+            }
+          }
+        }
+        """
+        try configJSON.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        XCTAssertEqual(store.configRevision, 0)
+
+        _ = GlobalHotkeyPanelContentState(
+            tabManager: TabManager(autoWelcomeIfNeeded: false),
+            cmuxConfigStore: store
+        )
+
+        XCTAssertGreaterThan(store.configRevision, 0)
+        XCTAssertEqual(store.surfaceTabBarButtonSourcePath, configURL.path)
+        XCTAssertEqual(store.surfaceTabBarButtons.first?.terminalCommand, "echo hotkey")
+    }
 }
