@@ -840,12 +840,12 @@ enum WorkspaceMountPolicy {
     }
 }
 
-struct WorkspaceSelectionChangeActions<WorkspaceHandoffState> {
-    let prepareWorkspaceHandoff: () -> WorkspaceHandoffState
+struct WorkspaceSelectionChangeActions<HandoffState> {
+    let prepareWorkspaceHandoff: () -> HandoffState
     let reconcileMountedWorkspaces: () -> Void
     let syncSidebarSelection: () -> Void
     let applyWindowBackground: () -> Void
-    let finishWorkspaceHandoff: (WorkspaceHandoffState) -> Void
+    let finishWorkspaceHandoff: (HandoffState) -> Void
     let syncShortcutHintEligibility: () -> Void
     let updateTitlebarText: () -> Void
 }
@@ -853,10 +853,10 @@ struct WorkspaceSelectionChangeActions<WorkspaceHandoffState> {
 enum WorkspaceSelectionChangeScheduler {
     typealias DeferredScheduler = (@escaping () -> Void) -> Void
 
-    static func handleSelectionChange<WorkspaceHandoffState>(
+    static func handleSelectionChange<HandoffState>(
         isCurrentSelection: @escaping () -> Bool = { true },
         scheduleDeferred: DeferredScheduler,
-        actions: WorkspaceSelectionChangeActions<WorkspaceHandoffState>
+        actions: WorkspaceSelectionChangeActions<HandoffState>
     ) {
         let handoffState = actions.prepareWorkspaceHandoff()
         actions.reconcileMountedWorkspaces()
@@ -3633,6 +3633,7 @@ struct ContentView: View {
 
         guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
             retiringWorkspaceId = nil
+            tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
             return WorkspaceHandoffStartPlan(
                 oldSelectedId: oldSelectedId,
                 newSelectedId: newSelectedId,
@@ -3653,7 +3654,6 @@ struct ContentView: View {
 
     private func finishWorkspaceHandoffStart(_ plan: WorkspaceHandoffStartPlan) {
         guard plan.requiresHandoff, let oldSelectedId = plan.oldSelectedId, let newSelectedId = plan.newSelectedId else {
-            tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
             return
         }
 
