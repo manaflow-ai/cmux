@@ -79,9 +79,7 @@ enum DiffReviewGitClient {
             in: repositoryRoot,
             arguments: ["rev-parse", "--verify", "HEAD"]
         )) != nil)
-        let untrackedPaths = selectedTarget == .workingTree
-            ? await fetchUntrackedPaths(repositoryRoot: repositoryRoot)
-            : []
+        let untrackedPaths = await fetchUntrackedPaths(repositoryRoot: repositoryRoot)
         let diffOutput = try await diffOutput(
             repositoryRoot: repositoryRoot,
             selectedTarget: selectedTarget,
@@ -116,13 +114,21 @@ enum DiffReviewGitClient {
                 ? ["diff", "--no-ext-diff", "--no-color", "--find-renames", "--unified=3", "HEAD", "--"]
                 : ["diff", "--no-ext-diff", "--no-color", "--find-renames", "--unified=3", "--"]
         case .branch(let branchName):
+            let mergeBase = try await runGit(
+                in: repositoryRoot,
+                arguments: ["merge-base", branchName, "HEAD"],
+                failureReason: .diffUnavailable
+            ).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !mergeBase.isEmpty else {
+                throw DiffReviewGitError.commandFailed(.diffUnavailable)
+            }
             trackedDiffArguments = [
                 "diff",
                 "--no-ext-diff",
                 "--no-color",
                 "--find-renames",
                 "--unified=3",
-                "\(branchName)...HEAD",
+                mergeBase,
                 "--",
             ]
         }
@@ -133,7 +139,7 @@ enum DiffReviewGitClient {
             acceptedStatuses: [0, 1],
             failureReason: .diffUnavailable
         ).stdout
-        guard selectedTarget == .workingTree, !untrackedPaths.isEmpty else {
+        guard !untrackedPaths.isEmpty else {
             return trackedOutput
         }
 
