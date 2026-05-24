@@ -1109,6 +1109,9 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        #if DEBUG
+        KeyboardShortcutSettings.shortcutLookupObserver = nil
+        #endif
         for action in touchedShortcutActions {
             if case let .some(.some(data)) = savedShortcutData[action] {
                 UserDefaults.standard.set(data, forKey: action.defaultsKey)
@@ -1153,6 +1156,25 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
         )
+    }
+
+    func testPlainTypingDoesNotLookUpModeShortcutBindings() {
+        #if DEBUG
+        var observedActions: [KeyboardShortcutSettings.Action] = []
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            observedActions.append(action)
+        }
+
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "a", modifiers: [], keyCode: 0))
+        )
+        XCTAssertTrue(
+            observedActions.isEmpty,
+            "Plain terminal typing must return before resolving right-sidebar shortcut bindings"
+        )
+        #else
+        XCTFail("shortcutLookupObserver is only available in DEBUG")
+        #endif
     }
 
     func testModeShortcutUsesConfiguredBindings() {
