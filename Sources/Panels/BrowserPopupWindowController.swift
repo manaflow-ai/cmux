@@ -441,13 +441,13 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         mimeType: String?,
         originatingURL url: URL?
     ) {
-        _ = mimeType
 #if DEBUG
         cmuxDebugLog("popup.pdfPreview.save requested filename=\(suggestedFilename ?? "nil")")
 #endif
         BrowserPDFPreviewActionSupport.saveDataToFile(
             data,
             suggestedFilename: suggestedFilename,
+            mimeType: mimeType,
             originatingURL: url,
             from: webView,
             downloadDelegate: downloadDelegate

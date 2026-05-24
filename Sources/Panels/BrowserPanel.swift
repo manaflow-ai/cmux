@@ -8,6 +8,7 @@ import CFNetwork
 import SQLite3
 import CryptoKit
 import ObjectiveC
+import os
 import UniformTypeIdentifiers
 #if canImport(CommonCrypto)
 import CommonCrypto
@@ -15,6 +16,11 @@ import CommonCrypto
 #if canImport(Security)
 import Security
 #endif
+
+nonisolated private let browserDownloadLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "browser.download"
+)
 
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
@@ -3616,18 +3622,18 @@ final class BrowserPanel: Panel, ObservableObject {
                 "type": "ready_to_save"
             ])
         }
-        dlDelegate.onDownloadFailed = { [weak self] error in
+        dlDelegate.onDownloadFailed = { [weak self] _ in
             guard let self else { return }
             self.endDownloadActivity()
             postDownloadEvent([
                 "type": "failed",
-                "error": error.localizedDescription
+                "code": "download_failed"
             ])
         }
-        dlDelegate.onDownloadSaveFailed = { error in
+        dlDelegate.onDownloadSaveFailed = { _ in
             postDownloadEvent([
                 "type": "failed",
-                "error": error.localizedDescription
+                "code": "download_save_failed"
             ])
         }
         navDelegate.downloadDelegate = dlDelegate
@@ -7424,13 +7430,14 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     func savePDFPreviewData(
         _ data: Data,
         suggestedFilename: String?,
+        mimeType: String?,
         originatingURL: URL?,
         presentingWindow: NSWindow?
     ) {
         let safeFilename = Self.filename(
             from: suggestedFilename ?? "",
             fallbackURL: originatingURL,
-            mimeType: "application/pdf"
+            mimeType: mimeType ?? "application/pdf"
         )
 
         notifyOnMain { [weak self] in
@@ -7450,13 +7457,19 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                     return
                 }
 
-                do {
-                    try? FileManager.default.removeItem(at: destURL)
-                    try data.write(to: destURL, options: .atomic)
-                    NSLog("BrowserPanel PDF preview download saved: %@", destURL.path)
-                } catch {
-                    self.onDownloadSaveFailed?(error)
-                    NSLog("BrowserPanel PDF preview download save failed: %@", error.localizedDescription)
+                DispatchQueue.global(qos: .utility).async { [weak self] in
+                    do {
+                        try? FileManager.default.removeItem(at: destURL)
+                        try data.write(to: destURL, options: .atomic)
+                        DispatchQueue.main.async {
+                            browserDownloadLogger.notice("PDF preview download saved path=\(destURL.path, privacy: .private)")
+                        }
+                    } catch {
+                        DispatchQueue.main.async {
+                            self?.onDownloadSaveFailed?(error)
+                            browserDownloadLogger.error("PDF preview download save failed: \(error.localizedDescription, privacy: .private)")
+                        }
+                    }
                 }
             }
 
@@ -7494,6 +7507,7 @@ enum BrowserPDFPreviewActionSupport {
     static func saveDataToFile(
         _ data: NSData?,
         suggestedFilename: String?,
+        mimeType: String?,
         originatingURL: URL?,
         from webView: WKWebView,
         downloadDelegate: BrowserDownloadDelegate?
@@ -7509,6 +7523,7 @@ enum BrowserPDFPreviewActionSupport {
         delegate.savePDFPreviewData(
             data as Data,
             suggestedFilename: suggestedFilename,
+            mimeType: mimeType,
             originatingURL: originatingURL ?? webView.url,
             presentingWindow: webView.window
         )
@@ -8151,13 +8166,13 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         mimeType: String?,
         originatingURL url: URL?
     ) {
-        _ = mimeType
 #if DEBUG
         cmuxDebugLog("browser.pdfPreview.save requested filename=\(suggestedFilename ?? "nil")")
 #endif
         BrowserPDFPreviewActionSupport.saveDataToFile(
             data,
             suggestedFilename: suggestedFilename,
+            mimeType: mimeType,
             originatingURL: url,
             from: webView,
             downloadDelegate: downloadDelegate
