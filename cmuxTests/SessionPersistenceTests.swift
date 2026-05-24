@@ -1752,6 +1752,51 @@ final class AgentHookSetupStatusTests: XCTestCase {
         )
     }
 
+    func testDetectsAntigravityHookConfig() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".gemini/config/hooks.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"Stop":[{"command":"cmux hooks antigravity stop"}]}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testDetectsHermesHookConfig() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".hermes/config.yaml")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "hooks:\n  session:\n    command: cmux hooks hermes-agent stop\n"
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testDetectsHermesHookConfigInEnvironmentOverride() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hermesHome = root.appendingPathComponent("custom-hermes-home", isDirectory: true)
+        let hooksURL = hermesHome.appendingPathComponent("config.yaml")
+        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try "hooks:\n  session:\n    command: cmux hooks hermes-agent stop\n"
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(
+            AgentHookSetupStatus.hasConfiguredAgentHooks(
+                homeDirectory: root.path,
+                environment: ["HERMES_HOME": hermesHome.path]
+            )
+        )
+    }
+
     func testDetectsRecordedHookSessionStore() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -1592,7 +1592,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
         // or policy skips the warning, avoid a second alert.
@@ -1610,6 +1609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 reason = "policy"
             }
+            _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
             return .terminateNow
         }
@@ -1622,6 +1622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if result.shouldQuit {
                 self.applyConfirmedQuitDialogChoices(result.choices)
                 self.isQuitWarningConfirmed = true
+                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                 self.closeAllWebInspectorsBeforeAppTeardown()
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
             } else {
@@ -11603,6 +11604,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func applyConfirmedQuitDialogChoices(_ choices: QuitDialogChoices) {
         SessionRestorePolicy.setRestoreLayoutOnNextLaunch(choices.restoreLayoutOnNextLaunch)
         AgentSessionAutoResumeSettings.setResumeAgentSessionsOnNextLaunch(choices.autoResumeAgentSessions)
+        AgentSessionAutoResumeSettings.setCurrentLaunchAutoResumeOverride(choices.autoResumeAgentSessions)
     }
 
     @objc private func openSessionRestoreDocs() {

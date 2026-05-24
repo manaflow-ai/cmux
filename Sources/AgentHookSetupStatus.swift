@@ -22,7 +22,9 @@ enum AgentHookSetupStatus {
             homeURL.appendingPathComponent(".config/amp/plugins/cmux-session.ts"),
             homeURL.appendingPathComponent(".cursor/hooks.json"),
             homeURL.appendingPathComponent(".gemini/settings.json"),
+            homeURL.appendingPathComponent(".gemini/config/hooks.json"),
             homeURL.appendingPathComponent(".rovodev/config.yml"),
+            homeURL.appendingPathComponent(".hermes/config.yaml"),
             homeURL.appendingPathComponent(".copilot/config.json"),
             homeURL.appendingPathComponent(".codebuddy/settings.json"),
             homeURL.appendingPathComponent(".factory/settings.json"),
@@ -34,6 +36,7 @@ enum AgentHookSetupStatus {
             environment["GROK_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("hooks/cmux-session.json") },
             environment["OPENCODE_CONFIG_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("plugins/cmux-session.js") },
             environment["PI_CODING_AGENT_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("extensions/cmux-session.ts") },
+            environment["HERMES_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("config.yaml") },
             environment["COPILOT_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("config.json") },
             environment["CODEBUDDY_CONFIG_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("settings.json") },
             environment["QODER_CONFIG_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("settings.json") }

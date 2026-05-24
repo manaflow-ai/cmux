@@ -237,6 +237,10 @@ enum AgentSessionAutoResumeSettings {
         defaults.removeObject(forKey: resumeAgentSessionsOnNextLaunchKey)
     }
 
+    static func setCurrentLaunchAutoResumeOverride(_ enabled: Bool) {
+        currentLaunchAutoResumeAgentSessionsOverride = enabled
+    }
+
     static func isEnabledForCurrentLaunch(defaults: UserDefaults = .standard) -> Bool {
         currentLaunchAutoResumeAgentSessionsOverride ?? isEnabled(defaults: defaults)
     }

@@ -73,6 +73,21 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: AgentSessionAutoResumeSettings.resumeAgentSessionsOnNextLaunchKey))
     }
 
+    func testCurrentLaunchOverrideDoesNotChangePersistentSetting() throws {
+        let suiteName = "cmux-agent-session-auto-resume-current-launch-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            AgentSessionAutoResumeSettings.prepareCurrentLaunchAutoResumeOverride(defaults: defaults)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        AgentSessionAutoResumeSettings.setEnabled(true, defaults: defaults)
+        AgentSessionAutoResumeSettings.setCurrentLaunchAutoResumeOverride(false)
+
+        XCTAssertFalse(AgentSessionAutoResumeSettings.isEnabledForCurrentLaunch(defaults: defaults))
+        XCTAssertTrue(AgentSessionAutoResumeSettings.isEnabled(defaults: defaults))
+    }
+
     @MainActor
     func testDisabledAutoResumeDoesNotInjectStartupInputOnRestore() throws {
         let defaults = UserDefaults.standard
