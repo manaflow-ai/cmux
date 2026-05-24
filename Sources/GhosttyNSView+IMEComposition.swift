@@ -2,6 +2,16 @@ import AppKit
 import Carbon.HIToolbox
 
 extension GhosttyNSView {
+    enum NonInlineIMECompositionState: Equatable {
+        case inactive
+        case active(inputSourceId: String)
+
+        func isActive(for inputSourceId: String?) -> Bool {
+            guard case let .active(activeInputSourceId) = self else { return false }
+            return activeInputSourceId == inputSourceId
+        }
+    }
+
     // Issue #4093 is specifically Korean 2-Set. Other Korean layouts should be
     // validated separately before this allow-list is broadened.
     private static let korean2SetInputSourceIDs: Set<String> = [
@@ -82,33 +92,38 @@ extension GhosttyNSView {
         accumulatedText: [String],
         event: NSEvent? = nil,
         inputSourceId: String? = nil,
-        compositionActive: Bool
-    ) -> (suppress: Bool, compositionActive: Bool) {
-        guard let event, isInputMethodSource(inputSourceId) else {
-            return (false, false)
+        compositionState: NonInlineIMECompositionState
+    ) -> (suppress: Bool, compositionState: NonInlineIMECompositionState) {
+        guard let event,
+              let inputSourceId,
+              isInputMethodSource(inputSourceId) else {
+            return (false, .inactive)
         }
 
         guard before.text.isEmpty, after.text.isEmpty else {
-            return (false, false)
+            return (false, .inactive)
         }
 
         guard accumulatedText.isEmpty else {
-            return (false, false)
+            return (false, .inactive)
         }
 
-        if compositionActive {
+        if compositionState.isActive(for: inputSourceId) {
             if shouldKeepIMECompositionCommandInsideTextInput(event)
                 || shouldKeepNonInlineIMETextKeyInsideTextInput(event) {
-                return (true, !isIMECompositionCancelCommand(event))
+                return (
+                    true,
+                    isIMECompositionCancelCommand(event) ? .inactive : .active(inputSourceId: inputSourceId)
+                )
             }
-            return (false, false)
+            return (false, .inactive)
         }
 
         if shouldStartNonInlineIMEComposition(event) {
-            return (true, true)
+            return (true, .active(inputSourceId: inputSourceId))
         }
 
-        return (false, false)
+        return (false, .inactive)
     }
 
     private func shouldForwardKoreanMarkedSelectionArrowToTerminal(

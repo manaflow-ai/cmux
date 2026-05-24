@@ -352,6 +352,71 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testRIMENoInlineCompositionClearsWhenUnmarkedWithoutMarkedText() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "im.rime.inputmethod.Squirrel"
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, events in
+            guard candidateView === surfaceView,
+                  let event = events.first else {
+                return false
+            }
+            return Int(event.keyCode) == kVK_ANSI_N
+        }
+
+        var forwardedPresses: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedPresses.append(keyEvent.keycode)
+        }
+
+        let composeEvent = try keyEvent(
+            text: "n",
+            keyCode: UInt16(kVK_ANSI_N),
+            windowNumber: window.windowNumber
+        )
+        let idleDownEvent = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            window.sendEvent(composeEvent)
+            XCTAssertEqual(
+                forwardedPresses,
+                [],
+                "The no-inline RIME compose key should start IME-owned candidate state"
+            )
+
+            surfaceView.unmarkText()
+            window.sendEvent(idleDownEvent)
+        }
+
+        XCTAssertEqual(
+            forwardedPresses,
+            [UInt32(kVK_DownArrow)],
+            "A system unmark with no marked text should end abandoned no-inline RIME state"
+        )
+    }
+
     func testRIMENoInlineCompositionSurvivesSyntheticReparentFocus() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let terminalSurface = hostedTerminal.surface
