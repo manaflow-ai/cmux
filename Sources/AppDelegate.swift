@@ -5485,6 +5485,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
         if let context {
+            guard context.fileExplorerState != nil else {
+                return false
+            }
             let window = context.window ?? windowForMainWindowId(context.windowId)
             if let window {
                 mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarFocus)
