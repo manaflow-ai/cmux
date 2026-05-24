@@ -578,26 +578,6 @@ enum TerminalSSHSessionDetector {
         )
     }
 
-    static func detectRemoteSession(forTTY ttyName: String) -> DetectedRemoteTerminalSession? {
-        let normalizedTTY = normalizedTTYName(ttyName)
-        guard !normalizedTTY.isEmpty else { return nil }
-        let processes = processSnapshots(forTTY: normalizedTTY)
-        guard !processes.isEmpty else { return nil }
-
-        var argumentsByPID: [Int32: [String]] = [:]
-        for process in processes where isForegroundRemoteProcess(process, ttyName: normalizedTTY) {
-            if let args = commandLineArguments(forPID: process.pid) {
-                argumentsByPID[process.pid] = args
-            }
-        }
-
-        return detectRemoteSessionForTesting(
-            ttyName: normalizedTTY,
-            processes: processes,
-            argumentsByPID: argumentsByPID
-        )
-    }
-
     static func detectForTesting(
         ttyName: String,
         processes: [ProcessSnapshot],
