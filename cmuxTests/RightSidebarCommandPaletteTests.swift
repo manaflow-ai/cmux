@@ -81,6 +81,34 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testShowRightSidebarModeDoesNotMutateGlobalStateWhenRegisteredFocusFails() {
+        withSavedRightSidebarDefaults {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let fileExplorerState = FileExplorerState()
+            defer { AppDelegate.shared = previousAppDelegate }
+
+            fileExplorerState.mode = .find
+            fileExplorerState.setVisible(false)
+            appDelegate.fileExplorerState = fileExplorerState
+            appDelegate.registerMainWindowContextForTesting(
+                tabManager: TabManager(),
+                fileExplorerState: nil
+            )
+
+            XCTAssertFalse(
+                appDelegate.showRightSidebarModeInActiveMainWindow(
+                    mode: .files,
+                    focusFirstItem: true,
+                    preferredWindow: nil
+                )
+            )
+            XCTAssertFalse(fileExplorerState.isVisible)
+            XCTAssertEqual(fileExplorerState.mode, .find)
+        }
+    }
+
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
