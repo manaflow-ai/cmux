@@ -212,11 +212,17 @@ enum DiffReviewGitClient {
                 }
                 do {
                     try process.run()
+                    // Close parent write ends so async readers observe EOF after the child exits.
+                    outputPipe.fileHandleForWriting.closeFile()
+                    errorPipe.fileHandleForWriting.closeFile()
                     if let standardInput, let inputPipe {
                         inputPipe.fileHandleForWriting.write(Data(standardInput.utf8))
                     }
                     inputPipe?.fileHandleForWriting.closeFile()
                 } catch {
+                    outputPipe.fileHandleForWriting.closeFile()
+                    errorPipe.fileHandleForWriting.closeFile()
+                    inputPipe?.fileHandleForWriting.closeFile()
                     continuation.resume(throwing: error)
                 }
             }
