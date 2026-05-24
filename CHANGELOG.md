@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.11] - 2026-05-24
+
+### Changed
+- Stop bundling example sidebars in the app ([#4662](https://github.com/manaflow-ai/cmux/pull/4662))
+
 ## [0.64.10] - 2026-05-23
 
 ### Added
