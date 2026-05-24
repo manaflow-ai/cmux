@@ -83,4 +83,73 @@ final class DiffReviewPatchParserTests: XCTestCase {
             XCTFail("Expected a not-git-repository error, got \(error)")
         }
     }
+
+    func testBranchComparisonIncludesWorkingTreeAndUntrackedChanges() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-diff-review-branch-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try runGit(["init", "-b", "main"], in: directory)
+        try runGit(["config", "user.name", "cmux tests"], in: directory)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: directory)
+
+        let trackedFile = directory.appendingPathComponent("Sources/App.swift")
+        try FileManager.default.createDirectory(
+            at: trackedFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "let title = \"base\"\n".write(to: trackedFile, atomically: true, encoding: .utf8)
+        try runGit(["add", "Sources/App.swift"], in: directory)
+        try runGit(["commit", "-m", "Initial commit"], in: directory)
+        try runGit(["checkout", "-b", "feature/review"], in: directory)
+        try "let title = \"committed\"\n".write(to: trackedFile, atomically: true, encoding: .utf8)
+        try runGit(["commit", "-am", "Committed branch change"], in: directory)
+        try "let title = \"worktree\"\n".write(to: trackedFile, atomically: true, encoding: .utf8)
+
+        let untrackedFile = directory.appendingPathComponent("Sources/NewPanel.swift")
+        try "struct NewPanel {}\n".write(to: untrackedFile, atomically: true, encoding: .utf8)
+
+        let snapshot = try await DiffReviewGitClient.loadSnapshot(
+            directory: directory.path,
+            selectedTargetID: DiffReviewTarget.branch("main").id
+        )
+
+        XCTAssertEqual(snapshot.selectedTarget, .branch("main"))
+        let trackedReviewFile = try XCTUnwrap(snapshot.files.first { $0.path == "Sources/App.swift" })
+        XCTAssertTrue(
+            trackedReviewFile.hunks.contains { hunk in
+                hunk.lines.contains { $0.content.contains("worktree") }
+            },
+            "Branch comparisons should include uncommitted tracked working-tree edits."
+        )
+        let untrackedReviewFile = try XCTUnwrap(snapshot.files.first { $0.path == "Sources/NewPanel.swift" })
+        XCTAssertEqual(untrackedReviewFile.status, .untracked)
+    }
+
+    @discardableResult
+    private func runGit(
+        _ arguments: [String],
+        in directory: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", directory.path] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: outputData, encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else {
+            XCTFail("git \(arguments.joined(separator: " ")) failed: \(output)", file: file, line: line)
+            throw NSError(domain: "DiffReviewPatchParserTests", code: Int(process.terminationStatus))
+        }
+        return output
+    }
 }
