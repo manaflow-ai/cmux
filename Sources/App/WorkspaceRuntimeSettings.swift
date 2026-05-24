@@ -187,7 +187,7 @@ enum TerminalRegexHighlightSettings {
     static let didChangeNotification = Notification.Name("cmux.terminalRegexHighlightSettingsDidChange")
 
     private static let runtimeStateLock = NSLock()
-    private static var runtimeHasRules = !rules().isEmpty
+    private static var runtimeHasRules = hasCompiledRules()
 
     static func hasRuntimeRules() -> Bool {
         runtimeStateLock.lock()
@@ -234,7 +234,7 @@ enum TerminalRegexHighlightSettings {
         let previous = rawHighlights(defaults: defaults)
         defaults.set(rawValue, forKey: highlightsKey)
         if previous != rawValue {
-            notifyDidChange(notificationCenter: notificationCenter)
+            notifyDidChange(defaults: defaults, notificationCenter: notificationCenter)
         }
     }
 
@@ -247,21 +247,28 @@ enum TerminalRegexHighlightSettings {
         defaults.removeObject(forKey: highlightsKey)
         let didChange = previous != rawHighlights(defaults: defaults)
         if didChange {
-            notifyDidChange(notificationCenter: notificationCenter)
+            notifyDidChange(defaults: defaults, notificationCenter: notificationCenter)
         }
         return didChange
     }
 
-    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
-        refreshRuntimeRuleState()
+    static func notifyDidChange(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        refreshRuntimeRuleState(defaults: defaults)
         notificationCenter.post(name: didChangeNotification, object: nil)
     }
 
     private static func refreshRuntimeRuleState(defaults: UserDefaults = .standard) {
-        let hasRules = !rules(defaults: defaults).isEmpty
+        let hasRules = hasCompiledRules(defaults: defaults)
         runtimeStateLock.lock()
         runtimeHasRules = hasRules
         runtimeStateLock.unlock()
+    }
+
+    private static func hasCompiledRules(defaults: UserDefaults = .standard) -> Bool {
+        !TerminalRegexHighlightMatcher.compiledRules(from: rules(defaults: defaults)).isEmpty
     }
 
     private static func isSupportedHexColor(_ rawValue: String) -> Bool {
@@ -301,23 +308,25 @@ enum TerminalRegexHighlightMatcher {
             guard !line.isEmpty else { continue }
             let searchRange = NSRange(line.startIndex..<line.endIndex, in: line)
             for compiledRule in compiledRules {
-                for match in compiledRule.expression.matches(in: line, range: searchRange) {
-                    guard match.range.length > 0,
+                var reachedMaxRuns = false
+                compiledRule.expression.enumerateMatches(in: line, options: [], range: searchRange) { match, _, stop in
+                    guard let match,
+                          match.range.length > 0,
                           let range = Range(match.range, in: line) else {
-                        continue
+                        return
                     }
                     let column = terminalColumnWidth(line[..<range.lowerBound])
                     let length = terminalColumnWidth(line[range])
-                    guard length > 0 else { continue }
+                    guard length > 0 else { return }
 
                     let clippedLength: Int
                     if let maxColumnCount {
-                        guard column < maxColumnCount else { continue }
+                        guard column < maxColumnCount else { return }
                         clippedLength = min(length, maxColumnCount - column)
                     } else {
                         clippedLength = length
                     }
-                    guard clippedLength > 0 else { continue }
+                    guard clippedLength > 0 else { return }
 
                     runs.append(TerminalRegexHighlightRun(
                         row: rowOffset + lineIndex,
@@ -326,8 +335,12 @@ enum TerminalRegexHighlightMatcher {
                         backgroundHex: compiledRule.backgroundHex
                     ))
                     if runs.count >= maxRuns {
-                        return runs
+                        reachedMaxRuns = true
+                        stop.pointee = true
                     }
+                }
+                if reachedMaxRuns {
+                    return runs
                 }
             }
         }
@@ -336,9 +349,24 @@ enum TerminalRegexHighlightMatcher {
     }
 
     private static func terminalColumnWidth(_ text: Substring) -> Int {
-        text.unicodeScalars.reduce(0) { total, scalar in
-            total + terminalColumnWidth(for: scalar)
+        text.reduce(0) { total, character in
+            total + terminalColumnWidth(for: character)
         }
+    }
+
+    private static func terminalColumnWidth(for character: Character) -> Int {
+        var hasNonZeroWidthScalar = false
+        var hasWideScalar = false
+        for scalar in character.unicodeScalars {
+            let scalarWidth = terminalColumnWidth(for: scalar)
+            guard scalarWidth > 0 else { continue }
+            hasNonZeroWidthScalar = true
+            if isWideTerminalScalar(scalar.value) {
+                hasWideScalar = true
+            }
+        }
+        guard hasNonZeroWidthScalar else { return 0 }
+        return hasWideScalar ? 2 : 1
     }
 
     private static func terminalColumnWidth(for scalar: Unicode.Scalar) -> Int {
@@ -370,6 +398,7 @@ enum TerminalRegexHighlightMatcher {
              0xFE30...0xFE6F,
              0xFF00...0xFF60,
              0xFFE0...0xFFE6,
+             0x1F1E6...0x1F1FF,
              0x1F300...0x1FAFF,
              0x20000...0x3FFFD:
             return true

@@ -10493,7 +10493,6 @@ final class GhosttySurfaceScrollView: NSView {
     private var deferredSearchOverlayMutationWorkItem: DispatchWorkItem?
     private var regexHighlightRefreshTask: Task<Void, Never>?
     private var regexHighlightCompiledRules: [TerminalRegexHighlightCompiledRule] = []
-    private var regexHighlightLastRefreshAt: CFTimeInterval = 0
     private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
@@ -10515,7 +10514,6 @@ final class GhosttySurfaceScrollView: NSView {
     private var allowExplicitScrollbarSync = false
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
-    private static let regexHighlightRenderRefreshInterval: CFTimeInterval = 1.0 / 30.0
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
@@ -10754,10 +10752,9 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         addSubview(backgroundView)
         addSubview(scrollView)
-        regexHighlightOverlayView.wantsLayer = true
-        regexHighlightOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        regexHighlightOverlayView.wantsLayer = false
+        regexHighlightOverlayView.autoresizingMask = [.width, .height]
         regexHighlightOverlayView.isHidden = true
-        addSubview(regexHighlightOverlayView)
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
@@ -11114,10 +11111,14 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeGeometryAndContent()
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         bringPaneDropTargetToFrontIfNeeded()
+        bringRegexHighlightOverlayToFrontIfNeeded()
     }
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
+        attachRegexHighlightOverlayIfNeeded()
+        _ = setFrameIfNeeded(regexHighlightOverlayView, to: regexHighlightOverlayFrame())
+        bringRegexHighlightOverlayToFrontIfNeeded()
         guard activeDropZone != nil || pendingDropZone != nil else { return }
         attachDropZoneOverlayIfNeeded()
         if let zone = activeDropZone ?? pendingDropZone {
@@ -11196,12 +11197,14 @@ final class GhosttySurfaceScrollView: NSView {
             setDropZoneOverlay(zone: pending)
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
-        _ = setFrameIfNeeded(regexHighlightOverlayView, to: bounds)
+        attachRegexHighlightOverlayIfNeeded()
+        _ = setFrameIfNeeded(regexHighlightOverlayView, to: regexHighlightOverlayFrame())
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
         }
         bringPaneDropTargetToFrontIfNeeded()
+        bringRegexHighlightOverlayToFrontIfNeeded()
         // NSScrollView can defer clip-view/content-size updates until its own layout pass,
         // which makes interactive width changes arrive a queue turn late on Sequoia.
         if didScrollbarAppearanceChange {
@@ -11244,6 +11247,72 @@ final class GhosttySurfaceScrollView: NSView {
         if paneDropTargetView.superview !== self || subviews.last !== paneDropTargetView {
             addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         }
+    }
+
+    private func attachRegexHighlightOverlayIfNeeded() {
+        let container = regexHighlightOverlayContainerView()
+        guard regexHighlightOverlayView.superview !== container else { return }
+        regexHighlightOverlayView.removeFromSuperview()
+        if container === self {
+            addSubview(regexHighlightOverlayView, positioned: .above, relativeTo: scrollView)
+        } else {
+            container.addSubview(
+                regexHighlightOverlayView,
+                positioned: .above,
+                relativeTo: regexHighlightOverlayReferenceView(in: container)
+            )
+        }
+    }
+
+    private func regexHighlightOverlayContainerView() -> NSView {
+        superview?.superview ?? superview ?? self
+    }
+
+    private func regexHighlightOverlayReferenceView(in container: NSView) -> NSView? {
+        if superview?.superview === container {
+            return superview
+        }
+        if superview === container {
+            return self
+        }
+        return nil
+    }
+
+    private func regexHighlightOverlayFrame() -> CGRect {
+        let container = regexHighlightOverlayContainerView()
+        guard container !== self else { return bounds }
+        return convert(bounds, to: container)
+    }
+
+    private func bringRegexHighlightOverlayToFrontIfNeeded() {
+        let container = regexHighlightOverlayContainerView()
+        guard regexHighlightOverlayView.superview === container else {
+            attachRegexHighlightOverlayIfNeeded()
+            return
+        }
+
+        guard container !== self else {
+            if let searchOverlayHostingView,
+               searchOverlayHostingView.superview === self {
+                guard let regexIndex = subviews.firstIndex(of: regexHighlightOverlayView),
+                      let searchIndex = subviews.firstIndex(of: searchOverlayHostingView),
+                      regexIndex + 1 == searchIndex else {
+                    addSubview(regexHighlightOverlayView, positioned: .below, relativeTo: searchOverlayHostingView)
+                    return
+                }
+                return
+            }
+
+            guard subviews.last !== regexHighlightOverlayView else { return }
+            addSubview(regexHighlightOverlayView, positioned: .above, relativeTo: nil)
+            return
+        }
+
+        guard let reference = regexHighlightOverlayReferenceView(in: container),
+              let referenceIndex = container.subviews.firstIndex(of: reference),
+              let overlayIndex = container.subviews.firstIndex(of: regexHighlightOverlayView),
+              overlayIndex <= referenceIndex else { return }
+        container.addSubview(regexHighlightOverlayView, positioned: .above, relativeTo: reference)
     }
 
     private func attachDropZoneOverlayIfNeeded() {
@@ -13362,28 +13431,18 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     fileprivate func scheduleRegexHighlightRefreshAfterRender() {
-        scheduleRegexHighlightRefresh(throttleForRender: true)
+        scheduleRegexHighlightRefresh()
     }
 
-    private func scheduleRegexHighlightRefresh(throttleForRender: Bool = false) {
+    private func scheduleRegexHighlightRefresh() {
         guard !regexHighlightCompiledRules.isEmpty else {
             regexHighlightRefreshTask?.cancel()
             regexHighlightRefreshTask = nil
             return
         }
 
-        regexHighlightRefreshTask?.cancel()
-        let delayNanoseconds: UInt64 = {
-            guard throttleForRender else { return 0 }
-            let elapsed = CACurrentMediaTime() - regexHighlightLastRefreshAt
-            let remaining = Self.regexHighlightRenderRefreshInterval - elapsed
-            guard remaining > 0 else { return 0 }
-            return UInt64(remaining * 1_000_000_000)
-        }()
+        guard regexHighlightRefreshTask == nil else { return }
         regexHighlightRefreshTask = Task { @MainActor [weak self] in
-            if delayNanoseconds > 0 {
-                try? await Task.sleep(nanoseconds: delayNanoseconds)
-            }
             guard let self, !Task.isCancelled else { return }
             self.regexHighlightRefreshTask = nil
             self.refreshRegexHighlightOverlay()
@@ -13395,14 +13454,13 @@ final class GhosttySurfaceScrollView: NSView {
             regexHighlightOverlayView.clear()
             return
         }
-        regexHighlightLastRefreshAt = CACurrentMediaTime()
         guard window != nil,
               !isHidden,
               surfaceView.isVisibleInUI,
               bounds.width > 1,
               bounds.height > 1,
-              let surface = surfaceView.terminalSurface?.surface,
-              cmuxSurfacePointerAppearsLive(surface) else {
+              let terminalSurface = surfaceView.terminalSurface,
+              let surface = terminalSurface.liveSurfaceForGhosttyAccess(reason: "regexHighlight.refresh") else {
             regexHighlightOverlayView.clear()
             return
         }
@@ -13410,13 +13468,14 @@ final class GhosttySurfaceScrollView: NSView {
         let size = ghostty_surface_size(surface)
         let rows = max(Int(size.rows), 1)
         let columns = max(Int(size.columns), 1)
-        let resolvedCellWidth = surfaceView.cellSize.width > 0
-            ? surfaceView.cellSize.width
-            : CGFloat(size.cell_width_px)
-        let resolvedCellHeight = surfaceView.cellSize.height > 0
-            ? surfaceView.cellSize.height
-            : CGFloat(size.cell_height_px)
-        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else {
+        let resolvedCellSize: CGSize
+        if surfaceView.cellSize.width > 0, surfaceView.cellSize.height > 0 {
+            resolvedCellSize = surfaceView.cellSize
+        } else {
+            let pixelCellSize = CGSize(width: CGFloat(size.cell_width_px), height: CGFloat(size.cell_height_px))
+            resolvedCellSize = surfaceView.convertFromBacking(NSRect(origin: .zero, size: pixelCellSize)).size
+        }
+        guard resolvedCellSize.width > 0, resolvedCellSize.height > 0 else {
             regexHighlightOverlayView.clear()
             return
         }
@@ -13426,19 +13485,19 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         let visibleLines = cmuxVisibleTerminalLines(from: visibleText, rows: rows)
-        let rowOffset = max(0, rows - visibleLines.count)
         let runs = TerminalRegexHighlightMatcher.runs(
             in: visibleLines,
             compiledRules: regexHighlightCompiledRules,
-            rowOffset: rowOffset,
+            rowOffset: 0,
             maxColumnCount: columns
         )
+        let overlayBounds = surfaceView.bounds
         let metrics = TerminalRegexHighlightOverlayMetrics(
-            cellSize: CGSize(width: resolvedCellWidth, height: resolvedCellHeight),
+            cellSize: resolvedCellSize,
             rowCount: rows,
             columnCount: columns,
-            xInset: max(0, (bounds.width - (CGFloat(columns) * resolvedCellWidth)) / 2),
-            yInset: max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
+            xInset: max(0, (overlayBounds.width - (CGFloat(columns) * resolvedCellSize.width)) / 2),
+            yInset: max(0, (overlayBounds.height - (CGFloat(rows) * resolvedCellSize.height)) / 2)
         )
         regexHighlightOverlayView.configure(runs: runs, metrics: metrics)
     }

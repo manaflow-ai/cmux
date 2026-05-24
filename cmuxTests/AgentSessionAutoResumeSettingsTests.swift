@@ -633,12 +633,14 @@ final class TerminalRegexHighlightSettingsTests: XCTestCase {
     func testMatcherUsesTerminalColumnsForWideCharacters() {
         let rules = [
             TerminalRegexHighlightRule(pattern: "日本", backgroundHex: "#7BD88F80"),
+            TerminalRegexHighlightRule(pattern: "👨‍👩‍👧‍👦", backgroundHex: "#FF6B6B80"),
             TerminalRegexHighlightRule(pattern: "ERROR", backgroundHex: "#FFE06680"),
         ]
 
         let runs = TerminalRegexHighlightMatcher.runs(
             in: [
                 "日本語 ERROR",
+                "👨‍👩‍👧‍👦 ERROR",
             ],
             compiledRules: TerminalRegexHighlightMatcher.compiledRules(from: rules)
         )
@@ -648,8 +650,34 @@ final class TerminalRegexHighlightSettingsTests: XCTestCase {
             [
                 TerminalRegexHighlightRun(row: 0, column: 0, length: 4, backgroundHex: "#7BD88F80"),
                 TerminalRegexHighlightRun(row: 0, column: 7, length: 5, backgroundHex: "#FFE06680"),
+                TerminalRegexHighlightRun(row: 1, column: 0, length: 2, backgroundHex: "#FF6B6B80"),
+                TerminalRegexHighlightRun(row: 1, column: 3, length: 5, backgroundHex: "#FFE06680"),
             ]
         )
+    }
+
+    func testRuntimeRuleStateRequiresCompiledRegex() {
+        let notificationCenter = NotificationCenter()
+        let defaults = UserDefaults(suiteName: "TerminalRegexHighlightRuntimeRuleStateTests")!
+        defaults.removePersistentDomain(forName: "TerminalRegexHighlightRuntimeRuleStateTests")
+        defer {
+            defaults.removePersistentDomain(forName: "TerminalRegexHighlightRuntimeRuleStateTests")
+            TerminalRegexHighlightSettings.notifyDidChange(notificationCenter: notificationCenter)
+        }
+
+        TerminalRegexHighlightSettings.setRawHighlights(
+            "[",
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertFalse(TerminalRegexHighlightSettings.hasRuntimeRules())
+
+        TerminalRegexHighlightSettings.setRawHighlights(
+            "ERROR",
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertTrue(TerminalRegexHighlightSettings.hasRuntimeRules())
     }
 
     func testParserSkipsInvalidColorPrefixedRules() {

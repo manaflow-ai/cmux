@@ -17242,21 +17242,33 @@ class TerminalController {
         // Capture the main window on main thread
         var captureError: String?
         v2MainSync {
-            guard let window = NSApp.mainWindow ?? NSApp.windows.first else {
-                captureError = "No window available"
+            let orderedWindows = ([NSApp.mainWindow, NSApp.keyWindow].compactMap { $0 } + NSApp.windows)
+            var seenWindowNumbers: Set<CGWindowID> = []
+            let windowCandidates = orderedWindows.compactMap { window -> CGWindowID? in
+                guard window.isVisible, !window.isMiniaturized else { return nil }
+                let rawWindowNumber = window.windowNumber
+                guard rawWindowNumber > 0,
+                      let windowNumber = UInt32(exactly: rawWindowNumber) else {
+                    return nil
+                }
+                let cgWindowID = CGWindowID(windowNumber)
+                guard seenWindowNumbers.insert(cgWindowID).inserted else { return nil }
+                return cgWindowID
+            }
+            guard !windowCandidates.isEmpty else {
+                captureError = "No capturable window available"
                 return
             }
 
-            // Get window's CGWindowID
-            let windowNumber = CGWindowID(window.windowNumber)
-
-            // Capture the window using CGWindowListCreateImage
-            guard let cgImage = CGWindowListCreateImage(
-                .null,  // Capture just the window bounds
-                .optionIncludingWindow,
-                windowNumber,
-                [.boundsIgnoreFraming, .nominalResolution]
-            ) else {
+            let cgImage = windowCandidates.lazy.compactMap { windowNumber in
+                CGWindowListCreateImage(
+                    .null,  // Capture just the window bounds
+                    .optionIncludingWindow,
+                    windowNumber,
+                    [.boundsIgnoreFraming, .nominalResolution]
+                )
+            }.first
+            guard let cgImage else {
                 captureError = "Failed to capture window image"
                 return
             }
