@@ -580,13 +580,30 @@ class TerminalController {
         }
     }
 
+    nonisolated func clearPendingSocketFileRecoveryIfCurrentPathIsHealthy(expectedPath: String) {
+        withListenerState {
+            guard isRunning,
+                  socketPath == expectedPath,
+                  let identity = boundSocketPathIdentity,
+                  case .ownedByThisProcess = SocketPathProbe.observedStatus(
+                      path: socketPath,
+                      expectedIdentity: identity
+                  ) else {
+                return
+            }
+            pendingSocketFileRecoveryGeneration = nil
+        }
+    }
+
     nonisolated func takeSocketFileRecoveryRestart(generation: UInt64) -> (path: String, mode: SocketControlMode)? {
         withListenerState {
-            guard pendingSocketFileRecoveryGeneration == generation,
-                  activeAcceptLoopGeneration == generation else {
+            guard pendingSocketFileRecoveryGeneration == generation else {
                 return nil
             }
             pendingSocketFileRecoveryGeneration = nil
+            guard activeAcceptLoopGeneration == generation else {
+                return nil
+            }
             return (socketPath, accessMode)
         }
     }
@@ -1725,6 +1742,7 @@ class TerminalController {
         if existing.isRunning && SocketControlSettings.pathsMatch(existing.socketPath, socketPath) {
             self.accessMode = accessMode
             applySocketPermissions()
+            clearPendingSocketFileRecoveryIfCurrentPathIsHealthy(expectedPath: socketPath)
             startSocketFileHealthWatcher()
             return true
         }
@@ -2729,12 +2747,31 @@ class TerminalController {
             )
 
             self.stop()
-            self.start(
+            let didStart = self.start(
                 tabManager: tabManager,
                 socketPath: restartPath,
                 accessMode: restartMode,
                 preserveAcceptFailureStreak: true
             )
+            if !didStart {
+                let retryPath = self.listenerStateSnapshot().socketPath
+                self.reportSocketListenerFailure(
+                    message: "socket.listener.rearm.restart_failed",
+                    stage: "accept_rearm",
+                    errnoCode: errnoCode,
+                    extra: [
+                        "path": retryPath,
+                        "requestedPath": restartPath,
+                        "mode": restartMode.rawValue,
+                        "generation": generation,
+                        "consecutiveFailures": consecutiveFailures
+                    ]
+                )
+                self.startSocketFileRecoveryRetryWatcher(
+                    socketPath: retryPath,
+                    accessMode: restartMode
+                )
+            }
         }
     }
 

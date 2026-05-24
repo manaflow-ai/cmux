@@ -134,6 +134,7 @@ extension TerminalController {
                         "mode": retryAccessMode.rawValue
                     ]
                 )
+                self.clearSocketListenerStartInProgress()
                 self.startSocketFileRecoveryRetryWatcher(
                     socketPath: updatedRetryPath,
                     accessMode: retryAccessMode
