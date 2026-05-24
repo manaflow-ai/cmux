@@ -43,6 +43,8 @@
 	<string></string>
 	<key>NSMainStoryboardFile</key>
 	<string></string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A program running within cmux would like to control another application.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>A program running within cmux would like to use your microphone.</string>
 	<key>NSCameraUsageDescription</key>
