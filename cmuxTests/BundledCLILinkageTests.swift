@@ -1,3 +1,6 @@
+import Darwin
+import Dispatch
+import Foundation
 import XCTest
 
 final class BundledCLILinkageTests: XCTestCase {
@@ -15,6 +18,49 @@ final class BundledCLILinkageTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.combinedOutput)
         XCTAssertTrue(result.stdout.contains("Run "), result.stdout)
         XCTAssertTrue(result.stdout.contains("cmux --help"), result.stdout)
+    }
+
+    func testAppExecutableForwarderKeepsFinderLaunchInApp() {
+        let decision = CmuxAppCLIForwarder.decision(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "-psn_0_12345"],
+            bundledCLIURL: nil,
+            expectedBundledCLIPath: "/Applications/cmux.app/Contents/Resources/bin/cmux"
+        )
+
+        XCTAssertEqual(decision, .launchApp)
+    }
+
+    func testAppExecutableForwarderKeepsDefaultsLaunchArgumentsInApp() {
+        let decision = CmuxAppCLIForwarder.decision(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "-AppleLanguages", "(en)"],
+            bundledCLIURL: nil,
+            expectedBundledCLIPath: "/Applications/cmux.app/Contents/Resources/bin/cmux"
+        )
+
+        XCTAssertEqual(decision, .launchApp)
+    }
+
+    func testAppExecutableForwarderRoutesExplicitArgumentsToBundledCLI() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-app-forwarder-tests-\(UUID().uuidString)", isDirectory: true)
+        let cliURL = root.appendingPathComponent("cmux.app/Contents/Resources/bin/cmux", isDirectory: false)
+        try fileManager.createDirectory(at: cliURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: cliURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cliURL.path)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let decision = CmuxAppCLIForwarder.decision(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "welcome"],
+            bundledCLIURL: cliURL,
+            expectedBundledCLIPath: cliURL.path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(
+            decision,
+            .forward(cliURL: cliURL.standardizedFileURL, arguments: [cliURL.standardizedFileURL.path, "welcome"])
+        )
     }
 
     func testBundledCLIDoesNotDependOnPrivateRPathFrameworks() throws {
@@ -112,7 +158,10 @@ final class BundledCLILinkageTests: XCTestCase {
         try process.run()
         if finished.wait(timeout: .now() + timeout) == .timedOut {
             process.terminate()
-            _ = finished.wait(timeout: .now() + 2)
+            if finished.wait(timeout: .now() + 2) == .timedOut {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                process.waitUntilExit()
+            }
             XCTFail("Timed out running \(executableURL.path) \(arguments.joined(separator: " "))")
         }
 
