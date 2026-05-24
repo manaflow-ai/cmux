@@ -1342,7 +1342,7 @@ struct BrowserPanelView: View {
         .padding(.horizontal, browserProfilePopoverHorizontalPadding)
         .padding(.vertical, browserProfilePopoverVerticalPadding)
         .frame(minWidth: 208)
-        .browserToolbarPopoverChrome(appColorScheme: colorScheme)
+        .browserToolbarPopoverChrome(appColorScheme: browserChromeColorScheme)
     }
 
     private var browserThemeModePopover: some View {
@@ -1375,7 +1375,7 @@ struct BrowserPanelView: View {
         }
         .padding(8)
         .frame(minWidth: 128)
-        .browserToolbarPopoverChrome(appColorScheme: colorScheme)
+        .browserToolbarPopoverChrome(appColorScheme: browserChromeColorScheme)
     }
 
     private var browserThemeModeIconColor: Color {
@@ -1891,7 +1891,7 @@ struct BrowserPanelView: View {
         browserImportHintBody
             .padding(12)
             .frame(width: 300, alignment: .leading)
-            .browserToolbarPopoverChrome(appColorScheme: colorScheme)
+            .browserToolbarPopoverChrome(appColorScheme: browserChromeColorScheme)
     }
 
     private var browserImportHintBody: some View {
