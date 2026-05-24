@@ -2246,6 +2246,8 @@ class TerminalController {
     }
 
     private nonisolated static let socketWorkerV2Methods: Set<String> = [
+        "system.ping",
+        "system.capabilities",
         "auth.status",
         "auth.begin_sign_in",
         "auth.sign_out",
@@ -2375,6 +2377,10 @@ class TerminalController {
                 let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
                 return outcome.socketPayload
             }
+        case "system.ping":
+            return v2Ok(id: request.id, result: ["pong": true])
+        case "system.capabilities":
+            return v2Ok(id: request.id, result: v2Capabilities())
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
@@ -3780,7 +3786,7 @@ class TerminalController {
         }
     }
 
-    private func v2Capabilities() -> [String: Any] {
+    private nonisolated func v2Capabilities() -> [String: Any] {
         var methods: [String] = [
             "system.ping",
             "system.capabilities",
