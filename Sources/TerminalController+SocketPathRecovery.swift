@@ -105,13 +105,13 @@ extension TerminalController {
         socketPath retrySocketPath: String,
         accessMode retryAccessMode: SocketControlMode
     ) {
-        let shouldRetry = beginSocketFileRecoveryRetry(from: watchSource)
-        guard shouldRetry else {
+        guard let retryToken = beginSocketFileRecoveryRetry(from: watchSource) else {
             return
         }
 
-        Task { @MainActor [weak self, retrySocketPath, retryAccessMode] in
+        Task { @MainActor [weak self, retrySocketPath, retryAccessMode, retryToken] in
             guard let self else { return }
+            guard self.socketFileRecoveryRetryIsCurrent(retryToken) else { return }
             guard let tabManager = self.tabManager else {
                 self.clearSocketListenerStartInProgress()
                 return
