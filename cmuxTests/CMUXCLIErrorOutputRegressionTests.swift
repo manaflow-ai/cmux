@@ -82,7 +82,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(payload["error_text"] as? String, appServerError)
         let body = try XCTUnwrap(payload["body"] as? String, result.stdout)
         XCTAssertTrue(
-            body.contains("full-history forked agents must inherit agent_type/model/reasoning_effort"),
+            body.contains("a forked subagent must use the parent session's configuration"),
             body
         )
         XCTAssertTrue(body.contains(appServerError), body)

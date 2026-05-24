@@ -17116,12 +17116,12 @@ struct CMUXCLI {
         case .fullHistoryForkOverride:
             bodyFormat = String(
                 localized: "cli.codexTeams.spawnFailure.body.fullHistoryForkOverride",
-                defaultValue: "Codex rejected the subagent spawn because full-history forked agents must inherit agent_type/model/reasoning_effort. No subagent pane was opened. App-server error: %@ Log: %@"
+                defaultValue: "Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"
             )
         case .genericSpawnFailure:
             bodyFormat = String(
                 localized: "cli.codexTeams.spawnFailure.body.generic",
-                defaultValue: "Codex rejected a subagent spawn before creating an attachable thread. No subagent pane was opened. App-server error: %@ Log: %@"
+                defaultValue: "Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"
             )
         }
 

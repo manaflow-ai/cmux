@@ -21766,13 +21766,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex rejected the subagent spawn because full-history forked agents must inherit agent_type/model/reasoning_effort. No subagent pane was opened. App-server error: %@ Log: %@"
+            "value": "Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "full-history fork のサブエージェントは agent_type/model/reasoning_effort を継承する必要があるため、Codex がサブエージェントの起動を拒否しました。サブエージェントペインは開かれていません。app-server エラー: %@ ログ: %@"
+            "value": "フォークされたサブエージェントは親セッションの設定を使う必要があるため、Codex はサブエージェントを開始できませんでした。サブエージェントペインは開かれていません。エラー: %@ ログ: %@"
           }
         }
       }
@@ -21783,13 +21783,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex rejected a subagent spawn before creating an attachable thread. No subagent pane was opened. App-server error: %@ Log: %@"
+            "value": "Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex が接続可能なスレッドを作成する前にサブエージェントの起動を拒否しました。サブエージェントペインは開かれていません。app-server エラー: %@ ログ: %@"
+            "value": "Codex はサブエージェントを開始できませんでした。サブエージェントペインは開かれていません。エラー: %@ ログ: %@"
           }
         }
       }
