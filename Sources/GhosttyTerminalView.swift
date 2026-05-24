@@ -1740,7 +1740,6 @@ final class GhosttyTitleNotificationDispatcher {
 private struct GhosttyDesktopNotificationTarget: Sendable {
     let tabId: UUID
     let surfaceId: UUID?
-    let tabTitle: String
 }
 
 private enum GhosttyDesktopNotificationRoute: Sendable {
@@ -4227,13 +4226,19 @@ class GhosttyApp {
         return .deliver(
             GhosttyDesktopNotificationTarget(
                 tabId: tabId,
-                surfaceId: surfaceId,
-                tabTitle: owningManager.titleForTab(tabId) ?? String(
-                    localized: "notification.fallback_title",
-                    defaultValue: "Terminal"
-                )
+                surfaceId: surfaceId
             )
         )
+    }
+
+    @MainActor
+    private static func desktopNotificationTitle(forTabId tabId: UUID) -> String {
+        let fallbackTitle = String(
+            localized: "notification.fallback_title",
+            defaultValue: "Terminal"
+        )
+        let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
+        return owningManager?.titleForTab(tabId) ?? fallbackTitle
     }
 
     func refreshAppDesktopNotificationRouteSnapshot() {
@@ -4424,15 +4429,16 @@ class GhosttyApp {
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
                 let route = cachedAppDesktopNotificationRouteForCallback()
-                refreshAppDesktopNotificationRouteSnapshot()
                 guard case .deliver(let notificationTarget) = route else {
                     if case .fallThrough = route {
                         return false
                     }
                     return true
                 }
-                let command = actionTitle.isEmpty ? notificationTarget.tabTitle : actionTitle
-                Task { @MainActor [notificationTarget, command, actionBody] in
+                Task { @MainActor [notificationTarget, actionTitle, actionBody] in
+                    let command = actionTitle.isEmpty
+                        ? Self.desktopNotificationTitle(forTabId: notificationTarget.tabId)
+                        : actionTitle
                     TerminalNotificationStore.shared.addNotification(
                         tabId: notificationTarget.tabId,
                         surfaceId: notificationTarget.surfaceId,
