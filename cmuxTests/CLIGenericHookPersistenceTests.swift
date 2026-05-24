@@ -609,7 +609,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["PostToolUse"])
     }
 
-    func testAntigravityPreToolUseHookFailsOpenWhenCmuxSocketUnavailable() throws {
+    func testAntigravityPreToolUseHookFailsOpenWhenPinnedDispatchExitsNonzero() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-antigravity-hook-fail-open-\(UUID().uuidString)", isDirectory: true)
@@ -617,13 +617,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let missingSocketPath = root.appendingPathComponent("missing.sock", isDirectory: false).path
+        let fakeCLIPath = root.appendingPathComponent("fake-cmux", isDirectory: false)
+        let fakeInvocationLogPath = root.appendingPathComponent("fake-cmux-args.log", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf '%s\\n' "$*" > "$CMUX_FAKE_CLI_LOG"
+        exit 42
+        """.write(to: fakeCLIPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeCLIPath.path
+        )
+
         let install = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "agy", "install", "--yes"],
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_BUNDLED_CLI_PATH": root.path,
+                "CMUX_BUNDLED_CLI_PATH": fakeCLIPath.path,
                 "CMUX_SOCKET_PATH": missingSocketPath,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
@@ -657,6 +669,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_FAKE_CLI_LOG": fakeInvocationLogPath.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             standardInput: input,
@@ -666,6 +681,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         try assertAntigravityAllowToolOutput(result.stdout)
+        let fakeInvocation = try String(contentsOf: fakeInvocationLogPath, encoding: .utf8)
+        XCTAssertTrue(
+            fakeInvocation.contains("--socket \(missingSocketPath) hooks feed --source antigravity --event PreToolUse"),
+            "Expected pinned dispatch to invoke the fake CLI before failing open, saw \(fakeInvocation)"
+        )
     }
 
     func testAntigravityFeedHookMissingSessionIdUsesStableFallback() throws {

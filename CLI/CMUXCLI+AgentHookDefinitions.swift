@@ -328,8 +328,6 @@ extension CMUXCLI {
         def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
     }
 
-    private static let pinnedAntigravityPreToolAllowOutput = #"{"allow_tool":true}"#
-
     private static func pinnedHookShouldFailOpen(
         routedArguments: String,
         for def: AgentHookDef
@@ -343,7 +341,7 @@ extension CMUXCLI {
         for def: AgentHookDef
     ) -> String {
         pinnedHookShouldFailOpen(routedArguments: routedArguments, for: def)
-            ? pinnedAntigravityPreToolAllowOutput
+            ? antigravityPreToolAllowOutput
             : "{}"
     }
 

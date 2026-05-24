@@ -28178,7 +28178,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     // MARK: - Feed (workstream) hook bridge
 
-    private static let antigravityPreToolAllowOutput = #"{"allow_tool":true}"#
+    static let antigravityPreToolAllowOutput = #"{"allow_tool":true}"#
 
     private static func antigravityPreToolDenyOutput(reason: String) -> String {
         let output: [String: Any] = [
@@ -28205,8 +28205,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         isActionable: Bool
     ) -> String {
         if source == "antigravity", agentEvent == "PreToolUse", isActionable {
+            let reason = String(
+                localized: "hooks.antigravity.unresolvedPermissionReason",
+                defaultValue: "cmux Feed permission request was not resolved."
+            )
             return antigravityPreToolDenyOutput(
-                reason: "cmux Feed permission request was not resolved."
+                reason: reason
             )
         }
         return feedHookFallbackOutput(source: source, agentEvent: agentEvent)
@@ -28661,8 +28665,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if source == "antigravity" {
                 if mode == "deny" {
+                    let reason = String(
+                        localized: "hooks.antigravity.denyReason",
+                        defaultValue: "User denied permission via cmux Feed."
+                    )
                     return Self.antigravityPreToolDenyOutput(
-                        reason: "User denied permission via cmux Feed."
+                        reason: reason
                     )
                 }
                 return Self.antigravityPreToolAllowOutput
