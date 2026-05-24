@@ -47,10 +47,10 @@ export async function SiteFooter() {
 
   return (
     <footer className="mt-16">
-      <div className="max-w-2xl mx-auto px-6 py-12">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-8">
+      <div className="max-w-2xl mx-auto flex flex-col gap-10 px-6 py-12">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-10 sm:grid-cols-4">
           {columns.map((col) => (
-            <div key={col.heading}>
+            <div key={col.heading} className="min-w-0">
               <h3 className="text-xs font-medium text-muted tracking-tight mb-3">
                 {col.heading}
               </h3>
@@ -80,8 +80,8 @@ export async function SiteFooter() {
             </div>
           ))}
         </div>
-        <div className="flex items-center justify-between mt-10">
-          <p className="text-xs text-muted">
+        <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3 sm:items-center">
+          <p className="min-w-0 text-xs text-muted">
             {t("copyright", { year })}
           </p>
           <LanguageSwitcher />
