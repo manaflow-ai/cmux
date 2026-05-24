@@ -2679,9 +2679,15 @@ class TabManager: ObservableObject {
             ])
 #endif
             if autoWelcomeIfNeeded && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
-                newWorkspace.sendTextOnNextPromptIdle("cmux welcome\n") {
-                    UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-                }
+                // Flip the shown flag synchronously, not inside a beforeSend that only
+                // runs when shell integration reports a real prompt. Otherwise, for
+                // users without cmux shell integration installed, the welcome would
+                // be queued on every workspace creation forever — observer-piles-up
+                // behavior CodeRabbit flagged on the prior revision. The welcome
+                // banner is one-shot onboarding; one attempt per fresh install is
+                // the correct semantic.
+                UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+                newWorkspace.sendTextOnNextPromptIdle("cmux welcome\n")
             }
             return newWorkspace
         }

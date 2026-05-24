@@ -7694,16 +7694,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sendWelcomeCommandWhenReady(to: workspace)
     }
 
-    func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
-        // Welcome typing has to wait for an actual interactive shell prompt or
-        // it races shell init (oh-my-zsh's auto-update prompt eats the first
-        // character — see #1900). Workspace owns the state machine that knows
-        // when its focused panel is at promptIdle, so delegate to it.
-        workspace.sendTextOnNextPromptIdle("cmux welcome\n") {
-            if markShownOnSend {
-                UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-            }
-        }
+    /// Type the welcome banner into `workspace`'s focused panel as soon as the
+    /// shell reports a real interactive prompt. Used by the explicit
+    /// "open welcome workspace" entrypoint (menu item); the first-launch
+    /// auto-welcome path lives in `TabManager.addWorkspace` and is the one
+    /// that gates on `WelcomeSettings.shownKey`. See #1900 for why we wait
+    /// for `.promptIdle` instead of typing on a fixed timer.
+    func sendWelcomeCommandWhenReady(to workspace: Workspace) {
+        workspace.sendTextOnNextPromptIdle("cmux welcome\n")
     }
 
     @objc func applyUpdateIfAvailable(_ sender: Any?) {
