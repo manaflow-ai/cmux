@@ -206,6 +206,32 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entries.first?.cwd, cwd.path)
     }
 
+    func testAntigravityHistoryPreviewReadsTailForLargeHistoryFile() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-preview-tail-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let historyURL = tempDir.appendingPathComponent("history.jsonl", isDirectory: false)
+        let oversizedHeadRow = #"{"conversationId":"old-session","display":""#
+            + String(repeating: "x", count: 17 * 1024 * 1024)
+            + #""}"#
+        let targetRow = #"{"conversationId":"tail-session","display":"Tail prompt is visible","workspace":"/tmp/antigravity repo"}"#
+        try (oversizedHeadRow + "\n" + targetRow + "\n").write(
+            to: historyURL,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let turns = try AntigravityTranscriptPreview.load(
+            from: historyURL,
+            sessionId: "tail-session",
+            limit: 10
+        )
+
+        XCTAssertEqual(turns.map(\.text), ["Tail prompt is visible"])
+    }
+
     func testRegisteredAgentJSONLWorkspaceKeyIsSharedCWDMetadata() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-workspace-cwd-\(UUID().uuidString)", isDirectory: true)
