@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | Türkçe | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | Türkçe | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
@@ -236,15 +236,33 @@ Tarayıcı geliştirici araçları kısayolları Safari varsayılanlarını taki
 
 cmux NIGHTLY, kendi bundle ID'sine sahip ayrı bir uygulamadır, bu yüzden kararlı sürümle yan yana çalışır. En son `main` commit'inden otomatik olarak derlenir ve kendi Sparkle akışı aracılığıyla otomatik güncellenir.
 
-## Oturum geri yükleme (mevcut davranış)
+## Oturum geri yükleme
 
-Yeniden başlatıldığında, cmux şu anda yalnızca uygulama düzenini ve meta verileri geri yükler:
+cmux'tan çıktığınızda mevcut oturum kaydedilir. Yeniden başlatıldığında cmux uygulamaya ait durumu geri yükler:
 - Pencere/çalışma alanı/panel düzeni
 - Çalışma dizinleri
 - Terminal kaydırma geçmişi (en iyi çaba)
 - Tarayıcı URL'si ve gezinme geçmişi
 
-cmux, terminal uygulamaları içindeki canlı işlem durumunu geri **yüklemez**. Örneğin, aktif Claude Code/tmux/vim oturumları yeniden başlatma sonrasında henüz devam ettirilmez.
+cmux rastgele canlı işlem durumunu checkpoint etmez. tmux, vim, shell'ler ve desteklenmeyen terminal uygulamaları normal terminaller olarak yeniden açılır.
+
+Desteklenen agent oturumları, hooks yerel bir oturum ID'si kaydettiğinde sürdürülebilir:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Gelişmiş kullanıcılar ve entegrasyonlar mevcut terminal surface'ine özel bir resume komutu bağlayabilir. Bu, tmux oturumları veya özel agent CLI'ları gibi kendi kalıcı durumuna sahip araçlar için kullanışlıdır:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Bu binding cmux surface'ine bağlı kalır. Genel CLI veya socket ile oluşturulan bindingler inceleme ve manuel resume için saklanır. cmux yalnızca güvenilir olarak işaretlediği resume bindinglerini otomatik çalıştırır, örneğin canlı processlerden algılanan tmux bindingleri. Token, parola, gizli değer ve API anahtarı gibi hassas ortam anahtarları resume binding kaydedilmeden önce atılır.
 
 ## Yıldız Geçmişi
 
