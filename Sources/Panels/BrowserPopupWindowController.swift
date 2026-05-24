@@ -210,6 +210,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // --- Delegates ---
         uiDel.controller = self
+        uiDel.downloadDelegate = dlDel
         navDel.controller = self
         navDel.downloadDelegate = dlDel
         webView.uiDelegate = uiDel
@@ -423,12 +424,52 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
 private class PopupUIDelegate: NSObject, WKUIDelegate {
     weak var controller: BrowserPopupWindowController?
+    weak var downloadDelegate: BrowserDownloadDelegate?
 
     func webViewDidClose(_ webView: WKWebView) {
         #if DEBUG
         cmuxDebugLog("popup.webViewDidClose")
         #endif
         controller?.closePopup()
+    }
+
+    @objc(_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:)
+    func _webView(
+        _ webView: WKWebView,
+        saveDataToFile data: NSData?,
+        suggestedFilename: String?,
+        mimeType: String?,
+        originatingURL url: URL?
+    ) {
+        _ = mimeType
+#if DEBUG
+        cmuxDebugLog("popup.pdfPreview.save requested filename=\(suggestedFilename ?? "nil")")
+#endif
+        BrowserPDFPreviewActionSupport.saveDataToFile(
+            data,
+            suggestedFilename: suggestedFilename,
+            originatingURL: url,
+            from: webView,
+            downloadDelegate: downloadDelegate
+        )
+    }
+
+    @objc(_webView:printFrame:pdfFirstPageSize:completionHandler:)
+    func _webView(
+        _ webView: WKWebView,
+        printFrame frame: AnyObject,
+        pdfFirstPageSize size: CGSize,
+        completionHandler: @escaping () -> Void
+    ) {
+        _ = frame
+#if DEBUG
+        cmuxDebugLog("popup.pdfPreview.print requested size=\(Int(size.width))x\(Int(size.height))")
+#endif
+        BrowserPDFPreviewActionSupport.printFrame(
+            from: webView,
+            pdfFirstPageSize: size,
+            completionHandler: completionHandler
+        )
     }
 
     func webView(
@@ -580,7 +621,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
 private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
-    var downloadDelegate: WKDownloadDelegate?
+    var downloadDelegate: BrowserDownloadDelegate?
 
     func webView(
         _ webView: WKWebView,
@@ -670,6 +711,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         #if DEBUG
         cmuxDebugLog("popup.download.didBecome source=navigationAction")
         #endif
+        downloadDelegate?.prepareForDownload(download, presentingWindow: webView.window)
         download.delegate = downloadDelegate
     }
 
@@ -677,6 +719,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         #if DEBUG
         cmuxDebugLog("popup.download.didBecome source=navigationResponse")
         #endif
+        downloadDelegate?.prepareForDownload(download, presentingWindow: webView.window)
         download.delegate = downloadDelegate
     }
 }
