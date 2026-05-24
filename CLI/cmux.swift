@@ -16572,13 +16572,16 @@ struct CMUXCLI {
         private func publishSpawnFailureDiagnosticSafely(_ diagnostic: CodexTeamsSpawnFailureDiagnostic) {
             stateLock.lock()
             defer { stateLock.unlock() }
-            guard reportedSpawnFailureFingerprints.insert(diagnostic.fingerprint).inserted else {
+            guard !reportedSpawnFailureFingerprints.contains(diagnostic.fingerprint) else {
                 return
             }
-            publishSpawnFailureDiagnostic(diagnostic)
+            if publishSpawnFailureDiagnostic(diagnostic) {
+                reportedSpawnFailureFingerprints.insert(diagnostic.fingerprint)
+            }
         }
 
-        private func publishSpawnFailureDiagnostic(_ diagnostic: CodexTeamsSpawnFailureDiagnostic) {
+        private func publishSpawnFailureDiagnostic(_ diagnostic: CodexTeamsSpawnFailureDiagnostic) -> Bool {
+            var didPublish = false
             do {
                 _ = try socketClient.sendV2(method: "notification.create_for_target", params: [
                     "workspace_id": workspaceId,
@@ -16587,6 +16590,7 @@ struct CMUXCLI {
                     "subtitle": diagnostic.subtitle,
                     "body": diagnostic.body
                 ])
+                didPublish = true
             } catch {
                 fputs("cmux codex-teams watcher failed to notify spawn failure: \(error)\n", stderr)
             }
@@ -16596,10 +16600,13 @@ struct CMUXCLI {
                 let response = try socketClient.send(command: statusCommand)
                 if response.hasPrefix("ERROR:") {
                     fputs("cmux codex-teams watcher failed to set spawn failure status: \(response)\n", stderr)
+                } else {
+                    didPublish = true
                 }
             } catch {
                 fputs("cmux codex-teams watcher failed to set spawn failure status: \(error)\n", stderr)
             }
+            return didPublish
         }
 
         private func backfillLoadedThreads(connection: CodexTeamsAppServerConnection) throws {
