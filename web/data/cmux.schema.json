@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
   "title": "cmux.json",
-  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, and workspace layouts. Project-local .cmux/cmux.json supports actions, commands, and UI action wiring.",
+  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json supports actions, commands, notification hooks, and UI action wiring.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -37,6 +37,122 @@
       "items": {
         "type": "object",
         "additionalProperties": true
+      }
+    },
+    "vault": {
+      "title": "vault",
+      "description": "Vault session restore agent registrations. cmux includes Pi by default; use this section to add or override JSONL-backed coding agents without an app update.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "type": "array",
+          "description": "Custom coding agents that Vault can detect, list, and resume.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id", "name", "sessionIdSource", "resumeCommand"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "description": "Stable lowercase-ish identifier used in Vault persistence, for example pi."
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name shown in Vault."
+              },
+              "iconAssetName": {
+                "type": "string",
+                "description": "Optional asset catalog image name shown for this agent in Vault."
+              },
+              "detect": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Rules for detecting a running agent process inside a cmux terminal.",
+                "properties": {
+                  "processName": {
+                    "type": "string",
+                    "description": "Executable basename to match, for example pi."
+                  },
+                  "argvContains": {
+                    "oneOf": [
+                      { "type": "string" },
+                      {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      }
+                    ],
+                    "description": "Substring or substrings that must appear in the process argv."
+                  }
+                }
+              },
+              "sessionIdSource": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "description": "Use piSessionFile for Pi JSONL discovery, or an argv option such as --session."
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["type"],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": ["argvOption", "piSessionFile"]
+                      },
+                      "argvOption": {
+                        "type": "string",
+                        "description": "Option whose following value is the session id, for example --session."
+                      }
+                    },
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "type": { "const": "argvOption" }
+                          }
+                        },
+                        "then": { "required": ["argvOption"] }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "type": { "const": "piSessionFile" }
+                          }
+                        },
+                        "then": {
+                          "not": { "required": ["argvOption"] }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "description": "Where cmux reads the native session id for an active process."
+              },
+              "resumeCommand": {
+                "type": "string",
+                "anyOf": [
+                  { "pattern": "\\{\\{sessionId\\}\\}" },
+                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                ],
+                "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
+              },
+              "cwd": {
+                "type": "string",
+                "enum": ["preserve", "ignore"],
+                "default": "preserve",
+                "description": "Whether Vault should cd to the saved working directory before running resumeCommand."
+              },
+              "sessionDirectory": {
+                "type": "string",
+                "description": "Optional root directory for JSONL session discovery, such as ~/.pi/agent/sessions."
+              }
+            }
+          },
+          "default": []
+        }
       }
     },
     "newWorkspaceCommand": {
@@ -112,6 +228,11 @@
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
+        "workspaceInheritWorkingDirectory": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
+        },
         "minimalMode": {
           "type": "boolean",
           "default": false,
@@ -130,12 +251,17 @@
         "preferredEditor": {
           "type": "string",
           "default": "",
-          "description": "Custom editor command used by cmux where applicable. Leave empty to use the default."
+          "description": "Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default."
+        },
+        "openSupportedFilesInCmux": {
+          "type": "boolean",
+          "default": true,
+          "description": "When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file."
         },
         "openMarkdownInCmuxViewer": {
           "type": "boolean",
           "default": false,
-          "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files in the terminal opens them in the cmux markdown viewer panel (with live reload) instead of the preferred editor."
+          "description": "When enabled together with openSupportedFilesInCmux, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
         "reorderOnNotification": {
           "type": "boolean",
@@ -152,10 +278,35 @@
           "default": true,
           "description": "Allow anonymous telemetry."
         },
+        "confirmQuit": {
+          "type": "string",
+          "enum": ["always", "dirty-only", "never"],
+          "default": "always",
+          "descriptionKey": "schemaDescriptions.app.confirmQuit",
+          "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
+        },
         "warnBeforeQuit": {
           "type": "boolean",
           "default": true,
-          "description": "Show a confirmation before quitting cmux."
+          "descriptionKey": "schemaDescriptions.app.warnBeforeQuit",
+          "description": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
+        },
+        "warnBeforeClosingTab": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a tab."
+        },
+        "warnBeforeClosingTabXButton": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.warnBeforeClosingTabXButton",
+          "description": "Show a confirmation before closing a tab with the tab close button."
+        },
+        "hideTabCloseButton": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.hideTabCloseButton",
+          "description": "Hide tab close buttons in the pane tab bar."
         },
         "renameSelectsExistingName": {
           "type": "boolean",
@@ -179,6 +330,92 @@
           "type": "boolean",
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
+        },
+        "copyOnSelect": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
+          "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+        },
+        "autoResumeAgentSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
+        },
+        "textBoxMaxLines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 10,
+          "description": "Maximum number of lines the rich terminal TextBox input can grow to before it scrolls."
+        },
+        "resumeCommands": {
+          "type": "array",
+          "default": [],
+          "description": "Signed command-prefix approvals for restoring non-agent terminal surfaces. cmux writes this list when you approve a surface resume command.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version", "id", "commandPrefix", "environmentKeys", "policy", "createdAt", "updatedAt", "signature"],
+            "properties": {
+              "version": {
+                "type": "integer",
+                "const": 1
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "commandPrefix": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Shell argv prefix that must match the saved resume command."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Optional working directory that must match the saved resume command."
+              },
+              "environment": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Optional non-sensitive environment values that must match the saved resume command."
+              },
+              "environmentKeys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "source": {
+                "type": "string"
+              },
+              "policy": {
+                "type": "string",
+                "enum": ["manual", "prompt", "auto"]
+              },
+              "createdAt": {
+                "type": "number"
+              },
+              "updatedAt": {
+                "type": "number"
+              },
+              "lastUsedAt": {
+                "type": "number"
+              },
+              "signature": {
+                "type": "string",
+                "description": "HMAC signature for the record. Changing signed fields invalidates the approval."
+              }
+            }
+          }
         }
       }
     },
@@ -241,6 +478,46 @@
           "type": "string",
           "default": "",
           "description": "Optional shell command to run alongside notification delivery."
+        },
+        "hooksMode": {
+          "type": "string",
+          "enum": ["append", "replace"],
+          "default": "append",
+          "description": "Controls whether project-local notification hooks append to inherited hooks or replace them."
+        },
+        "hooks": {
+          "type": "array",
+          "default": [],
+          "description": "Composable shell hooks that receive notification policy JSON on stdin and return updated policy JSON on stdout.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "command"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Stable hook identifier used in logs and failure alerts."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": ".*\\S.*",
+                "description": "Shell command run with notification policy JSON on stdin."
+              },
+              "timeoutSeconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "default": 20,
+                "description": "Maximum time cmux waits for this hook before falling back to default notification behavior."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Disable this hook without removing it."
+              }
+            }
+          }
         }
       }
     },
@@ -254,6 +531,11 @@
           "type": "boolean",
           "default": false,
           "description": "Hide all per-workspace detail rows."
+        },
+        "showWorkspaceDescription": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show custom workspace descriptions in the sidebar."
         },
         "branchLayout": {
           "type": "string",
@@ -275,6 +557,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show pull request metadata in the sidebar."
+        },
+        "watchGitStatus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Watch repository files for sidebar branch and pull request metadata without polling git."
         },
         "makePullRequestsClickable": {
           "type": "boolean",
@@ -374,6 +661,24 @@
           "additionalProperties": {
             "$ref": "#/$defs/colorHex"
           }
+        },
+        "paletteOverrides": {
+          "type": "object",
+          "description": "Legacy workspace color overrides for built-in palette names. Prefer workspaceColors.colors for new configs.",
+          "default": {},
+          "deprecated": true,
+          "additionalProperties": {
+            "$ref": "#/$defs/colorHex"
+          }
+        },
+        "customColors": {
+          "type": "array",
+          "description": "Legacy list of custom workspace colors. Prefer workspaceColors.colors for new configs.",
+          "default": [],
+          "deprecated": true,
+          "items": {
+            "$ref": "#/$defs/colorHex"
+          }
         }
       }
     },
@@ -408,7 +713,7 @@
           "minimum": 0,
           "maximum": 1,
           "default": 0.03,
-          "description": "Sidebar tint opacity from 0 to 1."
+          "description": "Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`."
         }
       }
     },
@@ -456,6 +761,27 @@
           "default": "",
           "description": "Custom path to the claude binary."
         },
+        "ripgrepBinaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the ripgrep (rg) binary used by project search."
+        },
+        "suppressSubagentNotifications": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.automation.suppressSubagentNotifications",
+          "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+        },
+        "cursorIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Cursor."
+        },
+        "geminiIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Gemini."
+        },
         "portBase": {
           "type": "integer",
           "minimum": 1,
@@ -493,6 +819,18 @@
           "default": "system",
           "description": "Embedded browser theme."
         },
+        "discardHiddenWebViews": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow hidden browser tabs to release page memory and restore when shown again."
+        },
+        "hiddenWebViewDiscardDelaySeconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3600,
+          "default": 300,
+          "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,
@@ -526,6 +864,7 @@
           },
           "default": [
             "localhost",
+            "*.localhost",
             "127.0.0.1",
             "::1",
             "0.0.0.0",
@@ -551,11 +890,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "showModifierHoldHints": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show shortcut hint pills while holding Cmd or Ctrl."
-        },
         "bindings": {
           "type": "object",
           "default": {},
@@ -565,6 +899,7 @@
               "openSettings",
               "reloadConfiguration",
               "showHideAllWindows",
+              "globalSearch",
               "newWindow",
               "closeWindow",
               "toggleFullScreen",
@@ -580,6 +915,8 @@
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
+              "toggleUnread",
+              "markOldestUnreadAndJumpNext",
               "focusRightSidebar",
               "switchRightSidebarToFiles",
               "switchRightSidebarToFind",
@@ -602,6 +939,8 @@
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
+              "focusTextBoxInput",
+              "attachTextBoxFile",
               "focusLeft",
               "focusRight",
               "focusUp",
@@ -612,6 +951,7 @@
               "equalizeSplits",
               "splitBrowserRight",
               "splitBrowserDown",
+              "toggleFileExplorer",
               "saveFilePreview",
               "openBrowser",
               "focusBrowserAddressBar",

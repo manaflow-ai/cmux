@@ -109,17 +109,135 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalTextBoxInputSettings {
+    static let maxLinesKey = "terminal.textBoxMaxLines"
+    static let defaultMaxLines = 10
+    static let minimumMaxLines = 1
+    static let maximumMaxLines = 20
+
+    static func resolvedMaxLines(_ value: Int) -> Int {
+        min(max(value, minimumMaxLines), maximumMaxLines)
+    }
+
+    static func maxLines(defaults: UserDefaults = .standard) -> Int {
+        guard let value = defaults.object(forKey: maxLinesKey) as? Int else {
+            return defaultMaxLines
+        }
+        return resolvedMaxLines(value)
+    }
+}
+
+enum TerminalCopyOnSelectSettings {
+    static let copyOnSelectKey = "terminal.copyOnSelect"
+    static let defaultCopyOnSelect = false
+    static let didChangeNotification = Notification.Name("cmux.terminalCopyOnSelectSettingsDidChange")
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        storedValue(defaults: defaults) ?? defaultCopyOnSelect
+    }
+
+    static func storedValue(defaults: UserDefaults = .standard) -> Bool? {
+        defaults.object(forKey: copyOnSelectKey) as? Bool
+    }
+
+    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard) -> String? {
+        guard let enabled = storedValue(defaults: defaults) else { return nil }
+        return enabled ? "clipboard" : "false"
+    }
+
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
+        guard let value = ghosttyCopyOnSelectValue(defaults: defaults) else { return nil }
+        return "copy-on-select = \(value)"
+    }
+
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.set(enabled, forKey: copyOnSelectKey)
+        if wasEnabled != enabled {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.removeObject(forKey: copyOnSelectKey)
+        let didChange = wasEnabled != isEnabled(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+enum TerminalManagedGhosttySettings {
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
+        let lines = [
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+        ].compactMap { $0 }
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n")
+    }
+}
+
+enum AgentSessionAutoResumeSettings {
+    static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
+    static let defaultAutoResumeAgentSessions = true
+    static let didChangeNotification = Notification.Name("cmux.agentSessionAutoResumeSettingsDidChange")
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: autoResumeAgentSessionsKey) != nil else {
+            return defaultAutoResumeAgentSessions
+        }
+        return defaults.bool(forKey: autoResumeAgentSessionsKey)
+    }
+
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.set(enabled, forKey: autoResumeAgentSessionsKey)
+        if wasEnabled != enabled {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.removeObject(forKey: autoResumeAgentSessionsKey)
+        let didChange = wasEnabled != isEnabled(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum RightSidebarBetaFeatureSettings {
-    static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
 
-    static let defaultFeedEnabled = false
     static let defaultDockEnabled = false
-
-    nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: feedEnabledKey) != nil else { return defaultFeedEnabled }
-        return defaults.bool(forKey: feedEnabledKey)
-    }
 
     nonisolated static func isDockEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: dockEnabledKey) != nil else { return defaultDockEnabled }

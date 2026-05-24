@@ -109,6 +109,10 @@ def run_probe(cli_path: str, probe: HelpProbe) -> ProbeResult:
     if not tokens or tokens[0] != "cmux":
         raise RuntimeError(f"Probe must start with cmux: {probe.command}")
 
+    return run_cli_args(cli_path, tokens[1:])
+
+
+def run_cli_args(cli_path: str, args: list[str]) -> ProbeResult:
     env = dict(os.environ)
     for key in [
         "CMUX_SOCKET_PASSWORD",
@@ -126,7 +130,7 @@ def run_probe(cli_path: str, probe: HelpProbe) -> ProbeResult:
         env["CMUX_SOCKET_PATH"] = no_socket
 
         proc = subprocess.run(  # noqa: S603
-            [cli_path, *tokens[1:]],
+            [cli_path, *args],
             text=True,
             capture_output=True,
             check=False,
@@ -205,6 +209,54 @@ def main() -> int:
         if result.socket_path not in merged:
             failures.append(
                 f"{probe.command}: expected forwarded command to reach forced socket {result.socket_path!r}\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+
+    try:
+        result = run_cli_args(cli_path, [])
+    except subprocess.TimeoutExpired:
+        failures.append("cmux: timed out")
+    except (RuntimeError, OSError, ValueError) as exc:
+        failures.append(f"cmux: {exc}")
+    else:
+        if result.returncode != 2:
+            failures.append(
+                f"cmux: expected missing-command exit 2, got {result.returncode}\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+        if result.stdout:
+            failures.append(
+                f"cmux: missing-command usage should not write stdout\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+        if "Missing command" not in result.stderr or "cmux --help" not in result.stderr:
+            failures.append(
+                f"cmux: missing-command error should point to cmux --help\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+        if "browser find" in result.stderr or "cmux - control cmux via Unix socket" in result.stderr:
+            failures.append(
+                f"cmux: missing-command error should not dump full help\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+
+    try:
+        result = run_cli_args(cli_path, ["settings", "--help"])
+    except subprocess.TimeoutExpired:
+        failures.append("cmux settings --help stale-target check: timed out")
+    except (RuntimeError, OSError, ValueError) as exc:
+        failures.append(f"cmux settings --help stale-target check: {exc}")
+    else:
+        stale_usage = "Usage: cmux settings [open|path|docs|target]"
+        target_usage = "Usage: cmux settings [open [target]|path|docs|<target>]"
+        if stale_usage in result.stdout:
+            failures.append(
+                f"cmux settings --help: stale literal target usage still present\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+        if target_usage not in result.stdout:
+            failures.append(
+                f"cmux settings --help: expected target-placeholder usage {target_usage!r}\n"
                 f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
             )
 

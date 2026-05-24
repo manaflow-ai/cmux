@@ -1,8 +1,50 @@
 import AppKit
 import Bonsplit
+import CMUXAgentVault
 import SQLite3
 import SwiftUI
 import UniformTypeIdentifiers
+
+@MainActor
+enum SessionEntryResumeCoordinator {
+    static func resume(_ entry: SessionEntry, tabManager: TabManager) {
+        guard let resumeCommand = entry.resumeCommandWithCwd else { return }
+        let inputWithReturn = resumeCommand + "\n"
+        let targetCwd = entry.resumeWorkingDirectory
+
+        let selected = tabManager.selectedWorkspace
+        let selectedTab = tabManager.selectedTabId.flatMap { id in
+            tabManager.tabs.first(where: { $0.id == id })
+        }
+        let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
+        let workspaceCwd = selected?.currentDirectory
+        let pwdMatches: Bool = {
+            guard !isRemoteSelection,
+                  let targetCwd, !targetCwd.isEmpty,
+                  let workspaceCwd, !workspaceCwd.isEmpty else { return false }
+            let lhs = (targetCwd as NSString).standardizingPath
+            let rhs = (workspaceCwd as NSString).standardizingPath
+            return lhs == rhs
+        }()
+
+        if pwdMatches,
+           let workspace = selected,
+           let paneId = workspace.bonsplitController.focusedPaneId {
+            workspace.newTerminalSurface(
+                inPane: paneId,
+                focus: true,
+                workingDirectory: targetCwd,
+                initialInput: inputWithReturn
+            )
+            return
+        }
+
+        tabManager.addWorkspace(
+            workingDirectory: targetCwd,
+            initialTerminalInput: inputWithReturn
+        )
+    }
+}
 
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
@@ -209,6 +251,26 @@ struct SessionIndexView: View {
     }
 }
 
+private struct AgentIconImage: View, Equatable {
+    let agent: SessionAgent
+    let size: CGFloat
+
+    var body: some View {
+        if let assetName = agent.assetName {
+            Image(assetName)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: agent.systemImageName ?? "person.crop.circle")
+                .font(.system(size: max(size - 2, 10), weight: .regular))
+                .foregroundColor(.secondary)
+                .frame(width: size, height: size)
+        }
+    }
+}
+
 private struct GroupingButton: View {
     let mode: SessionGrouping
     let isSelected: Bool
@@ -394,11 +456,7 @@ private struct IndexSectionView: View, Equatable {
     private var sectionIconView: some View {
         switch section.icon {
         case .agent(let agent):
-            Image(agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            AgentIconImage(agent: agent, size: 14)
         case .folder:
             Image(systemName: "folder")
                 .font(.system(size: 12, weight: .regular))
@@ -497,11 +555,7 @@ private struct SessionRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(entry.agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 12, height: 12)
+            AgentIconImage(agent: entry.agent, size: 12)
             Text(entry.displayTitle)
                 .font(.system(size: 13))
                 .foregroundColor(.primary.opacity(0.92))
@@ -529,11 +583,7 @@ private struct SessionRow: View, Equatable {
             sessionDragItemProvider(for: entry)
         } preview: {
             HStack(spacing: 6) {
-                Image(entry.agent.assetName)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 12, height: 12)
+                AgentIconImage(agent: entry.agent, size: 12)
                 Text(entry.displayTitle)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
@@ -630,12 +680,14 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
             Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
         }
     }
-    Button {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(entry.resumeCommandWithCwd, forType: .string)
-    } label: {
-        Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
+    if let resumeCommand = entry.resumeCommand {
+        Button {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(resumeCommand, forType: .string)
+        } label: {
+            Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
+        }
     }
     if let cwd = entry.cwd, !cwd.isEmpty {
         Button {
@@ -688,11 +740,7 @@ private struct SessionTranscriptPreviewView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(entry.agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            AgentIconImage(agent: entry.agent, size: 14)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
                     .font(.system(size: 13, weight: .semibold))
@@ -985,61 +1033,18 @@ private enum SessionTranscriptPreviewState: Equatable {
     case loaded([SessionTranscriptDisplayRow])
 }
 
-private struct SessionTranscriptTurn: Identifiable, Equatable, Sendable {
-    let id: Int
-    let role: SessionTranscriptRole
-    let text: String
-}
-
-private enum SessionTranscriptRole: Equatable, Sendable {
-    case user
-    case assistant
-    case system
-    case tool
-    case event
-
-    var label: String {
-        switch self {
-        case .user:
-            return String(localized: "sessionIndex.preview.role.user", defaultValue: "You")
-        case .assistant:
-            return String(localized: "sessionIndex.preview.role.assistant", defaultValue: "Agent")
-        case .system:
-            return String(localized: "sessionIndex.preview.role.system", defaultValue: "System")
-        case .tool:
-            return String(localized: "sessionIndex.preview.role.tool", defaultValue: "Tool")
-        case .event:
-            return String(localized: "sessionIndex.preview.role.event", defaultValue: "Event")
+private extension SessionEntry {
+    var usesGrokTranscriptLayout: Bool {
+        if agent == .grok {
+            return true
         }
-    }
-
-    var foregroundColor: Color {
-        switch self {
-        case .user: return .accentColor
-        case .assistant: return .green
-        case .system: return .secondary
-        case .tool: return .orange
-        case .event: return .secondary
+        guard case .registered(let registration) = specifics else {
+            return false
         }
-    }
-
-    var backgroundColor: Color {
-        switch self {
-        case .user: return Color.accentColor.opacity(0.035)
-        case .assistant: return Color.green.opacity(0.035)
-        case .system: return Color.primary.opacity(0.025)
-        case .tool: return Color.orange.opacity(0.035)
-        case .event: return Color.primary.opacity(0.02)
+        if case .grokSessionDirectory = registration.sessionIdSource {
+            return true
         }
-    }
-
-    var bodyFont: Font {
-        switch self {
-        case .tool, .system:
-            return .system(size: 11, design: .monospaced)
-        case .user, .assistant, .event:
-            return .system(size: 12)
-        }
+        return false
     }
 }
 
@@ -1074,6 +1079,58 @@ private enum SessionTranscriptLoader {
         Data(#""role":"#.utf8),
         Data(#""role": "#.utf8)
     ]
+    private static let grokAssistantRoleNeedles = [
+        Data(#""role":"assistant""#.utf8),
+        Data(#""role": "assistant""#.utf8),
+        Data(#""type":"assistant""#.utf8),
+        Data(#""type": "assistant""#.utf8)
+    ]
+    private static let grokUserRoleNeedles = [
+        Data(#""role":"user""#.utf8),
+        Data(#""role": "user""#.utf8),
+        Data(#""type":"user""#.utf8),
+        Data(#""type": "user""#.utf8)
+    ]
+    private static let grokSystemRoleNeedles = [
+        Data(#""role":"system""#.utf8),
+        Data(#""role": "system""#.utf8),
+        Data(#""role":"developer""#.utf8),
+        Data(#""role": "developer""#.utf8),
+        Data(#""type":"system""#.utf8),
+        Data(#""type": "system""#.utf8),
+        Data(#""type":"developer""#.utf8),
+        Data(#""type": "developer""#.utf8)
+    ]
+    private static let grokToolRoleNeedles = [
+        Data(#""role":"tool""#.utf8),
+        Data(#""role": "tool""#.utf8),
+        Data(#""role":"tool_use""#.utf8),
+        Data(#""role": "tool_use""#.utf8),
+        Data(#""role":"tool_result""#.utf8),
+        Data(#""role": "tool_result""#.utf8),
+        Data(#""role":"function_call""#.utf8),
+        Data(#""role": "function_call""#.utf8),
+        Data(#""role":"function_call_output""#.utf8),
+        Data(#""role": "function_call_output""#.utf8),
+        Data(#""type":"tool""#.utf8),
+        Data(#""type": "tool""#.utf8),
+        Data(#""type":"tool_use""#.utf8),
+        Data(#""type": "tool_use""#.utf8),
+        Data(#""type":"tool_result""#.utf8),
+        Data(#""type": "tool_result""#.utf8),
+        Data(#""type":"function_call""#.utf8),
+        Data(#""type": "function_call""#.utf8),
+        Data(#""type":"function_call_output""#.utf8),
+        Data(#""type": "function_call_output""#.utf8)
+    ]
+    private static let grokRoleNeedles = [
+        Data(#""role":"#.utf8),
+        Data(#""role": "#.utf8)
+    ]
+        + grokAssistantRoleNeedles
+        + grokUserRoleNeedles
+        + grokSystemRoleNeedles
+        + grokToolRoleNeedles
 
     static func load(entry: SessionEntry) async throws -> [SessionTranscriptTurn] {
         if entry.agent == .opencode {
@@ -1084,16 +1141,37 @@ private enum SessionTranscriptLoader {
                 try loadOpenCodeSynchronously(sessionId: sessionId)
             }.value
         }
+        if entry.agent == .hermesAgent {
+            let sessionId = entry.sessionId
+            return try await Task.detached(priority: .userInitiated) {
+                try loadHermesAgentSynchronously(sessionId: sessionId)
+            }.value
+        }
         guard let url = entry.fileURL else {
             throw SessionTranscriptLoadError.missingFile
         }
         let agent = entry.agent
+        let sessionId = entry.sessionId
+        if agent.id == "antigravity" {
+            return try await Task.detached(priority: .userInitiated) {
+                try loadAntigravityHistorySynchronously(from: url, sessionId: sessionId)
+            }.value
+        }
+        let usesGrokTranscriptLayout = entry.usesGrokTranscriptLayout
         return try await Task.detached(priority: .userInitiated) {
-            try loadSynchronously(from: url, agent: agent)
+            try loadSynchronously(
+                from: url,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout
+            )
         }.value
     }
 
-    private static func loadSynchronously(from url: URL, agent: SessionAgent) throws -> [SessionTranscriptTurn] {
+    private static func loadSynchronously(
+        from url: URL,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool
+    ) throws -> [SessionTranscriptTurn] {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw SessionTranscriptLoadError.missingFile
         }
@@ -1134,7 +1212,12 @@ private enum SessionTranscriptLoader {
                 didHitTurnLimit = turns.count >= maxPreviewTurns
                 return
             }
-            guard let parsed = parseLineData(lineData, agent: agent, id: lineIndex) else {
+            guard let parsed = parseLineData(
+                lineData,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                id: lineIndex
+            ) else {
                 return
             }
             turns.append(parsed)
@@ -1149,8 +1232,16 @@ private enum SessionTranscriptLoader {
                 if remainingCapacity > 0 {
                     lineData.append(contentsOf: segment.prefix(remainingCapacity))
                 }
-                if shouldParseRawLine(lineData, agent: agent) {
-                    oversizedPreviewRole = inferredRole(from: lineData, agent: agent) ?? .event
+                if shouldParseRawLine(
+                    lineData,
+                    agent: agent,
+                    usesGrokTranscriptLayout: usesGrokTranscriptLayout
+                ) {
+                    oversizedPreviewRole = inferredRole(
+                        from: lineData,
+                        agent: agent,
+                        usesGrokTranscriptLayout: usesGrokTranscriptLayout
+                    ) ?? .event
                 }
                 lineData.removeAll(keepingCapacity: true)
                 isSkippingOversizedLine = true
@@ -1188,6 +1279,51 @@ private enum SessionTranscriptLoader {
         }
 
         return coalesce(turns)
+    }
+
+    private static func loadAntigravityHistorySynchronously(
+        from url: URL,
+        sessionId: String
+    ) throws -> [SessionTranscriptTurn] {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw SessionTranscriptLoadError.missingFile
+        }
+
+        var turns: [SessionTranscriptTurn] = []
+        var lineIndex = 0
+        var didHitTurnLimit = false
+        let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
+
+        SessionIndexStore.forEachJSONLine(url: url, maxBytes: Int.max) { object in
+            defer { lineIndex += 1 }
+            if Task.isCancelled { return true }
+            guard turns.count < maxPreviewTurns else {
+                didHitTurnLimit = true
+                return true
+            }
+            guard antigravityHistorySessionID(in: object) == sessionId else {
+                return false
+            }
+            let content = object["display"] ?? object["prompt"] ?? object["text"] ?? object["message"]
+            guard let text = normalizedText(from: content, role: .user, agent: agent) else {
+                return false
+            }
+            turns.append(SessionTranscriptTurn(id: lineIndex, role: .user, text: text))
+            return false
+        }
+        if didHitTurnLimit {
+            appendTurnLimitMarker(to: &turns, id: lineIndex)
+        }
+        return coalesce(turns)
+    }
+
+    private static func antigravityHistorySessionID(in object: [String: Any]) -> String? {
+        for key in ["conversationId", "conversation_id", "sessionId", "session_id", "id"] {
+            guard let value = object[key] as? String else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
     }
 
     private static func loadOpenCodeSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
@@ -1275,6 +1411,33 @@ private enum SessionTranscriptLoader {
         return coalesce(turns)
     }
 
+    private static func loadHermesAgentSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
+        do {
+            let turns = try HermesAgentIndex.loadTranscript(sessionId: sessionId, limit: maxPreviewTurns + 1)
+            let didHitTurnLimit = turns.count > maxPreviewTurns
+            var previewTurns: [SessionTranscriptTurn] = turns.prefix(maxPreviewTurns).enumerated().compactMap { index, turn -> SessionTranscriptTurn? in
+                let role: SessionTranscriptRole = (turn.toolName?.isEmpty == false) ? .tool : (transcriptRole(from: turn.role) ?? .event)
+                let text: String
+                if role == .tool, let toolName = turn.toolName, !toolName.isEmpty {
+                    text = [toolName, turn.content].joined(separator: "\n\n")
+                } else {
+                    text = turn.content
+                }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                return SessionTranscriptTurn(id: index, role: role, text: truncatedText(trimmed, role: role))
+            }
+            if didHitTurnLimit {
+                appendTurnLimitMarker(to: &previewTurns, id: previewTurns.count)
+            }
+            return coalesce(previewTurns)
+        } catch HermesAgentIndexError.missingDatabase {
+            throw SessionTranscriptLoadError.missingFile
+        } catch let HermesAgentIndexError.sqlite(message) {
+            throw SessionTranscriptLoadError.databaseError(message)
+        }
+    }
+
     private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? { sqlite3_column_text(stmt, index).map { String(cString: $0) } }
 
     private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
@@ -1285,19 +1448,26 @@ private enum SessionTranscriptLoader {
     private static func parseLineData(
         _ lineData: Data,
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
         guard !lineData.isEmpty,
-              shouldParseRawLine(lineData, agent: agent),
+              shouldParseRawLine(lineData, agent: agent, usesGrokTranscriptLayout: usesGrokTranscriptLayout),
               let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
             return nil
         }
-        return parseLine(object, agent: agent, id: id)
+        return parseLine(
+            object,
+            agent: agent,
+            usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+            id: id
+        )
     }
 
     private static func parseLine(
         _ object: [String: Any],
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
         switch agent {
@@ -1305,8 +1475,15 @@ private enum SessionTranscriptLoader {
             return parseClaudeLine(object, id: id)
         case .codex:
             return parseCodexLine(object, id: id)
-        case .opencode, .rovodev:
-            return parseGenericLine(object, agent: agent, id: id)
+        case .grok, .opencode, .rovodev, .registered:
+            return parseGenericLine(
+                object,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                id: id
+            )
+        case .hermesAgent:
+            return nil
         }
     }
 
@@ -1353,17 +1530,33 @@ private enum SessionTranscriptLoader {
     private static func parseGenericLine(
         _ object: [String: Any],
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
-        if let parsed = parseGenericMessage(object, agent: agent, id: id) {
+        if let parsed = parseGenericMessage(
+            object,
+            agent: agent,
+            usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+            id: id
+        ) {
             return parsed
         }
         if let payload = object["payload"] as? [String: Any],
-           let parsed = parseGenericMessage(payload, agent: agent, id: id) {
+           let parsed = parseGenericMessage(
+               payload,
+               agent: agent,
+               usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+               id: id
+           ) {
             return parsed
         }
         if let message = object["message"] as? [String: Any],
-           let parsed = parseGenericMessage(message, agent: agent, id: id) {
+           let parsed = parseGenericMessage(
+               message,
+               agent: agent,
+               usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+               id: id
+           ) {
             return parsed
         }
         return nil
@@ -1372,9 +1565,31 @@ private enum SessionTranscriptLoader {
     private static func parseGenericMessage(
         _ object: [String: Any],
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
-        guard let role = transcriptRole(from: object["role"] as? String) else {
+        let fallbackRole: SessionTranscriptRole? = { if case .registered = agent { return .event }; return nil }()
+        let rawRole = object["role"] as? String
+        let parsedRole = transcriptRole(from: rawRole)
+        let roleFromRole = usesGrokTranscriptLayout
+            && parsedRole == .event
+            && rawRole?.caseInsensitiveCompare("event") != .orderedSame
+            ? nil
+            : parsedRole
+        let shouldUseGrokTypeRole = usesGrokTranscriptLayout
+            && roleFromRole == nil
+        let roleFromType: SessionTranscriptRole? = {
+            guard shouldUseGrokTypeRole else { return nil }
+            let rawType = object["type"] as? String
+            let parsedTypeRole = transcriptRole(from: rawType)
+            if parsedTypeRole == .event,
+               rawType?.caseInsensitiveCompare("event") != .orderedSame {
+                return nil
+            }
+            return parsedTypeRole
+        }()
+        let shouldUseFallbackRole = !usesGrokTranscriptLayout
+        guard let role = roleFromType ?? roleFromRole ?? (shouldUseFallbackRole ? fallbackRole : nil) else {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]
@@ -1578,19 +1793,39 @@ private enum SessionTranscriptLoader {
         }
     }
 
-    private static func shouldParseRawLine(_ data: Data, agent: SessionAgent) -> Bool {
+    private static func shouldParseRawLine(
+        _ data: Data,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool
+    ) -> Bool {
+        if usesGrokTranscriptLayout {
+            return containsAny(data, needles: grokRoleNeedles)
+        }
         switch agent {
         case .claude:
             return containsAny(data, needles: claudeUserNeedles)
         case .codex:
             return containsAny(data, needles: codexResponseItemNeedles)
                 && containsAny(data, needles: codexPreviewNeedles)
+        case .grok:
+            return containsAny(data, needles: grokRoleNeedles)
         case .opencode, .rovodev:
             return containsAny(data, needles: genericRoleNeedles)
+        case .registered:
+            return true
+        case .hermesAgent:
+            return false
         }
     }
 
-    private static func inferredRole(from data: Data, agent: SessionAgent) -> SessionTranscriptRole? {
+    private static func inferredRole(
+        from data: Data,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool
+    ) -> SessionTranscriptRole? {
+        if usesGrokTranscriptLayout {
+            return inferredGrokRole(from: data)
+        }
         switch agent {
         case .claude:
             if containsAny(data, needles: [Data(#""type":"assistant""#.utf8), Data(#""type": "assistant""#.utf8)]) {
@@ -1599,7 +1834,7 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
                 return .user
             }
-        case .codex, .opencode, .rovodev:
+        case .codex, .opencode, .rovodev, .registered:
             if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
                 return .assistant
             }
@@ -1609,6 +1844,26 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"function_call""#.utf8), Data(#""type": "function_call""#.utf8)]) {
                 return .tool
             }
+        case .grok:
+            return inferredGrokRole(from: data)
+        case .hermesAgent:
+            return nil
+        }
+        return nil
+    }
+
+    private static func inferredGrokRole(from data: Data) -> SessionTranscriptRole? {
+        if containsAny(data, needles: grokAssistantRoleNeedles) {
+            return .assistant
+        }
+        if containsAny(data, needles: grokUserRoleNeedles) {
+            return .user
+        }
+        if containsAny(data, needles: grokSystemRoleNeedles) {
+            return .system
+        }
+        if containsAny(data, needles: grokToolRoleNeedles) {
+            return .tool
         }
         return nil
     }
@@ -2172,11 +2427,7 @@ private struct SectionPopoverView: View {
     private var sectionIconView: some View {
         switch section.icon {
         case .agent(let agent):
-            Image(agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            AgentIconImage(agent: agent, size: 14)
         case .folder:
             Image(systemName: "folder")
                 .font(.system(size: 12, weight: .regular))
@@ -2224,11 +2475,7 @@ private struct PopoverRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(entry.agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 12, height: 12)
+            AgentIconImage(agent: entry.agent, size: 12)
             // Flatten newlines so titles containing `<command-message>…\n…`
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
             // always constrain a Text that has hard line breaks in the
@@ -2333,6 +2580,7 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
 /// bonsplit's external-drop decoder reads from that pasteboard directly
 /// and SwiftUI's NSItemProvider bridge doesn't always surface custom
 /// UTTypes there reliably.
+@MainActor
 private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
     let dragId = SessionDragRegistry.shared.register(entry)
     let provider = NSItemProvider()
@@ -2345,12 +2593,10 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
             completion(data, nil)
             return nil
         }
-        DispatchQueue.main.async {
-            let pb = NSPasteboard(name: .drag)
-            let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
-            pb.addTypes([type], owner: nil)
-            pb.setData(data, forType: type)
-        }
+        let pb = NSPasteboard(name: .drag)
+        let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+        pb.addTypes([type], owner: nil)
+        pb.setData(data, forType: type)
     }
 
     provider.suggestedName = entry.displayTitle

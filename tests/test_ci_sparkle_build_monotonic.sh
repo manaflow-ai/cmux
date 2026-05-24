@@ -13,7 +13,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PROJECT_FILE="$ROOT_DIR/GhosttyTabs.xcodeproj/project.pbxproj"
+PROJECT_FILE="$ROOT_DIR/cmux.xcodeproj/project.pbxproj"
 
 if [[ ! -f "$PROJECT_FILE" ]]; then
   echo "FAIL: $PROJECT_FILE not found" >&2
