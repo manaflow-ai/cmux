@@ -77,6 +77,20 @@ python3 scripts/swift_file_length_budget.py \
   --threshold 5 \
   --paths Sources/Small.swift
 
+python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$BUDGET" \
+  --threshold 5 \
+  --roots Sources/ \
+  --paths Sources/Small.swift
+
+python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$BUDGET" \
+  --threshold 5 \
+  --roots . \
+  --paths Sources/Small.swift
+
 if python3 scripts/swift_file_length_budget.py \
   --repo-root "$FIXTURE" \
   --budget "$BUDGET" \
@@ -104,6 +118,21 @@ fi
 if ! grep -Fq 'expected at least one argument' "$TMP_DIR/empty-paths.out"; then
   echo "expected argparse to reject empty --paths" >&2
   cat "$TMP_DIR/empty-paths.out" >&2
+  exit 1
+fi
+
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$BUDGET" \
+  --threshold 5 \
+  --paths Sources/Missing.swift >"$TMP_DIR/missing-path.out" 2>&1; then
+  echo "expected unmatched --paths invocation to fail" >&2
+  exit 1
+fi
+
+if ! grep -Fq -- '--paths did not resolve to any cmux-owned Swift files' "$TMP_DIR/missing-path.out"; then
+  echo "expected unmatched --paths error" >&2
+  cat "$TMP_DIR/missing-path.out" >&2
   exit 1
 fi
 

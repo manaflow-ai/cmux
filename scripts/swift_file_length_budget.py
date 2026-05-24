@@ -31,7 +31,13 @@ def is_ignored_path(path: pathlib.Path) -> bool:
 
 def is_scanned_path(path: pathlib.Path, roots: tuple[str, ...]) -> bool:
     normalized = path.as_posix()
-    return any(normalized == root or normalized.startswith(f"{root}/") for root in roots)
+    for root in roots:
+        normalized_root = pathlib.Path(os.path.normpath(root)).as_posix()
+        if normalized_root == ".":
+            return True
+        if normalized == normalized_root or normalized.startswith(f"{normalized_root}/"):
+            return True
+    return False
 
 
 def count_lines(path: pathlib.Path) -> int:
@@ -127,6 +133,39 @@ def collect_staged_file_lengths(repo_root: pathlib.Path, roots: tuple[str, ...])
             "--cached",
             "--name-only",
             "--diff-filter=ACMR",
+            "-z",
+            "--",
+            "*.swift",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+
+    budget: FileLengthBudget = {}
+    paths = [path for path in result.stdout.decode("utf-8", errors="surrogateescape").split("\0") if path]
+    for raw_path in paths:
+        rel_path = pathlib.Path(os.path.normpath(raw_path))
+        if rel_path.suffix != ".swift":
+            continue
+        if not is_scanned_path(rel_path, roots) or is_ignored_path(rel_path):
+            continue
+
+        blob = subprocess.run(
+            ["git", "-C", str(repo_root), "show", f":{rel_path.as_posix()}"],
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        budget[rel_path.as_posix()] = count_lines_in_bytes(blob)
+    return budget
+
+
+def collect_index_file_lengths(repo_root: pathlib.Path, roots: tuple[str, ...]) -> FileLengthBudget:
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "ls-files",
             "-z",
             "--",
             "*.swift",
@@ -324,6 +363,11 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="check staged Swift files from the git index instead of scanning every root",
     )
+    parser.add_argument(
+        "--index",
+        action="store_true",
+        help="check every tracked Swift file from the git index instead of the working tree",
+    )
     args = parser.parse_args(argv)
 
     if args.threshold < 1:
@@ -335,8 +379,17 @@ def main(argv: list[str]) -> int:
     if args.write_budget and args.staged:
         print("--write-budget cannot be combined with --staged", file=sys.stderr)
         return 2
+    if args.write_budget and args.index:
+        print("--write-budget cannot be combined with --index", file=sys.stderr)
+        return 2
     if args.paths is not None and args.staged:
         print("--paths cannot be combined with --staged", file=sys.stderr)
+        return 2
+    if args.paths is not None and args.index:
+        print("--paths cannot be combined with --index", file=sys.stderr)
+        return 2
+    if args.staged and args.index:
+        print("--staged cannot be combined with --index", file=sys.stderr)
         return 2
 
     repo_root = args.repo_root.resolve(strict=False)
@@ -350,6 +403,12 @@ def main(argv: list[str]) -> int:
             print(f"Error reading staged Swift files: {exc}", file=sys.stderr)
             return 2
         checked_paths = set(file_lengths)
+    elif args.index:
+        try:
+            file_lengths = collect_index_file_lengths(repo_root, roots)
+        except subprocess.CalledProcessError as exc:
+            print(f"Error reading index Swift files: {exc}", file=sys.stderr)
+            return 2
     elif args.paths is None:
         file_lengths = collect_file_lengths(repo_root, roots)
     else:
@@ -359,6 +418,9 @@ def main(argv: list[str]) -> int:
     print_file_summary("All scanned cmux-owned Swift files", file_lengths)
     print_file_summary(f"Tracked Swift files >= {args.threshold} lines", actual)
     if checked_paths is not None and not checked_paths:
+        if args.paths is not None:
+            print("--paths did not resolve to any cmux-owned Swift files", file=sys.stderr)
+            return 2
         print("Swift file length budget respected.")
         return 0
 
@@ -367,7 +429,7 @@ def main(argv: list[str]) -> int:
         print(f"Wrote {budget_path}")
         return 0
 
-    if not budget_path.exists():
+    if not args.staged and not budget_path.exists():
         print(f"Missing Swift file length budget: {budget_path}", file=sys.stderr)
         return 2
 
