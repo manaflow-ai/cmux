@@ -84,6 +84,12 @@ body {
   animation: fade-in 500ms ease-out;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in {
+    animation: none;
+  }
+}
+
 /* Docs prose styles — in @layer base so Tailwind utilities can override */
 @layer base {
   .docs-content h1 {
