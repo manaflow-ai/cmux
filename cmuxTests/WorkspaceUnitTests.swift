@@ -3815,6 +3815,44 @@ final class WorkspaceTeardownTests: XCTestCase {
         throw XCTSkip("Debug-only regression test")
 #endif
     }
+
+    func testDisablingPortalRenderingDefersPortalHideUntilNextMainActorTurn() async throws {
+#if DEBUG
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+
+        terminalPanel.hostedView.setVisibleInUI(true)
+        workspace.setPortalRenderingEnabled(false, reason: "test")
+        XCTAssertTrue(terminalPanel.hostedView.debugPortalVisibleInUI)
+
+        await Task.yield()
+        await Task.yield()
+
+        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testReenabledPortalRenderingCancelsDeferredPortalHide() async throws {
+#if DEBUG
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+
+        terminalPanel.hostedView.setVisibleInUI(true)
+        workspace.setPortalRenderingEnabled(false, reason: "test")
+        workspace.setPortalRenderingEnabled(true, reason: "test")
+
+        await Task.yield()
+        await Task.yield()
+
+        XCTAssertTrue(terminalPanel.hostedView.debugPortalVisibleInUI)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
 }
 
 
