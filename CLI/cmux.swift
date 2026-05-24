@@ -6563,7 +6563,7 @@ struct CMUXCLI {
                     _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
                 } catch {
                     let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                    FileHandle.standardError.write(Data(warning.utf8))
+                    cliWriteStderr(warning)
                 }
                 throw CLIError(
                     message: "cmux could not resolve the initial terminal surface for persistent SSH PTY startup"
@@ -8983,7 +8983,7 @@ struct CMUXCLI {
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
-                FileHandle.standardOutput.write(Data(outputBuffer.prefix(count)))
+                cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeSource.cancel()
                 try handleSSHPTYBridgeEOF(
