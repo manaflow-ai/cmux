@@ -1734,6 +1734,9 @@ class TabManager: ObservableObject {
         )
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func resolveWorkspacePullRequestCandidateSeeds(
         _ seeds: [WorkspacePullRequestCandidateSeed]
     ) async -> WorkspacePullRequestCandidateResolution {
@@ -2291,6 +2294,10 @@ class TabManager: ObservableObject {
         selectedWorkspace?.focusedTerminalPanel
     }
 
+    private var selectedWorkspaceTerminalPanels: [TerminalPanel] {
+        selectedWorkspace?.panels.values.compactMap { $0 as? TerminalPanel } ?? []
+    }
+
     var isFindVisible: Bool {
         selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
     }
@@ -2364,6 +2371,45 @@ class TabManager: ObservableObject {
     func toggleFocusedTerminalCopyMode() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
         return panel.surface.toggleKeyboardCopyMode()
+    }
+
+    @discardableResult
+    func toggleFocusedTerminalTextBox() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.toggleTextBoxInput()
+    }
+
+    @discardableResult
+    func focusFocusedTerminalTextBoxInputOrTerminal() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.focusTextBoxInputOrTerminal()
+    }
+
+    @discardableResult
+    func attachFileToFocusedTerminalTextBoxInput() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.attachFileToTextBoxInput()
+    }
+
+    @discardableResult
+    func consumeFocusedTerminalTextBoxHideEscapeIfArmed(in window: NSWindow?) -> Bool {
+        guard let focusedPanel = selectedTerminalPanel else {
+            clearFocusedTerminalTextBoxHideEscapeArm()
+            return false
+        }
+        let consumed = focusedPanel.consumeTextBoxHideEscapeIfArmed(in: window)
+        guard !consumed else { return true }
+        for panel in selectedWorkspaceTerminalPanels {
+            if panel === focusedPanel { continue }
+            panel.clearTextBoxHideEscapeArm()
+        }
+        return false
+    }
+
+    func clearFocusedTerminalTextBoxHideEscapeArm() {
+        for panel in selectedWorkspaceTerminalPanels {
+            panel.clearTextBoxHideEscapeArm()
+        }
     }
 
     func hideFind() {
@@ -4932,6 +4978,9 @@ class TabManager: ObservableObject {
     }
 #endif
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func githubRepositorySlugs(directory: String) async -> [String] {
         guard let repository = resolveGitRepository(containing: directory),
               let output = gitRemoteVOutput(repository: repository) else {
@@ -9079,6 +9128,14 @@ extension TabManager {
                     ),
                     into: &hasher
                 )
+                if let terminalPanel = workspace.terminalPanel(for: panelId) {
+                    Self.hashTextBoxDraftSnapshot(
+                        terminalPanel.sessionTextBoxDraftSnapshot(),
+                        into: &hasher
+                    )
+                } else {
+                    hasher.combine(false)
+                }
             }
 
             if let progress = workspace.progress {
@@ -9175,6 +9232,42 @@ extension TabManager {
         } else {
             hashOptionalDouble(snapshot.updatedAt, into: &hasher)
         }
+    }
+
+    nonisolated private static func hashTextBoxDraftSnapshot(
+        _ snapshot: SessionTextBoxInputDraftSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let snapshot else {
+            hasher.combine(false)
+            return
+        }
+
+        hasher.combine(true)
+        hasher.combine(snapshot.isActive)
+        hasher.combine(snapshot.parts.count)
+        for part in snapshot.parts {
+            hasher.combine(part.kind.rawValue)
+            hashOptionalString(part.text, into: &hasher)
+            hashTextBoxAttachmentSnapshot(part.attachment, into: &hasher)
+        }
+    }
+
+    nonisolated private static func hashTextBoxAttachmentSnapshot(
+        _ snapshot: SessionTextBoxInputAttachmentSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let snapshot else {
+            hasher.combine(false)
+            return
+        }
+
+        hasher.combine(true)
+        hasher.combine(snapshot.displayName)
+        hasher.combine(snapshot.submissionText)
+        hasher.combine(snapshot.submissionPath)
+        hashOptionalString(snapshot.localPath, into: &hasher)
+        hasher.combine(snapshot.cleanupLocalPathWhenDisposed)
     }
 
     nonisolated private static func hashNotifications(
