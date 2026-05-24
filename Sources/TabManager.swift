@@ -1166,6 +1166,7 @@ class TabManager: ObservableObject {
                 recordTabInHistory(selectedTabId)
             }
             publishCmuxWorkspaceSelectedChange(from: previousTabId)
+            NotificationCenter.default.post(name: .cmuxSelectedWorkspaceDidChange, object: self)
             let notificationDismissalContext = pendingSelectedTabNotificationDismissContext ?? .activeFocus
             pendingSelectedTabNotificationDismissContext = nil
 #if DEBUG
@@ -9467,6 +9468,7 @@ extension Notification.Name {
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
+    static let cmuxSelectedWorkspaceDidChange = Notification.Name("cmuxSelectedWorkspaceDidChange")
     static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
     static let browserDidBecomeFirstResponderWebView = Notification.Name("browserDidBecomeFirstResponderWebView")
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")

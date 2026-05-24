@@ -1094,7 +1094,7 @@ final class TerminalNotificationStore: ObservableObject {
 #if DEBUG
         detailedDismissLookupObserverForTesting?("hasManualUnread")
 #endif
-        manualUnreadWorkspaceIds.contains(tabId)
+        return manualUnreadWorkspaceIds.contains(tabId)
     }
 
     func hasPanelDerivedUnread(forTabId tabId: UUID) -> Bool {
@@ -1105,7 +1105,7 @@ final class TerminalNotificationStore: ObservableObject {
 #if DEBUG
         detailedDismissLookupObserverForTesting?("hasRestoredUnreadIndicator")
 #endif
-        restoredUnreadWorkspaceIds.contains(tabId)
+        return restoredUnreadWorkspaceIds.contains(tabId)
     }
 
     @discardableResult
@@ -1158,7 +1158,7 @@ final class TerminalNotificationStore: ObservableObject {
 #if DEBUG
         detailedDismissLookupObserverForTesting?("hasUnreadNotification")
 #endif
-        indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
+        return indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
     }
 
     func hasUnreadNotificationRequiringPaneFlash(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
@@ -1173,7 +1173,7 @@ final class TerminalNotificationStore: ObservableObject {
 #if DEBUG
         detailedDismissLookupObserverForTesting?("hasVisibleNotificationIndicator")
 #endif
-        hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
+        return hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
             focusedReadIndicatorByTabId[tabId] == surfaceId
     }
 

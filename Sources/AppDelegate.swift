@@ -14620,6 +14620,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarSelectionState = nil
             fileExplorerState = nil
             TerminalController.shared.setActiveTabManager(nil)
+            NotificationCenter.default.post(name: .cmuxSelectedWorkspaceDidChange, object: nil)
             return
         }
         tabManager = context.tabManager
@@ -14627,6 +14628,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarSelectionState = context.sidebarSelectionState
         fileExplorerState = context.fileExplorerState
         TerminalController.shared.setActiveTabManager(context.tabManager)
+        NotificationCenter.default.post(name: .cmuxSelectedWorkspaceDidChange, object: context.tabManager)
     }
 
     func setActiveMainWindow(_ window: NSWindow) {

@@ -1979,6 +1979,8 @@ class GhosttyApp {
     private var appObservers: [NSObjectProtocol] = []
     private var bellAudioSound: NSSound?
     private let titleNotificationDispatcher = GhosttyTitleNotificationDispatcher()
+    private let appDesktopNotificationRouteLock = NSLock()
+    private var cachedAppDesktopNotificationRoute: GhosttyDesktopNotificationRoute = .fallThrough
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
@@ -2382,6 +2384,32 @@ class GhosttyApp {
         ) { [weak self] _ in
             self?.reloadConfiguration(source: "settings.terminal.copyOnSelect")
         })
+
+        appObservers.append(NotificationCenter.default.addObserver(
+            forName: .cmuxSelectedWorkspaceDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshAppDesktopNotificationRouteSnapshot()
+        })
+
+        appObservers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyDidFocusSurface,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshAppDesktopNotificationRouteSnapshot()
+        })
+
+        appObservers.append(NotificationCenter.default.addObserver(
+            forName: .mainWindowContextsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshAppDesktopNotificationRouteSnapshot()
+        })
+
+        refreshAppDesktopNotificationRouteSnapshot()
 
         #endif
     }
@@ -4200,9 +4228,36 @@ class GhosttyApp {
             GhosttyDesktopNotificationTarget(
                 tabId: tabId,
                 surfaceId: surfaceId,
-                tabTitle: owningManager.titleForTab(tabId) ?? "Terminal"
+                tabTitle: owningManager.titleForTab(tabId) ?? String(
+                    localized: "notification.fallback_title",
+                    defaultValue: "Terminal"
+                )
             )
         )
+    }
+
+    func refreshAppDesktopNotificationRouteSnapshot() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                setCachedAppDesktopNotificationRoute(Self.appDesktopNotificationRoute())
+            }
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshAppDesktopNotificationRouteSnapshot()
+        }
+    }
+
+    private func cachedAppDesktopNotificationRouteForCallback() -> GhosttyDesktopNotificationRoute {
+        appDesktopNotificationRouteLock.lock()
+        defer { appDesktopNotificationRouteLock.unlock() }
+        return cachedAppDesktopNotificationRoute
+    }
+
+    private func setCachedAppDesktopNotificationRoute(_ route: GhosttyDesktopNotificationRoute) {
+        appDesktopNotificationRouteLock.lock()
+        cachedAppDesktopNotificationRoute = route
+        appDesktopNotificationRouteLock.unlock()
     }
 
     private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
@@ -4368,7 +4423,8 @@ class GhosttyApp {
                     .flatMap { String(cString: $0) } ?? ""
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
-                let route = performOnMain { GhosttyApp.appDesktopNotificationRoute() }
+                let route = cachedAppDesktopNotificationRouteForCallback()
+                refreshAppDesktopNotificationRouteSnapshot()
                 guard case .deliver(let notificationTarget) = route else {
                     if case .fallThrough = route {
                         return false
@@ -4641,7 +4697,10 @@ class GhosttyApp {
                    workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
                     return
                 }
-                let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
+                let tabTitle = owningManager?.titleForTab(tabId) ?? String(
+                    localized: "notification.fallback_title",
+                    defaultValue: "Terminal"
+                )
                 let command = actionTitle.isEmpty ? tabTitle : actionTitle
                 let body = actionBody
                 TerminalNotificationStore.shared.addNotification(
