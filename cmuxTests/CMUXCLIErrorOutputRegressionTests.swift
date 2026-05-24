@@ -51,6 +51,108 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         }
     }
 
+    func testCodexTeamsSpawnFailureDiagnosticExplainsFullHistoryForkOverride() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
+
+        let logPath = "/tmp/cmux-codex-teams-12345-app-server.log"
+        let appServerError = "Full-history forked agents inherit the parent agent type, model, and reasoning effort; omit agent_type, model, and reasoning_effort, or spawn without a full-history fork."
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "__codex-teams-spawn-failure-diagnostic",
+                "--log-path",
+                logPath,
+                appServerError,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        XCTAssertEqual(payload["kind"] as? String, "full_history_fork_override")
+        XCTAssertEqual(payload["error_text"] as? String, appServerError)
+        let body = try XCTUnwrap(payload["body"] as? String, result.stdout)
+        XCTAssertTrue(
+            body.contains("full-history forked agents must inherit agent_type/model/reasoning_effort"),
+            body
+        )
+        XCTAssertTrue(body.contains(appServerError), body)
+        XCTAssertTrue(body.contains(logPath), body)
+    }
+
+    func testCodexTeamsSpawnFailureDiagnosticClassifiesGenericSpawnAgentErrors() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
+
+        let logPath = "/tmp/cmux-codex-teams-23456-app-server.log"
+        let appServerError = "provider rejected subagent configuration"
+        let logLine = #"{"method":"spawn_agent","error":{"message":"\#(appServerError)"}}"#
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "__codex-teams-spawn-failure-diagnostic",
+                "--log-path",
+                logPath,
+                logLine,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        XCTAssertEqual(payload["kind"] as? String, "generic_spawn_failure")
+        XCTAssertEqual(payload["error_text"] as? String, appServerError)
+        let body = try XCTUnwrap(payload["body"] as? String, result.stdout)
+        XCTAssertTrue(body.contains("No subagent pane was opened"), body)
+        XCTAssertTrue(body.contains(appServerError), body)
+        XCTAssertTrue(body.contains(logPath), body)
+    }
+
+    func testCodexTeamsSpawnFailureDiagnosticIgnoresUnrelatedErrors() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "__codex-teams-spawn-failure-diagnostic",
+                "--log-path",
+                "/tmp/cmux-codex-teams-34567-app-server.log",
+                #"{"error":{"message":"theme refresh failed"}}"#,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        XCTAssertTrue(payload.isEmpty, result.stdout)
+    }
+
     func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"

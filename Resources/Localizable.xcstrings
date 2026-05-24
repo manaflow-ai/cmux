@@ -21760,6 +21760,91 @@
         }
       }
     },
+    "cli.codexTeams.spawnFailure.body.fullHistoryForkOverride": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex rejected the subagent spawn because full-history forked agents must inherit agent_type/model/reasoning_effort. No subagent pane was opened. App-server error: %@ Log: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "full-history fork のサブエージェントは agent_type/model/reasoning_effort を継承する必要があるため、Codex がサブエージェントの起動を拒否しました。サブエージェントペインは開かれていません。app-server エラー: %@ ログ: %@"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.spawnFailure.body.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex rejected a subagent spawn before creating an attachable thread. No subagent pane was opened. App-server error: %@ Log: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex が接続可能なスレッドを作成する前にサブエージェントの起動を拒否しました。サブエージェントペインは開かれていません。app-server エラー: %@ ログ: %@"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.spawnFailure.logPath.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.spawnFailure.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex subagent spawn failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex サブエージェントの起動失敗"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.spawnFailure.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagent spawn failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェントの起動失敗"
+          }
+        }
+      }
+    },
     "agent.claude.completion.subtitle.completed": {
       "extractionState": "manual",
       "localizations": {
