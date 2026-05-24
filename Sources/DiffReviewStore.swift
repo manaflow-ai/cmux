@@ -8,6 +8,7 @@ final class DiffReviewStore {
     private(set) var snapshot: DiffReviewSnapshot?
     private(set) var selectedTargetID = DiffReviewTarget.workingTreeID
     private(set) var revertingHunkIDs: Set<String> = []
+    private(set) var transientErrorMessage: String?
 
     @ObservationIgnored
     private var directory: String?
@@ -27,6 +28,7 @@ final class DiffReviewStore {
     private var revertRequestID: UInt64 = 0
 
     var isLoading: Bool { phase.isLoading }
+    var isReverting: Bool { !revertingHunkIDs.isEmpty }
 
     func setDirectory(_ nextDirectory: String?) {
         let trimmedDirectory = nextDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -38,6 +40,7 @@ final class DiffReviewStore {
 
         directory = normalizedDirectory
         snapshot = nil
+        transientErrorMessage = nil
         cancelRevertTasks()
         selectedTargetID = DiffReviewTarget.workingTreeID
         contextGeneration &+= 1
@@ -57,6 +60,7 @@ final class DiffReviewStore {
     func selectTarget(id: String) {
         guard selectedTargetID != id else { return }
         selectedTargetID = id
+        transientErrorMessage = nil
         cancelRevertTasks()
         contextGeneration &+= 1
         refresh()
@@ -66,13 +70,16 @@ final class DiffReviewStore {
         guard let directory else {
             phase = .idle
             snapshot = nil
+            transientErrorMessage = nil
             return
         }
+        guard !isReverting else { return }
 
         loadTask?.cancel()
         loadRequestID &+= 1
         let requestID = loadRequestID
         phase = .loading
+        transientErrorMessage = nil
         let targetID = selectedTargetID
         loadTask = Task { @MainActor [weak self] in
             do {
@@ -83,11 +90,12 @@ final class DiffReviewStore {
                 guard let self, !Task.isCancelled, self.loadRequestID == requestID else { return }
                 self.snapshot = snapshot
                 self.selectedTargetID = snapshot.selectedTarget.id
+                self.transientErrorMessage = nil
                 self.phase = .loaded
                 self.loadTask = nil
             } catch {
                 guard let self, !Task.isCancelled, self.loadRequestID == requestID else { return }
-                self.phase = .failed(error.localizedDescription)
+                self.applyFailure(message: error.localizedDescription)
                 self.loadTask = nil
             }
         }
@@ -98,6 +106,7 @@ final class DiffReviewStore {
         guard let snapshot, snapshot.selectedTarget.allowsHunkRevert else { return }
         guard !revertingHunkIDs.contains(hunk.id) else { return }
 
+        transientErrorMessage = nil
         revertingHunkIDs.insert(hunk.id)
         revertRequestID &+= 1
         let requestID = revertRequestID
@@ -127,7 +136,7 @@ final class DiffReviewStore {
                       self.contextGeneration == generation,
                       self.snapshot?.repositoryRoot == repositoryRoot else { return }
                 self.finishRevert(hunkID: hunk.id, requestID: requestID)
-                self.phase = .failed(error.localizedDescription)
+                self.applyFailure(message: error.localizedDescription)
             }
         }
         revertTasks[hunk.id] = task
@@ -170,6 +179,15 @@ final class DiffReviewStore {
         revertingHunkIDs.remove(hunkID)
     }
 
+    private func applyFailure(message: String) {
+        if snapshot == nil {
+            phase = .failed(message)
+        } else {
+            transientErrorMessage = message
+            phase = .loaded
+        }
+    }
+
     private func resumeObservingCurrentDirectory() {
         guard directory != nil else {
             stopLiveRefresh()
@@ -186,7 +204,7 @@ final class DiffReviewStore {
         let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.directory != nil else { return }
-                guard self.phase.allowsLiveRefresh, self.revertingHunkIDs.isEmpty else { return }
+                guard self.phase.allowsLiveRefresh, !self.isReverting else { return }
                 self.refresh()
             }
         }

@@ -143,11 +143,11 @@ enum DiffReviewPanelContentState: Equatable {
         if directory == nil {
             return .noWorkspace
         }
-        if case .failed(let message) = phase {
-            return .error(message)
-        }
         if let snapshot {
             return .files(snapshot)
+        }
+        if case .failed(let message) = phase {
+            return .error(message)
         }
         return .loading
     }

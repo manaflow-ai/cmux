@@ -45,7 +45,7 @@ struct DiffReviewPanelView: View {
             .pickerStyle(.menu)
             .controlSize(.small)
             .frame(maxWidth: 190)
-            .disabled(currentTargets.count <= 1 || store.isLoading)
+            .disabled(currentTargets.count <= 1 || store.isLoading || store.isReverting)
 
             Spacer(minLength: 4)
 
@@ -63,7 +63,7 @@ struct DiffReviewPanelView: View {
                     .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
             }
             .buttonStyle(.plain)
-            .disabled(store.isLoading)
+            .disabled(store.isLoading || store.isReverting)
             .safeHelp(String(localized: "diffReview.refresh.tooltip", defaultValue: "Refresh Review"))
             .accessibilityLabel(String(localized: "diffReview.refresh.tooltip", defaultValue: "Refresh Review"))
         }
@@ -93,7 +93,8 @@ struct DiffReviewPanelView: View {
             DiffReviewFileListView(
                 snapshot: snapshot,
                 revertingHunkIDs: store.revertingHunkIDs,
-                canRevertHunks: snapshot.selectedTarget.allowsHunkRevert && !store.isLoading,
+                canRevertHunks: snapshot.selectedTarget.allowsHunkRevert && !store.isLoading && !store.isReverting,
+                transientErrorMessage: store.transientErrorMessage,
                 actions: DiffReviewPanelActions(
                     revertHunk: { store.revertHunk($0) }
                 )
@@ -135,32 +136,59 @@ private struct DiffReviewFileListView: View {
     let snapshot: DiffReviewSnapshot
     let revertingHunkIDs: Set<String>
     let canRevertHunks: Bool
+    let transientErrorMessage: String?
     let actions: DiffReviewPanelActions
 
     var body: some View {
-        if snapshot.files.isEmpty {
-            DiffReviewEmptyStateView(
-                systemImage: "checkmark.circle",
-                title: String(localized: "diffReview.empty.noChanges.title", defaultValue: "No changes"),
-                subtitle: String(localized: "diffReview.empty.noChanges.subtitle", defaultValue: "The selected comparison has no file changes.")
-            )
-        } else {
-            ScrollView([.vertical, .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    DiffReviewSummaryRow(snapshot: snapshot)
-                    ForEach(snapshot.files) { file in
-                        DiffReviewFileSectionView(
-                            file: file,
-                            canRevertHunks: canRevertHunks,
-                            revertingHunkIDs: revertingHunkIDs,
-                            actions: actions
-                        )
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: 0) {
+            if let transientErrorMessage {
+                DiffReviewTransientErrorBanner(message: transientErrorMessage)
             }
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.04))
+            if snapshot.files.isEmpty {
+                DiffReviewEmptyStateView(
+                    systemImage: "checkmark.circle",
+                    title: String(localized: "diffReview.empty.noChanges.title", defaultValue: "No changes"),
+                    subtitle: String(localized: "diffReview.empty.noChanges.subtitle", defaultValue: "The selected comparison has no file changes.")
+                )
+            } else {
+                ScrollView([.vertical, .horizontal]) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        DiffReviewSummaryRow(snapshot: snapshot)
+                        ForEach(snapshot.files) { file in
+                            DiffReviewFileSectionView(
+                                file: file,
+                                canRevertHunks: canRevertHunks,
+                                revertingHunkIDs: revertingHunkIDs,
+                                actions: actions
+                            )
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .background(Color(nsColor: .textBackgroundColor).opacity(0.04))
+            }
         }
+    }
+}
+
+private struct DiffReviewTransientErrorBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.orange)
+            Text(verbatim: message)
+                .font(.system(size: 12))
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.12))
+        .rightSidebarChromeBottomBorder()
     }
 }
 

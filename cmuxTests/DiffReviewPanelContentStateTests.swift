@@ -8,7 +8,7 @@ import XCTest
 #endif
 
 final class DiffReviewPanelContentStateTests: XCTestCase {
-    func testFailedPhaseTakesPriorityOverStaleSnapshot() {
+    func testCachedSnapshotTakesPriorityOverFailedPhase() {
         let snapshot = DiffReviewSnapshot(
             repositoryRoot: "/repo",
             currentBranch: "main",
@@ -24,7 +24,17 @@ final class DiffReviewPanelContentStateTests: XCTestCase {
             phase: .failed("Could not apply reverse patch")
         )
 
-        XCTAssertEqual(state, .error("Could not apply reverse patch"))
+        XCTAssertEqual(state, .files(snapshot))
+    }
+
+    func testFailedPhaseShowsErrorWithoutSnapshot() {
+        let state = DiffReviewPanelContentState.resolve(
+            directory: "/repo",
+            snapshot: nil,
+            phase: .failed("Could not load diff")
+        )
+
+        XCTAssertEqual(state, .error("Could not load diff"))
     }
 
     func testOnlyLoadedPhaseAllowsLiveRefresh() {
