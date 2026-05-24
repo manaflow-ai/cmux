@@ -71,8 +71,10 @@ extension CmuxSettingsFileStore {
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
                     "iMessageMode": IMessageModeSettings.defaultValue,
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
-                    "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
+                    "confirmQuit": QuitWarningSettings.defaultConfirmQuitMode.rawValue,
                     "warnBeforeClosingTab": CloseTabWarningSettings.defaultWarnBeforeClosingTab,
+                    "warnBeforeClosingTabXButton": CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton,
+                    "hideTabCloseButton": CloseTabWarningSettings.defaultHideTabCloseButton,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
                     "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
                 ],
@@ -80,7 +82,9 @@ extension CmuxSettingsFileStore {
             [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
+                    "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
+                    "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
                     "resumeCommands": [],
                 ],
             ],

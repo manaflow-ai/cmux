@@ -1319,6 +1319,7 @@ class TabManager: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { [weak self] in
                 self?.sidebarGitMetadataWatchSettingsDidChange()
+                self?.refreshTabCloseButtonVisibility()
             }
         })
 #if DEBUG
@@ -1733,6 +1734,9 @@ class TabManager: ObservableObject {
         )
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func resolveWorkspacePullRequestCandidateSeeds(
         _ seeds: [WorkspacePullRequestCandidateSeed]
     ) async -> WorkspacePullRequestCandidateResolution {
@@ -2290,6 +2294,10 @@ class TabManager: ObservableObject {
         selectedWorkspace?.focusedTerminalPanel
     }
 
+    private var selectedWorkspaceTerminalPanels: [TerminalPanel] {
+        selectedWorkspace?.panels.values.compactMap { $0 as? TerminalPanel } ?? []
+    }
+
     var isFindVisible: Bool {
         selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
     }
@@ -2363,6 +2371,45 @@ class TabManager: ObservableObject {
     func toggleFocusedTerminalCopyMode() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
         return panel.surface.toggleKeyboardCopyMode()
+    }
+
+    @discardableResult
+    func toggleFocusedTerminalTextBox() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.toggleTextBoxInput()
+    }
+
+    @discardableResult
+    func focusFocusedTerminalTextBoxInputOrTerminal() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.focusTextBoxInputOrTerminal()
+    }
+
+    @discardableResult
+    func attachFileToFocusedTerminalTextBoxInput() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.attachFileToTextBoxInput()
+    }
+
+    @discardableResult
+    func consumeFocusedTerminalTextBoxHideEscapeIfArmed(in window: NSWindow?) -> Bool {
+        guard let focusedPanel = selectedTerminalPanel else {
+            clearFocusedTerminalTextBoxHideEscapeArm()
+            return false
+        }
+        let consumed = focusedPanel.consumeTextBoxHideEscapeIfArmed(in: window)
+        guard !consumed else { return true }
+        for panel in selectedWorkspaceTerminalPanels {
+            if panel === focusedPanel { continue }
+            panel.clearTextBoxHideEscapeArm()
+        }
+        return false
+    }
+
+    func clearFocusedTerminalTextBoxHideEscapeArm() {
+        for panel in selectedWorkspaceTerminalPanels {
+            panel.clearTextBoxHideEscapeArm()
+        }
     }
 
     func hideFind() {
@@ -4931,6 +4978,9 @@ class TabManager: ObservableObject {
     }
 #endif
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func githubRepositorySlugs(directory: String) async -> [String] {
         guard let repository = resolveGitRepository(containing: directory),
               let output = gitRemoteVOutput(repository: repository) else {
@@ -5376,6 +5426,12 @@ class TabManager: ObservableObject {
             object: self,
             userInfo: [WorkspaceOrderChangeNotificationKey.movedWorkspaceIds: movedWorkspaceIds]
         )
+        CmuxEventBus.shared.publishWorkspaceReordered(
+            workspaceIds: tabs.map(\.id),
+            movedWorkspaceIds: movedWorkspaceIds,
+            pinnedWorkspaceIds: tabs.filter(\.isPinned).map(\.id),
+            source: "workspace.lifecycle"
+        )
     }
 
     @discardableResult
@@ -5512,6 +5568,7 @@ class TabManager: ObservableObject {
         guard tab.isPinned != pinned else { return }
         tab.isPinned = pinned
         reorderTabForPinnedState(tab)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [tab.id])
     }
 
     private func reorderTabForPinnedState(_ tab: Workspace) {
@@ -5827,7 +5884,7 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true) {
+        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true, source: .shortcut) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
                 title: prompt.title,
@@ -5879,6 +5936,17 @@ class TabManager: ObservableObject {
             return true
         }
         closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
+        return true
+    }
+
+    @discardableResult
+    func closeWorkspaceFromTabCloseButton(_ workspace: Workspace) -> Bool {
+        if workspace.isPinned {
+            guard confirmPinnedWorkspaceClose(source: .tabCloseButton) else { return false }
+            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            return true
+        }
+        closeWorkspaceIfRunningProcess(workspace, source: .tabCloseButton)
         return true
     }
 
@@ -6044,6 +6112,7 @@ class TabManager: ObservableObject {
     private enum CloseConfirmationSource {
         case workspace
         case tabClose
+        case tabCloseButton
     }
 
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
@@ -6162,7 +6231,15 @@ class TabManager: ObservableObject {
         case .workspace:
             return requiresConfirmation
         case .tabClose:
-            return CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation)
+            return CloseTabConfirmationPolicy.shouldConfirm(
+                requiresConfirmation: requiresConfirmation,
+                source: .shortcut
+            )
+        case .tabCloseButton:
+            return CloseTabConfirmationPolicy.shouldConfirm(
+                requiresConfirmation: requiresConfirmation,
+                source: .tabCloseButton
+            )
         }
     }
 
@@ -6272,7 +6349,10 @@ class TabManager: ObservableObject {
             requiresConfirmation = false
         }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation) {
+        if CloseTabConfirmationPolicy.shouldConfirm(
+            requiresConfirmation: requiresConfirmation,
+            source: .shortcut
+        ) {
             guard confirmClose(
                 title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                 message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
@@ -7202,6 +7282,12 @@ class TabManager: ObservableObject {
         }
     }
 
+    func refreshTabCloseButtonVisibility() {
+        for workspace in tabs {
+            workspace.refreshTabCloseButtonVisibility()
+        }
+    }
+
     func applySurfaceTabBarButtons(
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
@@ -7318,7 +7404,8 @@ class TabManager: ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        remotePTYSessionID: String? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
@@ -7330,7 +7417,8 @@ class TabManager: ObservableObject {
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             startupEnvironment: startupEnvironment,
-            initialDividerPosition: initialDividerPosition
+            initialDividerPosition: initialDividerPosition,
+            remotePTYSessionID: remotePTYSessionID
         )?.id
     }
 
@@ -9015,6 +9103,7 @@ extension TabManager {
                 hasher.combine(panelId)
                 hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))
                 hasher.combine(workspace.restoredUnreadPanelIds.contains(panelId))
+                hasher.combine(workspace.restoredUnreadIndicatorContributesToWorkspace(panelId: panelId))
                 hasher.combine(
                     notificationStore?.hasVisibleNotificationIndicator(
                         forTabId: workspace.id,
@@ -9039,6 +9128,14 @@ extension TabManager {
                     ),
                     into: &hasher
                 )
+                if let terminalPanel = workspace.terminalPanel(for: panelId) {
+                    Self.hashTextBoxDraftSnapshot(
+                        terminalPanel.sessionTextBoxDraftSnapshot(),
+                        into: &hasher
+                    )
+                } else {
+                    hasher.combine(false)
+                }
             }
 
             if let progress = workspace.progress {
@@ -9135,6 +9232,42 @@ extension TabManager {
         } else {
             hashOptionalDouble(snapshot.updatedAt, into: &hasher)
         }
+    }
+
+    nonisolated private static func hashTextBoxDraftSnapshot(
+        _ snapshot: SessionTextBoxInputDraftSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let snapshot else {
+            hasher.combine(false)
+            return
+        }
+
+        hasher.combine(true)
+        hasher.combine(snapshot.isActive)
+        hasher.combine(snapshot.parts.count)
+        for part in snapshot.parts {
+            hasher.combine(part.kind.rawValue)
+            hashOptionalString(part.text, into: &hasher)
+            hashTextBoxAttachmentSnapshot(part.attachment, into: &hasher)
+        }
+    }
+
+    nonisolated private static func hashTextBoxAttachmentSnapshot(
+        _ snapshot: SessionTextBoxInputAttachmentSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let snapshot else {
+            hasher.combine(false)
+            return
+        }
+
+        hasher.combine(true)
+        hasher.combine(snapshot.displayName)
+        hasher.combine(snapshot.submissionText)
+        hasher.combine(snapshot.submissionPath)
+        hashOptionalString(snapshot.localPath, into: &hasher)
+        hasher.combine(snapshot.cleanupLocalPathWhenDisposed)
     }
 
     nonisolated private static func hashNotifications(
