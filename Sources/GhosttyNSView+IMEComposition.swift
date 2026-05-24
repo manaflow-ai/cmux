@@ -140,6 +140,49 @@ extension GhosttyNSView {
         return flags.isEmpty || flags == [.shift]
     }
 
+    /// When `macos-option-as-alt` strips Option for terminal fallback encoding,
+    /// AppKit still needs the original Option event for dead-key composition
+    /// (`Option+n` then `a` -> `ã`). Use the original event only for text
+    /// interpretation; Ghostty fallback continues to use the translated event.
+    func textInputInterpretationEvent(original event: NSEvent, translated translationEvent: NSEvent) -> NSEvent {
+        shouldPreserveOriginalOptionDeadKeyEvent(
+            original: event,
+            translated: translationEvent
+        ) ? event : translationEvent
+    }
+
+    private func shouldPreserveOriginalOptionDeadKeyEvent(
+        original event: NSEvent,
+        translated translationEvent: NSEvent
+    ) -> Bool {
+        let originalFlags = textInputRelevantFlags(event.modifierFlags)
+        let translatedFlags = textInputRelevantFlags(translationEvent.modifierFlags)
+
+        guard originalFlags.contains(.option),
+              !translatedFlags.contains(.option),
+              !originalFlags.contains(.command),
+              !originalFlags.contains(.control) else {
+            return false
+        }
+
+        guard (event.characters ?? "").isEmpty,
+              let unmodifiedText = event.charactersIgnoringModifiers,
+              unmodifiedText.count == 1,
+              let scalar = unmodifiedText.unicodeScalars.first else {
+            return false
+        }
+
+        return scalar.value >= 0x20
+            && scalar.value != 0x7F
+            && !(0xF700...0xF8FF).contains(scalar.value)
+    }
+
+    private func textInputRelevantFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+        flags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+    }
+
     func shouldBufferBopomofoInsertedPreedit(_ text: String, inputSourceId: String? = nil) -> Bool {
         guard !text.isEmpty else { return false }
         guard isBopomofoInputSource(inputSourceId ?? KeyboardLayout.id) else { return false }

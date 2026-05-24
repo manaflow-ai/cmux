@@ -48,8 +48,41 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
     }
 
-    func testSelectedWorkspaceForegroundAlwaysUsesWhiteWithRequestedOpacity() {
-        guard let color = sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.65).usingColorSpace(.sRGB) else {
+    func testSelectedWorkspaceForegroundUsesBlackOnLightSelectionBackground() {
+        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
+            on: NSColor(hex: "#FFFFFF")!,
+            opacity: 0.65
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
+    }
+
+    func testSelectedWorkspaceForegroundUsesWhiteOnDarkSelectionBackground() {
+        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
+            on: NSColor(hex: "#123456")!,
+            opacity: 0.65
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
+    }
+
+    func testDefaultSelectedWorkspaceForegroundUsesNativeSelectionTextOnAccentBackground() {
+        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
+            on: sidebarSelectedWorkspaceBackgroundNSColor(for: .light),
+            opacity: 0.65
+        ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -774,6 +807,153 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "1")
         )
         XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
+    }
+
+    func testSettingsFileStoreAppliesSubagentNotificationSuppression() throws {
+        let defaults = UserDefaults.standard
+        let previousValue = defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+            } else {
+                defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "suppressSubagentNotifications": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey) as? Bool,
+            false
+        )
+    }
+
+    func testSettingsFileStoreAppliesBrowserHiddenWebViewDiscardDelayAtMaximum() throws {
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "browser": {
+                "discardHiddenWebViews": false,
+                "hiddenWebViewDiscardDelaySeconds": 3600
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey) as? Bool,
+            false
+        )
+        XCTAssertEqual(
+            defaults.double(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey),
+            BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+        )
+    }
+
+    func testSettingsFileStoreIgnoresBrowserHiddenWebViewDiscardDelayAboveMaximum() throws {
+        let defaults = UserDefaults.standard
+        let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "browser": {
+                "hiddenWebViewDiscardDelaySeconds": 3601
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey))
     }
 
     func testSettingsFileStoreParsesRightSidebarShortcutBindings() throws {
@@ -2455,6 +2635,34 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         }
     }
 
+    func testDetachedWorkspaceDoesNotPersistProcessDetectedResumeBinding() throws {
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/cmux-source-\(UUID().uuidString)",
+            autoWelcomeIfNeeded: false
+        )
+        let source = try XCTUnwrap(manager.selectedWorkspace)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/cmux-source",
+            checkpointId: "work",
+            source: "process-detected",
+            updatedAt: 1_777_777_777
+        )
+        let detached = makeDetachedWorkspaceTestTransfer(
+            sourceWorkspaceId: source.id,
+            resumeBinding: binding
+        )
+
+        let inserted = try XCTUnwrap(manager.addWorkspace(
+            fromDetachedSurface: detached,
+            select: false
+        ))
+
+        XCTAssertNil(inserted.surfaceResumeBinding(panelId: detached.panelId))
+    }
+
     private func withWorkspaceWorkingDirectoryInheritanceSetting(
         _ value: Bool?,
         _ body: () throws -> Void
@@ -2481,7 +2689,8 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
 
     private func makeDetachedWorkspaceTestTransfer(
         sourceWorkspaceId: UUID,
-        directory: String? = nil
+        directory: String? = nil,
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil
     ) -> Workspace.DetachedSurfaceTransfer {
         let panel = DetachedWorkspaceTestPanel()
         return Workspace.DetachedSurfaceTransfer(
@@ -2499,12 +2708,14 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             cachedTitle: nil,
             customTitle: nil,
             manuallyUnread: false,
-            restoredUnread: false,
+            restoredUnreadIndicator: nil,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
+            resumeBinding: resumeBinding,
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
+            remotePTYSessionID: nil,
             remoteCleanupConfiguration: nil
         )
     }
@@ -3299,6 +3510,56 @@ final class WorkspaceReorderTests: XCTestCase {
     }
 
     @MainActor
+    func testMoveTabToTopPublishesWorkspaceReorderedEvent() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        CmuxEventBus.shared.resetForTesting()
+
+        manager.moveTabToTop(second.id)
+
+        let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
+        XCTAssertEqual(event["name"] as? String, "workspace.reordered")
+        XCTAssertEqual(event["source"] as? String, "workspace.lifecycle")
+        XCTAssertEqual(event["workspace_id"] as? String, second.id.uuidString)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(
+            payload["workspace_ids"] as? [String],
+            [second.id.uuidString, first.id.uuidString]
+        )
+        XCTAssertEqual(payload["moved_workspace_ids"] as? [String], [second.id.uuidString])
+        XCTAssertEqual(payload["pinned_workspace_ids"] as? [String], [])
+    }
+
+    @MainActor
+    func testSetPinnedPublishesWorkspaceReorderedEventWithPinnedState() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        CmuxEventBus.shared.resetForTesting()
+
+        manager.setPinned(second, pinned: true)
+
+        let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
+        XCTAssertEqual(event["name"] as? String, "workspace.reordered")
+        XCTAssertEqual(event["source"] as? String, "workspace.lifecycle")
+        XCTAssertEqual(event["workspace_id"] as? String, second.id.uuidString)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(
+            payload["workspace_ids"] as? [String],
+            [second.id.uuidString, first.id.uuidString]
+        )
+        XCTAssertEqual(payload["moved_workspace_ids"] as? [String], [second.id.uuidString])
+        XCTAssertEqual(payload["pinned_workspace_ids"] as? [String], [second.id.uuidString])
+    }
+
+    @MainActor
     func testMoveTabToTopSkipsNotificationWhenUnpinnedAlreadyFirstBelowPinnedWorkspaces() {
         let manager = TabManager()
         let pinned = manager.tabs[0]
@@ -3377,6 +3638,101 @@ final class WorkspaceReorderTests: XCTestCase {
 
         XCTAssertTrue(manager.reorderWorkspace(tabId: firstPinned.id, toIndex: 999))
         XCTAssertEqual(manager.tabs.map(\.id), [secondPinned.id, firstPinned.id, unpinned.id])
+    }
+
+    @MainActor
+    func testBatchReorderAppliesFinalLeadingOrderAtomically() throws {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let fourth = manager.addWorkspace()
+        var observedMovedIds: [UUID] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .workspaceOrderDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, first.id])
+        let plan = try result.get()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id, fourth.id])
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: third.id, fromIndex: 2, toIndex: 0),
+                WorkspaceReorderPlanItem(workspaceId: first.id, fromIndex: 0, toIndex: 1)
+            ]
+        )
+        XCTAssertEqual(observedMovedIds, [third.id, first.id])
+    }
+
+    @MainActor
+    func testBatchReorderRejectsUnknownWorkspaceWithoutPartialMutation() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let originalOrder = manager.tabs.map(\.id)
+        let unknown = UUID()
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, unknown, first.id])
+
+        XCTAssertEqual(result, .failure(.workspaceNotFound(unknown)))
+        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
+    }
+
+    @MainActor
+    func testBatchReorderDryRunReturnsPlanWithoutMutation() throws {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let originalOrder = manager.tabs.map(\.id)
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, first.id], dryRun: true)
+        let plan = try result.get()
+
+        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: third.id, fromIndex: 2, toIndex: 0),
+                WorkspaceReorderPlanItem(workspaceId: first.id, fromIndex: 0, toIndex: 1)
+            ]
+        )
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
+    }
+
+    @MainActor
+    func testBatchReorderPreservesPinnedWorkspaceSegment() throws {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let firstUnpinned = manager.addWorkspace()
+        let secondUnpinned = manager.addWorkspace()
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [secondUnpinned.id, secondPinned.id])
+        let plan = try result.get()
+
+        XCTAssertEqual(
+            manager.tabs.map(\.id),
+            [secondPinned.id, firstPinned.id, secondUnpinned.id, firstUnpinned.id]
+        )
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: secondUnpinned.id, fromIndex: 3, toIndex: 2),
+                WorkspaceReorderPlanItem(workspaceId: secondPinned.id, fromIndex: 1, toIndex: 0)
+            ]
+        )
     }
 
     @MainActor
@@ -5943,5 +6299,64 @@ final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
         let base = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 0)
         let widened = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 10)
         XCTAssertGreaterThan(widened, base)
+    }
+}
+
+final class ExtensionWorktreePrototypeTests: XCTestCase {
+    func testPipeOutputCollectorDrainsBufferedOutputOnFinish() async throws {
+        let pipe = Pipe()
+        let collector = CmuxExtensionPipeOutputCollector(fileHandle: pipe.fileHandleForReading)
+
+        pipe.fileHandleForWriting.write(Data("exclude-path\n".utf8))
+        try pipe.fileHandleForWriting.close()
+
+        let output = await collector.finish()
+
+        XCTAssertEqual(String(data: output, encoding: .utf8), "exclude-path\n")
+    }
+
+    func testCreateWorktreeKeepsCmuxDirectoryLocallyIgnored() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-worktree-prototype-\(UUID().uuidString)", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("Project", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        _ = try runGit(["init"], in: projectRoot)
+        try "hello\n".write(to: projectRoot.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "README.md"], in: projectRoot)
+        _ = try runGit([
+            "-c", "user.name=cmux Test",
+            "-c", "user.email=cmux@example.invalid",
+            "commit",
+            "-m",
+            "initial"
+        ], in: projectRoot)
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRoot.path)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.worktreePath))
+        XCTAssertTrue(result.workspaceTitle.hasPrefix("cmux-sidebar-"))
+        let status = try runGit(["status", "--short", "--untracked-files=all"], in: projectRoot)
+        XCTAssertEqual(status.trimmingCharacters(in: .whitespacesAndNewlines), "")
+    }
+
+    @discardableResult
+    private func runGit(_ arguments: [String], in directory: URL) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", directory.path] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: outputData, encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else {
+            XCTFail("git \(arguments.joined(separator: " ")) failed: \(output)")
+            throw NSError(domain: "ExtensionWorktreePrototypeTests", code: Int(process.terminationStatus))
+        }
+        return output
     }
 }

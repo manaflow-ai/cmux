@@ -86,7 +86,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .app:
             return "\(title) appearance language workspace notifications menu bar telemetry"
         case .terminal:
-            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev toggle"
+            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev commands approvals prefixes toggle"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -313,12 +313,27 @@ enum SettingsSearchIndex {
         setting(.app, "notification-sound", String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"), "custom sound alert audio"),
         setting(.app, "notification-command", String(localized: "settings.notifications.command", defaultValue: "Notification Command"), "shell command environment variables"),
         setting(.app, "telemetry", String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), "analytics crash usage"),
-        setting(.app, "warn-before-quit", String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), "cmd q confirmation"),
+        setting(.app, "warn-before-quit", String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), "cmd q confirmation confirmQuit"),
         setting(.app, "warn-before-closing-tab", String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"), "cmd w close tab confirmation"),
+        setting(
+            .app,
+            "warn-before-closing-tab-x-button",
+            String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"),
+            "x button close tab confirmation"
+        ),
+        setting(
+            .app,
+            "hide-tab-close-button",
+            String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"),
+            "hide x button close tab"
+        ),
         setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
+        setting(.terminal, "textbox-max-lines", String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"), "terminal textbox text box rich input prompt max height lines grow scroll"),
+        setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
+        setting(.terminal, "resume-commands", String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"), "surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
         setting(.sidebarAppearance, "show-workspace-description", String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), "workspace description notes markdown"),
@@ -328,6 +343,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"),
         setting(.sidebarAppearance, "show-branch-directory", String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), "git cwd path"),
         setting(.sidebarAppearance, "show-pull-requests", String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), "review pr mr link"),
+        setting(.sidebarAppearance, "watch-git-status", String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar"), "git status branch watcher index lock"),
         setting(.sidebarAppearance, "make-pr-clickable", String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), "pull requests pull request pr mr review clickable links select workspace row"),
         setting(.sidebarAppearance, "open-pr-links", String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"), "pull request link browser"),
         setting(.sidebarAppearance, "open-port-links", String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"), "port link browser"),
@@ -341,6 +357,8 @@ enum SettingsSearchIndex {
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
+        setting(.automation, "ripgrep-path", String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), "custom ripgrep rg executable find search nix"),
+        setting(.automation, "subagent-notifications", String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), "nested child agent codex claude hooks notifications"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
         setting(.automation, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),
         setting(.automation, "port-base", String(localized: "settings.automation.portBase", defaultValue: "Port Base"), "CMUX_PORT start"),
@@ -349,6 +367,8 @@ enum SettingsSearchIndex {
         setting(.browser, "enable-browser", String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"), "webview tabs links"),
         setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
         setting(.browser, "theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system"),
+        setting(.browser, "hidden-webview-discard", String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Discard Hidden Browser WebViews"), "memory hidden tabs webview discard unload"),
+        setting(.browser, "hidden-webview-discard-delay", String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Hidden WebView Discard Delay"), "memory hidden tabs delay seconds discard"),
         setting(.browser, "terminal-links", String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"), "click links browser"),
         setting(.browser, "intercept-open", String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"), "open command urls"),
         setting(.browser, "host-whitelist", String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"), "hosts wildcard terminal links"),
@@ -404,8 +424,11 @@ enum SettingsSearchIndex {
         "notifications.customSoundFilePath": settingID(for: .app, idSuffix: "notification-sound"),
         "notifications.command": settingID(for: .app, idSuffix: "notification-command"),
         "app.sendAnonymousTelemetry": settingID(for: .app, idSuffix: "telemetry"),
+        "app.confirmQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeClosingTab": settingID(for: .app, idSuffix: "warn-before-closing-tab"),
+        "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
+        "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
@@ -416,6 +439,7 @@ enum SettingsSearchIndex {
         "sidebar.showNotificationMessage": settingID(for: .sidebarAppearance, idSuffix: "show-notification-message"),
         "sidebar.showBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "show-branch-directory"),
         "sidebar.showPullRequests": settingID(for: .sidebarAppearance, idSuffix: "show-pull-requests"),
+        "sidebar.watchGitStatus": settingID(for: .sidebarAppearance, idSuffix: "watch-git-status"),
         "sidebar.makePullRequestsClickable": settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"),
         "sidebar.openPullRequestLinksInCmuxBrowser": settingID(for: .sidebarAppearance, idSuffix: "open-pr-links"),
         "sidebar.openPortLinksInCmuxBrowser": settingID(for: .sidebarAppearance, idSuffix: "open-port-links"),
@@ -425,6 +449,8 @@ enum SettingsSearchIndex {
         "sidebar.showProgress": settingID(for: .sidebarAppearance, idSuffix: "show-progress"),
         "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
+        "terminal.textBoxMaxLines": settingID(for: .terminal, idSuffix: "textbox-max-lines"),
+        "terminal.copyOnSelect": settingID(for: .terminal, idSuffix: "copy-on-select"),
         "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
@@ -434,6 +460,8 @@ enum SettingsSearchIndex {
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
         "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
+        "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
+        "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
         "automation.geminiIntegration": settingID(for: .automation, idSuffix: "gemini"),
         "automation.portBase": settingID(for: .automation, idSuffix: "port-base"),
@@ -442,6 +470,8 @@ enum SettingsSearchIndex {
         "browser.defaultSearchEngine": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.showSearchSuggestions": settingID(for: .browser, idSuffix: "search-suggestions"),
         "browser.theme": settingID(for: .browser, idSuffix: "theme"),
+        "browser.discardHiddenWebViews": settingID(for: .browser, idSuffix: "hidden-webview-discard"),
+        "browser.hiddenWebViewDiscardDelaySeconds": settingID(for: .browser, idSuffix: "hidden-webview-discard-delay"),
         "browser.openTerminalLinksInCmuxBrowser": settingID(for: .browser, idSuffix: "terminal-links"),
         "browser.interceptTerminalOpenCommandInCmuxBrowser": settingID(for: .browser, idSuffix: "intercept-open"),
         "browser.hostsToOpenInEmbeddedBrowser": settingID(for: .browser, idSuffix: "host-whitelist"),

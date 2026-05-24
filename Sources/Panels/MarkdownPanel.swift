@@ -49,6 +49,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Stable markdown renderer state. Keep this panel-owned so split/tab
+    /// layout churn does not recreate the WKWebView and flash existing content.
+    let rendererSession = MarkdownRendererSession()
+
     // MARK: - File watching
 
     // nonisolated(unsafe) because deinit is not guaranteed to run on the
@@ -91,6 +95,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func close() {
         isClosed = true
+        rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatching()
