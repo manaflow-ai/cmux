@@ -381,7 +381,6 @@ private struct AgentNeedsInputEvent {
     let body: String
     let dedupKey: String?
     let sourceSignal: AgentNeedsInputSourceSignal
-    let firstSeenAt: Date
 }
 
 private enum AgentNeedsInputPublishResult: Equatable {
@@ -19945,8 +19944,7 @@ struct CMUXCLI {
                 subtitle: summary.subtitle,
                 body: summary.body,
                 dedupKey: dedupKey,
-                sourceSignal: .claudeNotification,
-                firstSeenAt: Date()
+                sourceSignal: .claudeNotification
             )
             switch try agentNeedsInputPublisher(client: client, sessionStore: sessionStore).publish(event) {
             case let .published(response):
@@ -20108,8 +20106,7 @@ struct CMUXCLI {
                         sessionId: sessionId,
                         body: question
                     ),
-                    sourceSignal: .claudeAskUserQuestion,
-                    firstSeenAt: Date()
+                    sourceSignal: .claudeAskUserQuestion
                 )
                 do {
                     _ = try agentNeedsInputPublisher(client: client, sessionStore: sessionStore).publish(event)
@@ -25911,7 +25908,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
                 } else {
-                    try? store.clearNotificationEmission(sessionId: sessionId)
+                    do {
+                        try store.clearNotificationEmission(sessionId: sessionId)
+                    } catch {
+                        telemetry.breadcrumb(
+                            "\(def.name)-hook.clear-notification-emission.error",
+                            data: ["error": String(describing: error)]
+                        )
+                    }
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -26004,7 +26008,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     runtimeStatus: .running,
                     updateRuntimeStatus: true
                 )
-                try? store.clearNotificationEmission(sessionId: sessionId)
+                do {
+                    try store.clearNotificationEmission(sessionId: sessionId)
+                } catch {
+                    telemetry.breadcrumb(
+                        "\(def.name)-hook.clear-notification-emission.error",
+                        data: ["error": String(describing: error)]
+                    )
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,

@@ -180,6 +180,24 @@ def wait_for_notify_count(server: HookSocketServer, expected_at_least: int, time
     return latest
 
 
+def wait_for_notify_count_to_remain(
+    server: HookSocketServer,
+    expected_count: int,
+    timeout: float = 0.2,
+) -> list[str]:
+    latest = wait_for_notify_count(server, expected_count, timeout=timeout)
+    if len(latest) != expected_count:
+        return latest
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        latest = notify_commands(server)
+        if len(latest) != expected_count:
+            return latest
+        time.sleep(0.01)
+    return latest
+
+
 def age_pending_ask_user_question_state(state_path: Path, session_id: str, seconds_ago: float) -> None:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     sessions = state.get("sessions")
@@ -330,7 +348,7 @@ def main() -> int:
             print(f"stderr={non_question_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_non_question = wait_for_notify_count(server, 1)
+        notify_after_non_question = wait_for_notify_count_to_remain(server, 1)
         if len(notify_after_non_question) != 1:
             print("FAIL: non-question pre-tool-use should not publish an extra notification")
             print(f"notify_commands={notify_after_non_question!r}")
@@ -410,7 +428,7 @@ def main() -> int:
             print(f"stderr={duplicate_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_duplicate = wait_for_notify_count(server, 4)
+        notify_after_duplicate = wait_for_notify_count_to_remain(server, 4)
         if len(notify_after_duplicate) != 4:
             print("FAIL: generic attention Notification should stay deduped after another notification overwrites lastBody")
             print(f"notify_commands={notify_after_duplicate!r}")
@@ -533,7 +551,9 @@ def main() -> int:
                 print(f"stderr={dup.stderr!r}")
                 print(f"commands={server.commands_snapshot()!r}")
                 return 1
-            after_duplicate_count = len(wait_for_notify_count(server, after_question_count))
+            after_duplicate_count = len(
+                wait_for_notify_count_to_remain(server, after_question_count, timeout=0.05)
+            )
             if after_duplicate_count != after_question_count:
                 print(f"FAIL: generic attention Notification should not add a duplicate at loop {index}")
                 print(f"before={after_question_count}")
