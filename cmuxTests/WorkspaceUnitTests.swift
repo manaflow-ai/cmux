@@ -6034,6 +6034,40 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testRemoteReportedDirectoryPreservesHostForSidebarAndTabDisplay() throws {
+        let manager = TabManager(
+            initialWorkingDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let remoteDisplay = "devbox.example:/tmp/cmux-issue-4680"
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: "file://devbox.example/tmp/cmux-issue-4680"
+        )
+
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [panelId]),
+            [remoteDisplay]
+        )
+        XCTAssertEqual(
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: [panelId]).map(\.directory),
+            [remoteDisplay]
+        )
+        XCTAssertEqual(workspace.panelTitle(panelId: panelId), remoteDisplay)
+        XCTAssertNil(
+            workspace.sidebarFinderDirectory(),
+            "Remote cwd display must not be exposed as a local Finder path"
+        )
+        XCTAssertNil(
+            workspace.panelDirectories[panelId],
+            "Remote cwd reports must not pollute the local cwd map"
+        )
+    }
+
     func testSidebarDerivedCollectionsMatchWhenUsingPrecomputedPanelOrder() {
         let workspace = Workspace()
         guard let leftFirstPanelId = workspace.focusedPanelId,
