@@ -1652,6 +1652,7 @@ final class BrowserPDFPreviewActionDelegateTests: XCTestCase {
         "_webView:printFrame:pdfFirstPageSize:completionHandler:"
     )
 
+    @MainActor
     func testInlineBrowserUIDelegateHandlesWebKitPDFPreviewActions() throws {
         let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
         let delegate = try XCTUnwrap(panel.webView.uiDelegate as? NSObject)
