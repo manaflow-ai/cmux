@@ -129,6 +129,45 @@ final class DiffReviewPatchParserTests: XCTestCase {
         XCTAssertEqual(untrackedReviewFile.status, .untracked)
     }
 
+    func testRevertHunkClearsStagedIndexChange() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-diff-review-staged-revert-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try runGit(["init", "-b", "main"], in: directory)
+        try runGit(["config", "user.name", "cmux tests"], in: directory)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: directory)
+
+        let trackedFile = directory.appendingPathComponent("Sources/App.swift")
+        try FileManager.default.createDirectory(
+            at: trackedFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "let title = \"base\"\n".write(to: trackedFile, atomically: true, encoding: .utf8)
+        try runGit(["add", "Sources/App.swift"], in: directory)
+        try runGit(["commit", "-m", "Initial commit"], in: directory)
+        try "let title = \"staged\"\n".write(to: trackedFile, atomically: true, encoding: .utf8)
+        try runGit(["add", "Sources/App.swift"], in: directory)
+
+        let snapshot = try await DiffReviewGitClient.loadSnapshot(
+            directory: directory.path,
+            selectedTargetID: DiffReviewTarget.workingTreeID
+        )
+        let reviewFile = try XCTUnwrap(snapshot.files.first { $0.path == "Sources/App.swift" })
+        let hunk = try XCTUnwrap(reviewFile.hunks.first)
+
+        try await DiffReviewGitClient.revertHunk(repositoryRoot: directory.path, patch: hunk.patch)
+
+        let cachedDiff = try runGit(["diff", "--cached", "--name-only"], in: directory)
+        let workingTreeDiff = try runGit(["diff", "--name-only"], in: directory)
+        XCTAssertEqual(cachedDiff.trimmingCharacters(in: .whitespacesAndNewlines), "")
+        XCTAssertEqual(workingTreeDiff.trimmingCharacters(in: .whitespacesAndNewlines), "")
+        XCTAssertEqual(try String(contentsOf: trackedFile, encoding: .utf8), "let title = \"base\"\n")
+    }
+
     @discardableResult
     private func runGit(
         _ arguments: [String],
