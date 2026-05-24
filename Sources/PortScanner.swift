@@ -17,8 +17,6 @@ final class PortScanner: @unchecked Sendable {
 
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
     var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
-    /// Callback delivers foreground SSH/mosh session detection on the main actor.
-    var onRemoteSessionUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ session: DetectedRemoteTerminalSession?) -> Void)?
     /// Callback delivers workspace-scoped ports owned by tracked agents.
     var onAgentPortsUpdated: (@MainActor (_ workspaceId: UUID, _ ports: [Int]) -> Void)?
     /// Provider returns tracked agent root PIDs for the given workspaces.
@@ -36,9 +34,6 @@ final class PortScanner: @unchecked Sendable {
 
     /// Workspaces with active agent PID tracking that need background rescans.
     private var trackedAgentWorkspaces: Set<UUID> = []
-
-    /// Last foreground SSH/mosh session state delivered per panel.
-    private var remoteSessionsByPanel: [PanelKey: DetectedRemoteTerminalSession] = [:]
 
     /// Panels that requested a scan since the last coalesce snapshot.
     private var pendingKicks: Set<PanelKey> = []
@@ -78,7 +73,6 @@ final class PortScanner: @unchecked Sendable {
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             ttyNames.removeValue(forKey: key)
             pendingKicks.remove(key)
-            remoteSessionsByPanel.removeValue(forKey: key)
         }
     }
 
@@ -198,10 +192,6 @@ final class PortScanner: @unchecked Sendable {
         // Build TTY set (deduplicated).
         let uniqueTTYs = Set(panelSnapshot.values)
         let ttyList = uniqueTTYs.joined(separator: ",")
-        let remoteSessionResults = buildRemoteSessionResults(
-            panelSnapshot: panelSnapshot,
-            uniqueTTYs: uniqueTTYs
-        )
 
         // 1. ps -t tty1,tty2,... -o pid=,tty=
         let pidToTTY = ttyList.isEmpty ? [:] : runPS(ttyList: ttyList)
@@ -214,8 +204,7 @@ final class PortScanner: @unchecked Sendable {
                 panelResults,
                 workspaceIds: workspaceIds,
                 agentPortsByWorkspace: [:],
-                agentRevisions: agentRevisions,
-                remoteSessionResults: remoteSessionResults
+                agentRevisions: agentRevisions
             )
             return
         }
@@ -250,37 +239,8 @@ final class PortScanner: @unchecked Sendable {
             results,
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
-            agentRevisions: agentRevisions,
-            remoteSessionResults: remoteSessionResults
+            agentRevisions: agentRevisions
         )
-    }
-
-    private func buildRemoteSessionResults(
-        panelSnapshot: [PanelKey: String],
-        uniqueTTYs: Set<String>
-    ) -> [(PanelKey, DetectedRemoteTerminalSession?)] {
-        guard onRemoteSessionUpdated != nil else { return [] }
-
-        let sessionsByTTY = TerminalSSHSessionDetector.detectRemoteSessions(forTTYs: uniqueTTYs)
-        let validPanelKeys = Set(panelSnapshot.keys)
-        remoteSessionsByPanel = remoteSessionsByPanel.filter { validPanelKeys.contains($0.key) }
-
-        var changedResults: [(PanelKey, DetectedRemoteTerminalSession?)] = []
-        for (key, tty) in panelSnapshot {
-            let normalizedTTY = TerminalSSHSessionDetector.normalizedTTYName(tty)
-            let nextSession = sessionsByTTY[normalizedTTY]
-            let previousSession = remoteSessionsByPanel[key]
-            guard previousSession != nextSession else { continue }
-
-            if let nextSession {
-                remoteSessionsByPanel[key] = nextSession
-            } else {
-                remoteSessionsByPanel.removeValue(forKey: key)
-            }
-            changedResults.append((key, nextSession))
-        }
-
-        return changedResults
     }
 
     private func refreshAgentPortsLocked(workspaceId: UUID, agentPIDs: Set<Int>) {
@@ -415,22 +375,13 @@ final class PortScanner: @unchecked Sendable {
         _ panelResults: [(PanelKey, [Int])],
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
-        agentRevisions: [UUID: UInt64],
-        remoteSessionResults: [(PanelKey, DetectedRemoteTerminalSession?)]
+        agentRevisions: [UUID: UInt64]
     ) {
         let panelCallback = onPortsUpdated
         if let panelCallback {
             Task { @MainActor in
                 for (key, ports) in panelResults {
                     panelCallback(key.workspaceId, key.panelId, ports)
-                }
-            }
-        }
-        let remoteSessionCallback = onRemoteSessionUpdated
-        if let remoteSessionCallback, !remoteSessionResults.isEmpty {
-            Task { @MainActor in
-                for (key, session) in remoteSessionResults {
-                    remoteSessionCallback(key.workspaceId, key.panelId, session)
                 }
             }
         }

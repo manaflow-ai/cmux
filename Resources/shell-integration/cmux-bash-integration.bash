@@ -427,6 +427,19 @@ _cmux_report_shell_activity_state() {
     } >/dev/null 2>&1 & disown
 }
 
+_cmux_report_foreground_command() {
+    local cmd="$1"
+    [[ -n "$cmd" ]] || return 0
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    local qcmd="${cmd//\\/\\\\}"
+    qcmd="${qcmd//\"/\\\"}"
+    {
+        _cmux_send "report_foreground_command \"${qcmd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    } >/dev/null 2>&1 & disown
+}
+
 _cmux_reset_terminal_keyboard_protocols() {
     [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
     # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
@@ -1191,6 +1204,7 @@ _cmux_preexec_command() {
     fi
 
     _cmux_report_shell_activity_state running
+    _cmux_report_foreground_command "$cmd"
     _cmux_report_tty_once
     _cmux_ports_kick command
     _cmux_halt_pr_poll_loop

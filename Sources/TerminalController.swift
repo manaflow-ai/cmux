@@ -1789,13 +1789,6 @@ class TerminalController {
             workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
             workspace.recomputeListeningPorts()
         }
-        PortScanner.shared.onRemoteSessionUpdated = { [weak self] workspaceId, panelId, session in
-            guard let self, let tabManager = self.tabManager else { return }
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-            let validSurfaceIds = Set(workspace.panels.keys)
-            guard validSurfaceIds.contains(panelId), !workspace.isRemoteWorkspace else { return }
-            tabManager.updateSurfaceRemoteSession(tabId: workspaceId, surfaceId: panelId, session: session)
-        }
         PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
             guard let self, let tabManager = self.tabManager else { return }
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
@@ -3094,6 +3087,9 @@ class TerminalController {
 
         case "report_shell_state":
             return reportShellState(args)
+
+        case "report_foreground_command":
+            return reportForegroundCommand(args)
 
         case "report_pr_action":
             return reportPullRequestAction(args)
@@ -19911,6 +19907,28 @@ class TerminalController {
             tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
         }
         return result
+    }
+
+    private func reportForegroundCommand(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let commandLine = parsed.positional.first, !commandLine.isEmpty else {
+            return "ERROR: Missing command — usage: report_foreground_command <command> [--tab=X] [--panel=Y]"
+        }
+        guard let session = TerminalSSHSessionDetector.detectRemoteSession(commandLine: commandLine) else {
+            return "OK"
+        }
+
+        return schedulePanelMetadataMutation(
+            args: args,
+            options: parsed.options,
+            missingPanelUsage: "report_foreground_command <command> [--tab=X] [--panel=Y]"
+        ) { tab, surfaceId in
+            guard !tab.isRemoteWorkspace,
+                  let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else {
+                return
+            }
+            tabManager.updateSurfaceRemoteSession(tabId: tab.id, surfaceId: surfaceId, session: session)
+        }
     }
 
     private func reportPullRequestAction(_ args: String) -> String {

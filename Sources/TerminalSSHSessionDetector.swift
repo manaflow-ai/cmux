@@ -576,29 +576,18 @@ enum TerminalSSHSessionDetector {
     static func detectRemoteSession(forTTY ttyName: String) -> DetectedRemoteTerminalSession? {
         let normalizedTTY = normalizedTTYName(ttyName)
         guard !normalizedTTY.isEmpty else { return nil }
-        return detectRemoteSessions(forTTYs: [normalizedTTY])[normalizedTTY]
-    }
-
-    static func detectRemoteSessions(forTTYs ttyNames: Set<String>) -> [String: DetectedRemoteTerminalSession] {
-        let normalizedTTYs = Set(ttyNames.map { normalizedTTYName($0) }.filter { !$0.isEmpty })
-        guard !normalizedTTYs.isEmpty else { return [:] }
-        let processes = processSnapshots(forTTYs: normalizedTTYs)
-        guard !processes.isEmpty else { return [:] }
+        let processes = processSnapshots(forTTY: normalizedTTY)
+        guard !processes.isEmpty else { return nil }
 
         var argumentsByPID: [Int32: [String]] = [:]
-        for process in processes {
-            let processTTY = normalizedTTYName(process.tty)
-            guard normalizedTTYs.contains(processTTY),
-                  isForegroundRemoteProcess(process, ttyName: processTTY) else {
-                continue
-            }
+        for process in processes where isForegroundRemoteProcess(process, ttyName: normalizedTTY) {
             if let args = commandLineArguments(forPID: process.pid) {
                 argumentsByPID[process.pid] = args
             }
         }
 
-        return detectRemoteSessionsForTesting(
-            ttyNames: normalizedTTYs,
+        return detectRemoteSessionForTesting(
+            ttyName: normalizedTTY,
             processes: processes,
             argumentsByPID: argumentsByPID
         )
@@ -668,23 +657,22 @@ enum TerminalSSHSessionDetector {
         return nil
     }
 
-    static func detectRemoteSessionsForTesting(
-        ttyNames: Set<String>,
-        processes: [ProcessSnapshot],
-        argumentsByPID: [Int32: [String]]
-    ) -> [String: DetectedRemoteTerminalSession] {
-        let normalizedTTYs = Set(ttyNames.map { normalizedTTYName($0) }.filter { !$0.isEmpty })
-        var sessionsByTTY: [String: DetectedRemoteTerminalSession] = [:]
-        for ttyName in normalizedTTYs {
-            if let session = detectRemoteSessionForTesting(
-                ttyName: ttyName,
-                processes: processes,
-                argumentsByPID: argumentsByPID
-            ) {
-                sessionsByTTY[ttyName] = session
-            }
+    static func detectRemoteSession(commandLine: String) -> DetectedRemoteTerminalSession? {
+        let commandArguments = remoteCommandArguments(from: shellCommandArguments(commandLine))
+        guard let commandName = commandArguments.first.map(executableName) else { return nil }
+
+        switch commandName {
+        case "ssh":
+            guard let session = parseSSHCommandLine(commandArguments) else { return nil }
+            return .ssh(session)
+        case "mosh":
+            guard let destination = parseMoshCommandLine(commandArguments) else { return nil }
+            return .mosh(destination: destination)
+        case "mosh-client":
+            return .mosh(destination: nil)
+        default:
+            return nil
         }
-        return sessionsByTTY
     }
 
     private static let psPath = "/bin/ps"
@@ -719,7 +707,7 @@ enum TerminalSSHSessionDetector {
         "stdioforward",
     ]
 
-    static func normalizedTTYName(_ ttyName: String) -> String {
+    private static func normalizedTTYName(_ ttyName: String) -> String {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         if let lastComponent = trimmed.split(separator: "/").last {
@@ -750,41 +738,6 @@ enum TerminalSSHSessionDetector {
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: psPath)
         process.arguments = ["-ww", "-t", ttyName, "-o", "pid=,pgid=,tpgid=,tty=,ucomm="]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
-            return []
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0,
-              let output = String(data: data, encoding: .utf8) else {
-            return []
-        }
-
-        return output
-            .split(separator: "\n")
-            .compactMap(parseProcessSnapshot)
-    }
-
-    private static func processSnapshots(forTTYs ttyNames: Set<String>) -> [ProcessSnapshot] {
-        let normalizedTTYs = ttyNames.map { normalizedTTYName($0) }.filter { !$0.isEmpty }
-        guard !normalizedTTYs.isEmpty else { return [] }
-
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: psPath)
-        process.arguments = [
-            "-ww",
-            "-t", normalizedTTYs.sorted().joined(separator: ","),
-            "-o", "pid=,pgid=,tpgid=,tty=,ucomm=",
-        ]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
@@ -876,6 +829,114 @@ enum TerminalSSHSessionDetector {
         }
 
         return arguments.count == argc ? arguments : nil
+    }
+
+    private static func shellCommandArguments(_ commandLine: String) -> [String] {
+        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var arguments: [String] = []
+        var current = ""
+        var quote: Character?
+        var index = trimmed.startIndex
+
+        func flushCurrent() {
+            if !current.isEmpty {
+                arguments.append(current)
+                current = ""
+            }
+        }
+
+        while index < trimmed.endIndex {
+            let character = trimmed[index]
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                    index = trimmed.index(after: index)
+                    continue
+                }
+                if character == "\\" {
+                    let nextIndex = trimmed.index(after: index)
+                    if nextIndex < trimmed.endIndex {
+                        current.append(trimmed[nextIndex])
+                        index = trimmed.index(after: nextIndex)
+                        continue
+                    }
+                }
+                current.append(character)
+                index = trimmed.index(after: index)
+                continue
+            }
+
+            if character == "'" || character == "\"" {
+                quote = character
+                index = trimmed.index(after: index)
+                continue
+            }
+            if character == "\\" {
+                let nextIndex = trimmed.index(after: index)
+                if nextIndex < trimmed.endIndex {
+                    current.append(trimmed[nextIndex])
+                    index = trimmed.index(after: nextIndex)
+                    continue
+                }
+            }
+            if character == ";" || character == "|" || character == "&" {
+                flushCurrent()
+                break
+            }
+            if character.isWhitespace {
+                flushCurrent()
+                index = trimmed.index(after: index)
+                continue
+            }
+
+            current.append(character)
+            index = trimmed.index(after: index)
+        }
+
+        flushCurrent()
+        return arguments
+    }
+
+    private static func remoteCommandArguments(from arguments: [String]) -> [String] {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            let name = executableName(argument)
+            if name == "command" || name == "exec" || name == "noglob" {
+                index += 1
+                continue
+            }
+            if isEnvironmentAssignment(argument) {
+                index += 1
+                continue
+            }
+            break
+        }
+        guard index < arguments.count else { return [] }
+        return Array(arguments[index...])
+    }
+
+    private static func isEnvironmentAssignment(_ argument: String) -> Bool {
+        guard let equalsIndex = argument.firstIndex(of: "="),
+              equalsIndex != argument.startIndex,
+              !argument.hasPrefix("-") else {
+            return false
+        }
+        let name = argument[..<equalsIndex]
+        return name.allSatisfy { character in
+            character == "_" || character.isLetter || character.isNumber
+        }
+    }
+
+    private static func executableName(_ argument: String) -> String {
+        argument
+            .split(separator: "/")
+            .last
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
     }
 
     private static func parseSSHCommandLine(_ arguments: [String]) -> DetectedSSHSession? {

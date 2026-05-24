@@ -1973,47 +1973,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(session?.displayTitle, "ssh lawrence@example.com")
     }
 
-    func testDetectsForegroundRemoteSessionsForMultipleTTYs() {
-        let sessions = TerminalSSHSessionDetector.detectRemoteSessionsForTesting(
-            ttyNames: ["/dev/ttys004", "ttys005"],
-            processes: [
-                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
-                .init(pid: 2146, pgid: 2146, tpgid: 2146, tty: "ttys005", executableName: "mosh"),
-                .init(pid: 2147, pgid: 2147, tpgid: 2148, tty: "ttys005", executableName: "ssh"),
-            ],
-            argumentsByPID: [
-                2145: [
-                    "ssh",
-                    "lawrence@example.com",
-                ],
-                2146: [
-                    "mosh",
-                    "db.example.com",
-                ],
-                2147: [
-                    "ssh",
-                    "background.example.com",
-                ],
-            ]
-        )
-
-        XCTAssertEqual(
-            sessions,
-            [
-                "ttys004": DetectedRemoteTerminalSession(
-                    transport: .ssh,
-                    destination: "lawrence@example.com",
-                    directory: nil
-                ),
-                "ttys005": DetectedRemoteTerminalSession(
-                    transport: .mosh,
-                    destination: "db.example.com",
-                    directory: nil
-                ),
-            ]
-        )
-    }
-
     func testRemoteDirectoryReportPreservesNonLocalHost() {
         let session = DetectedRemoteTerminalSession.fromReportedDirectory(
             "file://devbox.example/tmp/cmux-issue-4680",
@@ -2090,6 +2049,42 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             )
         )
         XCTAssertEqual(session?.displayTitle, "mosh session")
+    }
+
+    func testDetectsSSHForegroundCommandForRemoteDisplay() {
+        let session = TerminalSSHSessionDetector.detectRemoteSession(
+            commandLine: "TERM=xterm-256color command ssh -p 2200 lawrence@example.com"
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedRemoteTerminalSession(
+                transport: .ssh,
+                destination: "lawrence@example.com",
+                directory: nil
+            )
+        )
+        XCTAssertEqual(session?.displayTitle, "ssh lawrence@example.com")
+    }
+
+    func testDetectsMoshForegroundCommandForRemoteDisplay() {
+        let session = TerminalSSHSessionDetector.detectRemoteSession(
+            commandLine: "noglob mosh --ssh='ssh -p 2200' db.example.com"
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedRemoteTerminalSession(
+                transport: .mosh,
+                destination: "db.example.com",
+                directory: nil
+            )
+        )
+        XCTAssertEqual(session?.displayTitle, "mosh db.example.com")
+    }
+
+    func testIgnoresNonRemoteForegroundCommand() {
+        XCTAssertNil(TerminalSSHSessionDetector.detectRemoteSession(commandLine: "git status"))
     }
 
     func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
