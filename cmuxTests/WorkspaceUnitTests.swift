@@ -6297,6 +6297,7 @@ final class WorkspaceSelectionChangeSchedulerTests: XCTestCase {
         deferredActions[0]()
 
         XCTAssertEqual(events, [
+            "prepareWorkspaceHandoff",
             "reconcileMountedWorkspaces",
             "syncSidebarSelection",
             "scheduleDeferred",
