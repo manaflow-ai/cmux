@@ -14,7 +14,7 @@ enum AntigravityTranscriptPreview {
         var lineIndex = 0
         var didHitTurnLimit = false
 
-        SessionIndexStore.forEachJSONLine(url: url, maxBytes: maxPreviewBytes) { object in
+        forEachPreviewJSONLine(url: url) { object in
             defer { lineIndex += 1 }
             if Task.isCancelled { return true }
             if url.lastPathComponent == "history.jsonl",
@@ -36,6 +36,29 @@ enum AntigravityTranscriptPreview {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
         return coalesce(turns)
+    }
+
+    private static func forEachPreviewJSONLine(
+        url: URL,
+        body: ([String: Any]) -> Bool
+    ) {
+        guard url.lastPathComponent == "history.jsonl" else {
+            SessionIndexStore.forEachJSONLine(url: url, maxBytes: maxPreviewBytes, body: body)
+            return
+        }
+
+        let tail = SessionIndexStore.readFileTail(url: url, byteCap: maxPreviewBytes)
+        for line in tail.split(separator: "\n", omittingEmptySubsequences: true) {
+            if Task.isCancelled { return }
+            let shouldStop = autoreleasepool { () -> Bool in
+                guard let data = String(line).data(using: .utf8),
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    return false
+                }
+                return body(object)
+            }
+            if shouldStop { return }
+        }
     }
 
     static func userRequestText(from content: String) -> String? {
