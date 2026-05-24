@@ -21,6 +21,9 @@ private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t
 @_silgen_name("ghostty_surface_select_cursor_cell")
 private func ghostty_surface_select_cursor_cell_compat(_ surface: ghostty_surface_t) -> Bool
 
+@_silgen_name("ghostty_surface_select_cursor_line")
+private func ghostty_surface_select_cursor_line_compat(_ surface: ghostty_surface_t) -> Bool
+
 enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable {
     case realUserConfig
     case freshInstall
@@ -8112,7 +8115,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let startX = min(1, xMax)
         let endX = xMax
 
-        let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_NONE.rawValue) ?? GHOSTTY_MODS_NONE
+        let mods = GHOSTTY_MODS_NONE
         ghostty_surface_mouse_pos(surface, startX, startY, mods)
         guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
             return false
@@ -8206,6 +8209,35 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     // MARK: - Input Handling
+
+    // NSResponder overrides must remain internal in Swift, so suppress private_action here.
+    // swiftlint:disable:next private_action
+    @IBAction override func selectAll(_ sender: Any?) {
+        _ = selectCommandLineAtCursorOrAll()
+    }
+
+    @discardableResult
+    private func selectCommandLineAtCursorOrAll() -> Bool {
+        guard let surface = ensureSurfaceReadyForInput() else {
+            requestInputRecoveryAfterSurfaceMiss(reason: "selectAll.missingSurface")
+            return false
+        }
+
+        if selectCommandLineAtCursor(surface: surface) {
+            invalidateTextInputCoordinates(selectionChanged: true)
+            return true
+        }
+
+        let selected = performBindingAction("select_all")
+        if selected {
+            invalidateTextInputCoordinates(selectionChanged: true)
+        }
+        return selected
+    }
+
+    private func selectCommandLineAtCursor(surface: ghostty_surface_t) -> Bool {
+        ghostty_surface_select_cursor_line_compat(surface)
+    }
 
     @IBAction func copy(_ sender: Any?) {
         _ = performBindingAction("copy_to_clipboard")

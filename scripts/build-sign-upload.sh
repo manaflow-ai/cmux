@@ -50,6 +50,10 @@ SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
 ENTITLEMENTS="cmux.entitlements"
 APP_PATH="build/Build/Products/Release/cmux.app"
 GHOSTTYKIT_CRASH_REPORT_SUBDIR="cmux/crash"
+GHOSTTYKIT_CRASH_ARG=""
+if git -C ghostty grep -q "crash-report-subdir" HEAD -- src/build/Config.zig build.zig 2>/dev/null; then
+  GHOSTTYKIT_CRASH_ARG="-Dcrash-report-subdir=$GHOSTTYKIT_CRASH_REPORT_SUBDIR"
+fi
 
 # --- Pre-flight ---
 source ~/.secrets/cmuxterm.env
@@ -64,7 +68,11 @@ echo "Building GhosttyKit..."
 rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
 (
   cd ghostty
-  zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+  if [[ -n "$GHOSTTYKIT_CRASH_ARG" ]]; then
+    zig build "$GHOSTTYKIT_CRASH_ARG" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+  else
+    zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+  fi
 )
 cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 

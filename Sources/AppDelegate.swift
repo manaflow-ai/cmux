@@ -15800,6 +15800,14 @@ private extension NSWindow {
 #endif
                 return true
             }
+
+            if shouldRouteTerminalSelectAllToNaturalTextEngine(event) {
+                ghosttyView.selectAll(nil)
+#if DEBUG
+                cmuxDebugLog("  → terminal natural text select-all")
+#endif
+                return true
+            }
         }
 
         if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
