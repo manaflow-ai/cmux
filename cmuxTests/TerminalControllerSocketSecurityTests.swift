@@ -240,6 +240,27 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workerError["code"] as? String, "not_found")
     }
 
+    func testHeartbeatMethodsRunOnSocketWorker() async throws {
+        let socketPath = makeSocketPath("heartbeat-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        for method in ["system.ping", "system.capabilities"] {
+            let requestLine = try makeV2RequestLine(method: method, params: [:])
+            let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+            let mainError = try XCTUnwrap(mainEnvelope["error"] as? [String: Any], method)
+            XCTAssertEqual(mainError["code"] as? String, "invalid_dispatch", method)
+
+            let workerEnvelope = try await sendV2RequestAsync(method: method, params: [:], to: socketPath)
+            XCTAssertEqual(workerEnvelope["ok"] as? Bool, true, method)
+        }
+    }
+
     func testRemotePTYBridgeWaitForReadyRunsOnSocketWorker() async throws {
         let socketPath = makeSocketPath("pty-bridge-worker")
         let tabManager = TabManager()
