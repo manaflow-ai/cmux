@@ -87,6 +87,8 @@ extension CmuxSettingsFileStore {
         "sidebar.hideAllDetails",
         "sidebar.showWorkspaceDescription",
         "sidebar.branchLayout",
+        "sidebar.stackBranchDirectory",
+        "sidebar.pathLastSegmentOnly",
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",

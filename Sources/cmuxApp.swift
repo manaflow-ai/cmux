@@ -1629,6 +1629,8 @@ private enum DebugWindowConfigSnapshot {
         sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
         sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarBranchLayoutSettings.key, fallback: SidebarBranchLayoutSettings.defaultVerticalLayout))
+        sidebarBranchDirectoryStacked=\(boolValue(defaults, key: SidebarBranchDirectoryStackedSettings.key, fallback: SidebarBranchDirectoryStackedSettings.defaultStacked))
+        sidebarPathLastSegmentOnly=\(boolValue(defaults, key: SidebarPathLastSegmentSettings.key, fallback: SidebarPathLastSegmentSettings.defaultLastSegmentOnly))
         sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: SidebarActiveTabIndicatorSettings.styleKey, fallback: SidebarActiveTabIndicatorSettings.defaultStyle.rawValue))
         sidebarDevBuildBannerVisible=\(boolValue(defaults, key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
         """
@@ -2665,6 +2667,8 @@ private struct SidebarDebugView: View {
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+    @AppStorage(SidebarBranchDirectoryStackedSettings.key) private var sidebarBranchDirectoryStacked = SidebarBranchDirectoryStackedSettings.defaultStacked
+    @AppStorage(SidebarPathLastSegmentSettings.key) private var sidebarPathLastSegmentOnly = SidebarPathLastSegmentSettings.defaultLastSegmentOnly
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
@@ -2862,6 +2866,8 @@ private struct SidebarDebugView: View {
         sidebarTintOpacity=\(String(format: "%.2f", sidebarTintOpacity))
         sidebarCornerRadius=\(String(format: "%.1f", sidebarCornerRadius))
         sidebarBranchVerticalLayout=\(sidebarBranchVerticalLayout)
+        sidebarBranchDirectoryStacked=\(sidebarBranchDirectoryStacked)
+        sidebarPathLastSegmentOnly=\(sidebarPathLastSegmentOnly)
         sidebarActiveTabIndicatorStyle=\(sidebarActiveTabIndicatorStyle)
         sidebarDevBuildBannerVisible=\(showSidebarDevBuildBanner)
         """
@@ -5276,6 +5282,8 @@ struct SettingsView: View {
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+    @AppStorage(SidebarBranchDirectoryStackedSettings.key) private var sidebarBranchDirectoryStacked = SidebarBranchDirectoryStackedSettings.defaultStacked
+    @AppStorage(SidebarPathLastSegmentSettings.key) private var sidebarPathLastSegmentOnly = SidebarPathLastSegmentSettings.defaultLastSegmentOnly
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
@@ -6805,6 +6813,36 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .json("sidebar.stackBranchDirectory"),
+                            String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"),
+                            subtitle: sidebarBranchDirectoryStacked
+                                ? String(localized: "settings.app.stackBranchDirectory.subtitleOn", defaultValue: "Branch and directory render on separate lines.")
+                                : String(localized: "settings.app.stackBranchDirectory.subtitleOff", defaultValue: "Branch and directory share a single line.")
+                        ) {
+                            Toggle("", isOn: $sidebarBranchDirectoryStacked)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                        .disabled(sidebarHideAllDetails)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("sidebar.pathLastSegmentOnly"),
+                            String(localized: "settings.app.pathLastSegmentOnly", defaultValue: "Truncate Path From Start"),
+                            subtitle: sidebarPathLastSegmentOnly
+                                ? String(localized: "settings.app.pathLastSegmentOnly.subtitleOn", defaultValue: "Show as much of the trailing path as fits; shorter forms are prefixed with …/.")
+                                : String(localized: "settings.app.pathLastSegmentOnly.subtitleOff", defaultValue: "Render full paths abbreviated with ~/.")
+                        ) {
+                            Toggle("", isOn: $sidebarPathLastSegmentOnly)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                        .disabled(sidebarHideAllDetails)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("sidebar.showNotificationMessage"),
                             String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"),
                             subtitle: String(localized: "settings.app.showNotificationMessage.subtitle", defaultValue: "Display the latest notification message below the workspace title.")
@@ -7979,6 +8017,8 @@ struct SettingsView: View {
         sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+        sidebarBranchDirectoryStacked = SidebarBranchDirectoryStackedSettings.defaultStacked
+        sidebarPathLastSegmentOnly = SidebarPathLastSegmentSettings.defaultLastSegmentOnly
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         sidebarSelectionColorHex = nil
         sidebarNotificationBadgeColorHex = nil

@@ -215,6 +215,30 @@ enum SidebarBranchLayoutSettings {
     }
 }
 
+enum SidebarBranchDirectoryStackedSettings {
+    static let key = "sidebarBranchDirectoryStacked"
+    static let defaultStacked = false
+
+    static func isStacked(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultStacked
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
+enum SidebarPathLastSegmentSettings {
+    static let key = "sidebarPathLastSegmentOnly"
+    static let defaultLastSegmentOnly = false
+
+    static func isLastSegmentOnly(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultLastSegmentOnly
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum SidebarWorkspaceDetailSettings {
     static let hideAllDetailsKey = "sidebarHideAllDetails"
     static let showWorkspaceDescriptionKey = "sidebarShowWorkspaceDescription"
