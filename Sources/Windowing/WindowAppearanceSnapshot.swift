@@ -213,11 +213,6 @@ struct WindowGlassSettingsSnapshot {
 }
 
 struct WindowAppearanceSnapshot {
-    /// Treat opacity values within floating-point round-trip tolerance of 1.0
-    /// as opaque so user-configured `1.0` does not accidentally trigger host
-    /// ownership after Double/CGFloat conversions.
-    private static let opaqueBackgroundOwnershipThreshold: CGFloat = 0.999
-
     let terminalBackgroundColor: NSColor
     let terminalBackgroundOpacity: CGFloat
     let terminalBackgroundBlur: GhosttyBackgroundBlur
@@ -280,8 +275,15 @@ struct WindowAppearanceSnapshot {
         CGFloat(max(0.0, min(1.0, opacity)))
     }
 
-    static func compositedTerminalColor(backgroundColor: NSColor, opacity: Double) -> NSColor {
-        backgroundColor.withAlphaComponent(clampedOpacity(opacity))
+    static func compositedTerminalColor(
+        backgroundColor: NSColor,
+        opacity: Double,
+        over baseColor: NSColor = .windowBackgroundColor
+    ) -> NSColor {
+        cmuxCompositedNSColor(
+            backgroundColor.withAlphaComponent(clampedOpacity(opacity)),
+            over: baseColor
+        )
     }
 
     static func terminalRenderingMode(
@@ -290,30 +292,44 @@ struct WindowAppearanceSnapshot {
         usesHostLayerBackground ? .windowHostBackdrop : .ghosttyRendererOwnedBackgroundImage
     }
 
-    static func usesHostLayerBackground(
-        backgroundOpacity: Double,
-        backgroundBlur: GhosttyBackgroundBlur
-    ) -> Bool {
-        if backgroundBlur != .disabled {
-            return true
-        }
-        return clampedOpacity(backgroundOpacity) < opaqueBackgroundOwnershipThreshold
-    }
-
-    static func terminalRenderingMode(
-        backgroundOpacity: Double,
-        backgroundBlur: GhosttyBackgroundBlur
-    ) -> GhosttyTerminalBackdropRenderingMode {
-        terminalRenderingMode(
-            usesHostLayerBackground: usesHostLayerBackground(
-                backgroundOpacity: backgroundOpacity,
-                backgroundBlur: backgroundBlur
-            )
+    var compositedTerminalBackgroundColor: NSColor {
+        Self.compositedTerminalColor(
+            backgroundColor: terminalBackgroundColor,
+            opacity: terminalBackgroundOpacity
         )
     }
 
-    var compositedTerminalBackgroundColor: NSColor {
-        terminalBackgroundColor.withAlphaComponent(terminalBackgroundOpacity)
+    var chromeColorScheme: ColorScheme {
+        cmuxReadableColorScheme(for: compositedTerminalBackgroundColor)
+    }
+
+    var sidebarContentColorScheme: ColorScheme {
+        unifySurfaceBackdrops ? chromeColorScheme : sidebarSettings.colorScheme
+    }
+
+    func sidebarContrastOverlayColor(for role: WindowBackdropRole) -> NSColor? {
+        guard unifySurfaceBackdrops,
+              role == .leftSidebar || role == .rightSidebar else {
+            return nil
+        }
+
+        let composited = compositedTerminalBackgroundColor
+        let srgb = composited.usingColorSpace(.sRGB) ?? composited
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        _ = alpha
+
+        let isLight = cmuxReadableColorScheme(for: composited) == .light
+        let adjustment: CGFloat = isLight ? -0.05 : 0.07
+        return NSColor(
+            srgbRed: min(1, max(0, red + adjustment)),
+            green: min(1, max(0, green + adjustment)),
+            blue: min(1, max(0, blue + adjustment)),
+            alpha: isLight ? 0.20 : 0.18
+        )
     }
 
     func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
