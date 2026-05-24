@@ -1489,15 +1489,24 @@ extension Workspace {
     }
 
     enum CustomLayoutExportError: LocalizedError {
-        case emptyPane(String)
+        case emptyPane
         case unsupportedSurfaceTypes([String])
 
         var errorDescription: String? {
             switch self {
-            case .emptyPane(let paneId):
-                return "Pane \(paneId) has no exportable surfaces"
+            case .emptyPane:
+                return String(
+                    localized: "workspace.layoutExport.error.emptyPane",
+                    defaultValue: "A pane has no exportable surfaces"
+                )
             case .unsupportedSurfaceTypes(let types):
-                return "Layout export supports terminal and browser surfaces only; unsupported surfaces: \(types.joined(separator: ", "))"
+                return String.localizedStringWithFormat(
+                    String(
+                        localized: "workspace.layoutExport.error.unsupportedSurfaceTypes",
+                        defaultValue: "Layout export supports terminal and browser surfaces only; unsupported surfaces: %@"
+                    ),
+                    types.joined(separator: ", ")
+                )
             }
         }
     }
@@ -1533,7 +1542,7 @@ extension Workspace {
                     panelId: panelId,
                     selectedTabId: pane.selectedTabId
                 ) else {
-                    unsupportedSurfaces.append("\(panel.panelType.rawValue):\(panelId.uuidString)")
+                    unsupportedSurfaces.append(panel.panelType.rawValue)
                     continue
                 }
                 surfaces.append(surface)
@@ -1544,7 +1553,7 @@ extension Workspace {
                 if !paneUnsupportedSurfaces.isEmpty {
                     throw CustomLayoutExportError.unsupportedSurfaceTypes(paneUnsupportedSurfaces)
                 }
-                throw CustomLayoutExportError.emptyPane(pane.id)
+                throw CustomLayoutExportError.emptyPane
             }
             return .pane(CmuxPaneDefinition(surfaces: surfaces))
 
