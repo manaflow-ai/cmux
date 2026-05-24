@@ -2160,6 +2160,21 @@ final class UpdateOperationCoordinatorTimeoutTests: XCTestCase {
         XCTAssertEqual(acknowledgementCount.value(), 0)
         XCTAssertEqual(viewModel.state, .notFound(.init(acknowledgement: {})))
     }
+
+    func testReadyWhileInstallingConfirmsInstall() {
+        let viewModel = UpdateViewModel()
+        let coordinator = UpdateOperationCoordinator(viewModel: viewModel)
+        let recorder = UpdateChoiceRecorder()
+
+        viewModel.state = .installing(.init(
+            retryTerminatingApplication: {},
+            dismiss: {}
+        ))
+
+        coordinator.showReady(toInstallAndRelaunch: { recorder.record($0) })
+
+        XCTAssertEqual(recorder.snapshot(), [.install])
+    }
 }
 
 private final class ThreadSafeCounter: @unchecked Sendable {

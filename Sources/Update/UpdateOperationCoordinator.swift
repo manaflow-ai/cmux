@@ -144,7 +144,7 @@ final class UpdateOperationCoordinator {
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         switch viewModel.state {
-        case .updateAvailable, .downloading, .extracting:
+        case .updateAvailable, .downloading, .extracting, .installing:
             reply(.install)
         default:
             UpdateLogStore.shared.append("ignored ready to install outside active update")
