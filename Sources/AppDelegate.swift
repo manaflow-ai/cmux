@@ -3705,10 +3705,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func remainingSessionAutosaveTypingQuietPeriod(
         nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) -> TimeInterval? {
+        remainingTypingQuietPeriod(
+            nowUptime: nowUptime,
+            quietPeriod: Self.sessionAutosaveTypingQuietPeriod
+        )
+    }
+
+    func remainingTypingQuietPeriod(
+        nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime,
+        quietPeriod: TimeInterval
+    ) -> TimeInterval? {
         guard lastTypingActivityAt > 0 else { return nil }
         let elapsed = nowUptime - lastTypingActivityAt
-        guard elapsed < Self.sessionAutosaveTypingQuietPeriod else { return nil }
-        return Self.sessionAutosaveTypingQuietPeriod - elapsed
+        guard elapsed < quietPeriod else { return nil }
+        return quietPeriod - elapsed
     }
 
     private func scheduleDeferredSessionAutosaveRetry(after delay: TimeInterval) {
@@ -3871,10 +3881,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         generation == processDetectedSessionSaveGeneration
     }
 
-    fileprivate func recordTypingActivity() {
-        let now = ProcessInfo.processInfo.systemUptime
-        lastTypingActivityAt = now
-        CmuxTypingActivity.record(now: now)
+    func recordTypingActivity(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        lastTypingActivityAt = max(lastTypingActivityAt, now)
     }
 
     nonisolated static func shouldWriteSessionSnapshotSynchronously(

@@ -982,6 +982,12 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     }
 
     func testTypingActivityDefersSidebarGitMetadataRefresh() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defer {
@@ -1034,7 +1040,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             encoding: .utf8
         )
 
-        CmuxTypingActivity.record()
+        appDelegate.recordTypingActivity()
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         let earlyRefresh = expectation(description: "sidebar git metadata refreshed during typing quiet period")
