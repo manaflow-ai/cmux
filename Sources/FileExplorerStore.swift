@@ -537,9 +537,26 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             args += ["-o", option]
         }
         // Batch mode, no TTY, connection timeout
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
+        args += ["-o", "BatchMode=yes", "-T"]
+        if !hasSSHOptionKey(connection.sshOptions, key: "ConnectTimeout") {
+            args += ["-o", "ConnectTimeout=30"]
+        }
         args += [connection.destination, command]
         return args
+    }
+
+    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            let separators: [Character] = ["=", " ", "\t"]
+            guard let idx = trimmed.firstIndex(where: { separators.contains($0) }) else {
+                if trimmed.lowercased() == loweredKey { return true }
+                continue
+            }
+            if trimmed[..<idx].lowercased() == loweredKey { return true }
+        }
+        return false
     }
 
     private static func runSSHListCommand(
@@ -1294,7 +1311,10 @@ enum GitStatusProvider {
         if let port { args += ["-p", String(port)] }
         if let identityFile { args += ["-i", identityFile] }
         for option in sshOptions { args += ["-o", option] }
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
+        args += ["-o", "BatchMode=yes", "-T"]
+        if !Self.hasSSHOptionKey(sshOptions, key: "ConnectTimeout") {
+            args += ["-o", "ConnectTimeout=30"]
+        }
         args += [destination, command]
         process.arguments = args
         let pipe = Pipe()
