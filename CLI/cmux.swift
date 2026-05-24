@@ -16423,6 +16423,7 @@ struct CMUXCLI {
         private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
         private var reportedSpawnFailureFingerprints = Set<String>()
+        private var pendingSpawnFailureDiagnostics: [CodexTeamsSpawnFailureDiagnostic] = []
         private let appServerLogQueue = DispatchQueue(label: "com.cmux.codex-teams.app-server-log", qos: .utility)
         private var appServerLogSource: DispatchSourceFileSystemObject?
         private var appServerLogOffset: UInt64 = 0
@@ -16539,6 +16540,7 @@ struct CMUXCLI {
         }
 
         private func consumeAppServerLogText(_ text: String, logPath: String) {
+            retryPendingSpawnFailureDiagnosticsSafely()
             appServerLogBuffer += text
             var parts = appServerLogBuffer.components(separatedBy: "\n")
             if appServerLogBuffer.hasSuffix("\n") {
@@ -16572,12 +16574,38 @@ struct CMUXCLI {
         private func publishSpawnFailureDiagnosticSafely(_ diagnostic: CodexTeamsSpawnFailureDiagnostic) {
             stateLock.lock()
             defer { stateLock.unlock() }
-            guard !reportedSpawnFailureFingerprints.contains(diagnostic.fingerprint) else {
+            retryPendingSpawnFailureDiagnosticsLocked()
+            guard !reportedSpawnFailureFingerprints.contains(diagnostic.fingerprint),
+                  !pendingSpawnFailureDiagnostics.contains(where: { $0.fingerprint == diagnostic.fingerprint }) else {
                 return
             }
             if publishSpawnFailureDiagnostic(diagnostic) {
                 reportedSpawnFailureFingerprints.insert(diagnostic.fingerprint)
+            } else {
+                pendingSpawnFailureDiagnostics.append(diagnostic)
             }
+        }
+
+        private func retryPendingSpawnFailureDiagnosticsSafely() {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            retryPendingSpawnFailureDiagnosticsLocked()
+        }
+
+        private func retryPendingSpawnFailureDiagnosticsLocked() {
+            guard !pendingSpawnFailureDiagnostics.isEmpty else { return }
+            var stillPending: [CodexTeamsSpawnFailureDiagnostic] = []
+            for diagnostic in pendingSpawnFailureDiagnostics {
+                guard !reportedSpawnFailureFingerprints.contains(diagnostic.fingerprint) else {
+                    continue
+                }
+                if publishSpawnFailureDiagnostic(diagnostic) {
+                    reportedSpawnFailureFingerprints.insert(diagnostic.fingerprint)
+                } else {
+                    stillPending.append(diagnostic)
+                }
+            }
+            pendingSpawnFailureDiagnostics = stillPending
         }
 
         private func publishSpawnFailureDiagnostic(_ diagnostic: CodexTeamsSpawnFailureDiagnostic) -> Bool {
@@ -16663,6 +16691,7 @@ struct CMUXCLI {
         private func observeThreadSafely(_ thread: CodexTeamsThread) throws {
             stateLock.lock()
             defer { stateLock.unlock() }
+            retryPendingSpawnFailureDiagnosticsLocked()
             try observeThread(thread)
         }
 
