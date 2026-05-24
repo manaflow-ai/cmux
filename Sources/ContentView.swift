@@ -9616,6 +9616,7 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    @State private var sidebarHeight: CGFloat = 600
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
@@ -9764,11 +9765,21 @@ struct VerticalTabsSidebar: View {
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
-            SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 0) {
+                SidebarNoteView(noteHeight: max(80, min(300, sidebarHeight * 0.4)))
+                SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { sidebarHeight = geo.size.height }
+                    .onChange(of: geo.size.height) { _, new in sidebarHeight = new }
+            }
+        )
         .overlay(alignment: .trailing) {
             SidebarTrailingBorder()
         }
@@ -11892,6 +11903,158 @@ private struct SidebarFooterButtons: View {
             UpdatePill(model: updateViewModel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SidebarNoteView: View {
+    @AppStorage("sidebarNoteText") private var persistedText: String = ""
+    @State private var liveText: String = ""
+    let noteHeight: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(String(localized: "sidebar.note.label", defaultValue: "Note"))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+                .padding(.leading, 8)
+                .padding(.top, 4)
+
+            SidebarNoteTextEditor(text: $liveText)
+                .frame(height: noteHeight - 20)
+                .padding(.horizontal, 6)
+                .padding(.bottom, 6)
+        }
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .padding(.horizontal, 4)
+        .onAppear { liveText = persistedText }
+        .task(id: liveText) {
+            try? await Task.sleep(for: .milliseconds(500))
+            persistedText = liveText
+        }
+    }
+}
+
+private final class SidebarNoteTextView: NSView {
+    private static let font = NSFont.systemFont(ofSize: 12)
+    let scrollView = NSScrollView()
+    let textView = NSTextView()
+    private let placeholderField: NSTextField
+
+    var placeholder: String = "" {
+        didSet { placeholderField.stringValue = placeholder; updatePlaceholderVisibility() }
+    }
+
+    override init(frame frameRect: NSRect) {
+        placeholderField = NSTextField(labelWithString: "")
+        super.init(frame: frameRect)
+
+        wantsLayer = true
+        layer?.cornerRadius = 4
+
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+        textView.font = Self.font
+        textView.textColor = .labelColor
+        textView.insertionPointColor = .labelColor
+        textView.textContainerInset = NSSize(width: 4, height: 2)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+
+        scrollView.documentView = textView
+        addSubview(scrollView)
+
+        placeholderField.translatesAutoresizingMaskIntoConstraints = false
+        placeholderField.font = Self.font
+        placeholderField.textColor = .tertiaryLabelColor
+        placeholderField.lineBreakMode = .byWordWrapping
+        placeholderField.maximumNumberOfLines = 0
+        placeholderField.isBezeled = false
+        placeholderField.drawsBackground = false
+        placeholderField.isEditable = false
+        placeholderField.isSelectable = false
+        scrollView.contentView.addSubview(placeholderField)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            placeholderField.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor, constant: 2),
+            placeholderField.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor, constant: 4),
+            placeholderField.trailingAnchor.constraint(lessThanOrEqualTo: scrollView.contentView.trailingAnchor, constant: -4),
+        ])
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTextDidChange(_:)),
+            name: NSText.didChangeNotification,
+            object: textView
+        )
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func handleTextDidChange(_ notification: Notification) {
+        updatePlaceholderVisibility()
+    }
+
+    func updatePlaceholderVisibility() {
+        placeholderField.isHidden = !textView.string.isEmpty
+    }
+}
+
+private struct SidebarNoteTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    private let placeholder = String(localized: "sidebar.note.placeholder", defaultValue: "Write a note...")
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeNSView(context: Context) -> SidebarNoteTextView {
+        let view = SidebarNoteTextView()
+        view.textView.string = text
+        view.textView.delegate = context.coordinator
+        view.placeholder = placeholder
+        view.textView.setAccessibilityLabel("Sidebar Note")
+        view.textView.setAccessibilityIdentifier("sidebar-note-editor")
+        return view
+    }
+
+    func updateNSView(_ nsView: SidebarNoteTextView, context: Context) {
+        context.coordinator.parent = self
+        if nsView.textView.string != text {
+            nsView.textView.undoManager?.disableUndoRegistration()
+            nsView.textView.string = text
+            nsView.textView.undoManager?.enableUndoRegistration()
+            nsView.updatePlaceholderVisibility()
+        }
+        nsView.placeholder = placeholder
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: SidebarNoteTextEditor
+        init(parent: SidebarNoteTextEditor) { self.parent = parent }
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+        }
     }
 }
 
