@@ -59,7 +59,7 @@ extension CMUXCLI {
         }
     }
 
-    private func layoutUsage() -> String {
+    func layoutUsage() -> String {
         """
         Usage: cmux layout <save|open|export|import|list|path> [options]
 
@@ -539,7 +539,7 @@ extension CMUXCLI {
         return nil
     }
 
-    private func sanitizedFilenameComponent(_ raw: String) -> String {
+    func sanitizedFilenameComponent(_ raw: String) -> String {
         let sanitized = raw.replacingOccurrences(
             of: #"[^\p{L}\p{N}._-]+"#,
             with: "-",
