@@ -1720,6 +1720,12 @@ final class GhosttyTitleNotificationDispatcher {
     }
 }
 
+private struct GhosttyDesktopNotificationTarget: Sendable {
+    let tabId: UUID
+    let surfaceId: UUID?
+    let tabTitle: String
+}
+
 // Minimal Ghostty wrapper for terminal rendering
 // This uses libghostty (GhosttyKit.xcframework) for actual terminal emulation
 
@@ -4155,6 +4161,25 @@ class GhosttyApp {
         }
     }
 
+    @MainActor
+    private static func appDesktopNotificationTarget() -> GhosttyDesktopNotificationTarget? {
+        guard let tabManager = AppDelegate.shared?.tabManager,
+              let tabId = tabManager.selectedTabId else {
+            return nil
+        }
+        let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
+        let surfaceId = owningManager.focusedSurfaceId(for: tabId)
+        if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
+           workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
+            return nil
+        }
+        return GhosttyDesktopNotificationTarget(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            tabTitle: owningManager.titleForTab(tabId) ?? "Terminal"
+        )
+    }
+
     private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
         if Thread.isMainThread {
             return MainActor.assumeIsolated { work() }
@@ -4318,26 +4343,17 @@ class GhosttyApp {
                     .flatMap { String(cString: $0) } ?? ""
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
-                Task { @MainActor [actionTitle, actionBody] in
-                    guard let tabManager = AppDelegate.shared?.tabManager,
-                          let tabId = tabManager.selectedTabId else {
-                        return
-                    }
-                    let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
-                    let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-                    if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
-                       workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-                        return
-                    }
-                    let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
-                    let command = actionTitle.isEmpty ? tabTitle : actionTitle
-                    let body = actionBody
+                guard let notificationTarget = performOnMain({ GhosttyApp.appDesktopNotificationTarget() }) else {
+                    return true
+                }
+                let command = actionTitle.isEmpty ? notificationTarget.tabTitle : actionTitle
+                Task { @MainActor [notificationTarget, command, actionBody] in
                     TerminalNotificationStore.shared.addNotification(
-                        tabId: tabId,
-                        surfaceId: surfaceId,
+                        tabId: notificationTarget.tabId,
+                        surfaceId: notificationTarget.surfaceId,
                         title: command,
                         subtitle: "",
-                        body: body
+                        body: actionBody
                     )
                 }
                 return true
