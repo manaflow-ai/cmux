@@ -96,6 +96,19 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 tabManager: TabManager(),
                 fileExplorerState: nil
             )
+            guard let context = appDelegate.mainWindowContexts.values.first else {
+                XCTFail("Expected a registered main-window context")
+                return
+            }
+
+            XCTAssertTrue(appDelegate.fileExplorerState === fileExplorerState)
+            XCTAssertNil(context.fileExplorerState)
+            XCTAssertFalse(
+                context.keyboardFocusCoordinator.focusRightSidebar(
+                    mode: .files,
+                    focusFirstItem: true
+                )
+            )
 
             XCTAssertFalse(
                 appDelegate.showRightSidebarModeInActiveMainWindow(
