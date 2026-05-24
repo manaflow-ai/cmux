@@ -512,6 +512,17 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("autoResumeAgentSessions") {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
+
+        if let value = jsonInt(section["textBoxMaxLines"]) {
+            if value >= TerminalTextBoxInputSettings.minimumMaxLines,
+               value <= TerminalTextBoxInputSettings.maximumMaxLines {
+                snapshot.managedUserDefaults[TerminalTextBoxInputSettings.maxLinesKey] = .int(value)
+            } else {
+                logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("textBoxMaxLines") {
+            logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
+        }
     }
 
     private func parseSidebarSection(
