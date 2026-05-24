@@ -545,18 +545,20 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return args
     }
 
+    // Mirrors the WorkspaceRemoteConfiguration/TerminalSSHSessionDetector helpers
+    // by treating any Unicode whitespace (not just space/tab) as a key/value
+    // separator. Worth keeping in sync if/when those copies get extracted into
+    // a shared SSH-option-parsing module (see PR discussion).
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
         let loweredKey = key.lowercased()
-        for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            let separators: [Character] = ["=", " ", "\t"]
-            guard let idx = trimmed.firstIndex(where: { separators.contains($0) }) else {
-                if trimmed.lowercased() == loweredKey { return true }
-                continue
-            }
-            if trimmed[..<idx].lowercased() == loweredKey { return true }
+        return options.contains { option in
+            option
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+                .first
+                .map(String.init)?
+                .lowercased() == loweredKey
         }
-        return false
     }
 
     private static func runSSHListCommand(
