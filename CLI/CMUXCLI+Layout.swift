@@ -38,29 +38,41 @@ extension CMUXCLI {
 
         case "save":
             guard let client else {
-                throw CLIError(message: "cmux layout save requires a running cmux socket")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.layout.error.socketRequired", defaultValue: "%@ requires a running cmux socket"),
+                    "cmux layout save"
+                ))
             }
             try runLayoutSave(commandArgs: args, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "export":
             guard let client else {
-                throw CLIError(message: "cmux layout export requires a running cmux socket")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.layout.error.socketRequired", defaultValue: "%@ requires a running cmux socket"),
+                    "cmux layout export"
+                ))
             }
             try runLayoutExport(commandArgs: args, client: client, jsonOutput: jsonOutput)
 
         case "open":
             guard let client else {
-                throw CLIError(message: "cmux layout open requires a running cmux socket")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.layout.error.socketRequired", defaultValue: "%@ requires a running cmux socket"),
+                    "cmux layout open"
+                ))
             }
             try runLayoutOpen(commandArgs: args, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         default:
-            throw CLIError(message: "Unknown layout subcommand: \(subcommand). Run `cmux layout --help`.")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.unknownSubcommand", defaultValue: "Unknown layout subcommand: %@. Run `cmux layout --help`."),
+                subcommand
+            ))
         }
     }
 
     func layoutUsage() -> String {
-        """
+        String(localized: "cli.layout.usage", defaultValue: """
         Usage: cmux layout <save|open|export|import|list|path> [options]
 
         Manage named workspace layout presets stored under ~/.config/cmux/layouts.
@@ -81,13 +93,17 @@ extension CMUXCLI {
           cmux layout export --workspace workspace:2 > dev.yaml
           cmux layout import ./dev.yaml --name dev
           cmux layout list
-        """
+        """)
     }
 
     private func runLayoutPath(commandArgs: [String], jsonOutput: Bool) throws {
         let remaining = commandArgs.filter { $0 != "--json" }
         if let unknown = remaining.first {
-            throw CLIError(message: "layout path: unexpected argument '\(unknown)'")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.unexpectedArgument", defaultValue: "%@: unexpected argument '%@'"),
+                "layout path",
+                unknown
+            ))
         }
         let path = layoutPresetDirectoryURL().path
         if jsonOutput {
@@ -100,7 +116,11 @@ extension CMUXCLI {
     private func runLayoutList(commandArgs: [String], jsonOutput: Bool) throws {
         let remaining = commandArgs.filter { $0 != "--json" }
         if let unknown = remaining.first {
-            throw CLIError(message: "layout list: unexpected argument '\(unknown)'")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.unexpectedArgument", defaultValue: "%@: unexpected argument '%@'"),
+                "layout list",
+                unknown
+            ))
         }
 
         let directory = layoutPresetDirectoryURL()
@@ -113,7 +133,7 @@ extension CMUXCLI {
             if jsonOutput {
                 print(jsonString(["presets": []]))
             } else {
-                print("No layout presets")
+                print(String(localized: "cli.layout.output.noPresets", defaultValue: "No layout presets"))
             }
             return
         }
@@ -155,14 +175,19 @@ extension CMUXCLI {
         }
 
         if presets.isEmpty {
-            print("No layout presets")
+            print(String(localized: "cli.layout.output.noPresets", defaultValue: "No layout presets"))
             return
         }
 
         for preset in presets {
             let name = (preset["name"] as? String) ?? "?"
             let cwd = (preset["cwd"] as? String).map { "  \($0)" } ?? ""
-            let error = (preset["error"] as? String).map { "  [invalid: \($0)]" } ?? ""
+            let error = (preset["error"] as? String).map {
+                String.localizedStringWithFormat(
+                    String(localized: "cli.layout.output.invalidPresetSuffix", defaultValue: "  [invalid: %@]"),
+                    $0
+                )
+            } ?? ""
             print("\(name)\(cwd)\(error)")
         }
     }
@@ -170,11 +195,16 @@ extension CMUXCLI {
     private func runLayoutImport(commandArgs: [String], jsonOutput: Bool) throws {
         let (nameOpt, rem0) = parseOption(commandArgs, name: "--name")
         if let unknown = rem0.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "layout import: unknown flag '\(unknown)'. Known flags: --name <name>")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.unknownFlagKnownFlags", defaultValue: "%@: unknown flag '%@'. Known flags: %@"),
+                "layout import",
+                unknown,
+                "--name <name>"
+            ))
         }
         let positional = rem0.filter { $0 != "--" && !$0.hasPrefix("-") }
         guard positional.count == 1, let path = positional.first else {
-            throw CLIError(message: "Usage: cmux layout import <path> [--name <name>]")
+            throw CLIError(message: String(localized: "cli.layout.error.importUsage", defaultValue: "Usage: cmux layout import <path> [--name <name>]"))
         }
 
         let sourceURL = URL(fileURLWithPath: resolvePath(path))
@@ -198,7 +228,11 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(payload))
         } else {
-            print("OK \(name) \(destinationURL.path)")
+            print(String.localizedStringWithFormat(
+                String(localized: "cli.layout.output.okNamePath", defaultValue: "OK %@ %@"),
+                name,
+                destinationURL.path
+            ))
         }
     }
 
@@ -211,12 +245,17 @@ extension CMUXCLI {
         let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
         let (nameOpt, rem1) = parseOption(rem0, name: "--name")
         if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "layout save: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --name <name>")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.unknownFlagKnownFlags", defaultValue: "%@: unknown flag '%@'. Known flags: %@"),
+                "layout save",
+                unknown,
+                "--workspace <id|ref|index>, --name <name>"
+            ))
         }
         let positional = rem1.filter { $0 != "--" && !$0.hasPrefix("-") }
         let rawName = nameOpt ?? positional.first
         guard positional.count <= 1 else {
-            throw CLIError(message: "Usage: cmux layout save <name> [--workspace <id|ref|index>]")
+            throw CLIError(message: String(localized: "cli.layout.error.saveUsage", defaultValue: "Usage: cmux layout save <name> [--workspace <id|ref|index>]"))
         }
         let name = try layoutPresetName(rawName, commandName: "layout save")
 
@@ -244,7 +283,11 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(payload))
         } else {
-            print("OK \(name) \(destinationURL.path)")
+            print(String.localizedStringWithFormat(
+                String(localized: "cli.layout.output.okNamePath", defaultValue: "OK %@ %@"),
+                name,
+                destinationURL.path
+            ))
         }
     }
 
@@ -258,10 +301,19 @@ extension CMUXCLI {
         let (outOpt, rem2) = parseOption(rem1, name: "--out")
         let (outputOpt, rem3) = parseOption(rem2, name: "--output")
         if let unknown = rem3.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "layout export: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --name <name>, --out <path>")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.unknownFlagKnownFlags", defaultValue: "%@: unknown flag '%@'. Known flags: %@"),
+                "layout export",
+                unknown,
+                "--workspace <id|ref|index>, --name <name>, --out <path>"
+            ))
         }
         if let extra = rem3.first(where: { $0 != "--" }) {
-            throw CLIError(message: "layout export: unexpected argument '\(extra)'")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.unexpectedArgument", defaultValue: "%@: unexpected argument '%@'"),
+                "layout export",
+                extra
+            ))
         }
 
         var params: [String: Any] = [:]
@@ -292,7 +344,10 @@ extension CMUXCLI {
             if jsonOutput {
                 print(jsonString(payload))
             } else {
-                print("OK \(url.path)")
+                print(String.localizedStringWithFormat(
+                    String(localized: "cli.layout.output.okPath", defaultValue: "OK %@"),
+                    url.path
+                ))
             }
             return
         }
@@ -311,12 +366,17 @@ extension CMUXCLI {
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
         let (focusOpt, rem3) = parseOption(rem2, name: "--focus")
         if let unknown = rem3.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "layout open: unknown flag '\(unknown)'. Known flags: --name <name>, --cwd <path>, --title <title>, --focus <true|false>")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.unknownFlagKnownFlags", defaultValue: "%@: unknown flag '%@'. Known flags: %@"),
+                "layout open",
+                unknown,
+                "--name <name>, --cwd <path>, --title <title>, --focus <true|false>"
+            ))
         }
         let positional = rem3.filter { $0 != "--" && !$0.hasPrefix("-") }
         let rawName = nameOpt ?? positional.first
         guard positional.count <= 1 else {
-            throw CLIError(message: "Usage: cmux layout open <name> [--cwd <path>] [--title <title>] [--focus <true|false>]")
+            throw CLIError(message: String(localized: "cli.layout.error.openUsage", defaultValue: "Usage: cmux layout open <name> [--cwd <path>] [--title <title>] [--focus <true|false>]"))
         }
         let name = try layoutPresetName(rawName, commandName: "layout open")
         let sourceURL = layoutPresetURL(name: name)
@@ -363,18 +423,24 @@ extension CMUXCLI {
 
     private func layoutPresetName(_ raw: String?, commandName: String) throws -> String {
         guard let raw else {
-            throw CLIError(message: "\(commandName) requires a preset name")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.requiresPresetName", defaultValue: "%@ requires a preset name"),
+                commandName
+            ))
         }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            throw CLIError(message: "\(commandName) requires a non-empty preset name")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.requiresNonEmptyPresetName", defaultValue: "%@ requires a non-empty preset name"),
+                commandName
+            ))
         }
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
         guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
-            throw CLIError(message: "Preset names may contain only letters, numbers, '.', '_', and '-'")
+            throw CLIError(message: String(localized: "cli.layout.error.invalidPresetNameCharacters", defaultValue: "Preset names may contain only letters, numbers, '.', '_', and '-'"))
         }
         guard !trimmed.contains("..") else {
-            throw CLIError(message: "Preset names may not contain '..'")
+            throw CLIError(message: String(localized: "cli.layout.error.invalidPresetNameParentDirectory", defaultValue: "Preset names may not contain '..'"))
         }
         return trimmed
     }
@@ -408,31 +474,45 @@ extension CMUXCLI {
         do {
             data = try Data(contentsOf: url)
         } catch {
-            throw CLIError(message: "Failed to read \(url.path): \(error.localizedDescription)")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.readFailed", defaultValue: "Failed to read %@: %@"),
+                url.path,
+                error.localizedDescription
+            ))
         }
 
         let sanitized: Data
         do {
             sanitized = try JSONCParser.preprocess(data: data)
         } catch {
-            throw CLIError(message: "Failed to parse \(url.path): JSONC preprocessing failed")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.jsoncPreprocessFailed", defaultValue: "Failed to parse %@: JSONC preprocessing failed"),
+                url.path
+            ))
         }
 
         do {
             guard let object = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any] else {
-                throw CLIError(message: "\(url.path) must contain a JSON object")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.layout.error.mustContainJSONObject", defaultValue: "%@ must contain a JSON object"),
+                    url.path
+                ))
             }
             return object
         } catch let error as CLIError {
             throw error
         } catch {
-            throw CLIError(message: "Failed to parse \(url.path): \(error.localizedDescription)")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.parseFailed", defaultValue: "Failed to parse %@: %@"),
+                url.path,
+                error.localizedDescription
+            ))
         }
     }
 
     private func layoutWriteJSONObject(_ object: [String: Any], to url: URL) throws {
         guard JSONSerialization.isValidJSONObject(object) else {
-            throw CLIError(message: "Layout preset is not a valid JSON object")
+            throw CLIError(message: String(localized: "cli.layout.error.invalidPresetJSONObject", defaultValue: "Layout preset is not a valid JSON object"))
         }
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -469,7 +549,10 @@ extension CMUXCLI {
             workspace = ["layout": object]
             discoveredName = nil
         } else {
-            throw CLIError(message: "\(commandName): preset must contain workspace.layout or a layout root object")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.missingLayoutRoot", defaultValue: "%@: preset must contain workspace.layout or a layout root object"),
+                commandName
+            ))
         }
 
         let name: String
@@ -483,7 +566,10 @@ extension CMUXCLI {
             )
         }
         guard let layout = workspace["layout"] as? [String: Any] else {
-            throw CLIError(message: "\(commandName): preset workspace must include a layout object")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.missingWorkspaceLayoutObject", defaultValue: "%@: preset workspace must include a layout object"),
+                commandName
+            ))
         }
 
         var canonicalWorkspace = workspace
@@ -507,7 +593,7 @@ extension CMUXCLI {
     ) throws -> [String: Any] {
         guard let workspace = preset["workspace"] as? [String: Any],
               let layout = workspace["layout"] as? [String: Any] else {
-            throw CLIError(message: "Preset must include workspace.layout")
+            throw CLIError(message: String(localized: "cli.layout.error.mustIncludeWorkspaceLayout", defaultValue: "Preset must include workspace.layout"))
         }
 
         var params: [String: Any] = ["layout": layout]
