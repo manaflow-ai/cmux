@@ -81,6 +81,13 @@ final class PanelShellActivityNotificationTests: XCTestCase {
     /// in production to mark the welcome banner as shown) must fire exactly
     /// when the panel first transitions to `.promptIdle`, and exactly once
     /// even if the panel later bounces in and out of that state.
+    ///
+    /// The observer is registered with `queue: nil`, so notification delivery
+    /// is synchronous on the posting thread. The test asserts immediately after
+    /// each `updatePanelShellActivityState` call without runloop spins — if
+    /// this ever turns flaky, the production code introduced an async hop on
+    /// the wait path and that needs to be investigated, not papered over with
+    /// a longer wait in the test.
     @MainActor
     func testSendTextOnNextPromptIdleFiresExactlyOnceAtFirstPromptIdle() throws {
         let workspace = Workspace()
@@ -93,18 +100,35 @@ final class PanelShellActivityNotificationTests: XCTestCase {
         XCTAssertEqual(sendCount, 0, "must not fire before any state report")
 
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
-        // Spin the runloop so the notification observer dispatched Task<MainActor> can run.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertEqual(sendCount, 0, "commandRunning is not a prompt — must not fire")
 
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertEqual(sendCount, 1, "first promptIdle must fire the send")
 
         // Subsequent prompt bounces must not re-fire — the helper is one-shot.
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertEqual(sendCount, 1, "send must be one-shot")
+    }
+
+    /// Workspaces that are deallocated before `.promptIdle` ever fires (no
+    /// shell integration installed, user closed the workspace, etc.) must not
+    /// leak their NotificationCenter observer. Greptile flagged this on the
+    /// first refactor: the observer block was kept alive by NotificationCenter
+    /// and captured the workspace strongly, so the workspace was retained
+    /// indefinitely. The deinit sweep in Workspace now removes the token, and
+    /// the closure captures `self` weakly as a secondary safety net.
+    @MainActor
+    func testSendTextOnNextPromptIdleDoesNotLeakWorkspaceWhenPromptIdleNeverFires() throws {
+        weak var weakWorkspace: Workspace?
+        autoreleasepool {
+            let workspace = Workspace()
+            weakWorkspace = workspace
+            workspace.sendTextOnNextPromptIdle("cmux welcome\n")
+            // Workspace is dropped at the end of this autoreleasepool. The
+            // pending observer must be cleaned up by Workspace.deinit; we
+            // verify by reading `weakWorkspace` after the pool drains.
+        }
+        XCTAssertNil(weakWorkspace, "workspace must not be retained by the pending observer")
     }
 }
