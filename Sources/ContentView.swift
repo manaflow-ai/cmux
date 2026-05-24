@@ -9573,6 +9573,7 @@ struct SidebarTabItemPresentationSnapshot: Equatable {
     let latestNotificationText: String?
     let showsModifierShortcutHints: Bool
 
+    @MainActor
     static func live(
         tabId: UUID,
         notificationStore: TerminalNotificationStore,
@@ -9591,6 +9592,7 @@ struct SidebarTabItemPresentationSnapshot: Equatable {
         )
     }
 
+    @MainActor
     static func latestNotificationText(
         tabId: UUID,
         notificationStore: TerminalNotificationStore,
