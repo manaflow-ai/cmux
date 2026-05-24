@@ -1571,6 +1571,7 @@ struct ContentView: View {
     private static let minimumRightSidebarWidth: CGFloat = 276
     private static let maximumRightSidebarWidth: CGFloat = 1200
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
+    private static let sidebarDragPersistenceThreshold: CGFloat = 0.5
 
     private enum SidebarResizerHandle: Hashable {
         case divider
@@ -1582,13 +1583,15 @@ struct ContentView: View {
         currentWidth: CGFloat,
         captureStart: () -> Void,
         updateWidth: (CGFloat) -> Void,
-        finishDrag: () -> Void
+        finishDrag: (CGFloat) -> Void
     ) {
         switch handle {
         case .divider:
             return (
                 currentWidth: sidebarWidth,
-                captureStart: { sidebarDragStartWidth = sidebarWidth },
+                captureStart: {
+                    sidebarDragStartWidth = sidebarWidth
+                },
                 updateWidth: { translation in
                     let startWidth = sidebarDragStartWidth ?? sidebarWidth
                     let nextWidth = Self.clampedSidebarWidth(
@@ -1598,26 +1601,51 @@ struct ContentView: View {
                     withTransaction(Transaction(animation: nil)) {
                         sidebarWidth = nextWidth
                     }
+                    clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
                 },
-                finishDrag: { sidebarDragStartWidth = nil }
+                finishDrag: { translation in
+                    let startWidth = sidebarDragStartWidth
+                    sidebarDragStartWidth = nil
+                    guard let startWidth,
+                          let preferredWidth = Self.completedSidebarDragPreferredWidth(
+                            startWidth: startWidth,
+                            endWidth: sidebarWidth,
+                            translation: translation
+                          ) else {
+                        return
+                    }
+                    sidebarState.persistedWidth = preferredWidth
+                }
             )
         case .explorerDivider:
             return (
                 currentWidth: fileExplorerWidth,
-                captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
+                captureStart: {
+                    fileExplorerDragStartWidth = fileExplorerWidth
+                },
                 updateWidth: { translation in
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
                     let nextWidth = Self.clampedRightSidebarWidth(
                         startWidth - translation,
-                        availableWidth: availableWidth
+                        availableWidth: availableWidth,
+                        leadingSidebarWidth: sidebarState.isVisible ? sidebarWidth : 0
                     )
                     withTransaction(Transaction(animation: nil)) {
                         fileExplorerWidth = nextWidth
                     }
                 },
-                finishDrag: {
+                finishDrag: { translation in
+                    let startWidth = fileExplorerDragStartWidth
                     fileExplorerDragStartWidth = nil
-                    fileExplorerState.width = fileExplorerWidth
+                    guard let startWidth,
+                          let preferredWidth = Self.completedRightSidebarDragPreferredWidth(
+                            startWidth: startWidth,
+                            endWidth: fileExplorerWidth,
+                            translation: translation
+                          ) else {
+                        return
+                    }
+                    fileExplorerState.width = preferredWidth
                 }
             )
         }
@@ -1630,7 +1658,11 @@ struct ContentView: View {
             ?? NSApp.keyWindow?.contentView?.bounds.width
             ?? NSApp.keyWindow?.contentLayoutRect.width
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return max(Self.minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+            let onscreenWidth = max(0, resolvedAvailableWidth)
+            return min(
+                onscreenWidth,
+                max(Self.minimumSidebarWidth, onscreenWidth * Self.maximumSidebarWidthRatio)
+            )
         }
 
         let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
@@ -1640,29 +1672,113 @@ struct ContentView: View {
     }
 
     static func clampedSidebarWidth(_ candidate: CGFloat, maximumWidth: CGFloat) -> CGFloat {
-        let minimumWidth = Self.minimumSidebarWidth
-        let sanitizedMaximumWidth = max(minimumWidth, maximumWidth.isFinite ? maximumWidth : minimumWidth)
-        guard candidate.isFinite else {
-            return CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
-        }
-        return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
+        clampedSidebarDimension(
+            candidate,
+            minimumWidth: Self.minimumSidebarWidth,
+            maximumWidth: min(maximumWidth, CGFloat(SessionPersistencePolicy.maximumSidebarWidth)),
+            fallbackWidth: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+        )
     }
 
-    static func clampedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat) -> CGFloat {
+    static func clampedSidebarPreferredWidth(_ candidate: CGFloat) -> CGFloat {
+        clampedSidebarDimension(
+            candidate,
+            minimumWidth: Self.minimumSidebarWidth,
+            maximumWidth: CGFloat(SessionPersistencePolicy.maximumSidebarWidth),
+            fallbackWidth: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+        )
+    }
+
+    static func completedSidebarDragPreferredWidth(
+        startWidth: CGFloat,
+        endWidth: CGFloat,
+        translation: CGFloat
+    ) -> CGFloat? {
+        guard translation.isFinite, abs(translation) > Self.sidebarDragPersistenceThreshold else { return nil }
+        return completedInterruptedSidebarDragPreferredWidth(startWidth: startWidth, endWidth: endWidth)
+    }
+
+    static func completedInterruptedSidebarDragPreferredWidth(
+        startWidth: CGFloat,
+        endWidth: CGFloat
+    ) -> CGFloat? {
+        guard startWidth.isFinite, endWidth.isFinite, abs(endWidth - startWidth) > Self.sidebarDragPersistenceThreshold else {
+            return nil
+        }
+        return clampedSidebarPreferredWidth(endWidth)
+    }
+
+    static func clampedRightSidebarWidth(
+        _ candidate: CGFloat,
+        availableWidth: CGFloat,
+        leadingSidebarWidth: CGFloat = 0
+    ) -> CGFloat {
         let minimumWidth = Self.minimumRightSidebarWidth
-        let sanitizedCandidate = candidate.isFinite ? candidate : 220
         let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
+        let sanitizedLeadingSidebarWidth = leadingSidebarWidth.isFinite ? max(0, leadingSidebarWidth) : 0
+        let visibleAvailableWidth = max(0, sanitizedAvailableWidth - sanitizedLeadingSidebarWidth)
+        let dividerGap = sanitizedLeadingSidebarWidth > 0 ? SidebarResizeInteraction.totalHitWidth : 0
+        let maximumVisibleWidth = max(0, visibleAvailableWidth - dividerGap)
+        let availableWidthCap = maximumVisibleWidth - Self.minimumTerminalWidthWithRightSidebar
         let maximumWidth = min(
             Self.maximumRightSidebarWidth,
+            maximumVisibleWidth,
             max(minimumWidth, availableWidthCap)
         )
-        return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
+        return clampedSidebarDimension(
+            candidate,
+            minimumWidth: minimumWidth,
+            maximumWidth: maximumWidth,
+            fallbackWidth: minimumWidth
+        )
+    }
+
+    static func clampedRightSidebarPreferredWidth(_ candidate: CGFloat) -> CGFloat {
+        clampedSidebarDimension(
+            candidate,
+            minimumWidth: Self.minimumRightSidebarWidth,
+            maximumWidth: Self.maximumRightSidebarWidth,
+            fallbackWidth: Self.minimumRightSidebarWidth
+        )
+    }
+
+    static func completedRightSidebarDragPreferredWidth(
+        startWidth: CGFloat,
+        endWidth: CGFloat,
+        translation: CGFloat
+    ) -> CGFloat? {
+        guard translation.isFinite, abs(translation) > Self.sidebarDragPersistenceThreshold else { return nil }
+        return completedInterruptedRightSidebarDragPreferredWidth(startWidth: startWidth, endWidth: endWidth)
+    }
+
+    static func completedInterruptedRightSidebarDragPreferredWidth(
+        startWidth: CGFloat,
+        endWidth: CGFloat
+    ) -> CGFloat? {
+        guard startWidth.isFinite, endWidth.isFinite, abs(endWidth - startWidth) > Self.sidebarDragPersistenceThreshold else {
+            return nil
+        }
+        return clampedRightSidebarPreferredWidth(endWidth)
+    }
+
+    private static func clampedSidebarDimension(
+        _ candidate: CGFloat,
+        minimumWidth: CGFloat,
+        maximumWidth: CGFloat,
+        fallbackWidth: CGFloat
+    ) -> CGFloat {
+        let sanitizedMaximumWidth = max(0, maximumWidth.isFinite ? maximumWidth : minimumWidth)
+        let effectiveMinimumWidth = min(minimumWidth, sanitizedMaximumWidth)
+        let sanitizedCandidate = candidate.isFinite ? candidate : fallbackWidth
+        return max(effectiveMinimumWidth, min(sanitizedMaximumWidth, sanitizedCandidate))
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
+        let preferredWidth = sidebarDragStartWidth == nil
+            ? normalizedSidebarPreferredWidth(sidebarState.persistedWidth)
+            : sidebarWidth
         let nextWidth = Self.clampedSidebarWidth(
-            sidebarWidth,
+            preferredWidth,
             maximumWidth: maxSidebarWidth(availableWidth: availableWidth)
         )
         guard abs(nextWidth - sidebarWidth) > 0.5 else { return }
@@ -1673,6 +1789,10 @@ struct ContentView: View {
 
     private func normalizedSidebarWidth(_ candidate: CGFloat) -> CGFloat {
         Self.clampedSidebarWidth(candidate, maximumWidth: maxSidebarWidth())
+    }
+
+    private func normalizedSidebarPreferredWidth(_ candidate: CGFloat) -> CGFloat {
+        Self.clampedSidebarPreferredWidth(candidate)
     }
 
     private func resolvedRightSidebarAvailableWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
@@ -1703,17 +1823,43 @@ struct ContentView: View {
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
         Self.clampedRightSidebarWidth(
             candidate,
-            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth)
+            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
+            leadingSidebarWidth: sidebarState.isVisible ? sidebarWidth : 0
         )
     }
 
+    private func normalizedRightSidebarPreferredWidth(_ candidate: CGFloat) -> CGFloat {
+        Self.clampedRightSidebarPreferredWidth(candidate)
+    }
+
     private func clampRightSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
-        let nextWidth = normalizedRightSidebarWidth(fileExplorerWidth, availableWidth: availableWidth)
+        let preferredWidth = fileExplorerDragStartWidth == nil
+            ? normalizedRightSidebarPreferredWidth(fileExplorerState.width)
+            : fileExplorerWidth
+        let nextWidth = normalizedRightSidebarWidth(preferredWidth, availableWidth: availableWidth)
         guard abs(nextWidth - fileExplorerWidth) > 0.5 else { return }
         withTransaction(Transaction(animation: nil)) {
             fileExplorerWidth = nextWidth
         }
-        fileExplorerState.width = nextWidth
+    }
+
+    private func finishInterruptedSidebarResizeDrag() {
+        if let startWidth = sidebarDragStartWidth,
+           let preferredWidth = Self.completedInterruptedSidebarDragPreferredWidth(
+               startWidth: startWidth,
+               endWidth: sidebarWidth
+           ) {
+            sidebarState.persistedWidth = preferredWidth
+        }
+        if let startWidth = fileExplorerDragStartWidth,
+           let preferredWidth = Self.completedInterruptedRightSidebarDragPreferredWidth(
+               startWidth: startWidth,
+               endWidth: fileExplorerWidth
+           ) {
+            fileExplorerState.width = preferredWidth
+        }
+        sidebarDragStartWidth = nil
+        fileExplorerDragStartWidth = nil
     }
 
     private func activateSidebarResizerCursor() {
@@ -1894,8 +2040,8 @@ struct ContentView: View {
                 if isResizerDragging {
                     TerminalWindowPortalRegistry.endInteractiveGeometryResize()
                     isResizerDragging = false
+                    finishInterruptedSidebarResizeDrag()
                 }
-                sidebarDragStartWidth = nil
                 isResizerBandActive = false
                 scheduleSidebarResizerCursorRelease(force: true)
             }
@@ -1911,12 +2057,12 @@ struct ContentView: View {
                         activateSidebarResizerCursor()
                         config.updateWidth(value.translation.width)
                     }
-                    .onEnded { _ in
+                    .onEnded { value in
                         if isResizerDragging {
                             TerminalWindowPortalRegistry.endInteractiveGeometryResize()
                             isResizerDragging = false
                             let config = resizerConfig(for: handle, availableWidth: availableWidth)
-                            config.finishDrag()
+                            config.finishDrag(value.translation.width)
                         }
                         activateSidebarResizerCursor()
                         scheduleSidebarResizerCursorRelease()
@@ -2193,24 +2339,23 @@ struct ContentView: View {
         .accessibilityHidden(!rightSidebarVisible)
         .transaction { $0.animation = nil }
         .onAppear {
-            let sanitized = normalizedRightSidebarWidth(fileExplorerState.width)
-            fileExplorerWidth = sanitized
-            if abs(fileExplorerState.width - sanitized) > 0.5 {
+            let preferredWidth = normalizedRightSidebarPreferredWidth(fileExplorerState.width)
+            fileExplorerWidth = normalizedRightSidebarWidth(preferredWidth)
+            if !fileExplorerState.width.isFinite || abs(fileExplorerState.width - preferredWidth) > 0.5 {
                 DispatchQueue.main.async {
-                    fileExplorerState.width = sanitized
+                    fileExplorerState.width = preferredWidth
                 }
             }
         }
         .onChange(of: fileExplorerState.width) { newValue in
             if fileExplorerDragStartWidth == nil {
-                let sanitized = normalizedRightSidebarWidth(newValue)
-                if abs(newValue - sanitized) > 0.5 {
+                let preferredWidth = normalizedRightSidebarPreferredWidth(newValue)
+                fileExplorerWidth = normalizedRightSidebarWidth(preferredWidth)
+                if !newValue.isFinite || abs(newValue - preferredWidth) > 0.5 {
                     DispatchQueue.main.async {
-                        fileExplorerState.width = sanitized
+                        fileExplorerState.width = preferredWidth
                     }
-                    return
                 }
-                fileExplorerWidth = sanitized
             }
         }
     }
@@ -2628,12 +2773,13 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
             installSidebarResizerPointerMonitorIfNeeded()
-            let restoredWidth = normalizedSidebarWidth(sidebarState.persistedWidth)
+            let preferredWidth = normalizedSidebarPreferredWidth(sidebarState.persistedWidth)
+            let restoredWidth = normalizedSidebarWidth(preferredWidth)
             if abs(sidebarWidth - restoredWidth) > 0.5 {
                 sidebarWidth = restoredWidth
             }
-            if abs(sidebarState.persistedWidth - restoredWidth) > 0.5 {
-                sidebarState.persistedWidth = restoredWidth
+            if !sidebarState.persistedWidth.isFinite || abs(sidebarState.persistedWidth - preferredWidth) > 0.5 {
+                sidebarState.persistedWidth = preferredWidth
             }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
@@ -3110,8 +3256,8 @@ struct ContentView: View {
                 sidebarWidth = sanitized
                 return
             }
-            if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
-                sidebarState.persistedWidth = sanitized
+            if sidebarDragStartWidth == nil {
+                clampRightSidebarWidthIfNeeded()
             }
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals and browsers need an explicit post-layout geometry resync.
@@ -3124,12 +3270,16 @@ struct ContentView: View {
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
+            clampRightSidebarWidthIfNeeded()
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
 
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
+            if isVisible {
+                clampRightSidebarWidthIfNeeded()
+            }
             if !isVisible {
                 _ = AppDelegate.shared?.restoreTerminalFocusAfterRightSidebarHidden(in: observedWindow)
             }
@@ -3170,14 +3320,15 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
-            let sanitized = normalizedSidebarWidth(newValue)
-            if abs(newValue - sanitized) > 0.5 {
-                sidebarState.persistedWidth = sanitized
+            let preferredWidth = normalizedSidebarPreferredWidth(newValue)
+            if !newValue.isFinite || abs(newValue - preferredWidth) > 0.5 {
+                sidebarState.persistedWidth = preferredWidth
                 return
             }
             guard !isResizerDragging else { return }
-            if abs(sidebarWidth - sanitized) > 0.5 {
-                sidebarWidth = sanitized
+            let visibleWidth = normalizedSidebarWidth(preferredWidth)
+            if abs(sidebarWidth - visibleWidth) > 0.5 {
+                sidebarWidth = visibleWidth
             }
         })
 
@@ -3190,7 +3341,7 @@ struct ContentView: View {
             if isResizerDragging {
                 TerminalWindowPortalRegistry.endInteractiveGeometryResize()
                 isResizerDragging = false
-                sidebarDragStartWidth = nil
+                finishInterruptedSidebarResizeDrag()
             }
             removeSidebarResizerPointerMonitor()
         })

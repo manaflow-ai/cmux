@@ -1,6 +1,9 @@
 import XCTest
 
 final class SidebarResizeUITests: XCTestCase {
+    private let launchTimeout: TimeInterval = 20.0
+    private let setupTimeout: TimeInterval = 25.0
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
@@ -89,6 +92,102 @@ final class SidebarResizeUITests: XCTestCase {
         )
     }
 
+    func testBothSidebarResizersStayInsideNarrowWindow() {
+        let app = XCUIApplication()
+        let dataPath = "/tmp/cmux-ui-test-sidebar-resize-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: dataPath)
+
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_WINDOW_SIZE"] = "320x420"
+        app.launchArguments += ["-workspacePresentationMode", "minimal"]
+        addTeardownBlock {
+            app.terminate()
+            try? FileManager.default.removeItem(atPath: dataPath)
+        }
+
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+
+        XCTAssertTrue(ensureForegroundAfterLaunch(app, timeout: launchTimeout))
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0))
+
+        let elements = app.descendants(matching: .any)
+        let leftResizer = elements.matching(identifier: "SidebarResizer").firstMatch
+        let rightResizer = elements.matching(identifier: "RightSidebarResizer").firstMatch
+
+        XCTAssertTrue(leftResizer.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(rightResizer.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(waitForElementHittable(leftResizer, timeout: 5.0))
+        XCTAssertTrue(waitForElementHittable(rightResizer, timeout: 5.0))
+
+        let windowFrame = window.frame
+        let leftSidebarFrame = CGRect(
+            x: windowFrame.minX,
+            y: windowFrame.minY,
+            width: max(0, leftResizer.frame.midX - windowFrame.minX),
+            height: windowFrame.height
+        )
+        let rightSidebarFrame = CGRect(
+            x: rightResizer.frame.midX,
+            y: windowFrame.minY,
+            width: max(0, windowFrame.maxX - rightResizer.frame.midX),
+            height: windowFrame.height
+        )
+
+        XCTAssertGreaterThan(leftSidebarFrame.width, 1)
+        XCTAssertGreaterThan(rightSidebarFrame.width, 1)
+        assertRect(leftSidebarFrame, isInside: windowFrame, name: "left sidebar")
+        assertRect(rightSidebarFrame, isInside: windowFrame, name: "right sidebar")
+        assertElementDoesNotLeaveLeadingScreenEdge(leftResizer, name: "left resizer")
+        assertElementFrame(rightResizer, isInside: window, name: "right resizer")
+        XCTAssertLessThan(
+            leftResizer.frame.maxX,
+            rightResizer.frame.minX,
+            "Expected narrow-window resizers to remain separately hittable. " +
+            "left=\(leftResizer.frame), right=\(rightResizer.frame)"
+        )
+    }
+
+    private func assertRect(
+        _ frame: CGRect,
+        isInside windowFrame: CGRect,
+        name: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let tolerance: CGFloat = 1
+        XCTAssertGreaterThanOrEqual(
+            frame.minX,
+            windowFrame.minX - tolerance,
+            "Expected \(name) to stay inside the window. rect=\(frame), window=\(windowFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            frame.maxX,
+            windowFrame.maxX + tolerance,
+            "Expected \(name) to stay inside the window. rect=\(frame), window=\(windowFrame)",
+            file: file,
+            line: line
+        )
+    }
+
     private func waitForElementHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
@@ -99,5 +198,88 @@ final class SidebarResizeUITests: XCTestCase {
             object: NSObject()
         )
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            app.activate()
+            if app.wait(for: .runningForeground, timeout: 6.0) {
+                return true
+            }
+            return app.windows.firstMatch.waitForExistence(timeout: 6.0)
+        }
+        return app.windows.firstMatch.exists
+    }
+
+    private func waitForJSONKey(
+        _ key: String,
+        equals expected: String,
+        atPath path: String,
+        timeout: TimeInterval
+    ) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadJSON(atPath: path), data[key] == expected {
+                return data
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadJSON(atPath: path), data[key] == expected {
+            return data
+        }
+        return nil
+    }
+
+    private func loadJSON(atPath path: String) -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+        return object
+    }
+
+    private func assertElementFrame(
+        _ element: XCUIElement,
+        isInside window: XCUIElement,
+        name: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let tolerance: CGFloat = 1
+        let frame = element.frame
+        let windowFrame = window.frame
+        XCTAssertGreaterThanOrEqual(
+            frame.minX,
+            windowFrame.minX - tolerance,
+            "Expected \(name) to stay inside the window. element=\(frame), window=\(windowFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            frame.maxX,
+            windowFrame.maxX + tolerance,
+            "Expected \(name) to stay inside the window. element=\(frame), window=\(windowFrame)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertElementDoesNotLeaveLeadingScreenEdge(
+        _ element: XCUIElement,
+        name: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let frame = element.frame
+        XCTAssertGreaterThanOrEqual(
+            frame.minX,
+            -1,
+            "Expected \(name) to stay on screen. element=\(frame)",
+            file: file,
+            line: line
+        )
     }
 }

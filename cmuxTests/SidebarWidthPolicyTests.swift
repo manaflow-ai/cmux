@@ -17,6 +17,94 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    func testContentViewClampKeepsLeftSidebarMinimumWhenItFits() {
+        XCTAssertEqual(
+            ContentView.clampedSidebarWidth(20, maximumWidth: 600),
+            CGFloat(SessionPersistencePolicy.minimumSidebarWidth),
+            accuracy: 0.001
+        )
+    }
+
+    func testContentViewClampKeepsLeftSidebarOnscreenWhenWindowIsTooNarrowForMinimum() {
+        XCTAssertEqual(
+            ContentView.clampedSidebarWidth(10_000, maximumWidth: 120),
+            120,
+            accuracy: 0.001
+        )
+    }
+
+    func testContentViewClampKeepsLeftSidebarAtPersistedMaximumOnWideWindows() {
+        XCTAssertEqual(
+            ContentView.clampedSidebarWidth(10_000, maximumWidth: 900),
+            CGFloat(SessionPersistencePolicy.maximumSidebarWidth),
+            accuracy: 0.001
+        )
+    }
+
+    func testContentViewPreferredSidebarWidthIgnoresTemporaryWindowClamps() {
+        XCTAssertEqual(
+            ContentView.clampedSidebarPreferredWidth(420),
+            420,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ContentView.clampedSidebarPreferredWidth(10_000),
+            CGFloat(SessionPersistencePolicy.maximumSidebarWidth),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ContentView.clampedSidebarPreferredWidth(20),
+            CGFloat(SessionPersistencePolicy.minimumSidebarWidth),
+            accuracy: 0.001
+        )
+    }
+
+    func testCompletedSidebarDragIgnoresNoOpClampFinishes() {
+        XCTAssertNil(
+            ContentView.completedSidebarDragPreferredWidth(
+                startWidth: 180,
+                endWidth: 180,
+                translation: 0
+            )
+        )
+        XCTAssertNil(
+            ContentView.completedSidebarDragPreferredWidth(
+                startWidth: 180,
+                endWidth: 180,
+                translation: 20
+            )
+        )
+    }
+
+    func testCompletedSidebarDragSavesActualVisibleResize() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(ContentView.completedSidebarDragPreferredWidth(
+                startWidth: 220,
+                endWidth: 200,
+                translation: -20
+            )),
+            200,
+            accuracy: 0.001
+        )
+    }
+
+    func testInterruptedSidebarDragSavesActualVisibleResize() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(ContentView.completedInterruptedSidebarDragPreferredWidth(
+                startWidth: 220,
+                endWidth: 200
+            )),
+            200,
+            accuracy: 0.001
+        )
+        XCTAssertNil(
+            ContentView.completedInterruptedSidebarDragPreferredWidth(
+                startWidth: 180,
+                endWidth: 180
+            )
+        )
+    }
+
     func testRightSidebarClampAllowsWideExplorerOnLargeWindows() {
         XCTAssertEqual(
             ContentView.clampedRightSidebarWidth(900, availableWidth: 1600),
@@ -38,6 +126,102 @@ final class SidebarWidthPolicyTests: XCTestCase {
             ContentView.clampedRightSidebarWidth(20, availableWidth: 1000),
             276,
             accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarClampKeepsSidebarOnscreenWhenWindowIsTooNarrowForMinimum() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(10_000, availableWidth: 200),
+            200,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarClampAccountsForVisibleLeftSidebar() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(
+                10_000,
+                availableWidth: 400,
+                leadingSidebarWidth: 200
+            ),
+            190,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarClampKeepsResizerGapWithVisibleLeftSidebar() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(
+                10_000,
+                availableWidth: 320,
+                leadingSidebarWidth: 180
+            ),
+            130,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarPreferredWidthIgnoresTemporaryWindowClamps() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarPreferredWidth(900),
+            900,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarPreferredWidth(10_000),
+            1200,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarPreferredWidth(20),
+            276,
+            accuracy: 0.001
+        )
+    }
+
+    func testCompletedRightSidebarDragIgnoresNoOpClampFinishes() {
+        XCTAssertNil(
+            ContentView.completedRightSidebarDragPreferredWidth(
+                startWidth: 400,
+                endWidth: 400,
+                translation: 0
+            )
+        )
+        XCTAssertNil(
+            ContentView.completedRightSidebarDragPreferredWidth(
+                startWidth: 400,
+                endWidth: 400,
+                translation: 50
+            )
+        )
+    }
+
+    func testCompletedRightSidebarDragSavesActualVisibleResize() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(ContentView.completedRightSidebarDragPreferredWidth(
+                startWidth: 400,
+                endWidth: 350,
+                translation: 50
+            )),
+            350,
+            accuracy: 0.001
+        )
+    }
+
+    func testInterruptedRightSidebarDragSavesActualVisibleResize() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(ContentView.completedInterruptedRightSidebarDragPreferredWidth(
+                startWidth: 400,
+                endWidth: 350
+            )),
+            350,
+            accuracy: 0.001
+        )
+        XCTAssertNil(
+            ContentView.completedInterruptedRightSidebarDragPreferredWidth(
+                startWidth: 400,
+                endWidth: 400
+            )
         )
     }
 
