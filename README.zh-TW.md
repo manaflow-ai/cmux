@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | 繁體中文 | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | 繁體中文 | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
@@ -236,15 +236,33 @@ cmux 是一個基礎元件，而非完整方案。它提供終端機、瀏覽器
 
 cmux NIGHTLY 是一個獨立的應用程式，擁有自己的 bundle ID，因此可以與穩定版並行執行。每次從最新的 `main` 提交自動建構，並透過自己的 Sparkle 來源自動更新。
 
-## 工作階段還原（目前行為）
+## 工作階段還原
 
-重新啟動時，cmux 目前僅還原應用程式佈局和中繼資料：
+退出 cmux 會保存目前工作階段。重新啟動時，cmux 會還原應用程式管理的狀態：
 - 視窗/工作區/窗格佈局
 - 工作目錄
 - 終端機捲動緩衝區（盡力而為）
 - 瀏覽器 URL 和瀏覽歷程
 
-cmux **不會**還原終端機應用程式內的即時程序狀態。例如，活躍的 Claude Code/tmux/vim 工作階段在重新啟動後尚無法恢復。
+cmux 不會為任意即時程序狀態做檢查點。tmux、vim、shell 和未支援的終端機應用程式會以一般終端機重新開啟。
+
+當 hooks 已保存原生工作階段 ID 時，支援的 agent 工作階段可以還原：
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+進階使用者和整合可以把自訂還原命令綁定到目前終端機 surface。這適合 tmux 工作階段或自訂 agent CLI 這類有持久狀態的工具：
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+這個綁定會繼續關聯到 cmux surface。透過公開 CLI 或 socket 建立的綁定會儲存供檢查與手動還原。cmux 只會自動執行標記為可信任的還原綁定，例如從執行中程序偵測到的 tmux 綁定。 權杖、密碼、祕密和 API key 等敏感環境變數鍵，會在儲存還原綁定前被丟棄。
 
 ## Star 歷史
 
