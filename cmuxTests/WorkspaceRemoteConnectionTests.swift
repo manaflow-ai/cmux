@@ -2067,6 +2067,29 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(session?.displayTitle, "ssh lawrence@example.com")
     }
 
+    func testDetectsSSHForegroundCommandAfterCompoundPrefix() {
+        let session = TerminalSSHSessionDetector.detectRemoteSession(
+            commandLine: "cd project; TERM=xterm-256color command ssh -p 2200 lawrence@example.com"
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedRemoteTerminalSession(
+                transport: .ssh,
+                destination: "lawrence@example.com",
+                directory: nil
+            )
+        )
+    }
+
+    func testIgnoresBackgroundSSHForegroundCommand() {
+        XCTAssertNil(
+            TerminalSSHSessionDetector.detectRemoteSession(
+                commandLine: "TERM=xterm-256color command ssh -p 2200 lawrence@example.com &"
+            )
+        )
+    }
+
     func testDetectsMoshForegroundCommandForRemoteDisplay() {
         let session = TerminalSSHSessionDetector.detectRemoteSession(
             commandLine: "noglob mosh --ssh='ssh -p 2200' db.example.com"

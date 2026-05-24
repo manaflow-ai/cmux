@@ -5612,7 +5612,8 @@ class TabManager: ObservableObject {
     func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let previousDirectory = gitProbeDirectory(for: tab, panelId: surfaceId)
-        if let remoteSession = DetectedRemoteTerminalSession.fromReportedDirectory(directory) {
+        if !tab.isRemoteWorkspace,
+           let remoteSession = DetectedRemoteTerminalSession.fromReportedDirectory(directory) {
             updateSurfaceRemoteSession(tabId: tabId, surfaceId: surfaceId, session: remoteSession)
             return
         }

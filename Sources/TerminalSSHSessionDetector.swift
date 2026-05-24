@@ -475,7 +475,7 @@ struct DetectedRemoteTerminalSession: Equatable, Sendable {
 
     static func fromReportedDirectory(
         _ rawDirectory: String,
-        localHostNames: Set<String> = localHostNames()
+        localHostNames: Set<String>? = nil
     ) -> DetectedRemoteTerminalSession? {
         let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
@@ -485,14 +485,19 @@ struct DetectedRemoteTerminalSession: Equatable, Sendable {
             return nil
         }
         guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !host.isEmpty,
-              !isLocalHost(host, localHostNames: localHostNames) else {
+              !host.isEmpty else {
+            return nil
+        }
+        let hostNames = localHostNames ?? cachedLocalHostNames
+        guard !isLocalHost(host, localHostNames: hostNames) else {
             return nil
         }
         let path = url.path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty else { return nil }
         return .osc7(host: host, directory: path)
     }
+
+    private static let cachedLocalHostNames: Set<String> = localHostNames()
 
     static func localHostNames() -> Set<String> {
         var names: Set<String> = [
@@ -658,21 +663,25 @@ enum TerminalSSHSessionDetector {
     }
 
     static func detectRemoteSession(commandLine: String) -> DetectedRemoteTerminalSession? {
-        let commandArguments = remoteCommandArguments(from: shellCommandArguments(commandLine))
-        guard let commandName = commandArguments.first.map(executableName) else { return nil }
+        for segment in shellCommandSegments(commandLine).reversed() where !segment.runsInBackground {
+            let commandArguments = remoteCommandArguments(from: segment.arguments)
+            guard let commandName = commandArguments.first.map(executableName) else { continue }
 
-        switch commandName {
-        case "ssh":
-            guard let session = parseSSHCommandLine(commandArguments) else { return nil }
-            return .ssh(session)
-        case "mosh":
-            guard let destination = parseMoshCommandLine(commandArguments) else { return nil }
-            return .mosh(destination: destination)
-        case "mosh-client":
-            return .mosh(destination: nil)
-        default:
-            return nil
+            switch commandName {
+            case "ssh":
+                if let session = parseSSHCommandLine(commandArguments) {
+                    return .ssh(session)
+                }
+                return .ssh(destination: nil)
+            case "mosh":
+                return .mosh(destination: parseMoshCommandLine(commandArguments))
+            case "mosh-client":
+                return .mosh(destination: nil)
+            default:
+                continue
+            }
         }
+        return nil
     }
 
     private static let psPath = "/bin/ps"
@@ -831,10 +840,16 @@ enum TerminalSSHSessionDetector {
         return arguments.count == argc ? arguments : nil
     }
 
-    private static func shellCommandArguments(_ commandLine: String) -> [String] {
+    private struct ShellCommandSegment: Equatable {
+        let arguments: [String]
+        let runsInBackground: Bool
+    }
+
+    private static func shellCommandSegments(_ commandLine: String) -> [ShellCommandSegment] {
         let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
+        var segments: [ShellCommandSegment] = []
         var arguments: [String] = []
         var current = ""
         var quote: Character?
@@ -844,6 +859,14 @@ enum TerminalSSHSessionDetector {
             if !current.isEmpty {
                 arguments.append(current)
                 current = ""
+            }
+        }
+
+        func flushSegment(runsInBackground: Bool) {
+            flushCurrent()
+            if !arguments.isEmpty {
+                segments.append(ShellCommandSegment(arguments: arguments, runsInBackground: runsInBackground))
+                arguments = []
             }
         }
 
@@ -882,8 +905,11 @@ enum TerminalSSHSessionDetector {
                 }
             }
             if character == ";" || character == "|" || character == "&" {
-                flushCurrent()
-                break
+                let nextIndex = trimmed.index(after: index)
+                let isDoubleSeparator = nextIndex < trimmed.endIndex && trimmed[nextIndex] == character
+                flushSegment(runsInBackground: character == "&" && !isDoubleSeparator)
+                index = isDoubleSeparator ? trimmed.index(after: nextIndex) : nextIndex
+                continue
             }
             if character.isWhitespace {
                 flushCurrent()
@@ -895,8 +921,8 @@ enum TerminalSSHSessionDetector {
             index = trimmed.index(after: index)
         }
 
-        flushCurrent()
-        return arguments
+        flushSegment(runsInBackground: false)
+        return segments
     }
 
     private static func remoteCommandArguments(from arguments: [String]) -> [String] {

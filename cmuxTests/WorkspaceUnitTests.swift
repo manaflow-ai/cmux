@@ -6068,6 +6068,43 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testRemoteWorkspaceDirectoryReportDoesNotBecomeNestedRemoteSession() throws {
+        let manager = TabManager(
+            initialWorkingDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cloud-hostname",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cloud-hostname"
+            ),
+            autoConnect: false
+        )
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: "file://cloud-hostname/home/remoteuser/project"
+        )
+
+        XCTAssertEqual(workspace.panelDirectories[panelId], "/home/remoteuser/project")
+        XCTAssertNil(workspace.panelRemoteSessions[panelId])
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [panelId]),
+            ["/home/remoteuser/project"]
+        )
+    }
+
     func testDetectedRemoteSessionSuppressesStaleLocalDirectoryDisplayUntilPromptReturns() throws {
         let workspace = Workspace(workingDirectory: "/Users/cmux/local-project")
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
