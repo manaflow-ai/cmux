@@ -37,6 +37,85 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    func testHandoffCompletionWaitsForSelectedWorkspaceVisibleSignalWhenWorkspaceIsReady() {
+        let selectedWorkspaceId = UUID()
+        let otherWorkspaceId = UUID()
+
+        XCTAssertTrue(
+            WorkspaceHandoffCompletionPolicy.shouldComplete(
+                signal: .selectedWorkspaceVisible,
+                selectedWorkspaceId: selectedWorkspaceId,
+                signalWorkspaceId: selectedWorkspaceId,
+                hasRetiringWorkspace: true,
+                selectedWorkspaceReady: true
+            )
+        )
+        XCTAssertFalse(
+            WorkspaceHandoffCompletionPolicy.shouldComplete(
+                signal: .selectedWorkspaceVisible,
+                selectedWorkspaceId: selectedWorkspaceId,
+                signalWorkspaceId: selectedWorkspaceId,
+                hasRetiringWorkspace: true,
+                selectedWorkspaceReady: false
+            )
+        )
+        XCTAssertFalse(
+            WorkspaceHandoffCompletionPolicy.shouldComplete(
+                signal: .selectedWorkspaceVisible,
+                selectedWorkspaceId: selectedWorkspaceId,
+                signalWorkspaceId: otherWorkspaceId,
+                hasRetiringWorkspace: true,
+                selectedWorkspaceReady: true
+            )
+        )
+    }
+
+    func testHandoffCompletionRequiresRetiringWorkspace() {
+        let selectedWorkspaceId = UUID()
+
+        XCTAssertFalse(
+            WorkspaceHandoffCompletionPolicy.shouldComplete(
+                signal: .selectedWorkspaceFocus,
+                selectedWorkspaceId: selectedWorkspaceId,
+                signalWorkspaceId: selectedWorkspaceId,
+                hasRetiringWorkspace: false,
+                selectedWorkspaceReady: true
+            )
+        )
+        XCTAssertFalse(
+            WorkspaceHandoffCompletionPolicy.shouldComplete(
+                signal: .timeout,
+                selectedWorkspaceId: selectedWorkspaceId,
+                signalWorkspaceId: nil,
+                hasRetiringWorkspace: false,
+                selectedWorkspaceReady: false
+            )
+        )
+    }
+
+    func testHandoffCompletionAcceptsSelectedFocusAndTimeoutSignals() {
+        let selectedWorkspaceId = UUID()
+
+        XCTAssertTrue(
+            WorkspaceHandoffCompletionPolicy.shouldComplete(
+                signal: .selectedWorkspaceFocus,
+                selectedWorkspaceId: selectedWorkspaceId,
+                signalWorkspaceId: selectedWorkspaceId,
+                hasRetiringWorkspace: true,
+                selectedWorkspaceReady: false
+            )
+        )
+        XCTAssertTrue(
+            WorkspaceHandoffCompletionPolicy.shouldComplete(
+                signal: .timeout,
+                selectedWorkspaceId: selectedWorkspaceId,
+                signalWorkspaceId: nil,
+                hasRetiringWorkspace: true,
+                selectedWorkspaceReady: false
+            )
+        )
+    }
+
     func testPanelVisibleInUIReturnsFalseWhenWorkspaceHidden() {
         XCTAssertFalse(
             WorkspaceContentView.panelVisibleInUI(

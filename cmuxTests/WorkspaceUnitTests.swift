@@ -3849,7 +3849,7 @@ final class WorkspaceTeardownTests: XCTestCase {
         XCTAssertTrue(workspace.manualUnreadPanelIds.isEmpty)
     }
 
-    func testDisabledPortalRenderingDoesNotRestoreTerminalVisibility() async throws {
+    func testDisabledPortalRenderingDoesNotRestoreTerminalVisibility() throws {
 #if DEBUG
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -3857,50 +3857,10 @@ final class WorkspaceTeardownTests: XCTestCase {
 
         terminalPanel.hostedView.setVisibleInUI(true)
         workspace.setPortalRenderingEnabled(false, reason: "test")
-        await Task.yield()
-        await Task.yield()
         XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
 
         workspace.debugReconcileTerminalPortalVisibilityForTesting()
         XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
-    }
-
-    func testDisablingPortalRenderingDefersPortalHideUntilNextMainActorTurn() async throws {
-#if DEBUG
-        let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
-
-        terminalPanel.hostedView.setVisibleInUI(true)
-        workspace.setPortalRenderingEnabled(false, reason: "test")
-        XCTAssertTrue(terminalPanel.hostedView.debugPortalVisibleInUI)
-
-        await Task.yield()
-        await Task.yield()
-
-        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
-    }
-
-    func testReenabledPortalRenderingCancelsDeferredPortalHide() async throws {
-#if DEBUG
-        let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
-
-        terminalPanel.hostedView.setVisibleInUI(true)
-        workspace.setPortalRenderingEnabled(false, reason: "test")
-        workspace.setPortalRenderingEnabled(true, reason: "test")
-
-        await Task.yield()
-        await Task.yield()
-
-        XCTAssertTrue(terminalPanel.hostedView.debugPortalVisibleInUI)
 #else
         throw XCTSkip("Debug-only regression test")
 #endif

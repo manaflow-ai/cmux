@@ -161,6 +161,7 @@ struct WorkspaceContentView: View {
     let isWorkspaceInputActive: Bool
     let isFullScreen: Bool
     let workspacePortalPriority: Int
+    let onWorkspaceVisibilityCommitted: ((UUID) -> Void)?
     let onThemeRefreshRequest: ((
         _ reason: String,
         _ backgroundEventId: UInt64?,
@@ -291,10 +292,14 @@ struct WorkspaceContentView: View {
         .onAppear {
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
+            if isWorkspaceVisible {
+                onWorkspaceVisibilityCommitted?(workspace.id)
+            }
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             guard isVisible else { return }
             flushDeferredThemeRefreshIfNeeded()
+            onWorkspaceVisibilityCommitted?(workspace.id)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()

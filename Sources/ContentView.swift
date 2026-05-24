@@ -861,6 +861,33 @@ enum MountedWorkspacePresentationPolicy {
     }
 }
 
+enum WorkspaceHandoffCompletionSignal {
+    case selectedWorkspaceVisible
+    case selectedWorkspaceFocus
+    case timeout
+}
+
+enum WorkspaceHandoffCompletionPolicy {
+    static func shouldComplete(
+        signal: WorkspaceHandoffCompletionSignal,
+        selectedWorkspaceId: UUID?,
+        signalWorkspaceId: UUID?,
+        hasRetiringWorkspace: Bool,
+        selectedWorkspaceReady: Bool
+    ) -> Bool {
+        guard hasRetiringWorkspace else { return false }
+
+        switch signal {
+        case .selectedWorkspaceVisible:
+            return signalWorkspaceId == selectedWorkspaceId && selectedWorkspaceReady
+        case .selectedWorkspaceFocus:
+            return signalWorkspaceId == selectedWorkspaceId
+        case .timeout:
+            return true
+        }
+    }
+}
+
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
 private func findFileDropOverlayView(in root: NSView?) -> FileDropOverlayView? {
     guard let root else { return nil }
@@ -2056,6 +2083,9 @@ struct ContentView: View {
                         isWorkspaceInputActive: isInputActive,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
+                        onWorkspaceVisibilityCommitted: { workspaceId in
+                            completeWorkspaceHandoffForVisibleWorkspace(workspaceId)
+                        },
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
                                 workspaceId: tab.id,
@@ -3588,14 +3618,12 @@ struct ContentView: View {
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.handoff.fastReady id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newSelectedId))"
+                    "ws.handoff.awaitVisible id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newSelectedId))"
                 )
             } else {
-                cmuxDebugLog("ws.handoff.fastReady id=none selected=\(debugShortWorkspaceId(newSelectedId))")
+                cmuxDebugLog("ws.handoff.awaitVisible id=none selected=\(debugShortWorkspaceId(newSelectedId))")
             }
 #endif
-            completeWorkspaceHandoff(reason: "ready")
-            return
         }
 
         workspaceHandoffFallbackTask = Task { [generation] in
@@ -3606,15 +3634,40 @@ struct ContentView: View {
             }
             await MainActor.run {
                 guard workspaceHandoffGeneration == generation else { return }
-                completeWorkspaceHandoff(reason: "timeout")
+                if shouldCompleteWorkspaceHandoff(signal: .timeout, workspaceId: nil) {
+                    completeWorkspaceHandoff(reason: "timeout")
+                }
             }
         }
     }
 
     private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
-        guard focusedTabId == tabManager.selectedTabId else { return }
-        guard retiringWorkspaceId != nil else { return }
+        guard shouldCompleteWorkspaceHandoff(
+            signal: .selectedWorkspaceFocus,
+            workspaceId: focusedTabId
+        ) else { return }
         completeWorkspaceHandoff(reason: reason)
+    }
+
+    private func completeWorkspaceHandoffForVisibleWorkspace(_ workspaceId: UUID) {
+        guard shouldCompleteWorkspaceHandoff(
+            signal: .selectedWorkspaceVisible,
+            workspaceId: workspaceId
+        ) else { return }
+        completeWorkspaceHandoff(reason: "visible")
+    }
+
+    private func shouldCompleteWorkspaceHandoff(
+        signal: WorkspaceHandoffCompletionSignal,
+        workspaceId: UUID?
+    ) -> Bool {
+        WorkspaceHandoffCompletionPolicy.shouldComplete(
+            signal: signal,
+            selectedWorkspaceId: tabManager.selectedTabId,
+            signalWorkspaceId: workspaceId,
+            hasRetiringWorkspace: retiringWorkspaceId != nil,
+            selectedWorkspaceReady: workspaceId.map { canCompleteWorkspaceHandoffImmediately(for: $0) } ?? false
+        )
     }
 
     private func canCompleteWorkspaceHandoffImmediately(for workspaceId: UUID) -> Bool {
