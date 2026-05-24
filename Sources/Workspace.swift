@@ -1571,7 +1571,7 @@ extension Workspace {
     }
 
     private func exportCustomSurfaceDefinition(
-        panel: Panel,
+        panel: any Panel,
         panelId: UUID,
         selectedTabId: String?
     ) -> CmuxSurfaceDefinition? {
