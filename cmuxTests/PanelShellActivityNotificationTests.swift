@@ -64,10 +64,15 @@ final class PanelShellActivityNotificationTests: XCTestCase {
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
 
         var notificationCount = 0
+        // queue: nil for synchronous delivery on the posting thread — the
+        // assertions immediately after updatePanelShellActivityState would
+        // race a `.main`-queued observer block. The poster
+        // (Workspace.updatePanelShellActivityState) is @MainActor so this
+        // still runs on main.
         let observer = NotificationCenter.default.addObserver(
             forName: .panelShellActivityStateDidChange,
             object: nil,
-            queue: .main
+            queue: nil
         ) { _ in
             notificationCount += 1
         }
