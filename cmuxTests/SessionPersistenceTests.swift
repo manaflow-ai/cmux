@@ -1766,6 +1766,34 @@ final class AgentHookSetupStatusTests: XCTestCase {
         XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
     }
 
+    func testDetectsPinnedAntigravityHookConfig() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".gemini/config/hooks.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"Stop":[{"command":": cmux-antigravity-hook-v2; command -v cmux >/dev/null 2>&1"}]}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testDetectsPinnedGrokHookConfig() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".grok/hooks/cmux-session.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"hooks":{"Stop":[{"command":": cmux-grok-hook-v2; command -v cmux >/dev/null 2>&1"}]}}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
     func testDetectsHermesHookConfig() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

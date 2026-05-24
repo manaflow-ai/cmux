@@ -45,7 +45,9 @@ enum AgentHookSetupStatus {
         let markerSubstrings = [
             "cmux hooks ",
             "cmux-session",
-            "cmux-feed-plugin-marker"
+            "cmux-feed-plugin-marker",
+            "cmux-grok-hook-v2",
+            "cmux-antigravity-hook-v2"
         ]
         for fileURL in candidateFiles + environmentFiles {
             guard fileManager.fileExists(atPath: fileURL.path),
