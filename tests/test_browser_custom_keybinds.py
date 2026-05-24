@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 Regression tests for browser-focused keybind handling.
 
@@ -17,7 +19,7 @@ import json
 import os
 import sys
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cmux import cmux
@@ -26,7 +28,7 @@ from cmux import cmux
 def v2_call(
     client: cmux,
     method: str,
-    params: Optional[Dict[str, Any]] = None,
+    params: dict[str, Any] | None = None,
     request_id: str = "1",
 ) -> Any:
     payload = {
@@ -35,10 +37,14 @@ def v2_call(
         "params": params if params is not None else {},
     }
     raw = client._send_command(json.dumps(payload))
+    if not isinstance(raw, (str, bytes, bytearray)):
+        raise RuntimeError(f"Invalid v2 response type for {method}: {type(raw).__name__}")
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Invalid v2 JSON response for {method}: {raw}") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"Invalid v2 JSON response for {method}: expected object, got {type(parsed).__name__}")
 
     if not parsed.get("ok"):
         raise RuntimeError(f"v2 {method} failed: {parsed.get('error')}")
@@ -58,7 +64,7 @@ def browser_eval(client: cmux, surface_id: str, script: str, request_id: str) ->
     return result.get("value")
 
 
-def focused_pane_id(client: cmux) -> Optional[str]:
+def focused_pane_id(client: cmux) -> str | None:
     for _idx, pane_id, _count, is_focused in client.list_panes():
         if is_focused:
             return pane_id
@@ -80,10 +86,10 @@ def wait_for_selection(
     surface_id: str,
     expected: int,
     timeout_s: float = 2.0,
-) -> Optional[int]:
+) -> int | None:
     start = time.time()
     attempt = 0
-    last: Optional[int] = None
+    last: int | None = None
     while time.time() - start < timeout_s:
         attempt += 1
         value = browser_eval(
